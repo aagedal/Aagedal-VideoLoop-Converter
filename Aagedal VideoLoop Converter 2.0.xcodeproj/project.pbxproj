@@ -1,0 +1,580 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		8EE6EE9A2C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */; };
+		8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9B2C31FC6B007B629D /* ContentView.swift */; };
+		8EE6EE9E2C31FC6B007B629D /* Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9D2C31FC6B007B629D /* Item.swift */; };
+		8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */; };
+		8EE6EEA32C31FC6F007B629D /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8EE6EEA22C31FC6F007B629D /* Preview Assets.xcassets */; };
+		8EE6EEAE2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EEAD2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift */; };
+		8EE6EEB82C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EEB72C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITests.swift */; };
+		8EE6EEBA2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EEB92C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITestsLaunchTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8EE6EEAA2C31FC6F007B629D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8EE6EE8E2C31FC6B007B629D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8EE6EE952C31FC6B007B629D;
+			remoteInfo = "Aagedal VideoLoop Converter 2.0";
+		};
+		8EE6EEB42C31FC6F007B629D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8EE6EE8E2C31FC6B007B629D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8EE6EE952C31FC6B007B629D;
+			remoteInfo = "Aagedal VideoLoop Converter 2.0";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		8EE6EE962C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Aagedal VideoLoop Converter 2.0.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_VideoLoop_Converter_2_0App.swift; sourceTree = "<group>"; };
+		8EE6EE9B2C31FC6B007B629D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		8EE6EE9D2C31FC6B007B629D /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
+		8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8EE6EEA22C31FC6F007B629D /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		8EE6EEA42C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Aagedal_VideoLoop_Converter_2_0.entitlements; sourceTree = "<group>"; };
+		8EE6EEA92C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Aagedal VideoLoop Converter 2.0Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8EE6EEAD2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_VideoLoop_Converter_2_0Tests.swift; sourceTree = "<group>"; };
+		8EE6EEB32C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Aagedal VideoLoop Converter 2.0UITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8EE6EEB72C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_VideoLoop_Converter_2_0UITests.swift; sourceTree = "<group>"; };
+		8EE6EEB92C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_VideoLoop_Converter_2_0UITestsLaunchTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8EE6EE932C31FC6B007B629D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEA62C31FC6F007B629D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEB02C31FC6F007B629D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8EE6EE8D2C31FC6B007B629D = {
+			isa = PBXGroup;
+			children = (
+				8EE6EE982C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */,
+				8EE6EEAC2C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0Tests */,
+				8EE6EEB62C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0UITests */,
+				8EE6EE972C31FC6B007B629D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8EE6EE972C31FC6B007B629D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8EE6EE962C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0.app */,
+				8EE6EEA92C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0Tests.xctest */,
+				8EE6EEB32C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0UITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8EE6EE982C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */ = {
+			isa = PBXGroup;
+			children = (
+				8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */,
+				8EE6EE9B2C31FC6B007B629D /* ContentView.swift */,
+				8EE6EE9D2C31FC6B007B629D /* Item.swift */,
+				8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */,
+				8EE6EEA42C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0.entitlements */,
+				8EE6EEA12C31FC6F007B629D /* Preview Content */,
+			);
+			path = "Aagedal VideoLoop Converter 2.0";
+			sourceTree = "<group>";
+		};
+		8EE6EEA12C31FC6F007B629D /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				8EE6EEA22C31FC6F007B629D /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		8EE6EEAC2C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0Tests */ = {
+			isa = PBXGroup;
+			children = (
+				8EE6EEAD2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift */,
+			);
+			path = "Aagedal VideoLoop Converter 2.0Tests";
+			sourceTree = "<group>";
+		};
+		8EE6EEB62C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0UITests */ = {
+			isa = PBXGroup;
+			children = (
+				8EE6EEB72C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITests.swift */,
+				8EE6EEB92C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITestsLaunchTests.swift */,
+			);
+			path = "Aagedal VideoLoop Converter 2.0UITests";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8EE6EE952C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8EE6EEBD2C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal VideoLoop Converter 2.0" */;
+			buildPhases = (
+				8EE6EE922C31FC6B007B629D /* Sources */,
+				8EE6EE932C31FC6B007B629D /* Frameworks */,
+				8EE6EE942C31FC6B007B629D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Aagedal VideoLoop Converter 2.0";
+			productName = "Aagedal VideoLoop Converter 2.0";
+			productReference = 8EE6EE962C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8EE6EEA82C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8EE6EEC02C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal VideoLoop Converter 2.0Tests" */;
+			buildPhases = (
+				8EE6EEA52C31FC6F007B629D /* Sources */,
+				8EE6EEA62C31FC6F007B629D /* Frameworks */,
+				8EE6EEA72C31FC6F007B629D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8EE6EEAB2C31FC6F007B629D /* PBXTargetDependency */,
+			);
+			name = "Aagedal VideoLoop Converter 2.0Tests";
+			productName = "Aagedal VideoLoop Converter 2.0Tests";
+			productReference = 8EE6EEA92C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		8EE6EEB22C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8EE6EEC32C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal VideoLoop Converter 2.0UITests" */;
+			buildPhases = (
+				8EE6EEAF2C31FC6F007B629D /* Sources */,
+				8EE6EEB02C31FC6F007B629D /* Frameworks */,
+				8EE6EEB12C31FC6F007B629D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8EE6EEB52C31FC6F007B629D /* PBXTargetDependency */,
+			);
+			name = "Aagedal VideoLoop Converter 2.0UITests";
+			productName = "Aagedal VideoLoop Converter 2.0UITests";
+			productReference = 8EE6EEB32C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8EE6EE8E2C31FC6B007B629D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					8EE6EE952C31FC6B007B629D = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					8EE6EEA82C31FC6F007B629D = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 8EE6EE952C31FC6B007B629D;
+					};
+					8EE6EEB22C31FC6F007B629D = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 8EE6EE952C31FC6B007B629D;
+					};
+				};
+			};
+			buildConfigurationList = 8EE6EE912C31FC6B007B629D /* Build configuration list for PBXProject "Aagedal VideoLoop Converter 2.0" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8EE6EE8D2C31FC6B007B629D;
+			productRefGroup = 8EE6EE972C31FC6B007B629D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8EE6EE952C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */,
+				8EE6EEA82C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0Tests */,
+				8EE6EEB22C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0UITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8EE6EE942C31FC6B007B629D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8EE6EEA32C31FC6F007B629D /* Preview Assets.xcassets in Resources */,
+				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEA72C31FC6F007B629D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEB12C31FC6F007B629D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8EE6EE922C31FC6B007B629D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */,
+				8EE6EE9E2C31FC6B007B629D /* Item.swift in Sources */,
+				8EE6EE9A2C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEA52C31FC6F007B629D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8EE6EEAE2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEAF2C31FC6F007B629D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8EE6EEB82C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITests.swift in Sources */,
+				8EE6EEBA2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITestsLaunchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8EE6EEAB2C31FC6F007B629D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8EE6EE952C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */;
+			targetProxy = 8EE6EEAA2C31FC6F007B629D /* PBXContainerItemProxy */;
+		};
+		8EE6EEB52C31FC6F007B629D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8EE6EE952C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */;
+			targetProxy = 8EE6EEB42C31FC6F007B629D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8EE6EEBB2C31FC6F007B629D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		8EE6EEBC2C31FC6F007B629D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		8EE6EEBE2C31FC6F007B629D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Aagedal VideoLoop Converter 2.0/Aagedal_VideoLoop_Converter_2_0.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"Aagedal VideoLoop Converter 2.0/Preview Content\"";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8EE6EEBF2C31FC6F007B629D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Aagedal VideoLoop Converter 2.0/Aagedal_VideoLoop_Converter_2_0.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "\"Aagedal VideoLoop Converter 2.0/Preview Content\"";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		8EE6EEC12C31FC6F007B629D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0Tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aagedal VideoLoop Converter 2.0.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Aagedal VideoLoop Converter 2.0";
+			};
+			name = Debug;
+		};
+		8EE6EEC22C31FC6F007B629D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0Tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aagedal VideoLoop Converter 2.0.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Aagedal VideoLoop Converter 2.0";
+			};
+			name = Release;
+		};
+		8EE6EEC42C31FC6F007B629D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0UITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "Aagedal VideoLoop Converter 2.0";
+			};
+			name = Debug;
+		};
+		8EE6EEC52C31FC6F007B629D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0UITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "Aagedal VideoLoop Converter 2.0";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8EE6EE912C31FC6B007B629D /* Build configuration list for PBXProject "Aagedal VideoLoop Converter 2.0" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EE6EEBB2C31FC6F007B629D /* Debug */,
+				8EE6EEBC2C31FC6F007B629D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8EE6EEBD2C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal VideoLoop Converter 2.0" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EE6EEBE2C31FC6F007B629D /* Debug */,
+				8EE6EEBF2C31FC6F007B629D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8EE6EEC02C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal VideoLoop Converter 2.0Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EE6EEC12C31FC6F007B629D /* Debug */,
+				8EE6EEC22C31FC6F007B629D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8EE6EEC32C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal VideoLoop Converter 2.0UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EE6EEC42C31FC6F007B629D /* Debug */,
+				8EE6EEC52C31FC6F007B629D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8EE6EE8E2C31FC6B007B629D /* Project object */;
+}
