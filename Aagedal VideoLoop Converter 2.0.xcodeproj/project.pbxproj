@@ -7,9 +7,16 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */ = {isa = PBXBuildFile; fileRef = 8E0CA7A52C34160C00EA7C37 /* ffmpeg */; };
+		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
+		8E545D832C33FD4A0088C274 /* DragAndDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D822C33FD4A0088C274 /* DragAndDropView.swift */; };
+		8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D842C33FD610088C274 /* DocumentPickerView.swift */; };
+		8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */; };
+		8E545D892C34030C0088C274 /* VideoFileListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D882C34030C0088C274 /* VideoFileListView.swift */; };
+		8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */; };
+		8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D932C3412AE0088C274 /* ConversionManager.swift */; };
 		8EE6EE9A2C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */; };
 		8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9B2C31FC6B007B629D /* ContentView.swift */; };
-		8EE6EE9E2C31FC6B007B629D /* Item.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9D2C31FC6B007B629D /* Item.swift */; };
 		8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */; };
 		8EE6EEA32C31FC6F007B629D /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8EE6EEA22C31FC6F007B629D /* Preview Assets.xcassets */; };
 		8EE6EEAE2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EEAD2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift */; };
@@ -35,10 +42,19 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		8E0CA7A32C34160C00EA7C37 /* done.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = done.mp3; sourceTree = "<group>"; };
+		8E0CA7A42C34160C00EA7C37 /* error.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = error.mp3; sourceTree = "<group>"; };
+		8E0CA7A52C34160C00EA7C37 /* ffmpeg */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffmpeg; sourceTree = "<group>"; };
+		8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsingUtils.swift; sourceTree = "<group>"; };
+		8E545D822C33FD4A0088C274 /* DragAndDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragAndDropView.swift; sourceTree = "<group>"; };
+		8E545D842C33FD610088C274 /* DocumentPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPickerView.swift; sourceTree = "<group>"; };
+		8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFilesUtil.swift; sourceTree = "<group>"; };
+		8E545D882C34030C0088C274 /* VideoFileListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileListView.swift; sourceTree = "<group>"; };
+		8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGConverter.swift; sourceTree = "<group>"; };
+		8E545D932C3412AE0088C274 /* ConversionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionManager.swift; sourceTree = "<group>"; };
 		8EE6EE962C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Aagedal VideoLoop Converter 2.0.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_VideoLoop_Converter_2_0App.swift; sourceTree = "<group>"; };
 		8EE6EE9B2C31FC6B007B629D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		8EE6EE9D2C31FC6B007B629D /* Item.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Item.swift; sourceTree = "<group>"; };
 		8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		8EE6EEA22C31FC6F007B629D /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		8EE6EEA42C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Aagedal_VideoLoop_Converter_2_0.entitlements; sourceTree = "<group>"; };
@@ -74,6 +90,45 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		8E0CA7A62C3416BD00EA7C37 /* Binaries */ = {
+			isa = PBXGroup;
+			children = (
+				8E0CA7A52C34160C00EA7C37 /* ffmpeg */,
+			);
+			path = Binaries;
+			sourceTree = "<group>";
+		};
+		8E0CA7A72C3416C800EA7C37 /* Sounds */ = {
+			isa = PBXGroup;
+			children = (
+				8E0CA7A32C34160C00EA7C37 /* done.mp3 */,
+				8E0CA7A42C34160C00EA7C37 /* error.mp3 */,
+			);
+			path = Sounds;
+			sourceTree = "<group>";
+		};
+		8E0CA7A82C3416EF00EA7C37 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				8E545D882C34030C0088C274 /* VideoFileListView.swift */,
+				8E545D822C33FD4A0088C274 /* DragAndDropView.swift */,
+				8E545D842C33FD610088C274 /* DocumentPickerView.swift */,
+				8EE6EE9B2C31FC6B007B629D /* ContentView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		8E0CA7A92C34171300EA7C37 /* Logic */ = {
+			isa = PBXGroup;
+			children = (
+				8E545D932C3412AE0088C274 /* ConversionManager.swift */,
+				8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */,
+				8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */,
+				8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */,
+			);
+			path = Logic;
+			sourceTree = "<group>";
+		};
 		8EE6EE8D2C31FC6B007B629D = {
 			isa = PBXGroup;
 			children = (
@@ -97,9 +152,11 @@
 		8EE6EE982C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */ = {
 			isa = PBXGroup;
 			children = (
+				8E0CA7A92C34171300EA7C37 /* Logic */,
+				8E0CA7A82C3416EF00EA7C37 /* UI */,
+				8E0CA7A72C3416C800EA7C37 /* Sounds */,
+				8E0CA7A62C3416BD00EA7C37 /* Binaries */,
 				8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */,
-				8EE6EE9B2C31FC6B007B629D /* ContentView.swift */,
-				8EE6EE9D2C31FC6B007B629D /* Item.swift */,
 				8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */,
 				8EE6EEA42C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0.entitlements */,
 				8EE6EEA12C31FC6F007B629D /* Preview Content */,
@@ -236,6 +293,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */,
 				8EE6EEA32C31FC6F007B629D /* Preview Assets.xcassets in Resources */,
 				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
 			);
@@ -262,9 +320,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */,
+				8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */,
+				8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */,
+				8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */,
 				8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */,
-				8EE6EE9E2C31FC6B007B629D /* Item.swift in Sources */,
+				8E545D832C33FD4A0088C274 /* DragAndDropView.swift in Sources */,
 				8EE6EE9A2C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift in Sources */,
+				8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */,
+				8E545D892C34030C0088C274 /* VideoFileListView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -360,7 +424,20 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE = YES;
+				SWIFT_UPCOMING_FEATURE_DEPRECATE_APPLICATION_MAIN = YES;
+				SWIFT_UPCOMING_FEATURE_DISABLE_OUTWARD_ACTOR_ISOLATION = YES;
+				SWIFT_UPCOMING_FEATURE_FORWARD_TRAILING_CLOSURES = YES;
+				SWIFT_UPCOMING_FEATURE_GLOBAL_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_IMPLICIT_OPEN_EXISTENTIALS = YES;
+				SWIFT_UPCOMING_FEATURE_IMPORT_OBJC_FORWARD_DECLS = YES;
+				SWIFT_UPCOMING_FEATURE_INFER_SENDABLE_FROM_CAPTURES = YES;
+				SWIFT_UPCOMING_FEATURE_ISOLATED_DEFAULT_VALUES = YES;
+				SWIFT_UPCOMING_FEATURE_REGION_BASED_ISOLATION = YES;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -416,6 +493,18 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE = YES;
+				SWIFT_UPCOMING_FEATURE_DEPRECATE_APPLICATION_MAIN = YES;
+				SWIFT_UPCOMING_FEATURE_DISABLE_OUTWARD_ACTOR_ISOLATION = YES;
+				SWIFT_UPCOMING_FEATURE_FORWARD_TRAILING_CLOSURES = YES;
+				SWIFT_UPCOMING_FEATURE_GLOBAL_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_IMPLICIT_OPEN_EXISTENTIALS = YES;
+				SWIFT_UPCOMING_FEATURE_IMPORT_OBJC_FORWARD_DECLS = YES;
+				SWIFT_UPCOMING_FEATURE_INFER_SENDABLE_FROM_CAPTURES = YES;
+				SWIFT_UPCOMING_FEATURE_ISOLATED_DEFAULT_VALUES = YES;
+				SWIFT_UPCOMING_FEATURE_REGION_BASED_ISOLATION = YES;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -431,12 +520,14 @@
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal VideoLoop Converter 2.0/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Aagedal VideoLoop Converter 2";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -457,12 +548,14 @@
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal VideoLoop Converter 2.0/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Aagedal VideoLoop Converter 2";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0";
 				PRODUCT_NAME = "$(TARGET_NAME)";

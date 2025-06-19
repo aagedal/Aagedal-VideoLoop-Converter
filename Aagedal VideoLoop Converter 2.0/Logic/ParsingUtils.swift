@@ -6,3 +6,58 @@
 //
 
 import Foundation
+
+struct ParsingUtils {
+    static func parseDuration(from output: String) -> Double? {
+        print("Starting parseDuration Function")
+        let durationRegex = try! NSRegularExpression(pattern: "Duration: (\\d+):(\\d+):(\\d+)\\.(\\d+)", options: .caseInsensitive)
+        if let match = durationRegex.firstMatch(in: output, options: [], range: NSRange(location: 0, length: output.utf16.count)) {
+            if let hoursRange = Range(match.range(at: 1), in: output),
+               let minutesRange = Range(match.range(at: 2), in: output),
+               let secondsRange = Range(match.range(at: 3), in: output),
+               let millisecondsRange = Range(match.range(at: 4), in: output) {
+                let hours = Double(output[hoursRange]) ?? 0
+                let minutes = Double(output[minutesRange]) ?? 0
+                let seconds = Double(output[secondsRange]) ?? 0
+                let milliseconds = Double(output[millisecondsRange]) ?? 0
+                return hours * 3600 + minutes * 60 + seconds + milliseconds / 100
+            }
+        }
+        print("returning nil from parseDuration")
+        return nil
+    }
+
+    static func parseProgress(from output: String, totalDuration: Double?) -> (Double, String?)? {
+        print("Starting parseProgress Function")
+        guard let totalDuration = totalDuration else { return nil }
+        
+        let timeRegex = try! NSRegularExpression(pattern: "time=(\\d+):(\\d+):(\\d+)\\.(\\d+)", options: .caseInsensitive)
+        if let match = timeRegex.firstMatch(in: output, options: [], range: NSRange(location: 0, length: output.utf16.count)) {
+            if let hoursRange = Range(match.range(at: 1), in: output),
+               let minutesRange = Range(match.range(at: 2), in: output),
+               let secondsRange = Range(match.range(at: 3), in: output),
+               let millisecondsRange = Range(match.range(at: 4), in: output) {
+                let hours = Double(output[hoursRange]) ?? 0
+                let minutes = Double(output[minutesRange]) ?? 0
+                let seconds = Double(output[secondsRange]) ?? 0
+                let milliseconds = Double(output[millisecondsRange]) ?? 0
+                let currentTime = hours * 3600 + minutes * 60 + seconds + milliseconds / 100
+                let progress = currentTime / totalDuration
+                
+                // Calculate ETA
+                let elapsedTime = currentTime
+                let remainingTime = totalDuration - elapsedTime
+                let eta = remainingTime / progress
+                let etaString = String(format: "%02d:%02d:%02d", Int(eta) / 3600, (Int(eta) % 3600) / 60, Int(eta) % 60)
+                
+                print("Current Time: \(currentTime), Total Duration: \(totalDuration), Progress: \(progress), ETA: \(etaString)")
+                
+                return (progress, etaString)
+            } else {
+                print("Time parsing failed for output: \(output)")
+            }
+        }
+        print("returning nil from parseProgress")
+        return nil
+    }
+}
