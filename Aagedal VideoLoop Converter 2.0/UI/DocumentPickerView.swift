@@ -21,17 +21,25 @@ struct DocumentPickerView: View {
             }
         }
         .onAppear {
-            self.openFolderSelection()
+            Task {
+                await self.openFolderSelection()
+            }
         }
     }
 
-    private func openFolderSelection() {
+    @MainActor
+    private func openFolderSelection() async {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
 
-        if panel.runModal() == .OK {
+        let response = await withCheckedContinuation { continuation in
+            panel.begin { result in
+                continuation.resume(returning: result)
+            }
+        }
+        if response == .OK {
             self.selectedFolder = panel.url
         }
         self.isPresented = false

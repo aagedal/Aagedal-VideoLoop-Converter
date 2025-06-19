@@ -50,24 +50,34 @@ struct DragAndDropView: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
+    class DraggingView: NSView {
+        weak var coordinator: Coordinator?
+
+        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+            coordinator?.draggingEntered(sender) ?? []
+        }
+
+        override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            coordinator?.prepareForDragOperation(sender) ?? false
+        }
+
+        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+            coordinator?.performDragOperation(sender) ?? false
+        }
+
+        override func concludeDragOperation(_ sender: NSDraggingInfo?) {
+            coordinator?.concludeDragOperation(sender)
+        }
+    }
+
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = DraggingView()
+        view.coordinator = context.coordinator
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
         view.registerForDraggedTypes([.fileURL])
-        view.setDraggingDestinationDelegate(context.coordinator)
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {}
-}
-
-private extension NSView {
-    func setDraggingDestinationDelegate(_ delegate: NSDraggingDestination) {
-        unregisterDraggedTypes()
-        registerForDraggedTypes([.fileURL])
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
-        setValue(delegate, forKey: "draggingDestinationDelegate")
-    }
 }

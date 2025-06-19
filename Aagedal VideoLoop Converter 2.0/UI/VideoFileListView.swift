@@ -33,9 +33,11 @@ struct VideoFileListView: View {
                             .font(.subheadline)
                             .foregroundColor(.gray)
                         Button(action: {
-                            if let idx = droppedFiles.firstIndex(of: file) {
+                            if let idx = droppedFiles.firstIndex(where: { $0.id == file.id }) {
                                 droppedFiles[idx].status = .failed
-                                FFMPEGConverter.cancelConversion()
+                                Task {
+                                    await ConversionManager.shared.cancelConversion()
+                                }
                             }
                         }) {
                             Text("Cancel")

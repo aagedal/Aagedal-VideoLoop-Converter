@@ -6,10 +6,10 @@
 //
 import Foundation
 
-class FFMPEGConverter: Sendable {
-    private static var currentProcess: Process?
+actor FFMPEGConverter {
+    private var currentProcess: Process?
 
-    static func convert(inputURL: URL, outputURL: URL, progressUpdate: @escaping @Sendable (Double, String?) -> Void, completion: @escaping @Sendable (Bool) -> Void) async {
+    func convert(inputURL: URL, outputURL: URL, progressUpdate: @escaping @Sendable (Double, String?) -> Void, completion: @escaping @Sendable (Bool) -> Void) async {
         guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
             print("FFMPEG binary not found in bundle")
             completion(false)
@@ -17,7 +17,7 @@ class FFMPEGConverter: Sendable {
         }
 
         let process = Process()
-        currentProcess = process
+        await setCurrentProcess(process)
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
         process.arguments = [
             "-y",
@@ -47,22 +47,25 @@ class FFMPEGConverter: Sendable {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
-        var totalDuration: Double?
-
+        let totalDurationBox = DurationBox()
         let outputReadabilityHandler: @Sendable (FileHandle) -> Void = { fileHandle in
             let data = fileHandle.availableData
             if let output = String(data: data, encoding: .utf8) {
-                handleFFMPEGOutput(output, totalDuration: &totalDuration, progressUpdate: progressUpdate)
+                print("Raw FFMPEG output: \(output)")
+                let (newTotalDuration, _) = Self.handleFFMPEGOutput(output, totalDuration: totalDurationBox.value, progressUpdate: progressUpdate)
+                if let newTotalDuration = newTotalDuration {
+                    totalDurationBox.value = newTotalDuration
+                }
             }
         }
 
         outputPipe.fileHandleForReading.readabilityHandler = outputReadabilityHandler
         errorPipe.fileHandleForReading.readabilityHandler = outputReadabilityHandler
 
-        process.terminationHandler = { _ in
-            currentProcess = nil
-            let success = process.terminationStatus == 0
-            Task {
+        process.terminationHandler = { [weak self] _ in
+            Task { [weak self] in
+                await self?.setCurrentProcess(nil)
+                let success = process.terminationStatus == 0
                 completion(success)
             }
         }
@@ -75,22 +78,34 @@ class FFMPEGConverter: Sendable {
         }
     }
 
-    static func cancelConversion() {
+    func cancelConversion() async {
         currentProcess?.terminate()
-        currentProcess = nil
+        await setCurrentProcess(nil)
     }
 
-    private static func handleFFMPEGOutput(_ output: String, totalDuration: inout Double?, progressUpdate: @escaping @Sendable (Double, String?) -> Void) {
+    private func setCurrentProcess(_ process: Process?) async {
+        self.currentProcess = process
+    }
+
+    private class DurationBox: @unchecked Sendable {
+        var value: Double? = nil
+    }
+
+    private static func handleFFMPEGOutput(_ output: String, totalDuration: Double?, progressUpdate: @escaping @Sendable (Double, String?) -> Void) -> (Double?, (Double, String?)?) {
         print("FFMPEG Output: \(output)")
+        var newTotalDuration = totalDuration
         if let duration = ParsingUtils.parseDuration(from: output) {
-            totalDuration = duration
-            print("Total Duration: \(totalDuration!) seconds")
+            newTotalDuration = duration
+            print("Total Duration: \(duration) seconds")
         }
-        if let progress = ParsingUtils.parseProgress(from: output, totalDuration: totalDuration) {
+        var progressTuple: (Double, String?)? = nil
+        if let progress = ParsingUtils.parseProgress(from: output, totalDuration: newTotalDuration) {
             Task {
                 progressUpdate(progress.0, progress.1)
                 print("Progress: \(progress.0 * 100)% ETA: \(progress.1 ?? "N/A")")
             }
+            progressTuple = progress
         }
+        return (newTotalDuration, progressTuple)
     }
 }

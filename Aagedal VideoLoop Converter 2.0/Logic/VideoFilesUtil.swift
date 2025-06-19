@@ -10,7 +10,7 @@ import Cocoa
 
 struct VideoFileUtils: Sendable {
     static func getVideoDuration(url: URL) async -> String {
-        let asset = AVAsset(url: url)
+        let asset = AVURLAsset(url: url)
         
         do {
             let duration = try await asset.load(.duration)
@@ -31,8 +31,8 @@ struct VideoFileUtils: Sendable {
         }
     }
     
-    static func getVideoThumbnail(url: URL) async -> NSImage? {
-        let asset = AVAsset(url: url)
+    static func getVideoThumbnail(url: URL) async -> Data? {
+        let asset = AVURLAsset(url: url)
         let assetImageGenerator = AVAssetImageGenerator(asset: asset)
         assetImageGenerator.appliesPreferredTrackTransform = true
         
@@ -48,7 +48,13 @@ struct VideoFileUtils: Sendable {
                     }
                 }
             }
-            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            guard let tiffData = nsImage.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiffData),
+                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
+                return nil
+            }
+            return pngData
         } catch {
             print("Error generating thumbnail: \(error)")
             return nil

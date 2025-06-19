@@ -9,7 +9,7 @@ import SwiftUI
 struct ContentView: View {
     @State private var droppedFiles: [VideoItem] = []
     @State private var currentOutputFolder: URL? = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first?.appendingPathComponent("VideoLoopExports")
-    @State private var showDocumentPicker = false
+    @State private var isConverting: Bool = false
 
     var body: some View {
         ZStack {
@@ -19,23 +19,31 @@ struct ContentView: View {
                 HStack {
                     Button {
                         Task {
-                            if await ConversionManager.shared.isConvertingStatus() {
+                            let converting = await ConversionManager.shared.isConvertingStatus()
+                            isConverting = converting
+                            if converting {
                                 await ConversionManager.shared.cancelConversion()
+                                isConverting = false
                             } else {
                                 await ConversionManager.shared.startConversion(droppedFiles: $droppedFiles, outputFolder: currentOutputFolder?.path() ?? "/Users/user/Downloads/")
+                                isConverting = false
                             }
                         }
                     } label: {
-                            Text(ConversionManager.shared.isConvertingStatus() ? "Cancel" : "Start Converting")
-                                .padding()
-                                .background(ConversionManager.shared.isConvertingStatus() ? Color.red : Color.green)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
+                        Text(isConverting ? "Cancel" : "Start Converting")
+                            .padding()
+                            .background(isConverting ? Color.red : Color.green)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
                     }
                     .padding()
                     Spacer()
                     Button {
-                        showDocumentPicker.toggle()
+                        Task {
+                            if let url = await selectOutputFolder() {
+                                currentOutputFolder = url
+                            }
+                        }
                     } label: {
                         Text("Select Output Folder")
                             .padding()
@@ -49,9 +57,28 @@ struct ContentView: View {
                     .padding()
             }
         }
-        .sheet(isPresented: $showDocumentPicker) {
-            DocumentPickerView(droppedFiles: $droppedFiles, isPresented: $showDocumentPicker, selectedFolder: $currentOutputFolder)
+        .onAppear {
+            Task {
+                isConverting = await ConversionManager.shared.isConvertingStatus()
+            }
         }
+    }
+
+    // Helper function for folder selection
+    private func selectOutputFolder() async -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        let response = await withCheckedContinuation { continuation in
+            panel.begin { result in
+                continuation.resume(returning: result)
+            }
+        }
+        if response == .OK {
+            return panel.url
+        }
+        return nil
     }
 }
 
