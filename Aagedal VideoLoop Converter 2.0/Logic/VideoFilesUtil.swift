@@ -62,7 +62,7 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var name: String
     var size: Int64
     var duration: String
-    var thumbnail: NSImage?
+    var thumbnailData: Data?
     var status: ConversionManager.ConversionStatus
     var progress: Double
     var eta: String?

@@ -15,8 +15,8 @@ struct VideoFileListView: View {
         List {
             ForEach(droppedFiles) { file in
                 HStack {
-                    if let thumbnail = file.thumbnail {
-                        Image(nsImage: thumbnail)
+                    if let data = file.thumbnailData, let nsImage = NSImage(data: data) {
+                        Image(nsImage: nsImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 50, height: 50)

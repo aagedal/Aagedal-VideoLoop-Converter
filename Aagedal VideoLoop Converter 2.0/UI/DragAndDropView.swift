@@ -24,8 +24,8 @@ struct DragAndDropView: NSViewRepresentable {
                     let name = url.lastPathComponent
                     let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
                     let duration = "00:00:00"
-                    let thumbnail: NSImage? = nil
-                    let newFile = VideoItem(url: url, name: name, size: size, duration: duration, thumbnail: thumbnail, status: .waiting, progress: 0.0, eta: nil)
+                    let thumbnailData: Data? = nil
+                    let newFile = VideoItem(url: url, name: name, size: size, duration: duration, thumbnailData: thumbnailData, status: .waiting, progress: 0.0, eta: nil)
                     DispatchQueue.main.async {
                         self.parent.droppedFiles.append(newFile)
                     }
