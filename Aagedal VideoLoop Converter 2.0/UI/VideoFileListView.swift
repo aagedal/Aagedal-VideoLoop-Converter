@@ -92,7 +92,16 @@ struct VideoFileListView: View {
 struct VideoFileListView_Previews: PreviewProvider {
     static var previews: some View {
         VideoFileListView(droppedFiles: .constant([
-            VideoItem(name: "SampleVideo.mp4", size: 1048576, duration: "00:02:30", thumbnail: nil, status: .waiting, progress: 0.0, eta: nil)
+            VideoItem(
+                url: URL(fileURLWithPath: "/tmp/SampleVideo.mp4"),
+                name: "SampleVideo.mp4",
+                size: 1048576,
+                duration: "00:02:30",
+                thumbnailData: nil,
+                status: .waiting,
+                progress: 0.0,
+                eta: nil
+            )
         ]), currentProgress: .constant(0.5))
     }
 }
