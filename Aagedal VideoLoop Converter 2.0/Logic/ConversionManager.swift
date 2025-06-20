@@ -19,6 +19,7 @@ actor ConversionManager: Sendable {
         case done
         case failed
     }
+    
 
     private var isConverting = false
     private var currentProcess: Process?

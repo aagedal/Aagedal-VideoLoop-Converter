@@ -6,7 +6,7 @@
 //
 import Foundation
 
-//Todo: Add multiple export presets, but make sure to keep this one. File extension follows the preset, but the default for most presets should be .mp4.
+//Todo: Add multiple export presets, but make sure to keep this one. File extension follows the preset, but the default for most presets should be .mp4. Likely formats are the current format with and without audio, which is called VideoLoop
 
 actor FFMPEGConverter {
     private var currentProcess: Process?
