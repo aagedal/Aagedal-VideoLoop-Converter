@@ -23,7 +23,7 @@ struct Aagedal_VideoLoop_Converter_2_0App: App {
                                     }
                                     )
                                 })
-            }.tint(.green)
+            }
         }.windowStyle(.automatic)
             .windowToolbarStyle(.automatic)
     }

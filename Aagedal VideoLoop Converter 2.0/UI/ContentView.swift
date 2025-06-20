@@ -20,6 +20,8 @@ struct ContentView: View {
                     .padding()
                 HStack {
                     // Todo: Extract this as a subview and relink to logic.
+                    
+                    //Add overall progress bar here.
                     Button {
                         Task {
                             let converting = await ConversionManager.shared.isConvertingStatus()
@@ -35,7 +37,7 @@ struct ContentView: View {
                     } label: {
                         Text(isConverting ? "✖︎ Cancel" : "▶︎ Start Converting")
                             .padding()
-                            .buttonStyle(.borderedProminent).tint(isConverting ? Color.red : Color.green)
+                            .buttonStyle(.accessoryBar).tint(isConverting ? Color.red : Color.green)
                             .cornerRadius(10)
                     }
                     .padding()
@@ -47,9 +49,9 @@ struct ContentView: View {
                             }
                         }
                     } label: {
+                        Image(systemName: "folder")
                         Text("Select Output Folder")
-                            .padding()
-                            .buttonStyle(.borderedProminent).tint(Color.blue)
+                            .buttonStyle(.automatic).tint(Color.blue)
                             .cornerRadius(10)
                     }
                     .padding()
