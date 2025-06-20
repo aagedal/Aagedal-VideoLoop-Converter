@@ -14,63 +14,72 @@ struct VideoFileListView: View {
     var body: some View {
         List {
             ForEach(droppedFiles) { file in
-                HStack {
-                    if let data = file.thumbnailData, let nsImage = NSImage(data: data) {
-                        Image(nsImage: nsImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 50, height: 50)
-                            .cornerRadius(4)
+                VStack {
+                    HStack {
+                        Text(file.name).font(.headline)
+                        Text("→")
+                        // Fix this!
+                        // Text( \(file.destinationFileName))
+                        Spacer()
                     }
-                    Text(file.name)
-                    Text("Duration: \(file.duration)")
-                        .font(.subheadline)
-                        .foregroundColor(.gray)
-                    if file.status == .converting {
-                        ProgressView(value: file.progress)
-                            .progressViewStyle(LinearProgressViewStyle())
-                        Text("ETA: \(file.eta ?? "N/A")")
+                    HStack {
+                        if let data = file.thumbnailData, let nsImage = NSImage(data: data) {
+                            Image(nsImage: nsImage)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 50, height: 50)
+                                .cornerRadius(4)
+                        }
+                        Text("Duration: \(file.duration)")
                             .font(.subheadline)
                             .foregroundColor(.gray)
-                        Button(action: {
-                            if let idx = droppedFiles.firstIndex(where: { $0.id == file.id }) {
-                                droppedFiles[idx].status = .failed
-                                Task {
-                                    await ConversionManager.shared.cancelConversion()
+                        if file.status == .converting {
+                            ProgressView(value: file.progress)
+                                .progressViewStyle(LinearProgressViewStyle())
+                            Text("ETA: \(file.eta ?? "N/A")")
+                                .font(.subheadline)
+                                .foregroundColor(.gray)
+                            Button(action: {
+                                if let idx = droppedFiles.firstIndex(where: { $0.id == file.id }) {
+                                    droppedFiles[idx].status = .failed
+                                    Task {
+                                        await ConversionManager.shared.cancelConversion()
+                                    }
                                 }
+                            }) {
+                                Text("Cancel")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                        Text("|     Input Size: \(file.size / 1024) KB").font(.subheadline).foregroundStyle(.gray)
+                        Text("  |   Status:").font(.subheadline).foregroundStyle(.gray)
+                        Text(statusText(for: file.status))
+                            .font(.subheadline)
+                            .foregroundColor(file.status == .done ? .green : (file.status == .converting ? .blue : .gray))
+                        Spacer()
+                        Button(action: {
+                            if let idx = droppedFiles.firstIndex(of: file) {
+                                droppedFiles.remove(at: idx)
                             }
                         }) {
-                            Text("Cancel")
+                            Image(systemName: "trash")
                                 .foregroundColor(.red)
                         }
                         .buttonStyle(PlainButtonStyle())
-                    }
-                    Text(statusText(for: file.status))
-                        .font(.subheadline)
-                        .foregroundColor(file.status == .done ? .green : (file.status == .converting ? .blue : .gray))
-                    Spacer()
-                    Text("\(file.size / 1024) KB")
-                    Button(action: {
-                        if let idx = droppedFiles.firstIndex(of: file) {
-                            droppedFiles.remove(at: idx)
-                        }
-                    }) {
-                        Image(systemName: "trash")
-                            .foregroundColor(.red)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(file.status == .converting)
-                    if file.status == .done || file.status == .failed {
-                        Button(action: {
-                            if let idx = droppedFiles.firstIndex(of: file) {
-                                droppedFiles[idx].status = .waiting
+                        .disabled(file.status == .converting)
+                        if file.status == .done || file.status == .failed {
+                            Button(action: {
+                                if let idx = droppedFiles.firstIndex(of: file) {
+                                    droppedFiles[idx].status = .waiting
+                                }
+                            }) {
+                                Text("Reset")
+                                    .foregroundColor(.blue)
                             }
-                        }) {
-                            Text("Reset")
-                                .foregroundColor(.blue)
+                            .buttonStyle(PlainButtonStyle())
                         }
-                        .buttonStyle(PlainButtonStyle())
-                    }
+                }
                 }
             }
         }
@@ -99,6 +108,16 @@ struct VideoFileListView_Previews: PreviewProvider {
                 name: "SampleVideo.mp4",
                 size: 1048576,
                 duration: "00:02:30",
+                thumbnailData: nil,
+                status: .waiting,
+                progress: 0.0,
+                eta: nil
+            ),
+            VideoItem(
+                url: URL(fileURLWithPath: "/tmp/Sample Video 2.mp4"),
+                name: "Sample Video 2.mp4",
+                size: 10576,
+                duration: "00:01:14",
                 thumbnailData: nil,
                 status: .waiting,
                 progress: 0.0,

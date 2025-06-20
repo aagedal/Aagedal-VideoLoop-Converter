@@ -16,7 +16,10 @@ struct ContentView: View {
             DragAndDropView(droppedFiles: $droppedFiles)
                 .edgesIgnoringSafeArea(.all)
             VStack {
+                VideoFileListView(droppedFiles: $droppedFiles, currentProgress: .constant(0.0))
+                    .padding()
                 HStack {
+                    // Todo: Extract this as a subview and relink to logic.
                     Button {
                         Task {
                             let converting = await ConversionManager.shared.isConvertingStatus()
@@ -30,10 +33,9 @@ struct ContentView: View {
                             }
                         }
                     } label: {
-                        Text(isConverting ? "Cancel" : "Start Converting")
+                        Text(isConverting ? "✖︎ Cancel" : "▶︎ Start Converting")
                             .padding()
-                            .background(isConverting ? Color.red : Color.green)
-                            .foregroundColor(.white)
+                            .buttonStyle(.borderedProminent).tint(isConverting ? Color.red : Color.green)
                             .cornerRadius(10)
                     }
                     .padding()
@@ -47,14 +49,11 @@ struct ContentView: View {
                     } label: {
                         Text("Select Output Folder")
                             .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
+                            .buttonStyle(.borderedProminent).tint(Color.blue)
                             .cornerRadius(10)
                     }
                     .padding()
                 }
-                VideoFileListView(droppedFiles: $droppedFiles, currentProgress: .constant(0.0))
-                    .padding()
             }
         }
         .onAppear {
