@@ -7,32 +7,40 @@
 
 import SwiftUI
 import AppKit
+import AVFoundation
 
 struct DragAndDropView: NSViewRepresentable {
     @Binding var droppedFiles: [VideoItem]
-
+    
+    // Using centralized VideoFileUtils for video file handling
+    
     class Coordinator: NSObject, NSDraggingDestination {
         var parent: DragAndDropView
-
+        
         init(parent: DragAndDropView) {
             self.parent = parent
         }
-
+        
         func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            if let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] {
+            guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] else {
+                return false
+            }
+            
+            Task {
                 for url in urls {
-                    let name = url.lastPathComponent
-                    let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-                    let duration = "00:00:00"
-                    let thumbnailData: Data? = nil
-                    let newFile = VideoItem(url: url, name: name, size: size, duration: duration, thumbnailData: thumbnailData, status: .waiting, progress: 0.0, eta: nil)
-                    DispatchQueue.main.async {
-                        self.parent.droppedFiles.append(newFile)
+                    if let videoItem = await VideoFileUtils.createVideoItem(from: url) {
+                        await MainActor.run {
+                            if !parent.droppedFiles.contains(where: { $0.url == url }) {
+                                parent.droppedFiles.append(videoItem)
+                            }
+                        }
+                    } else {
+                        print("Skipping unsupported file: \(url.lastPathComponent)")
                     }
                 }
-                return true
             }
-            return false
+            
+            return true
         }
 
         func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

@@ -28,7 +28,23 @@ func cleanFileName(_ input: String) -> String {
         .replacingOccurrences(of: "Ø", with: "O")
         .replacingOccurrences(of: "Å", with: "AA")
     
-    // Todo: Remove special characters, but not underscores og hyphens.
+    // Remove special characters but keep letters, numbers, underscores, and hyphens
+    let allowedChars = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+    cleanedName = cleanedName.filter { char in
+        let lowercasedChar = String(char).lowercased()
+        return allowedChars.contains(char) || lowercasedChar != String(char)
+    }
+    
+    // Remove any remaining special characters
+    let pattern = "[^a-zA-Z0-9_\-]"
+    if let regex = try? NSRegularExpression(pattern: pattern) {
+        let range = NSRange(cleanedName.startIndex..<cleanedName.endIndex, in: cleanedName)
+        cleanedName = regex.stringByReplacingMatches(
+            in: cleanedName,
+            range: range,
+            withTemplate: ""
+        )
+    }
     
     return cleanedName
 }
