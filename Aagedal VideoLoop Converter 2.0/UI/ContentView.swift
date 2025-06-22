@@ -44,75 +44,112 @@ struct ContentView: View {
             ) { result in
                 handleFileSelection(result: result)
             }
-            .toolbar(content: {
-                // Main toolbar content
+            .toolbar {
+                // Import button
                 ToolbarItem(placement: .automatic) {
-                    HStack {
-                        // Import button
-                        Button(action: { isFileImporterPresented = true }) {
-                            Label("Import", systemImage: "plus.circle")
-                                .foregroundColor(.accentColor)
-                        }
-                        .help("Import video files")
-                        .keyboardShortcut("i", modifiers: .command)
-                        
-                        // Output folder button
-                        Button {
-                            Task {
-                                if let url = await selectOutputFolder() {
-                                    currentOutputFolder = url
-                                }
-                            }
-                        } label: {
-                            Label("Output", systemImage: "folder")
-                                .foregroundColor(.accentColor)
-                        }
-                        .help("Select output folder")
-                        .keyboardShortcut("o", modifiers: .command)
-                        
-                        Spacer()
-                        
-                        // Preset Picker
-                        Picker("Preset", selection: $selectedPreset) {
-                            ForEach(ExportPreset.allCases) { preset in
-                                Text(preset.displayName).tag(preset)
+                    Button(action: { isFileImporterPresented = true }) {
+                        Label("Import", systemImage: "plus.circle")
+                            .foregroundColor(.accentColor)
+                    }
+                    .help("Import video files")
+                    .keyboardShortcut("i", modifiers: .command)
+                }
+                
+                // Output folder button
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        Task {
+                            if let url = await selectOutputFolder() {
+                                currentOutputFolder = url
                             }
                         }
-                        .pickerStyle(.menu)
-                        .frame(width: 150)
-                        .disabled(isConverting)
-                        .foregroundColor(.primary)
-                        
-                        // Convert/Cancel Button
-                        Button {
-                            Task {
-                                let converting = await ConversionManager.shared.isConvertingStatus()
-                                isConverting = converting
-                                if converting {
-                                    await ConversionManager.shared.cancelConversion()
-                                    isConverting = false
-                                } else {
-                                    await ConversionManager.shared.startConversion(
-                                        droppedFiles: $droppedFiles,
-                                        outputFolder: currentOutputFolder?.path() ?? "/Users/\(NSUserName())/Downloads/",
-                                        preset: selectedPreset
-                                    )
-                                }
-                            }
-                        } label: {
-                            if isConverting {
-                                Text("Cancel")
-                                    .foregroundColor(.red)
+                    } label: {
+                        Label("Output", systemImage: "folder")
+                            .foregroundColor(.accentColor)
+                    }
+                    .help("Select output folder")
+                    .keyboardShortcut("o", modifiers: .command)
+                }
+                
+                // Spacer to push remaining items to the right
+                ToolbarItem(placement: .automatic) {
+                    Spacer()
+                }
+                
+                // Clear List button
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        droppedFiles.removeAll()
+                        overallProgress = 0.0
+                    } label: {
+                        Label("Clear", systemImage: "trash")
+                    }
+                    .help("Remove all files from the list")
+                    .disabled(droppedFiles.isEmpty || isConverting)
+                }
+                
+                // Preset Picker
+                ToolbarItem(placement: .automatic) {
+                    Picker("Preset", selection: $selectedPreset) {
+                        ForEach(ExportPreset.allCases) { preset in
+                            Text(preset.displayName).tag(preset)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 150)
+                    .disabled(isConverting)
+                    .foregroundColor(.primary)
+                }
+                
+                // Convert/Cancel Button
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        Task {
+                            let converting = await ConversionManager.shared.isConvertingStatus()
+                            isConverting = converting
+                            if converting {
+                                await ConversionManager.shared.cancelConversion()
+                                isConverting = false
                             } else {
-                                Text("Convert")
-                                    .foregroundColor(.accentColor)
+                                isConverting = true
+                                await ConversionManager.shared.startConversion(
+                                    droppedFiles: $droppedFiles,
+                                    outputFolder: currentOutputFolder?.path() ?? "/Users/user/Downloads/",
+                                    preset: selectedPreset
+                                )
+                                isConverting = false
                             }
                         }
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .disabled(droppedFiles.isEmpty || isConverting)
+                    } label: {
+                        if isConverting {
+                            Image(systemName: "cross.circle").foregroundStyle(.red)
+                            Text("Cancel")
+                                .foregroundColor(.red)
+                        } else {
+                            Image(systemName: "play.circle").foregroundStyle(.green)
+                            Text("Convert")
+                                .foregroundColor(.green)
+                        }
+                    }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(droppedFiles.isEmpty || isConverting)
+                }
+                
+                // Cancel All button - only show when converting
+                if isConverting {
+                    ToolbarItem(placement: .automatic) {
+                        Button(action: {
+                            Task {
+                                await cancelAllConversions()
+                            }
+                        }) {
+                            Label("Cancel All", systemImage: "xmark.circle")
+                                .foregroundColor(.red)
+                        }
+                        .help("Cancel all conversions")
                     }
                 }
-            })
+            }
             
             // Overall progress bar
             if isConverting {
@@ -184,6 +221,16 @@ struct ContentView: View {
         
         let totalProgress = droppedFiles.reduce(0.0) { $0 + $1.progress }
         overallProgress = totalProgress / Double(droppedFiles.count)
+    }
+    
+    private func cancelAllConversions() async {
+        await ConversionManager.shared.cancelAllConversions()
+        // Update the UI to reflect the cancellation
+        for index in droppedFiles.indices where droppedFiles[index].status == .converting {
+            droppedFiles[index].status = .failed
+            droppedFiles[index].progress = 0.0
+        }
+        isConverting = false
     }
 }
 

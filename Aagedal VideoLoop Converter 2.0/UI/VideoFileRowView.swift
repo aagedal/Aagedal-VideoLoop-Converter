@@ -78,29 +78,32 @@ struct VideoFileRowView: View {
                             .foregroundColor(statusColor)
                         
                         // Action buttons
-                        HStack(spacing: 12) {
+                        HStack(spacing: 8) {
+                            // Cancel/Delete button
                             if file.status == .converting {
                                 Button(action: onCancel) {
-                                    Text("Cancel")
+                                    Image(systemName: "xmark.circle.fill")
                                         .foregroundColor(.red)
                                 }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                            
-                            Button(action: onDelete) {
-                                Image(systemName: "trash")
-                                    .foregroundColor(.red)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            
-                            if file.status == .done || file.status == .failed {
-                                Button(action: onReset) {
-                                    Image(systemName: "arrow.uturn.backward")
-                                    Text("Reset")
-                                        .foregroundColor(.blue)
+                                .buttonStyle(BorderlessButtonStyle())
+                                .help("Cancel conversion")
+                            } else {
+                                Button(action: onDelete) {
+                                    Image(systemName: "trash")
+                                        .foregroundColor(.orange)
                                 }
-                                .buttonStyle(PlainButtonStyle())
+                                .buttonStyle(BorderlessButtonStyle())
+                                .disabled(file.status == .converting) // Disable delete during conversion
+                                .help(file.status == .converting ? "Cannot delete while converting" : "Delete from list")
                             }
+                            
+                            // Reset button
+                            Button(action: onReset) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .foregroundColor(.blue)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                            .help("Reset conversion")
                         }
                     }
                 }
@@ -137,7 +140,8 @@ struct VideoFileRowView: View {
     
     private func generateOutputFilename(from input: String) -> String {
         let filename = (input as NSString).deletingPathExtension
-        return "\(filename)_loop.mp4"
+        let sanitized = FileNameProcessor.processFileName(filename)
+        return "\(sanitized)_loop.mp4"
     }
 }
 
@@ -151,6 +155,32 @@ struct VideoFileRowView_Previews: PreviewProvider {
             thumbnailData: nil,
             status: .waiting,
             progress: 0.0,
+            eta: nil,
+            outputURL: nil
+        )
+        
+        return VideoFileRowView(
+            file: item,
+            onCancel: {},
+            onDelete: {},
+            onReset: {}
+        )
+        .frame(width: 800, height: 120)
+        .padding()
+    }
+}
+
+
+struct VideoFileRowView_Previews2: PreviewProvider {
+    static var previews: some View {
+        let item = VideoItem(
+            url: URL(fileURLWithPath: "/path/to/video2.mp4"),
+            name: "Sample Video 2",
+            size: 1024 * 1024 * 100, // 100MB
+            duration: "01:23:45",
+            thumbnailData: nil,
+            status: .converting,
+            progress: 0.3,
             eta: nil,
             outputURL: nil
         )

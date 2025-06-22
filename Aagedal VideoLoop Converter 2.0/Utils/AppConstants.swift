@@ -24,5 +24,5 @@ enum AppConstants {
     ]
     
     // Maximum thumbnail dimensions
-    static let maxThumbnailSize = CGSize(width: 320, height: 180)
+    static let maxThumbnailSize = CGSize(width: 320, height: 320)
 }

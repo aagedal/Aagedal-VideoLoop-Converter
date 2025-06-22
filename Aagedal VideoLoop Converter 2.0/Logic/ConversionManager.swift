@@ -24,6 +24,7 @@ actor ConversionManager: Sendable {
     private var isConverting = false
     private var currentProcess: Process?
     private var ffmpegConverter = FFMPEGConverter()
+    private var conversionQueue: [VideoItem] = []
 
     func isConvertingStatus() -> Bool {
         return isConverting
@@ -63,7 +64,8 @@ actor ConversionManager: Sendable {
         droppedFiles.wrappedValue[idx].status = .converting
         
         let inputURL = nextFile.url
-        let outputFileName = inputURL.deletingPathExtension().lastPathComponent
+        let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
+        let outputFileName = sanitizedBaseName
         let outputURL = URL(fileURLWithPath: outputFolder).appendingPathComponent(outputFileName)
 
         await ffmpegConverter.convert(
@@ -101,14 +103,15 @@ actor ConversionManager: Sendable {
         }
     }
 
-    func cancelAllConversions() async {
-        await ffmpegConverter.cancelConversion()
-        isConverting = false
-        currentProcess = nil
-    }
-
     func cancelConversion() async {
         await ffmpegConverter.cancelConversion()
         currentProcess = nil
+    }
+    
+    func cancelAllConversions() async {
+        await ffmpegConverter.cancelConversion()
+        // Clear the conversion queue
+        conversionQueue.removeAll()
+        isConverting = false
     }
 }

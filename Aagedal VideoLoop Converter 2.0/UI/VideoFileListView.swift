@@ -78,32 +78,117 @@ struct VideoFileListView: View {
             }
         }
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
-            handleDrop(providers: providers)
-            return true
+            return handleDrop(providers: providers)
         }
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        let supportedTypes = AppConstants.supportedVideoTypes
+        print("🔄 handleDrop called with \(providers.count) providers")
+        let supportedExtensions = AppConstants.supportedVideoExtensions
+        var handled = false
         
         for provider in providers {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (data, error) in
-                if let data = data as? Data,
-                   let url = URL(dataRepresentation: data, relativeTo: nil),
-                   supportedTypes.contains(where: { $0.lowercased() == url.pathExtension.lowercased() }) {
-                    DispatchQueue.main.async {
-                        Task {
-                            if let videoItem = await VideoFileUtils.createVideoItem(from: url) {
-                                if !self.droppedFiles.contains(where: { $0.url == videoItem.url }) {
-                                    self.droppedFiles.append(videoItem)
-                                }
-                            }
+            print("📦 Processing provider: \(provider)")
+            // Use the proper API to load file URLs
+            if provider.canLoadObject(ofClass: URL.self) {
+                print("✅ Provider can load URL")
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
+                    if let error = error {
+                        print("❌ Error loading URL: \(error)")
+                        return
+                    }
+                    if let url = url {
+                        print("📁 Loaded URL: \(url)")
+                        
+                        // For drag and drop, the URL already has temporary access
+                        // We need to start accessing the security-scoped resource immediately
+                        let hasAccess = url.startAccessingSecurityScopedResource()
+                        print("🔐 Security-scoped access granted: \(hasAccess)")
+                        
+                        Task { @MainActor in
+                            await self.processFileURL(url, supportedExtensions: supportedExtensions, hasSecurityAccess: hasAccess)
                         }
+                    } else {
+                        print("❌ Provider cannot load URL")
                     }
                 }
+                handled = true
+            } else {
+                print("❌ Provider cannot load URL")
             }
         }
-        return true
+        
+        print("🔄 handleDrop returning: \(handled)")
+        return handled
+    }
+    
+    @MainActor
+    private func processFileURL(_ url: URL, supportedExtensions: Set<String>, hasSecurityAccess: Bool = false) async {
+        print("🔍 Processing file URL: \(url)")
+        
+        // Get the file extension and check if it's supported
+        let fileExtension = url.pathExtension.lowercased()
+        print("📄 File extension: '\(fileExtension)'")
+        print("✅ Supported extensions: \(supportedExtensions)")
+        
+        guard !fileExtension.isEmpty,
+              supportedExtensions.contains(fileExtension) else {
+            print("❌ File extension '\(fileExtension)' not supported")
+            if hasSecurityAccess {
+                url.stopAccessingSecurityScopedResource()
+                print("🔒 Released security-scoped resource (unsupported file)")
+            }
+            return
+        }
+        
+        print("✅ File extension is supported")
+        
+        // Handle security-scoped access based on the source
+        var needsBookmarkAccess = false
+        if !hasSecurityAccess {
+            // Attempt to use an existing bookmark for persistent access
+            if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
+                needsBookmarkAccess = true
+                print("🔓 Successfully accessed security-scoped resource via bookmark")
+            } else {
+                // No bookmark found – rely on direct entitlements (e.g. Downloads/Movie directory access)
+                if FileManager.default.isReadableFile(atPath: url.path) {
+                    print("🟢 Proceeding with direct file access (no bookmark needed)")
+                } else {
+                    print("❌ No bookmark and file not readable – access denied")
+                    return
+                }
+            }
+        } else {
+            print("🔓 Using existing security-scoped resource access")
+        }
+        
+        defer {
+            if hasSecurityAccess {
+                url.stopAccessingSecurityScopedResource()
+                print("🔒 Released security-scoped resource (drag and drop)")
+            } else if needsBookmarkAccess {
+                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
+                print("🔒 Released security-scoped resource (bookmark)")
+            }
+        }
+        
+        // Save the bookmark for future access
+        let bookmarkSaved = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+        print("💾 Bookmark saved: \(bookmarkSaved)")
+        
+        if let videoItem = await VideoFileUtils.createVideoItem(from: url) {
+            print("🎬 Created video item: \(videoItem.name)")
+            // Check for duplicates before adding
+            if !self.droppedFiles.contains(where: { $0.url == videoItem.url }) {
+                self.droppedFiles.append(videoItem)
+                print("✅ Added video item to list. Total items: \(self.droppedFiles.count)")
+            } else {
+                print("⚠️ Video item already exists in list")
+            }
+        } else {
+            print("❌ Failed to create video item")
+        }
     }
     
     private func progressText(for item: VideoItem) -> String {

@@ -8,17 +8,21 @@
 import Foundation
 
 enum ExportPreset: String, CaseIterable, Identifiable {
-    case videoLoop = "Video Loop"
-    case videoLoopWithAudio = "Video Loop with Audio"
-    case highQuality = "High Quality MP4"
-    case webOptimized = "Web Optimized"
+    case videoLoop = "VideoLoop"
+    case videoLoopWithAudio = "VideoLoop w/Audio"
+    case tvQuality = "TV Quality"
+    case animatedAVIF = "Animated AVIF"
     
     var id: String { self.rawValue }
     
     var fileExtension: String {
         switch self {
-        case .videoLoop, .videoLoopWithAudio, .highQuality, .webOptimized:
+        case .videoLoop, .videoLoopWithAudio:
             return "mp4"
+        case .tvQuality:
+            return "mov"
+        case .animatedAVIF:
+            return "avif"
         }
     }
     
@@ -29,15 +33,15 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     var ffmpegArguments: [String] {
         let commonArgs = [
             "-hide_banner",
-            "-vcodec", "libx264",
             "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
             "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
         ]
         
         switch self {
         case .videoLoop:
             return commonArgs + [
+                "-vcodec", "libx264",
+                "-movflags", "+faststart",
                 "-preset", "veryslow",
                 "-crf", "23",
                 "-minrate", "3000k",
@@ -45,11 +49,13 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-bufsize", "18000k",
                 "-profile:v", "main",
                 "-level:v", "4.0",
-                "-an"  // No audio
+                "-an"  // No audio  
             ]
             
         case .videoLoopWithAudio:
             return commonArgs + [
+                "-vcodec", "libx264",
+                "-movflags", "+faststart",
                 "-preset", "veryslow",
                 "-crf", "23",
                 "-minrate", "3000k",
@@ -61,8 +67,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-b:a", "192k"
             ]
             
-        case .highQuality:
+        case .tvQuality:
             return commonArgs + [
+                "-vcodec", "libx264",
                 "-preset", "slow",
                 "-crf", "18",
                 "-profile:v", "high",
@@ -71,15 +78,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-b:a", "256k"
             ]
             
-        case .webOptimized:
+        case .animatedAVIF:
             return commonArgs + [
-                "-preset", "medium",
-                "-crf", "28",
-                "-c:a", "aac",
-                "-b:a", "128k",
-                "-g", "60",
-                "-keyint_min", "60",
-                "-sc_threshold", "0"
+                "-vcodec", "libavif",
+                "-crf", "28", "-an"
             ]
         }
     }
