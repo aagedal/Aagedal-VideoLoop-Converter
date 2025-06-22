@@ -14,13 +14,21 @@ struct VideoFileUtils: Sendable {
         return AppConstants.supportedVideoExtensions.contains(fileExtension)
     }
     
-    static func createVideoItem(from url: URL) async -> VideoItem? {
+    static func createVideoItem(from url: URL, outputFolder: String? = nil, preset: ExportPreset = .videoLoop) async -> VideoItem? {
         guard isVideoFile(url: url) else { return nil }
         
         let name = url.lastPathComponent
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         let duration = await getVideoDuration(url: url)
         let thumbnailData = await getVideoThumbnail(url: url)
+        
+        // Generate output URL if output folder is provided
+        var outputURL: URL? = nil
+        if let outputFolder = outputFolder {
+            let sanitizedBaseName = FileNameProcessor.processFileName(url.deletingPathExtension().lastPathComponent)
+            let outputFileName = sanitizedBaseName + preset.fileSuffix + "." + preset.fileExtension
+            outputURL = URL(fileURLWithPath: outputFolder).appendingPathComponent(outputFileName)
+        }
         
         return VideoItem(
             url: url,
@@ -30,7 +38,8 @@ struct VideoFileUtils: Sendable {
             thumbnailData: thumbnailData,
             status: .waiting,
             progress: 0.0,
-            eta: nil
+            eta: nil,
+            outputURL: outputURL
         )
     }
     static func getVideoDuration(url: URL) async -> String {
@@ -112,4 +121,9 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var progress: Double
     var eta: String?
     var outputURL: URL?
+    
+    var outputFileExists: Bool {
+        guard let outputURL = outputURL else { return false }
+        return FileManager.default.fileExists(atPath: outputURL.path)
+    }
 }

@@ -6,14 +6,30 @@
 
 import SwiftUI
 import AVFoundation
+import AppKit
 
 struct ContentView: View {
     @State private var droppedFiles: [VideoItem] = []
-    @State private var currentOutputFolder: URL? = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first?.appendingPathComponent("VideoLoopExports")
+    @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path {
+        didSet {
+            // Update the currentOutputFolder when outputFolder changes
+            currentOutputFolder = URL(fileURLWithPath: outputFolder)
+        }
+    }
+    @State private var currentOutputFolder: URL = AppConstants.defaultOutputDirectory {
+        didSet {
+            // Update the stored path when currentOutputFolder changes programmatically
+            if currentOutputFolder.path != outputFolder {
+                outputFolder = currentOutputFolder.path
+            }
+        }
+    }
     @State private var isConverting: Bool = false
     @State private var overallProgress: Double = 0.0
     @State private var isFileImporterPresented = false
     @State private var selectedPreset: ExportPreset = .videoLoop
+    @State private var dockProgressUpdater = DockProgressUpdater()
+    @State private var progressTask: Task<Void, Never>?
     
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
@@ -45,6 +61,9 @@ struct ContentView: View {
             ) { result in
                 handleFileSelection(result: result)
             }
+            .task {
+                await startProgressUpdates()
+            }
             .toolbar {
                 // Import button
                 ToolbarItem(placement: .automatic) {
@@ -60,8 +79,10 @@ struct ContentView: View {
                 ToolbarItem(placement: .automatic) {
                     Button {
                         Task {
-                            if let url = await selectOutputFolder() {
-                                currentOutputFolder = url
+                            if let folder = await selectOutputFolder() {
+                                // This will trigger the didSet on currentOutputFolder
+                                // which will update the @AppStorage value
+                                currentOutputFolder = folder
                             }
                         }
                     } label: {
@@ -80,8 +101,12 @@ struct ContentView: View {
                 // Clear List button
                 ToolbarItem(placement: .automatic) {
                     Button {
+                        // Only allow clearing if not currently converting
+                        guard !isConverting else { return }
                         droppedFiles.removeAll()
                         overallProgress = 0.0
+                        // Ensure dock progress is reset when clearing the list
+                        dockProgressUpdater.reset()
                     } label: {
                         Label("Clear", systemImage: "trash")
                     }
@@ -111,16 +136,10 @@ struct ContentView: View {
                             isConverting = currentlyConverting
                             if currentlyConverting {
                                 // Cancel ongoing conversions
-                                await cancelAllConversions()
-                                isConverting = false
+                                await cancelConversion()
                             } else {
                                 // Start new conversions
-                                isConverting = true
-                                await ConversionManager.shared.startConversion(
-                                    droppedFiles: $droppedFiles,
-                                    outputFolder: currentOutputFolder?.path() ?? NSHomeDirectory(),
-                                    preset: selectedPreset
-                                )
+                                await startConversion()
                             }
                         }
                     } label: {
@@ -157,7 +176,7 @@ struct ContentView: View {
             Task {
                 isConverting = await ConversionManager.shared.isConvertingStatus()
             }
-        }
+        }.frame(minWidth: 500, minHeight: 300)
     }
 
     // Helper function for folder selection
@@ -168,14 +187,21 @@ struct ContentView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         
+        // Set the starting directory to the current output folder if it exists
+        if FileManager.default.fileExists(atPath: currentOutputFolder.path) {
+            panel.directoryURL = currentOutputFolder
+        }
+        
         let response = await withCheckedContinuation { continuation in
             panel.begin { response in
                 continuation.resume(returning: response)
             }
         }
         
-        if response == .OK {
-            return panel.url
+        if response == .OK, let url = panel.url {
+            // Ensure the directory exists
+            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
         }
         return nil
     }
@@ -186,10 +212,13 @@ struct ContentView: View {
         case .success(let urls):
             Task {
                 for url in urls {
-                    if let videoItem = await VideoFileUtils.createVideoItem(from: url) {
+                    if let videoItem = await VideoFileUtils.createVideoItem(
+                        from: url,
+                        outputFolder: outputFolder,
+                        preset: selectedPreset
+                    ) {
                         if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
                             droppedFiles.append(videoItem)
-                            updateOverallProgress()
                         }
                     } else {
                         print("Skipping unsupported file: \(url.lastPathComponent)")
@@ -201,31 +230,41 @@ struct ContentView: View {
         }
     }
     
-    private func updateOverallProgress() {
-        guard !droppedFiles.isEmpty else {
-            overallProgress = 0.0
-            return
-        }
-        
-        let totalProgress = droppedFiles.reduce(0.0) { $0 + $1.progress }
-        overallProgress = totalProgress / Double(droppedFiles.count)
-    }
-    
-    private func cancelAllConversions() async {
-        // Cancel the current FFmpeg process and prevent further conversions
-        await ConversionManager.shared.cancelAllConversions()
-
-        // Mark all non-completed items as cancelled so the user knows they stopped the encode
-        for idx in droppedFiles.indices {
-            if droppedFiles[idx].status != .done {
-                droppedFiles[idx].status = .cancelled
-                droppedFiles[idx].progress = 0.0
-                droppedFiles[idx].eta = nil
+    private func startProgressUpdates() async {
+        progressTask?.cancel()
+        progressTask = Task {
+            for await progress in await ConversionManager.shared.progressUpdates() {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    overallProgress = progress
+                    dockProgressUpdater.updateProgress(progress)
+                }
             }
         }
+    }
+    
+    private func startConversion() async {
+        isConverting = true
+        // Initialize dock progress with 0% to show it immediately
+        dockProgressUpdater.updateProgress(0.0)
 
-        overallProgress = 0.0
+        await ConversionManager.shared.startConversion(
+                droppedFiles: $droppedFiles,
+                outputFolder: currentOutputFolder.path,
+                preset: selectedPreset
+            )
+        
+        // Reset UI state
         isConverting = false
+        // Reset dock progress to 100% and then hide it
+        dockProgressUpdater.updateProgress(1.0)
+    }
+    
+    private func cancelConversion() async {
+        await ConversionManager.shared.cancelAllConversions()
+        isConverting = false
+        // Reset dock progress immediately on cancel
+        dockProgressUpdater.reset()
     }
 }
 

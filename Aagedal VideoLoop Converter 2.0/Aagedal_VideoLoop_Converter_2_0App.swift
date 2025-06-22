@@ -17,5 +17,9 @@ struct Aagedal_VideoLoop_Converter_2_0App: App {
             }
         }.windowStyle(.automatic)
             .windowToolbarStyle(.automatic)
+            .windowResizability(.contentMinSize)
+        Settings {
+            SettingsView().keyboardShortcut(",",modifiers: .command)
+        }
     }
 }

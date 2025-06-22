@@ -50,9 +50,8 @@ struct VideoFileListView: View {
                             file: file,
                             preset: preset,
                             onCancel: {
-                                droppedFiles[index].status = .cancelled
                                 Task {
-                                    await ConversionManager.shared.cancelConversion()
+                                    await ConversionManager.shared.cancelItem(with: file.id)
                                 }
                             },
                             onDelete: {
@@ -179,7 +178,15 @@ struct VideoFileListView: View {
         let bookmarkSaved = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
         print("💾 Bookmark saved: \(bookmarkSaved)")
         
-        if let videoItem = await VideoFileUtils.createVideoItem(from: url) {
+        // Get the output folder from UserDefaults or use default
+        let outputFolder = UserDefaults.standard.string(forKey: "outputFolder") 
+            ?? AppConstants.defaultOutputDirectory.path
+            
+        if let videoItem = await VideoFileUtils.createVideoItem(
+            from: url,
+            outputFolder: outputFolder,
+            preset: preset
+        ) {
             print("🎬 Created video item: \(videoItem.name)")
             // Check for duplicates before adding
             if !self.droppedFiles.contains(where: { $0.url == videoItem.url }) {

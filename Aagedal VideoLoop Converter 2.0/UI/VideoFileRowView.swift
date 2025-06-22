@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import AppKit
 
 struct VideoFileRowView: View {
     let file: VideoItem
@@ -46,9 +47,33 @@ struct VideoFileRowView: View {
                         Text(file.name)
                             .font(.headline)
                         Text("→")
-                        Text(generateOutputFilename(from: file.name))
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 4) {
+                            Text(generateOutputFilename(from: file.name))
+                                .font(.headline)
+                                .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .secondary)
+                            
+                            if file.status == .waiting && file.outputFileExists, let outputURL = file.outputURL {
+                                Button(action: {
+                                    NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                                }) {
+                                    Image(systemName: "magnifyingglass.circle.fill")
+                                        .foregroundColor(.orange)
+                                        .help("Output file already exists. Click to show in Finder")
+                                }
+                                .buttonStyle(BorderlessButtonStyle())
+                            }
+                            
+                            if file.status == .done, let outputURL = file.outputURL {
+                                Button(action: {
+                                    NSWorkspace.shared.open(outputURL)
+                                }) {
+                                    Image(systemName: "arrow.forward.circle.fill")
+                                        .foregroundColor(.blue)
+                                        .help("Open File")
+                                }
+                                .buttonStyle(BorderlessButtonStyle())
+                            }
+                        }
                         Spacer()
                     }
                     

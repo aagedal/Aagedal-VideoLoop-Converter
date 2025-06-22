@@ -8,6 +8,16 @@
 import Foundation
 
 enum AppConstants {
+    // Default output directory
+    static let defaultOutputDirectory: URL = {
+        let defaultDir = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("VideoLoopExports")
+        
+        // Create the directory if it doesn't exist
+        try? FileManager.default.createDirectory(at: defaultDir, withIntermediateDirectories: true)
+        return defaultDir
+    }()
+    
     // Supported video file extensions (lowercase)
     static let supportedVideoExtensions: Set<String> = ["mov", "mp4", "m4v", "avi", "mkv", "flv", "wmv", "mxf"]
     

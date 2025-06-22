@@ -11,6 +11,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     case videoLoop = "VideoLoop"
     case videoLoopWithAudio = "VideoLoop w/Audio"
     case tvQuality = "TV Quality"
+    case prores = "ProRes"
     case animatedAVIF = "Animated AVIF"
     
     var id: String { self.rawValue }
@@ -19,7 +20,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .videoLoop, .videoLoopWithAudio:
             return "mp4"
-        case .tvQuality:
+        case .tvQuality, .prores:
             return "mov"
         case .animatedAVIF:
             return "avif"
@@ -37,7 +38,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .videoLoopWithAudio:
             return "_loop_audio"
         case .tvQuality:
-            return "_tv"
+            return "_tv"    
+        case .prores:
+            return "_prores"
         case .animatedAVIF:
             return "_avif"
         }
@@ -88,6 +91,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-b:v", "15M",
                 "-profile:v", "main10",
                 "-c:a", "pcm",
+                "-map", "0:a:0"
             ]
             
         case .animatedAVIF:
@@ -95,6 +99,13 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-pix_fmt", "yuv420p",
                 "-vcodec", "libsvtav1",
                 "-crf", "28", "-an"
+            ]
+        case .prores:
+            return commonArgs + [
+                "-pix_fmt", "yuv422p10le",
+                "-vcodec", "prores_videotoolbox",
+                "-c:a", "pcm",
+                "-map", "0:a:0"
             ]
         }
     }

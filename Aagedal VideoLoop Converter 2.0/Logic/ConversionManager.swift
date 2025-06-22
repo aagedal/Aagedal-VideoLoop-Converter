@@ -26,7 +26,62 @@ actor ConversionManager: Sendable {
     private var currentProcess: Process?
     private var ffmpegConverter = FFMPEGConverter()
     private var conversionQueue: [VideoItem] = []
+    private var currentDroppedFiles: Binding<[VideoItem]>?
+    private var currentOutputFolder: String?
+    private var currentPreset: ExportPreset = .videoLoop
+    
+    // Progress tracking with Swift Concurrency
+    private var progressContinuation: AsyncStream<Double>.Continuation?
+    private var progressStream: AsyncStream<Double>?
+    // Periodic task that yields overall progress every few seconds while converting
+    private var progressTimerTask: Task<Void, Never>?
+    
+    func progressUpdates() -> AsyncStream<Double> {
+        let stream = AsyncStream(Double.self) { continuation in
+            // Store the continuation directly without using a weak self capture
+            // since we're not mutating any actor state here
+            let task = Task {
+                self.setProgressContinuation(continuation)
+            }
+            
+            continuation.onTermination = { _ in
+                task.cancel()
+                Task {
+                    await self.clearProgressContinuation()
+                }
+            }
+        }
+        progressStream = stream
+        return stream
+    }
+    
+    private func setProgressContinuation(_ continuation: AsyncStream<Double>.Continuation) {
+        progressContinuation = continuation
+    }
+    
+    private func clearProgressContinuation() {
+        progressContinuation = nil
+    }
 
+    // MARK: - Periodic Progress Timer
+        /// Starts a periodic task that emits overall progress every 3 s
+    private func startProgressTimer(droppedFiles: Binding<[VideoItem]>) {
+        progressTimerTask?.cancel()
+        
+                progressTimerTask = Task { [weak self] in
+            guard let self else { return }
+            while await self.isConverting {
+                await self.updateOverallProgress(droppedFiles: droppedFiles)
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+            }
+        }
+    }
+
+    private func stopProgressTimer() {
+        progressTimerTask?.cancel()
+        progressTimerTask = nil
+    }
+    
     func isConvertingStatus() -> Bool {
         return isConverting
     }
@@ -38,6 +93,12 @@ actor ConversionManager: Sendable {
     ) async {
         guard !self.isConverting else { return }
         self.isConverting = true
+        self.currentDroppedFiles = droppedFiles
+        self.currentOutputFolder = outputFolder
+        self.currentPreset = preset
+        progressContinuation?.yield(0.0)
+        // Start periodic updates so dock appears immediately
+        startProgressTimer(droppedFiles: droppedFiles)
         await convertNextFile(
             droppedFiles: droppedFiles,
             outputFolder: outputFolder,
@@ -50,8 +111,13 @@ actor ConversionManager: Sendable {
         outputFolder: String,
         preset: ExportPreset
     ) async {
+        // Update overall progress before starting next file
+        await updateOverallProgress(droppedFiles: droppedFiles)
+        
         guard let nextFile = droppedFiles.wrappedValue.first(where: { $0.status == .waiting }) else {
             self.isConverting = false
+            progressContinuation?.yield(1.0)
+            stopProgressTimer()
             return
         }
         
@@ -110,12 +176,40 @@ actor ConversionManager: Sendable {
         self.isConverting = false
         await ffmpegConverter.cancelConversion()
         currentProcess = nil
-        // Update status to cancelled
-        if let idx = conversionQueue.firstIndex(where: { $0.status == .converting }) {
+        // Update status to cancelled for all converting items
+        for idx in conversionQueue.indices where conversionQueue[idx].status == .converting {
             conversionQueue[idx].status = .cancelled
         }
+        stopProgressTimer()
     }
     
+    /// Cancels a single video item without aborting the entire queue
+    func cancelItem(with id: UUID) async {
+        guard let droppedFiles = currentDroppedFiles else { return }
+        
+        // If the item is currently converting
+        if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == id && $0.status == .converting }) {
+            await ffmpegConverter.cancelConversion()
+            currentProcess = nil
+            droppedFiles.wrappedValue[idx].status = .cancelled
+            droppedFiles.wrappedValue[idx].progress = 0.0
+            
+            // Re-compute progress and continue queue
+            await updateOverallProgress(droppedFiles: droppedFiles)
+            if isConverting {
+                await convertNextFile(droppedFiles: droppedFiles,
+                                       outputFolder: currentOutputFolder ?? "",
+                                       preset: currentPreset)
+            }
+            return
+        }
+        
+        // If the item is still waiting, simply mark as cancelled
+        if let waitingIdx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == id && $0.status == .waiting }) {
+            droppedFiles.wrappedValue[waitingIdx].status = .cancelled
+            await updateOverallProgress(droppedFiles: droppedFiles)
+        }
+    }
     func cancelAllConversions() async {
         self.isConverting = false
         await ffmpegConverter.cancelConversion()
@@ -126,5 +220,22 @@ actor ConversionManager: Sendable {
         for idx in conversionQueue.indices {
             conversionQueue[idx].status = .cancelled
         }
+        progressContinuation?.yield(0.0)
+        stopProgressTimer()
+    }
+    
+    private func updateOverallProgress(droppedFiles: Binding<[VideoItem]>) async {
+        let files = droppedFiles.wrappedValue
+        guard !files.isEmpty else {
+            progressContinuation?.yield(0.0)
+            return
+        }
+        
+        let totalProgress = files.reduce(0.0) { result, file in
+            return result + (file.status == .done ? 1.0 : file.progress)
+        }
+        
+        let progress = min(max(totalProgress / Double(files.count), 0.0), 1.0)
+        progressContinuation?.yield(progress)
     }
 }
