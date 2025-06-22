@@ -30,16 +30,29 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         return self.rawValue
     }
     
+    var fileSuffix: String {
+        switch self {
+        case .videoLoop:
+            return "_loop"
+        case .videoLoopWithAudio:
+            return "_loop_audio"
+        case .tvQuality:
+            return "_tv"
+        case .animatedAVIF:
+            return "_avif"
+        }
+    }
+    
     var ffmpegArguments: [String] {
         let commonArgs = [
             "-hide_banner",
-            "-pix_fmt", "yuv420p",
             "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
         ]
         
         switch self {
         case .videoLoop:
             return commonArgs + [
+                "-pix_fmt", "yuv420p",
                 "-vcodec", "libx264",
                 "-movflags", "+faststart",
                 "-preset", "veryslow",
@@ -54,6 +67,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             
         case .videoLoopWithAudio:
             return commonArgs + [
+                "-pix_fmt", "yuv420p",
                 "-vcodec", "libx264",
                 "-movflags", "+faststart",
                 "-preset", "veryslow",
@@ -69,18 +83,17 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             
         case .tvQuality:
             return commonArgs + [
-                "-vcodec", "libx264",
-                "-preset", "slow",
-                "-crf", "18",
-                "-profile:v", "high",
-                "-level", "4.2",
-                "-c:a", "aac",
-                "-b:a", "256k"
+                "-pix_fmt", "yuv422p10le",
+                "-vcodec", "hevc_videotoolbox",
+                "-b:v", "15M",
+                "-profile:v", "main10",
+                "-c:a", "pcm",
             ]
             
         case .animatedAVIF:
             return commonArgs + [
-                "-vcodec", "libavif",
+                "-pix_fmt", "yuv420p",
+                "-vcodec", "libsvtav1",
                 "-crf", "28", "-an"
             ]
         }

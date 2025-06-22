@@ -35,7 +35,8 @@ struct ContentView: View {
                     if index < droppedFiles.count {
                         droppedFiles[index].status = .waiting
                     }
-                }
+                },
+                preset: selectedPreset
             )
             .fileImporter(
                 isPresented: $isFileImporterPresented,
@@ -104,25 +105,27 @@ struct ContentView: View {
                 // Convert/Cancel Button
                 ToolbarItem(placement: .automatic) {
                     Button {
-                        Task {
-                            let converting = await ConversionManager.shared.isConvertingStatus()
-                            isConverting = converting
-                            if converting {
-                                await ConversionManager.shared.cancelConversion()
+                        Task { @MainActor in
+                            // Determine current conversion state from manager to stay in sync
+                            let currentlyConverting = await ConversionManager.shared.isConvertingStatus()
+                            isConverting = currentlyConverting
+                            if currentlyConverting {
+                                // Cancel ongoing conversions
+                                await cancelAllConversions()
                                 isConverting = false
                             } else {
+                                // Start new conversions
                                 isConverting = true
                                 await ConversionManager.shared.startConversion(
                                     droppedFiles: $droppedFiles,
-                                    outputFolder: currentOutputFolder?.path() ?? "/Users/user/Downloads/",
+                                    outputFolder: currentOutputFolder?.path() ?? NSHomeDirectory(),
                                     preset: selectedPreset
                                 )
-                                isConverting = false
                             }
                         }
                     } label: {
                         if isConverting {
-                            Image(systemName: "cross.circle").foregroundStyle(.red)
+                            Image(systemName: "xmark.circle").foregroundStyle(.red)
                             Text("Cancel")
                                 .foregroundColor(.red)
                         } else {
@@ -132,22 +135,7 @@ struct ContentView: View {
                         }
                     }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(droppedFiles.isEmpty || isConverting)
-                }
-                
-                // Cancel All button - only show when converting
-                if isConverting {
-                    ToolbarItem(placement: .automatic) {
-                        Button(action: {
-                            Task {
-                                await cancelAllConversions()
-                            }
-                        }) {
-                            Label("Cancel All", systemImage: "xmark.circle")
-                                .foregroundColor(.red)
-                        }
-                        .help("Cancel all conversions")
-                    }
+                    .disabled(droppedFiles.isEmpty)
                 }
             }
             
@@ -224,12 +212,19 @@ struct ContentView: View {
     }
     
     private func cancelAllConversions() async {
+        // Cancel the current FFmpeg process and prevent further conversions
         await ConversionManager.shared.cancelAllConversions()
-        // Update the UI to reflect the cancellation
-        for index in droppedFiles.indices where droppedFiles[index].status == .converting {
-            droppedFiles[index].status = .failed
-            droppedFiles[index].progress = 0.0
+
+        // Mark all non-completed items as cancelled so the user knows they stopped the encode
+        for idx in droppedFiles.indices {
+            if droppedFiles[idx].status != .done {
+                droppedFiles[idx].status = .cancelled
+                droppedFiles[idx].progress = 0.0
+                droppedFiles[idx].eta = nil
+            }
         }
+
+        overallProgress = 0.0
         isConverting = false
     }
 }

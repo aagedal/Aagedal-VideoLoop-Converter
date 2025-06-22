@@ -16,6 +16,7 @@ struct VideoFileListView: View {
     var onDoubleClick: () -> Void
     var onDelete: (IndexSet) -> Void
     var onReset: (Int) -> Void
+    var preset: ExportPreset
     
     @State private var isTargeted = false
 
@@ -47,8 +48,9 @@ struct VideoFileListView: View {
                     ForEach(Array(droppedFiles.enumerated()), id: \.element.id) { index, file in
                         VideoFileRowView(
                             file: file,
+                            preset: preset,
                             onCancel: {
-                                droppedFiles[index].status = .failed
+                                droppedFiles[index].status = .cancelled
                                 Task {
                                     await ConversionManager.shared.cancelConversion()
                                 }
@@ -203,6 +205,8 @@ struct VideoFileListView: View {
             }
         case .done:
             return "Done"
+        case .cancelled:
+            return "Cancelled"
         case .failed:
             return "Failed"
         }
@@ -228,7 +232,8 @@ struct VideoFileListView_Previews: PreviewProvider {
             onFileImport: {},
             onDoubleClick: {},
             onDelete: { _ in },
-            onReset: { _ in }
+            onReset: { _ in },
+            preset: .videoLoop
         )
     }
 }

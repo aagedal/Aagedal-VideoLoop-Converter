@@ -18,6 +18,7 @@ actor ConversionManager: Sendable {
         case converting
         case done
         case failed
+        case cancelled
     }
     
 
@@ -65,7 +66,7 @@ actor ConversionManager: Sendable {
         
         let inputURL = nextFile.url
         let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
-        let outputFileName = sanitizedBaseName
+        let outputFileName = sanitizedBaseName + preset.fileSuffix
         let outputURL = URL(fileURLWithPath: outputFolder).appendingPathComponent(outputFileName)
 
         await ffmpegConverter.convert(
@@ -93,25 +94,37 @@ actor ConversionManager: Sendable {
                     }
                 }
                 
-                // Process next file if any
-                await self.convertNextFile(
-                    droppedFiles: droppedFiles,
-                    outputFolder: outputFolder,
-                    preset: preset
-                )
+                // Only continue if conversion has not been cancelled
+                if await self.isConverting {
+                    await self.convertNextFile(
+                        droppedFiles: droppedFiles,
+                        outputFolder: outputFolder,
+                        preset: preset
+                    )
+                }
             }
         }
     }
 
     func cancelConversion() async {
+        self.isConverting = false
         await ffmpegConverter.cancelConversion()
         currentProcess = nil
+        // Update status to cancelled
+        if let idx = conversionQueue.firstIndex(where: { $0.status == .converting }) {
+            conversionQueue[idx].status = .cancelled
+        }
     }
     
     func cancelAllConversions() async {
+        self.isConverting = false
         await ffmpegConverter.cancelConversion()
         // Clear the conversion queue
         conversionQueue.removeAll()
         isConverting = false
+        // Update status to cancelled
+        for idx in conversionQueue.indices {
+            conversionQueue[idx].status = .cancelled
+        }
     }
 }

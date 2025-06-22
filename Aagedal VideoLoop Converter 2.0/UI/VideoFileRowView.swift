@@ -3,6 +3,7 @@ import AVFoundation
 
 struct VideoFileRowView: View {
     let file: VideoItem
+    let preset: ExportPreset
     let onCancel: () -> Void
     let onDelete: () -> Void
     let onReset: () -> Void
@@ -124,6 +125,8 @@ struct VideoFileRowView: View {
             }
         case .done:
             return "Done"
+        case .cancelled:
+            return "Cancelled"
         case .failed:
             return "Failed"
         }
@@ -133,6 +136,7 @@ struct VideoFileRowView: View {
         switch file.status {
         case .done: return .green
         case .converting: return .blue
+        case .cancelled: return .orange
         case .failed: return .red
         default: return .gray
         }
@@ -141,7 +145,7 @@ struct VideoFileRowView: View {
     private func generateOutputFilename(from input: String) -> String {
         let filename = (input as NSString).deletingPathExtension
         let sanitized = FileNameProcessor.processFileName(filename)
-        return "\(sanitized)_loop.mp4"
+        return "\(sanitized)\(preset.fileSuffix).\(preset.fileExtension)"
     }
 }
 
@@ -161,6 +165,7 @@ struct VideoFileRowView_Previews: PreviewProvider {
         
         return VideoFileRowView(
             file: item,
+            preset: .videoLoop,
             onCancel: {},
             onDelete: {},
             onReset: {}
@@ -187,6 +192,7 @@ struct VideoFileRowView_Previews2: PreviewProvider {
         
         return VideoFileRowView(
             file: item,
+            preset: .videoLoop,
             onCancel: {},
             onDelete: {},
             onReset: {}
