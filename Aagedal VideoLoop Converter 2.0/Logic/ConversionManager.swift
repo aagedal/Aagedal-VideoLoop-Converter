@@ -30,29 +30,46 @@ actor ConversionManager: Sendable {
     }
 
     func startConversion(
-        droppedFiles: Binding<[VideoItem]>, outputFolder: String
+        droppedFiles: Binding<[VideoItem]>,
+        outputFolder: String,
+        preset: ExportPreset = .videoLoop
     ) async {
         guard !self.isConverting else { return }
         self.isConverting = true
-        await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder)
+        await convertNextFile(
+            droppedFiles: droppedFiles,
+            outputFolder: outputFolder,
+            preset: preset
+        )
     }
 
     private func convertNextFile(
-        droppedFiles: Binding<[VideoItem]>, outputFolder: String
+        droppedFiles: Binding<[VideoItem]>,
+        outputFolder: String,
+        preset: ExportPreset
     ) async {
         guard let nextFile = droppedFiles.wrappedValue.first(where: { $0.status == .waiting }) else {
             self.isConverting = false
             return
         }
+        
         let fileId = nextFile.id
-        if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
-            droppedFiles.wrappedValue[idx].status = .converting
+        guard let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) else {
+            await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
+            return
         }
+        
+        // Update status to converting
+        droppedFiles.wrappedValue[idx].status = .converting
+        
         let inputURL = nextFile.url
-        let outputURL = URL(fileURLWithPath: "\(outputFolder)/\(inputURL.lastPathComponent)")
+        let outputFileName = inputURL.deletingPathExtension().lastPathComponent
+        let outputURL = URL(fileURLWithPath: outputFolder).appendingPathComponent(outputFileName)
 
         await ffmpegConverter.convert(
-            inputURL: inputURL, outputURL: outputURL,
+            inputURL: inputURL,
+            outputURL: outputURL,
+            preset: preset,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
@@ -65,10 +82,21 @@ actor ConversionManager: Sendable {
             Task { @MainActor in
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
                     droppedFiles.wrappedValue[idx].status = success ? .done : .failed
-                    droppedFiles.wrappedValue[idx].progress = 1.0
+                    droppedFiles.wrappedValue[idx].progress = success ? 1.0 : 0
+                    
+                    // Update the output URL in the video item
+                    if success {
+                        let outputFileURL = outputURL.appendingPathExtension(preset.fileExtension)
+                        droppedFiles.wrappedValue[idx].outputURL = outputFileURL
+                    }
                 }
+                
+                // Process next file if any
                 await self.convertNextFile(
-                    droppedFiles: droppedFiles, outputFolder: outputFolder)
+                    droppedFiles: droppedFiles,
+                    outputFolder: outputFolder,
+                    preset: preset
+                )
             }
         }
     }

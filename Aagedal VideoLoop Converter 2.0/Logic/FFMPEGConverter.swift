@@ -2,47 +2,149 @@
 //  FFMPEGConverter.swift
 //  Aagedal VideoLoop Converter 2.0
 //
-//  Created by Truls Aagedal on 02/07/2024.
+//  Created on 20/06/2024.
 //
+
 import Foundation
 
-//Todo: Add multiple export presets, but make sure to keep this one. File extension follows the preset, but the default for most presets should be .mp4. Likely formats are the current format with and without audio, which is called VideoLoop
+enum ExportPreset: String, CaseIterable, Identifiable {
+    case videoLoop = "Video Loop"
+    case videoLoopWithAudio = "Video Loop with Audio"
+    case highQuality = "High Quality MP4"
+    case webOptimized = "Web Optimized"
+    
+    var id: String { self.rawValue }
+    
+    var fileExtension: String {
+        switch self {
+        case .videoLoop, .videoLoopWithAudio, .highQuality, .webOptimized:
+            return "mp4"
+        }
+    }
+    
+    var displayName: String {
+        return self.rawValue
+    }
+    
+    var ffmpegArguments: [String] {
+        let commonArgs = [
+            "-hide_banner",
+            "-vcodec", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
+        ]
+        
+        switch self {
+        case .videoLoop:
+            return commonArgs + [
+                "-preset", "veryslow",
+                "-crf", "23",
+                "-minrate", "3000k",
+                "-maxrate", "9000k",
+                "-bufsize", "18000k",
+                "-profile:v", "main",
+                "-level:v", "4.0",
+                "-an"  // No audio
+            ]
+            
+        case .videoLoopWithAudio:
+            return commonArgs + [
+                "-preset", "veryslow",
+                "-crf", "23",
+                "-minrate", "3000k",
+                "-maxrate", "9000k",
+                "-bufsize", "18000k",
+                "-profile:v", "main",
+                "-level:v", "4.0",
+                "-c:a", "aac",
+                "-b:a", "192k"
+            ]
+            
+        case .highQuality:
+            return commonArgs + [
+                "-preset", "slow",
+                "-crf", "18",
+                "-profile:v", "high",
+                "-level", "4.2",
+                "-c:a", "aac",
+                "-b:a", "256k"
+            ]
+            
+        case .webOptimized:
+            return commonArgs + [
+                "-preset", "medium",
+                "-crf", "28",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-g", "60",
+                "-keyint_min", "60",
+                "-sc_threshold", "0"
+            ]
+        }
+    }
+}
 
 actor FFMPEGConverter {
     private var currentProcess: Process?
 
-    func convert(inputURL: URL, outputURL: URL, progressUpdate: @escaping @Sendable (Double, String?) -> Void, completion: @escaping @Sendable (Bool) -> Void) async {
+    /// Converts a video file using the specified export preset
+    /// - Parameters:
+    ///   - inputURL: The source video file URL
+    ///   - outputURL: The destination URL (without extension)
+    ///   - preset: The export preset to use
+    ///   - progressUpdate: Callback for progress updates (progress: Double, status: String?)
+    ///   - completion: Callback for completion (success: Bool)
+    func convert(
+        inputURL: URL,
+        outputURL: URL,
+        preset: ExportPreset = .videoLoop,
+        progressUpdate: @escaping @Sendable (Double, String?) -> Void,
+        completion: @escaping @Sendable (Bool) -> Void
+    ) async {
         guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
             print("FFMPEG binary not found in bundle")
             completion(false)
             return
         }
 
+        // Ensure output directory exists
+        let fileManager = FileManager.default
+        let outputDir = outputURL.deletingLastPathComponent()
+        do {
+            try fileManager.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        } catch {
+            print("Failed to create output directory: \(error)")
+            completion(false)
+            return
+        }
+
+        // Add file extension based on preset
+        let outputFileURL = outputURL.appendingPathExtension(preset.fileExtension)
+        
+        // Remove existing file if it exists
+        if fileManager.fileExists(atPath: outputFileURL.path) {
+            do {
+                try fileManager.removeItem(at: outputFileURL)
+            } catch {
+                print("Failed to remove existing file: \(error)")
+                completion(false)
+                return
+            }
+        }
+
         let process = Process()
         await setCurrentProcess(process)
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = [
-            "-y",
-            "-i", inputURL.path,
-            "-hide_banner",
-            "-vcodec", "libx264",
-            "-preset", "veryslow",
-            "-crf", "23",
-            "-minrate", "3000k",
-            "-maxrate", "9000k",
-            "-bufsize", "18000k",
-            "-profile:v", "main",
-            "-level:v", "4.0",
-            "-pix_fmt", "yuv420p",
-            "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'",
-            "-bsf:v", "filter_units=remove_types=6",
-            "-fflags", "+bitexact",
-            "-write_tmcd", "0",
-            "-an",
-            "-color_trc", "bt709",
-            "-movflags", "+faststart",
-            outputURL.path
-        ]
+        
+        // Build FFmpeg arguments
+        var arguments = ["-y", "-i", inputURL.path]
+        arguments.append(contentsOf: preset.ffmpegArguments)
+        arguments.append(outputFileURL.path)
+        
+        process.arguments = arguments
+        
+        print("FFmpeg command: \(ffmpegPath) \(arguments.joined(separator: " "))")
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()

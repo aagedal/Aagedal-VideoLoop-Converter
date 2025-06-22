@@ -111,4 +111,5 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var status: ConversionManager.ConversionStatus
     var progress: Double
     var eta: String?
+    var outputURL: URL?
 }

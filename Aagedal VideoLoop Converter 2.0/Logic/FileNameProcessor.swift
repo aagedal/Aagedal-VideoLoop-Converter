@@ -35,8 +35,8 @@ func cleanFileName(_ input: String) -> String {
         return allowedChars.contains(char) || lowercasedChar != String(char)
     }
     
-    // Remove any remaining special characters
-    let pattern = "[^a-zA-Z0-9_\-]"
+    // Remove any remaining special characters except underscores and hyphens
+    let pattern = "[^a-zA-Z0-9_-]"
     if let regex = try? NSRegularExpression(pattern: pattern) {
         let range = NSRange(cleanedName.startIndex..<cleanedName.endIndex, in: cleanedName)
         cleanedName = regex.stringByReplacingMatches(
@@ -45,6 +45,9 @@ func cleanFileName(_ input: String) -> String {
             withTemplate: ""
         )
     }
+    
+    // Remove any leading/trailing special characters
+    cleanedName = cleanedName.trimmingCharacters(in: CharacterSet(charactersIn: "_-"))
     
     return cleanedName
 }

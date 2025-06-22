@@ -11,7 +11,9 @@ struct ContentView: View {
     @State private var droppedFiles: [VideoItem] = []
     @State private var currentOutputFolder: URL? = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first?.appendingPathComponent("VideoLoopExports")
     @State private var isConverting: Bool = false
+    @State private var overallProgress: Double = 0.0
     @State private var isFileImporterPresented = false
+    @State private var selectedPreset: ExportPreset = .videoLoop
     
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
@@ -19,75 +21,111 @@ struct ContentView: View {
     }
 
     var body: some View {
-        ZStack {
-            DragAndDropView(droppedFiles: $droppedFiles)
-                .edgesIgnoringSafeArea(.all)
-            VStack {
-                // Add file selection button
-                Button(action: {
-                    isFileImporterPresented = true
-                }) {
-                    Label("Import Video Files", systemImage: "plus.circle.fill")
-                        .padding()
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(8)
+        VStack(spacing: 0) {
+            // File list with drag and drop support
+            VideoFileListView(
+                droppedFiles: $droppedFiles,
+                currentProgress: $overallProgress,
+                onFileImport: { isFileImporterPresented = true },
+                onDoubleClick: { isFileImporterPresented = true },
+                onDelete: { indexSet in
+                    droppedFiles.remove(atOffsets: indexSet)
+                },
+                onReset: { index in
+                    if index < droppedFiles.count {
+                        droppedFiles[index].status = .waiting
+                    }
                 }
-                .buttonStyle(PlainButtonStyle())
-                .fileImporter(
-                    isPresented: $isFileImporterPresented,
-                    allowedContentTypes: supportedVideoTypes,
-                    allowsMultipleSelection: true
-                ) { result in
-                    handleFileSelection(result: result)
-                }
-                
-                // Drag and drop area
-                Text("Or drag and drop video files here")
-                    .foregroundColor(.secondary)
-                    .padding()
-                
-                // File list
-                VideoFileListView(droppedFiles: $droppedFiles, currentProgress: .constant(0.0))
-                    .padding()
-                
-                HStack {
-                    // Todo: Extract this as a subview and relink to logic.
-                    
-                    //Add overall progress bar here.
-                    Button {
-                        Task {
-                            let converting = await ConversionManager.shared.isConvertingStatus()
-                            isConverting = converting
-                            if converting {
-                                await ConversionManager.shared.cancelConversion()
-                                isConverting = false
+            )
+            .fileImporter(
+                isPresented: $isFileImporterPresented,
+                allowedContentTypes: supportedVideoTypes,
+                allowsMultipleSelection: true
+            ) { result in
+                handleFileSelection(result: result)
+            }
+            .toolbar(content: {
+                // Main toolbar content
+                ToolbarItem(placement: .automatic) {
+                    HStack {
+                        // Import button
+                        Button(action: { isFileImporterPresented = true }) {
+                            Label("Import", systemImage: "plus.circle")
+                                .foregroundColor(.accentColor)
+                        }
+                        .help("Import video files")
+                        .keyboardShortcut("i", modifiers: .command)
+                        
+                        // Output folder button
+                        Button {
+                            Task {
+                                if let url = await selectOutputFolder() {
+                                    currentOutputFolder = url
+                                }
+                            }
+                        } label: {
+                            Label("Output", systemImage: "folder")
+                                .foregroundColor(.accentColor)
+                        }
+                        .help("Select output folder")
+                        .keyboardShortcut("o", modifiers: .command)
+                        
+                        Spacer()
+                        
+                        // Preset Picker
+                        Picker("Preset", selection: $selectedPreset) {
+                            ForEach(ExportPreset.allCases) { preset in
+                                Text(preset.displayName).tag(preset)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 150)
+                        .disabled(isConverting)
+                        .foregroundColor(.primary)
+                        
+                        // Convert/Cancel Button
+                        Button {
+                            Task {
+                                let converting = await ConversionManager.shared.isConvertingStatus()
+                                isConverting = converting
+                                if converting {
+                                    await ConversionManager.shared.cancelConversion()
+                                    isConverting = false
+                                } else {
+                                    await ConversionManager.shared.startConversion(
+                                        droppedFiles: $droppedFiles,
+                                        outputFolder: currentOutputFolder?.path() ?? "/Users/\(NSUserName())/Downloads/",
+                                        preset: selectedPreset
+                                    )
+                                }
+                            }
+                        } label: {
+                            if isConverting {
+                                Text("Cancel")
+                                    .foregroundColor(.red)
                             } else {
-                                await ConversionManager.shared.startConversion(droppedFiles: $droppedFiles, outputFolder: currentOutputFolder?.path() ?? "/Users/user/Downloads/")
-                                isConverting = false
+                                Text("Convert")
+                                    .foregroundColor(.accentColor)
                             }
                         }
-                    } label: {
-                        Text(isConverting ? "✖︎ Cancel" : "▶︎ Start Converting")
-                            .padding()
-                            .buttonStyle(.accessoryBar).tint(isConverting ? Color.red : Color.green)
-                            .cornerRadius(10)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(droppedFiles.isEmpty || isConverting)
                     }
-                    .padding()
-                    Spacer()
-                    Button {
-                        Task {
-                            if let url = await selectOutputFolder() {
-                                currentOutputFolder = url
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "folder")
-                        Text("Select Output Folder")
-                            .buttonStyle(.automatic).tint(Color.blue)
-                            .cornerRadius(10)
-                    }
-                    .padding()
                 }
+            })
+            
+            // Overall progress bar
+            if isConverting {
+                VStack(alignment: .leading) {
+                    Text("Overall Progress: \(Int(overallProgress * 100))%")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                    ProgressView(value: overallProgress, total: 1.0)
+                        .progressViewStyle(LinearProgressViewStyle())
+                        .frame(height: 6)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
             }
         }
         .onAppear {
@@ -98,16 +136,19 @@ struct ContentView: View {
     }
 
     // Helper function for folder selection
+    @MainActor
     private func selectOutputFolder() async -> URL? {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        
         let response = await withCheckedContinuation { continuation in
-            panel.begin { result in
-                continuation.resume(returning: result)
+            panel.begin { response in
+                continuation.resume(returning: response)
             }
         }
+        
         if response == .OK {
             return panel.url
         }
@@ -121,10 +162,9 @@ struct ContentView: View {
             Task {
                 for url in urls {
                     if let videoItem = await VideoFileUtils.createVideoItem(from: url) {
-                        await MainActor.run {
-                            if !droppedFiles.contains(where: { $0.url == url }) {
-                                droppedFiles.append(videoItem)
-                            }
+                        if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
+                            droppedFiles.append(videoItem)
+                            updateOverallProgress()
                         }
                     } else {
                         print("Skipping unsupported file: \(url.lastPathComponent)")
@@ -135,10 +175,21 @@ struct ContentView: View {
             print("Error selecting files: \(error.localizedDescription)")
         }
     }
+    
+    private func updateOverallProgress() {
+        guard !droppedFiles.isEmpty else {
+            overallProgress = 0.0
+            return
+        }
+        
+        let totalProgress = droppedFiles.reduce(0.0) { $0 + $1.progress }
+        overallProgress = totalProgress / Double(droppedFiles.count)
+    }
 }
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
+            .frame(width: 800, height: 600)
     }
 }

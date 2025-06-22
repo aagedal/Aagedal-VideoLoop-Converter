@@ -14,15 +14,6 @@ struct Aagedal_VideoLoop_Converter_2_0App: App {
         WindowGroup {
             VStack {
                 ContentView()
-            }.toolbar {
-                ToolbarItemGroup(placement: .primaryAction, content: {
-                                    // Tint this green and linkup to logic. Replacing the other conversion button.
-                                    Button(action: {}, label: {
-                                        Image(systemName: "play.fill")
-                                        Text(verbatim: "Start Conversion")
-                                    }
-                                    )
-                                })
             }
         }.windowStyle(.automatic)
             .windowToolbarStyle(.automatic)

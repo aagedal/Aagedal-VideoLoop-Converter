@@ -10,6 +10,10 @@
 		8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */ = {isa = PBXBuildFile; fileRef = 8E0CA7A52C34160C00EA7C37 /* ffmpeg */; };
 		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
 		8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */; };
+		8E2C6BB72E059E2400A9379F /* ConversionControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BB62E059E2400A9379F /* ConversionControlsView.swift */; };
+		8E2C6BB82E059ECB00A9379F /* FileNameProcessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BB32E059DE100A9379F /* FileNameProcessorTests.swift */; };
+		8E2C6BBB2E05A0C700A9379F /* Testing in Frameworks */ = {isa = PBXBuildFile; productRef = 8E2C6BBA2E05A0C700A9379F /* Testing */; };
+		8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */; };
 		8E545D832C33FD4A0088C274 /* DragAndDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D822C33FD4A0088C274 /* DragAndDropView.swift */; };
 		8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D842C33FD610088C274 /* DocumentPickerView.swift */; };
 		8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */; };
@@ -21,7 +25,6 @@
 		8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9B2C31FC6B007B629D /* ContentView.swift */; };
 		8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */; };
 		8EE6EEA32C31FC6F007B629D /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8EE6EEA22C31FC6F007B629D /* Preview Assets.xcassets */; };
-		8EE6EEAE2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EEAD2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift */; };
 		8EE6EEB82C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EEB72C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITests.swift */; };
 		8EE6EEBA2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EEB92C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0UITestsLaunchTests.swift */; };
 /* End PBXBuildFile section */
@@ -49,6 +52,9 @@
 		8E0CA7A52C34160C00EA7C37 /* ffmpeg */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffmpeg; sourceTree = "<group>"; };
 		8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsingUtils.swift; sourceTree = "<group>"; };
 		8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
+		8E2C6BB32E059DE100A9379F /* FileNameProcessorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameProcessorTests.swift; sourceTree = "<group>"; };
+		8E2C6BB62E059E2400A9379F /* ConversionControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionControlsView.swift; sourceTree = "<group>"; };
+		8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileRowView.swift; sourceTree = "<group>"; };
 		8E545D822C33FD4A0088C274 /* DragAndDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragAndDropView.swift; sourceTree = "<group>"; };
 		8E545D842C33FD610088C274 /* DocumentPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPickerView.swift; sourceTree = "<group>"; };
 		8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFilesUtil.swift; sourceTree = "<group>"; };
@@ -81,6 +87,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8E2C6BBB2E05A0C700A9379F /* Testing in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -114,7 +121,9 @@
 		8E0CA7A82C3416EF00EA7C37 /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				8E2C6BB62E059E2400A9379F /* ConversionControlsView.swift */,
 				8E545D882C34030C0088C274 /* VideoFileListView.swift */,
+				8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */,
 				8E545D822C33FD4A0088C274 /* DragAndDropView.swift */,
 				8E545D842C33FD610088C274 /* DocumentPickerView.swift */,
 				8EE6EE9B2C31FC6B007B629D /* ContentView.swift */,
@@ -142,6 +151,14 @@
 			path = Utils;
 			sourceTree = "<group>";
 		};
+		8E2C6BB42E059DE100A9379F /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				8E2C6BB32E059DE100A9379F /* FileNameProcessorTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
 		8EE6EE8D2C31FC6B007B629D = {
 			isa = PBXGroup;
 			children = (
@@ -165,6 +182,7 @@
 		8EE6EE982C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */ = {
 			isa = PBXGroup;
 			children = (
+				8E2C6BB42E059DE100A9379F /* Tests */,
 				8E0CA7A92C34171300EA7C37 /* Logic */,
 				8E2C6BAE2E059AFC00A9379F /* Utils */,
 				8E0CA7A82C3416EF00EA7C37 /* UI */,
@@ -291,6 +309,9 @@
 				Base,
 			);
 			mainGroup = 8EE6EE8D2C31FC6B007B629D;
+			packageReferences = (
+				8E2C6BB92E05A0C700A9379F /* XCRemoteSwiftPackageReference "swift-testing" */,
+			);
 			productRefGroup = 8EE6EE972C31FC6B007B629D /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -337,7 +358,9 @@
 				8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */,
 				8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */,
 				8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */,
+				8E2C6BB72E059E2400A9379F /* ConversionControlsView.swift in Sources */,
 				8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */,
+				8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */,
 				8E903F5F2E05642D0075E05C /* FileNameProcessor.swift in Sources */,
 				8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */,
 				8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */,
@@ -352,7 +375,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8EE6EEAE2C31FC6F007B629D /* Aagedal_VideoLoop_Converter_2_0Tests.swift in Sources */,
+				8E2C6BB82E059ECB00A9379F /* FileNameProcessorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -702,6 +725,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8E2C6BB92E05A0C700A9379F /* XCRemoteSwiftPackageReference "swift-testing" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-testing";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8E2C6BBA2E05A0C700A9379F /* Testing */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8E2C6BB92E05A0C700A9379F /* XCRemoteSwiftPackageReference "swift-testing" */;
+			productName = Testing;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8EE6EE8E2C31FC6B007B629D /* Project object */;
 }
