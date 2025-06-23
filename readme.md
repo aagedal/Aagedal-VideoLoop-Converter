@@ -74,6 +74,6 @@ Web browsers often refuse to autoplay long, looping videos with sound. The app s
 
 ## License
 
-This project is distributed under the **GNU General Public License, version 3.0**. See the `LICENSE` file for the complete text.
+This project is distributed under the **GNU General Public License, version 3.0**. See the [LICENSE](LICENSE) file for the complete text.
 
-The bundled FFmpeg binary is compiled with `--enable-gpl` and is therefore also licensed under GPL v2 or later. This project chooses GPL v3 for all code, satisfying that requirement.
+The bundled FFmpeg binary is compiled with `--enable-gpl` and is therefore also licensed under **GPL v2 or later**. This project chooses GPL v3 for all code, satisfying that requirement. See the original FFmpeg license in [Resources/ffmpeg-LICENSE.txt](Resources/ffmpeg-LICENSE.txt).
