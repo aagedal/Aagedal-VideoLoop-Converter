@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8E0C32C82E09E58F00F22B21 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 8E0C32C72E09E58F00F22B21 /* LICENSE */; };
 		8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */ = {isa = PBXBuildFile; fileRef = 8E0CA7A52C34160C00EA7C37 /* ffmpeg */; };
 		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
 		8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */; };
@@ -51,6 +52,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		8E0C32C72E09E58F00F22B21 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		8E0CA7A32C34160C00EA7C37 /* done.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = done.mp3; sourceTree = "<group>"; };
 		8E0CA7A42C34160C00EA7C37 /* error.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = error.mp3; sourceTree = "<group>"; };
 		8E0CA7A52C34160C00EA7C37 /* ffmpeg */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffmpeg; sourceTree = "<group>"; };
@@ -204,6 +206,7 @@
 				8EE6EEA12C31FC6F007B629D /* Preview Content */,
 				8EE0BBB92E0980090096171D /* Resources */,
 				8E2CA2A32E09A9F8008D93F1 /* ToDo.md */,
+				8E0C32C72E09E58F00F22B21 /* LICENSE */,
 			);
 			path = "Aagedal VideoLoop Converter 2.0";
 			sourceTree = "<group>";
@@ -343,6 +346,7 @@
 				8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */,
 				8EE6EEA32C31FC6F007B629D /* Preview Assets.xcassets in Resources */,
 				8EE0BBBC2E0980560096171D /* Localizable.xcstrings in Resources */,
+				8E0C32C82E09E58F00F22B21 /* LICENSE in Resources */,
 				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
 				8E2CA2A42E09A9F8008D93F1 /* ToDo.md in Resources */,
 				8E2CA2A62E09AA09008D93F1 /* readme.md in Resources */,

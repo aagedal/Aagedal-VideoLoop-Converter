@@ -147,6 +147,22 @@
         }
       }
     },
+    "Change default output folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change default output folder"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Endre standard mappe for eksport."
+          }
+        }
+      }
+    },
     "Clear" : {
       "localizations" : {
         "en" : {
@@ -353,6 +369,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Importer videofiler"
+          }
+        }
+      }
+    },
+    "Import…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer…"
           }
         }
       }

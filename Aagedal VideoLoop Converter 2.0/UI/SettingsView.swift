@@ -69,6 +69,16 @@ struct SettingsView: View {
                         }
                         .buttonStyle(BorderlessButtonStyle())
                         .help("Show in Finder")
+                        
+                        // Choose new folder
+                        Button(action: {
+                            selectNewOutputFolder()
+                        }) {
+                            Image(systemName: "folder.badge.gearshape")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Change default output folder")
                     }
                 }
                 .padding(.vertical, 4)
@@ -140,6 +150,22 @@ struct SettingsView: View {
         .frame(width: 650, height: isPresentedAsSheet ? 600 : 600)
         .navigationTitle("About Aagedal Video Loop Converter")
         .padding(.top, isPresentedAsSheet ? 30 : 0)
+    }
+    
+    // MARK: - Helpers
+    
+    private func selectNewOutputFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: outputFolder)
+        
+        if panel.runModal() == .OK, let url = panel.url {
+            // Ensure directory exists
+            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            outputFolder = url.path
+        }
     }
 }
 

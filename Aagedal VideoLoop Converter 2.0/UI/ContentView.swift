@@ -8,6 +8,13 @@ import SwiftUI
 import AVFoundation
 import AppKit
 
+// Custom notification to trigger file importer from menu command
+#if !os(iOS)
+extension Notification.Name {
+    static let showFileImporter = Notification.Name("showFileImporter")
+}
+#endif
+
 struct ContentView: View {
     @State private var droppedFiles: [VideoItem] = []
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path {
@@ -200,6 +207,10 @@ struct ContentView: View {
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(isPresentedAsSheet: true)
                 .frame(width: 600, height: 600)
+        }
+        // Listen for menu command
+        .onReceive(NotificationCenter.default.publisher(for: .showFileImporter)) { _ in
+            isFileImporterPresented = true
         }
     }
 
