@@ -181,7 +181,6 @@
 		8EE0BBB92E0980090096171D /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				8E0C32CE2E09F5E400F22B21 /* ffmpeg-LICENSE.txt */,
 				8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */,
 				8EE0BBBB2E0980560096171D /* Localizable.xcstrings */,
 			);
@@ -195,6 +194,9 @@
 				8EE6EEAC2C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0Tests */,
 				8EE6EEB62C31FC6F007B629D /* Aagedal VideoLoop Converter 2.0UITests */,
 				8EE6EE972C31FC6B007B629D /* Products */,
+				8E0C32C72E09E58F00F22B21 /* LICENSE */,
+				8E0C32CE2E09F5E400F22B21 /* ffmpeg-LICENSE.txt */,
+				8E2CA2A52E09AA03008D93F1 /* readme.md */,
 			);
 			sourceTree = "<group>";
 		};
@@ -211,7 +213,6 @@
 		8EE6EE982C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0 */ = {
 			isa = PBXGroup;
 			children = (
-				8E2CA2A52E09AA03008D93F1 /* readme.md */,
 				8EF6370F2E086024001F2A90 /* Aagedal_VideoLoop_Converter_2_0.entitlements */,
 				8E0CA7A92C34171300EA7C37 /* Logic */,
 				8E2C6BAE2E059AFC00A9379F /* Utils */,
@@ -223,7 +224,6 @@
 				8EE0BBB92E0980090096171D /* Resources */,
 				8E2CA2A32E09A9F8008D93F1 /* ToDo.md */,
 				8E0C32CA2E09EC3B00F22B21 /* AppIntents */,
-				8E0C32C72E09E58F00F22B21 /* LICENSE */,
 			);
 			path = "Aagedal VideoLoop Converter 2.0";
 			sourceTree = "<group>";
