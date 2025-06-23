@@ -1,9 +1,12 @@
+// Aagedal VideoLoop Converter 2.0
+// Copyright © 2025 Truls Aagedal
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
-//  DocumentPickerView.swift
-//  Aagedal VideoLoop Converter 2.0
-//
-//  Created by Truls Aagedal on 02/07/2024.
-//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
 import SwiftUI
 
 struct DocumentPickerView: View {
