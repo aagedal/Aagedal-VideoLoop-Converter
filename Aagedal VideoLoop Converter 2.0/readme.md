@@ -26,6 +26,7 @@ A lightweight macOS application for converting video files into formats that **l
 |                | Minimum |
 |----------------|---------|
 | macOS          | 15.0 (Sonoma) |
+| Hardware       | Apple Silicon (M1 or later) |
 
 ---
 
@@ -73,6 +74,6 @@ Web browsers often refuse to autoplay long, looping videos with sound. The app s
 
 ## License
 
-Copyright 2025 Truls Aagedal
+This project is distributed under the **GNU General Public License, version 3.0**. See the `LICENSE` file for the complete text.
 
-Distributed under the MIT License. See `LICENSE` for more information.
+The bundled FFmpeg binary is compiled with `--enable-gpl` and is therefore also licensed under GPL v2 or later. This project chooses GPL v3 for all code, satisfying that requirement.
