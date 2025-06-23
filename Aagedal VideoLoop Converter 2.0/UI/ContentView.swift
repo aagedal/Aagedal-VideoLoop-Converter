@@ -36,6 +36,11 @@ struct ContentView: View {
     private var supportedVideoTypes: [UTType] {
         AppConstants.supportedVideoTypes.compactMap { UTType($0) }
     }
+    
+    // Only allow starting conversion when at least one item is still waiting
+    private var canStartConversion: Bool {
+        droppedFiles.contains { $0.status == .waiting }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -87,14 +92,14 @@ struct ContentView: View {
                                 .foregroundStyle(.red)
                         } else {
                             Image(systemName: "play.circle")
-                                .foregroundStyle(droppedFiles.isEmpty ? .gray : .green)
+                                .foregroundStyle((droppedFiles.isEmpty || !canStartConversion) ? .gray : .green)
                         }
                     }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(droppedFiles.isEmpty)
-                    .help(droppedFiles.isEmpty ? 
-                          "Add files to begin conversion" : 
-                          (isConverting ? "Cancel all conversions" : "Start converting all files"))
+                    .disabled(droppedFiles.isEmpty || (!canStartConversion && !isConverting))
+                    .help(droppedFiles.isEmpty ?
+                          "Add files to begin conversion" :
+                          (isConverting ? "Cancel all conversions" : (canStartConversion ? "Start converting all files" : "No files ready to convert")))
                 }
                 
                 

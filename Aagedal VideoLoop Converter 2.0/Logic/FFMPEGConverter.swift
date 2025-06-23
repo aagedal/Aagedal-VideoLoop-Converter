@@ -10,10 +10,11 @@ import Foundation
 enum ExportPreset: String, CaseIterable, Identifiable {
     case videoLoop = "VideoLoop"
     case videoLoopWithAudio = "VideoLoop w/Audio"
-    case tvQualityHD = "TV Quality HD"
-    case tvQuality4K = "TV Quality 4K"
+    case tvQualityHD = "TV – HD"
+    case tvQuality4K = "TV – 4K"
     case prores = "ProRes"
     case animatedAVIF = "Animated AVIF"
+    case hevcProxy1080p = "HEVC Proxy"
     
     var id: String { self.rawValue }
     
@@ -21,7 +22,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .videoLoop, .videoLoopWithAudio:
             return "mp4"
-        case .tvQualityHD, .tvQuality4K, .prores:
+        case .tvQualityHD, .tvQuality4K, .prores, .hevcProxy1080p:
             return "mov"
         case .animatedAVIF:
             return "avif"
@@ -46,6 +47,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_PRORES_DESCRIPTION", comment: "Description for ProRes preset")
         case .animatedAVIF:
             return NSLocalizedString("PRESET_ANIMATED_AVIF_DESCRIPTION", comment: "Description for Animated AVIF preset")
+        case .hevcProxy1080p:
+            return NSLocalizedString("PRESET_HEVC_PROXY_DESCRIPTION", comment: "Description for HECV Proxy 1080p preset")
         }
     }
     
@@ -63,6 +66,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_prores"
         case .animatedAVIF:
             return "_avif"
+        case .hevcProxy1080p:
+            return "_proxy_1080p"
         }
     }
     
@@ -85,7 +90,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-profile:v", "main",
                 "-level:v", "4.0",
                 "-an",
-                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)',minterpolate=fps=min(60\\,fps)"
+                "-vf", "yadif=0,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
             
         case .videoLoopWithAudio:
@@ -102,47 +107,67 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-level:v", "4.0",
                 "-c:a", "aac",
                 "-b:a", "192k",
-                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)',minterpolate=fps=min(60\\,fps)"
+                "-vf", "yadif=0,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
             
         case .tvQualityHD:
             return commonArgs + [
-                "-pix_fmt", "yuv422p10le",
-                "-vcodec", "hevc_videotoolbox",
+                "-pix_fmt", "p010le",
+                "-c:v", "hevc_videotoolbox",
                 "-b:v", "18M",
                 "-profile:v", "main10",
-                "-c:a", "pcm",
+                "-tag:v", "hvc1",
+                "-c:a", "pcm_s24le",
+                "-map", "0:v",
                 "-map", "0:a",
                 "-map_metadata", "0",
                 "-map_chapters", "0",
-                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)',minterpolate=fps=min(60\\,fps)"
+                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
             
         case .tvQuality4K:
             return commonArgs + [
-                "-pix_fmt", "yuv422p10le",
-                "-vcodec", "hevc_videotoolbox",
+                "-pix_fmt", "p010le",
+                "-c:v", "hevc_videotoolbox",
                 "-b:v", "60M",
                 "-profile:v", "main10",
-                "-c:a", "pcm",
+                "-tag:v", "hvc1",
+                "-c:a", "pcm_s24le",
+                "-map", "0:v",
                 "-map", "0:a",
                 "-map_metadata", "0",
                 "-map_chapters", "0",
-                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),2160,-2)':h='if(lte(iw,ih),-2,2160)',minterpolate=fps=min(60\\,fps)"
+                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),2160,-2)':h='if(lte(iw,ih),-2,2160)'"
             ]
             
         case .animatedAVIF:
             return commonArgs + [
-                "-pix_fmt", "yuv420p",
+                "-pix_fmt", "p010le",
                 "-vcodec", "libsvtav1",
-                "-crf", "28", "-an",
-                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)',minterpolate=fps=min(60\\,fps)"
+                "-crf", "33", "-an",
+                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),720,-2)':h='if(lte(iw,ih),-2,720)'"
+            ]
+        case .hevcProxy1080p:
+            return commonArgs + [
+                "-pix_fmt", "p010le",
+                "-c:v", "hevc_videotoolbox",
+                "-b:v", "6M",
+                "-profile:v", "main10",
+                "-tag:v", "hvc1",
+                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'",
+                "-map", "0:v",
+                "-c:a", "pcm_s24le",
+                "-map", "0:a",
+                "-map_metadata", "0",
+                "-map_chapters", "0"
             ]
         case .prores:
             return commonArgs + [
                 "-pix_fmt", "yuv422p10le",
                 "-vcodec", "prores_videotoolbox",
-                "-c:a", "pcm",
+                "-profile:v", "standard",
+                "-c:a", "pcm_s24le",
+                "-map", "0:v",
                 "-map", "0:a",
                 "-map_metadata", "0",
                 "-map_chapters", "0"

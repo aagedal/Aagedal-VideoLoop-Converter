@@ -35,7 +35,7 @@ struct SettingsView: View {
                     }
                     .padding(.leading, 8)
                 }
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
                 
                 Text("FFMPEG frontend with focus on creating videoloops: small .mp4-files are intended to loop infinitely and automatically inline on websites. This works as a modern replacement for GIFs.")
                     .font(.body)
@@ -137,7 +137,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 600, height: isPresentedAsSheet ? 650 : 600)
+        .frame(width: 650, height: isPresentedAsSheet ? 600 : 600)
         .navigationTitle("About Aagedal Video Loop Converter")
         .padding(.top, isPresentedAsSheet ? 30 : 0)
     }
