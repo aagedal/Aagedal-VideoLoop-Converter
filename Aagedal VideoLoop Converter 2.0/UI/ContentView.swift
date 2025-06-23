@@ -159,7 +159,7 @@ struct ContentView: View {
                     .frame(width: 150)
                     .disabled(isConverting)
                     .foregroundColor(.primary)
-                    .help("Select export preset for all files.")
+                    .help("Select export preset for all files")
                 }
                 ToolbarItem {
                     Button {
@@ -183,8 +183,7 @@ struct ContentView: View {
                         .progressViewStyle(LinearProgressViewStyle())
                         .frame(height: 6)
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 8)
+                .padding()
             }
         }
         .onAppear {

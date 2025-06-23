@@ -10,7 +10,8 @@ import Foundation
 enum ExportPreset: String, CaseIterable, Identifiable {
     case videoLoop = "VideoLoop"
     case videoLoopWithAudio = "VideoLoop w/Audio"
-    case tvQuality = "TV Quality"
+    case tvQualityHD = "TV Quality HD"
+    case tvQuality4K = "TV Quality 4K"
     case prores = "ProRes"
     case animatedAVIF = "Animated AVIF"
     
@@ -20,7 +21,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .videoLoop, .videoLoopWithAudio:
             return "mp4"
-        case .tvQuality, .prores:
+        case .tvQualityHD, .tvQuality4K, .prores:
             return "mov"
         case .animatedAVIF:
             return "avif"
@@ -34,15 +35,17 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     var description: String {
         switch self {
         case .videoLoop:
-            return "Optimized for seamless video loops without audio. Uses H.264 encoding with high quality settings and no audio track."
+            return NSLocalizedString("PRESET_VIDEO_LOOP_DESCRIPTION", comment: "Description for VideoLoop preset")
         case .videoLoopWithAudio:
-            return "Seamless video loops with audio. Uses H.264 encoding with high quality settings and includes the audio track."
-        case .tvQuality:
-            return "High quality format suitable for TV playback. Uses HEVC (H.265) encoding with 10-bit color depth and PCM audio."
+            return NSLocalizedString("PRESET_VIDEO_LOOP_WITH_AUDIO_DESCRIPTION", comment: "Description for VideoLoop with Audio preset")
+        case .tvQualityHD:
+            return NSLocalizedString("PRESET_TV_QUALITY_HD_DESCRIPTION", comment: "Description for TV Quality HD preset")
+        case .tvQuality4K:
+            return NSLocalizedString("PRESET_TV_QUALITY_4K_DESCRIPTION", comment: "Description for TV Quality 4K preset")
         case .prores:
-            return "Professional editing format with high quality. Uses Apple ProRes 422 HQ codec with 10-bit color depth and PCM audio."
+            return NSLocalizedString("PRESET_PRORES_DESCRIPTION", comment: "Description for ProRes preset")
         case .animatedAVIF:
-            return "Modern, highly efficient image format with animation support. Uses AV1 codec for excellent compression."
+            return NSLocalizedString("PRESET_ANIMATED_AVIF_DESCRIPTION", comment: "Description for Animated AVIF preset")
         }
     }
     
@@ -52,8 +55,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_loop"
         case .videoLoopWithAudio:
             return "_loop_audio"
-        case .tvQuality:
-            return "_tv"    
+        case .tvQualityHD:
+            return "_tv_hd"
+        case .tvQuality4K:
+            return "_tv_4k"
         case .prores:
             return "_prores"
         case .animatedAVIF:
@@ -64,7 +69,6 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     var ffmpegArguments: [String] {
         let commonArgs = [
             "-hide_banner",
-            "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
         ]
         
         switch self {
@@ -80,7 +84,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-bufsize", "18000k",
                 "-profile:v", "main",
                 "-level:v", "4.0",
-                "-an"  // No audio  
+                "-an",
+                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)',minterpolate=fps=min(60\\,fps)"
             ]
             
         case .videoLoopWithAudio:
@@ -96,31 +101,51 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-profile:v", "main",
                 "-level:v", "4.0",
                 "-c:a", "aac",
-                "-b:a", "192k"
+                "-b:a", "192k",
+                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)',minterpolate=fps=min(60\\,fps)"
             ]
             
-        case .tvQuality:
+        case .tvQualityHD:
             return commonArgs + [
                 "-pix_fmt", "yuv422p10le",
                 "-vcodec", "hevc_videotoolbox",
-                "-b:v", "15M",
+                "-b:v", "18M",
                 "-profile:v", "main10",
                 "-c:a", "pcm",
-                "-map", "0:a:0"
+                "-map", "0:a",
+                "-map_metadata", "0",
+                "-map_chapters", "0",
+                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)',minterpolate=fps=min(60\\,fps)"
+            ]
+            
+        case .tvQuality4K:
+            return commonArgs + [
+                "-pix_fmt", "yuv422p10le",
+                "-vcodec", "hevc_videotoolbox",
+                "-b:v", "60M",
+                "-profile:v", "main10",
+                "-c:a", "pcm",
+                "-map", "0:a",
+                "-map_metadata", "0",
+                "-map_chapters", "0",
+                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),2160,-2)':h='if(lte(iw,ih),-2,2160)',minterpolate=fps=min(60\\,fps)"
             ]
             
         case .animatedAVIF:
             return commonArgs + [
                 "-pix_fmt", "yuv420p",
                 "-vcodec", "libsvtav1",
-                "-crf", "28", "-an"
+                "-crf", "28", "-an",
+                "-vf", "yadif=3,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)',minterpolate=fps=min(60\\,fps)"
             ]
         case .prores:
             return commonArgs + [
                 "-pix_fmt", "yuv422p10le",
                 "-vcodec", "prores_videotoolbox",
                 "-c:a", "pcm",
-                "-map", "0:a:0"
+                "-map", "0:a",
+                "-map_metadata", "0",
+                "-map_chapters", "0"
             ]
         }
     }

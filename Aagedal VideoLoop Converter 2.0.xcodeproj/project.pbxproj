@@ -10,8 +10,6 @@
 		8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */ = {isa = PBXBuildFile; fileRef = 8E0CA7A52C34160C00EA7C37 /* ffmpeg */; };
 		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
 		8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */; };
-		8E2C6BB72E059E2400A9379F /* ConversionControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BB62E059E2400A9379F /* ConversionControlsView.swift */; };
-		8E2C6BB82E059ECB00A9379F /* FileNameProcessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BB32E059DE100A9379F /* FileNameProcessorTests.swift */; };
 		8E2C6BBB2E05A0C700A9379F /* Testing in Frameworks */ = {isa = PBXBuildFile; productRef = 8E2C6BBA2E05A0C700A9379F /* Testing */; };
 		8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */; };
 		8E2C6BBF2E084BC200A9379F /* SecurityScopedBookmarkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */; };
@@ -24,6 +22,7 @@
 		8E903F5F2E05642D0075E05C /* FileNameProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E903F5E2E05642D0075E05C /* FileNameProcessor.swift */; };
 		8EE0BB9C2E0892B70096171D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9B2E0892B70096171D /* SettingsView.swift */; };
 		8EE0BB9E2E089F520096171D /* DockProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9D2E089F520096171D /* DockProgressView.swift */; };
+		8EE0BBBC2E0980560096171D /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8EE0BBBB2E0980560096171D /* Localizable.xcstrings */; };
 		8EE6EE9A2C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */; };
 		8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9B2C31FC6B007B629D /* ContentView.swift */; };
 		8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */; };
@@ -55,8 +54,6 @@
 		8E0CA7A52C34160C00EA7C37 /* ffmpeg */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffmpeg; sourceTree = "<group>"; };
 		8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsingUtils.swift; sourceTree = "<group>"; };
 		8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
-		8E2C6BB32E059DE100A9379F /* FileNameProcessorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameProcessorTests.swift; sourceTree = "<group>"; };
-		8E2C6BB62E059E2400A9379F /* ConversionControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionControlsView.swift; sourceTree = "<group>"; };
 		8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileRowView.swift; sourceTree = "<group>"; };
 		8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopedBookmarkManager.swift; sourceTree = "<group>"; };
 		8E545D822C33FD4A0088C274 /* DragAndDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragAndDropView.swift; sourceTree = "<group>"; };
@@ -68,6 +65,7 @@
 		8E903F5E2E05642D0075E05C /* FileNameProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameProcessor.swift; sourceTree = "<group>"; };
 		8EE0BB9B2E0892B70096171D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8EE0BB9D2E089F520096171D /* DockProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockProgressView.swift; sourceTree = "<group>"; };
+		8EE0BBBB2E0980560096171D /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8EE6EE962C31FC6B007B629D /* Aagedal VideoLoop Converter 2.0.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Aagedal VideoLoop Converter 2.0.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_VideoLoop_Converter_2_0App.swift; sourceTree = "<group>"; };
 		8EE6EE9B2C31FC6B007B629D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -127,7 +125,6 @@
 		8E0CA7A82C3416EF00EA7C37 /* UI */ = {
 			isa = PBXGroup;
 			children = (
-				8E2C6BB62E059E2400A9379F /* ConversionControlsView.swift */,
 				8EE0BB9B2E0892B70096171D /* SettingsView.swift */,
 				8E545D882C34030C0088C274 /* VideoFileListView.swift */,
 				8EE0BB9D2E089F520096171D /* DockProgressView.swift */,
@@ -160,12 +157,13 @@
 			path = Utils;
 			sourceTree = "<group>";
 		};
-		8E2C6BB42E059DE100A9379F /* Tests */ = {
+		8EE0BBB92E0980090096171D /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				8E2C6BB32E059DE100A9379F /* FileNameProcessorTests.swift */,
+				8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */,
+				8EE0BBBB2E0980560096171D /* Localizable.xcstrings */,
 			);
-			path = Tests;
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		8EE6EE8D2C31FC6B007B629D = {
@@ -192,15 +190,14 @@
 			isa = PBXGroup;
 			children = (
 				8EF6370F2E086024001F2A90 /* Aagedal_VideoLoop_Converter_2_0.entitlements */,
-				8E2C6BB42E059DE100A9379F /* Tests */,
 				8E0CA7A92C34171300EA7C37 /* Logic */,
 				8E2C6BAE2E059AFC00A9379F /* Utils */,
 				8E0CA7A82C3416EF00EA7C37 /* UI */,
 				8E0CA7A72C3416C800EA7C37 /* Sounds */,
 				8E0CA7A62C3416BD00EA7C37 /* Binaries */,
 				8EE6EE992C31FC6B007B629D /* Aagedal_VideoLoop_Converter_2_0App.swift */,
-				8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */,
 				8EE6EEA12C31FC6F007B629D /* Preview Content */,
+				8EE0BBB92E0980090096171D /* Resources */,
 			);
 			path = "Aagedal VideoLoop Converter 2.0";
 			sourceTree = "<group>";
@@ -316,6 +313,7 @@
 			knownRegions = (
 				en,
 				Base,
+				nb,
 			);
 			mainGroup = 8EE6EE8D2C31FC6B007B629D;
 			packageReferences = (
@@ -338,6 +336,7 @@
 			files = (
 				8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */,
 				8EE6EEA32C31FC6F007B629D /* Preview Assets.xcassets in Resources */,
+				8EE0BBBC2E0980560096171D /* Localizable.xcstrings in Resources */,
 				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -369,7 +368,6 @@
 				8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */,
 				8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */,
 				8E2C6BBF2E084BC200A9379F /* SecurityScopedBookmarkManager.swift in Sources */,
-				8E2C6BB72E059E2400A9379F /* ConversionControlsView.swift in Sources */,
 				8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */,
 				8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */,
 				8E903F5F2E05642D0075E05C /* FileNameProcessor.swift in Sources */,
@@ -386,7 +384,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8E2C6BB82E059ECB00A9379F /* FileNameProcessorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -478,6 +475,7 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_COMPILATION_MODE = singlefile;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE = YES;
@@ -549,6 +547,7 @@
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE = YES;
 				SWIFT_UPCOMING_FEATURE_DEPRECATE_APPLICATION_MAIN = YES;
@@ -592,7 +591,7 @@
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Aagedal Video Converter";
+				INFOPLIST_KEY_CFBundleDisplayName = "Aagedal VideoLoop Converter";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -628,7 +627,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Aagedal Video Converter";
+				INFOPLIST_KEY_CFBundleDisplayName = "Aagedal VideoLoop Converter";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -15,7 +15,6 @@ struct SettingsView: View {
         Form {
             // App Info Section
             Section {
-                Text("About").font(.headline)
                 HStack {
                     if let appIcon = NSImage(named: "AppIcon") {
                         Image(nsImage: appIcon)
@@ -138,9 +137,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 600, height: 620)
-        .padding()
-        .navigationTitle("Settings")
+        .frame(width: 600, height: isPresentedAsSheet ? 650 : 600)
+        .navigationTitle("About Aagedal Video Loop Converter")
+        .padding(.top, isPresentedAsSheet ? 30 : 0)
     }
 }
 
