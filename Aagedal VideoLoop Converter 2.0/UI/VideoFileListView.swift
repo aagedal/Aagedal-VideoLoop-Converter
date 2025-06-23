@@ -25,7 +25,7 @@ struct VideoFileListView: View {
             if droppedFiles.isEmpty {
                 // Empty state with drag and drop instructions
                 VStack {
-                    Image(systemName: "arrow.down.doc")
+                    Image(systemName: "film.stack")
                         .font(.system(size: 40))
                         .foregroundColor(.secondary)
                         .padding()

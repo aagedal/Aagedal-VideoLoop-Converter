@@ -2,7 +2,14 @@ import SwiftUI
 import AppKit
 
 struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    let isPresentedAsSheet: Bool
+    
+    init(isPresentedAsSheet: Bool = false) {
+        self.isPresentedAsSheet = isPresentedAsSheet
+    }
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path
+    @State private var selectedPreset: ExportPreset = .videoLoop
     
     var body: some View {
         Form {
@@ -31,11 +38,11 @@ struct SettingsView: View {
                 }
                 .padding(.vertical, 8)
                 
-                Text("A simple tool to convert videos into seamless loops.")
+                Text("FFMPEG frontend with focus on creating videoloops: small .mp4-files are intended to loop infinitely and automatically inline on websites. This works as a modern replacement for GIFs.")
                     .font(.body)
                     .padding(.bottom, 8)
                 
-                Divider()
+                // Divider()
                 
                 // Output Folder
                 VStack(alignment: .leading, spacing: 4) {
@@ -68,18 +75,72 @@ struct SettingsView: View {
                 .padding(.vertical, 4)
             }
             
+            // Preset Information Section
+            Section(header: Text("Preset Information")) {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Segmented Control for Preset Selection
+                    Picker("Preset", selection: $selectedPreset) {
+                        ForEach(ExportPreset.allCases) { preset in
+                            Text(preset.displayName).tag(preset)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(.bottom, 8)
+                    
+                    // Preset Description
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(selectedPreset.displayName)
+                            .font(.headline)
+                        
+                        Text(selectedPreset.description)
+                            .font(.body)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding()
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                    .cornerRadius(8)
+                }
+                .padding(.vertical, 8)
+            }
+            
             // Links Section
             Section {
-                HStack {
+                HStack(spacing: 20) {
+                    // Left-aligned Close button (only shown in sheet)
+                    if isPresentedAsSheet {
+                        Button(action: { dismiss() }) {
+                            Text("Close")
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.cancelAction)
+                    } else {
+                        // Spacer to push content to the right when not in sheet mode
+                        Spacer()
+                    }
+                    
                     Spacer()
-                    Link("Visit Developer Website", destination: URL(string: "https://aagedal.me")!)
-                    Spacer()
+                    // Right-aligned links
+                    HStack(spacing: 20) {
+                        Link("GitHub Project", destination: URL(string: "https://github.com/yourusername/Aagedal-VideoLoop-Converter-2.0")!)
+                            .foregroundColor(.blue)
+                            .buttonStyle(.plain)
+                        
+                        Link("Developer Website", destination: URL(string: "https://aagedal.me")!)
+                            .foregroundColor(.blue)
+                            .buttonStyle(.plain)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.horizontal, 8)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 400)
+        .frame(width: 600, height: 620)
         .padding()
+        .navigationTitle("Settings")
     }
 }
 

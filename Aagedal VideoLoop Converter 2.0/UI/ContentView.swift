@@ -30,6 +30,7 @@ struct ContentView: View {
     @State private var selectedPreset: ExportPreset = .videoLoop
     @State private var dockProgressUpdater = DockProgressUpdater()
     @State private var progressTask: Task<Void, Never>?
+    @State private var isShowingSettings = false
     
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
@@ -160,6 +161,16 @@ struct ContentView: View {
                     .foregroundColor(.primary)
                     .help("Select export preset for all files.")
                 }
+                ToolbarItem {
+                    Button {
+                        isShowingSettings = true
+                    } label: {
+                        Image(systemName: "info.circle").foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Application Settings")
+
+                }
             }
             
             // Overall progress bar
@@ -180,7 +191,12 @@ struct ContentView: View {
             Task {
                 isConverting = await ConversionManager.shared.isConvertingStatus()
             }
-        }.frame(minWidth: 500, minHeight: 300)
+        }
+        .frame(minWidth: 500, minHeight: 300)
+        .sheet(isPresented: $isShowingSettings) {
+            SettingsView(isPresentedAsSheet: true)
+                .frame(width: 600, height: 600)
+        }
     }
 
     // Helper function for folder selection

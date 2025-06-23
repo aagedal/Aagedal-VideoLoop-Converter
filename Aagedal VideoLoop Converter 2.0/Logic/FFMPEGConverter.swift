@@ -31,6 +31,21 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         return self.rawValue
     }
     
+    var description: String {
+        switch self {
+        case .videoLoop:
+            return "Optimized for seamless video loops without audio. Uses H.264 encoding with high quality settings and no audio track."
+        case .videoLoopWithAudio:
+            return "Seamless video loops with audio. Uses H.264 encoding with high quality settings and includes the audio track."
+        case .tvQuality:
+            return "High quality format suitable for TV playback. Uses HEVC (H.265) encoding with 10-bit color depth and PCM audio."
+        case .prores:
+            return "Professional editing format with high quality. Uses Apple ProRes 422 HQ codec with 10-bit color depth and PCM audio."
+        case .animatedAVIF:
+            return "Modern, highly efficient image format with animation support. Uses AV1 codec for excellent compression."
+        }
+    }
+    
     var fileSuffix: String {
         switch self {
         case .videoLoop:
