@@ -9,6 +9,11 @@ struct VideoFileRowView: View {
     let onDelete: () -> Void
     let onReset: () -> Void
     
+    // Show yellow warning icon when VideoLoop preset is used on clips longer than 15 s
+    private var showDurationWarning: Bool {
+        (preset == .videoLoop || preset == .videoLoopWithAudio) && file.durationSeconds > 15
+    }
+    
     var body: some View {
         ZStack {
             Rectangle()
@@ -46,6 +51,7 @@ struct VideoFileRowView: View {
                     HStack {
                         Text(file.name)
                             .font(.headline)
+                        // Duration warning icon
                         Text("→")
                         HStack(spacing: 4) {
                             Text(generateOutputFilename(from: file.name))
@@ -88,6 +94,11 @@ struct VideoFileRowView: View {
                         Text("Duration: \(file.duration)")
                             .font(.subheadline)
                             .foregroundColor(.gray)
+                        if showDurationWarning {
+                            Image(systemName: "exclamationmark.triangle.fill").font(.subheadline)
+                                .foregroundColor(.yellow)
+                                .help("Duration exceeds 15 seconds. VideoLoops are best suited for shorter videos.")
+                        }
                         
                         Text("•")
                             .foregroundColor(.gray)
