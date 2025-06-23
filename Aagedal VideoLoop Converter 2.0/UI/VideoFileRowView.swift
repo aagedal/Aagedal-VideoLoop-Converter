@@ -115,8 +115,8 @@ struct VideoFileRowView: View {
                                 .help("Cancel conversion")
                             } else {
                                 Button(action: onDelete) {
-                                    Image(systemName: "trash")
-                                        .foregroundColor(.orange)
+                                    Image(systemName: "delete.backward")
+                                        .foregroundColor(.red)
                                 }
                                 .buttonStyle(BorderlessButtonStyle())
                                 .disabled(file.status == .converting) // Disable delete during conversion
@@ -126,10 +126,11 @@ struct VideoFileRowView: View {
                             // Reset button
                             Button(action: onReset) {
                                 Image(systemName: "arrow.counterclockwise")
-                                    .foregroundColor(.blue)
+                                    .foregroundStyle(file.status == .converting || file.status == .waiting ? .gray : .blue)
                             }
                             .buttonStyle(BorderlessButtonStyle())
                             .help("Reset conversion")
+                            .disabled(file.status == .converting || file.status == .waiting)
                         }
                     }
                 }

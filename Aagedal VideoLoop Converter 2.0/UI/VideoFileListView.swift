@@ -233,6 +233,26 @@ struct VideoFileListView_Previews: PreviewProvider {
                     status: .waiting,
                     progress: 0.0,
                     eta: nil
+                ),
+                VideoItem(
+                    url: URL(fileURLWithPath: "/tmp/SampleVideo2.mp4"),
+                    name: "SampleVideo2.mp4",
+                    size: 1048576,
+                    duration: "00:01:30",
+                    thumbnailData: nil,
+                    status: .done,
+                    progress: 0.0,
+                    eta: nil
+                ),
+                VideoItem(
+                    url: URL(fileURLWithPath: "/tmp/SampleVideo3.mp4"),
+                    name: "SampleVideo.mp4",
+                    size: 1048576,
+                    duration: "00:05:30",
+                    thumbnailData: nil,
+                    status: .cancelled,
+                    progress: 0.0,
+                    eta: nil
                 )
             ]),
             currentProgress: .constant(0.5),
