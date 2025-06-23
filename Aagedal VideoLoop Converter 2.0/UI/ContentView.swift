@@ -65,6 +65,38 @@ struct ContentView: View {
                 await startProgressUpdates()
             }
             .toolbar {
+                // Convert/Cancel Button
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        Task { @MainActor in
+                            // Determine current conversion state from manager to stay in sync
+                            let currentlyConverting = await ConversionManager.shared.isConvertingStatus()
+                            isConverting = currentlyConverting
+                            if currentlyConverting {
+                                // Cancel ongoing conversions
+                                await cancelConversion()
+                            } else {
+                                // Start new conversions
+                                await startConversion()
+                            }
+                        }
+                    } label: {
+                        if isConverting {
+                            Image(systemName: "xmark.circle")
+                                .foregroundStyle(.red)
+                        } else {
+                            Image(systemName: "play.circle")
+                                .foregroundStyle(droppedFiles.isEmpty ? .gray : .green)
+                        }
+                    }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(droppedFiles.isEmpty)
+                    .help(droppedFiles.isEmpty ? 
+                          "Add files to begin conversion" : 
+                          (isConverting ? "Cancel all conversions" : "Start converting all files"))
+                }
+                
+                
                 // Import button
                 ToolbarItem(placement: .automatic) {
                     Button(action: { isFileImporterPresented = true }) {
@@ -109,6 +141,7 @@ struct ContentView: View {
                         dockProgressUpdater.reset()
                     } label: {
                         Label("Clear", systemImage: "trash")
+                            .foregroundStyle((droppedFiles.isEmpty || isConverting) ? Color.gray : Color.red)
                     }
                     .help("Remove all files from the list")
                     .disabled(droppedFiles.isEmpty || isConverting)
@@ -125,36 +158,7 @@ struct ContentView: View {
                     .frame(width: 150)
                     .disabled(isConverting)
                     .foregroundColor(.primary)
-                }
-                
-                // Convert/Cancel Button
-                ToolbarItem(placement: .automatic) {
-                    Button {
-                        Task { @MainActor in
-                            // Determine current conversion state from manager to stay in sync
-                            let currentlyConverting = await ConversionManager.shared.isConvertingStatus()
-                            isConverting = currentlyConverting
-                            if currentlyConverting {
-                                // Cancel ongoing conversions
-                                await cancelConversion()
-                            } else {
-                                // Start new conversions
-                                await startConversion()
-                            }
-                        }
-                    } label: {
-                        if isConverting {
-                            Image(systemName: "xmark.circle").foregroundStyle(.red)
-                            Text("Cancel")
-                                .foregroundColor(.red)
-                        } else {
-                            Image(systemName: "play.circle").foregroundStyle(.green)
-                            Text("Convert")
-                                .foregroundColor(.green)
-                        }
-                    }
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(droppedFiles.isEmpty)
+                    .help("Select export preset for all files.")
                 }
             }
             
@@ -238,6 +242,10 @@ struct ContentView: View {
                 await MainActor.run {
                     overallProgress = progress
                     dockProgressUpdater.updateProgress(progress)
+                    // Automatically reset converting state when done
+                    if progress >= 1.0 {
+                        isConverting = false
+                    }
                 }
             }
         }
@@ -254,10 +262,7 @@ struct ContentView: View {
                 preset: selectedPreset
             )
         
-        // Reset UI state
-        isConverting = false
-        // Reset dock progress to 100% and then hide it
-        dockProgressUpdater.updateProgress(1.0)
+
     }
     
     private func cancelConversion() async {
@@ -271,6 +276,6 @@ struct ContentView: View {
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
-            .frame(width: 800, height: 600)
+            .frame(minWidth: 800, minHeight: 400)
     }
 }

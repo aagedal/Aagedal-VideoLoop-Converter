@@ -42,15 +42,21 @@ struct ParsingUtils {
                 let seconds = Double(output[secondsRange]) ?? 0
                 let milliseconds = Double(output[millisecondsRange]) ?? 0
                 let currentTime = hours * 3600 + minutes * 60 + seconds + milliseconds / 100
-                let progress = currentTime / totalDuration
+                var progress = currentTime / totalDuration
+                // Clamp to valid range
+                progress = min(max(progress, 0.0), 1.0)
                 
-                // Calculate ETA
-                let elapsedTime = currentTime
-                let remainingTime = totalDuration - elapsedTime
-                let eta = remainingTime / progress
-                let etaString = String(format: "%02d:%02d:%02d", Int(eta) / 3600, (Int(eta) % 3600) / 60, Int(eta) % 60)
+                // Compute ETA safely only when progress > 0
+                var etaString: String? = nil
+                if progress > 0 {
+                    let remainingTime = max(totalDuration - currentTime, 0)
+                    let eta = remainingTime / progress
+                    if eta.isFinite {
+                        etaString = String(format: "%02d:%02d:%02d", Int(eta) / 3600, (Int(eta) % 3600) / 60, Int(eta) % 60)
+                    }
+                }
                 
-                print("Current Time: \(currentTime), Total Duration: \(totalDuration), Progress: \(progress), ETA: \(etaString)")
+                print("Current Time: \(currentTime), Total Duration: \(totalDuration), Progress: \(progress), ETA: \(etaString ?? "n/a")")
                 
                 return (progress, etaString)
             } else {

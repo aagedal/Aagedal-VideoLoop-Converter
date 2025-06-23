@@ -150,8 +150,11 @@ actor ConversionManager: Sendable {
         ) { success in
             Task { @MainActor in
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
-                    droppedFiles.wrappedValue[idx].status = success ? .done : .failed
-                    droppedFiles.wrappedValue[idx].progress = success ? 1.0 : 0
+                    // If user previously cancelled this item, keep it as .cancelled
+                    if droppedFiles.wrappedValue[idx].status != .cancelled {
+                        droppedFiles.wrappedValue[idx].status = success ? .done : .failed
+                        droppedFiles.wrappedValue[idx].progress = success ? 1.0 : 0
+                    }
                     
                     // Update the output URL in the video item
                     if success {
@@ -192,21 +195,24 @@ actor ConversionManager: Sendable {
             await ffmpegConverter.cancelConversion()
             currentProcess = nil
             droppedFiles.wrappedValue[idx].status = .cancelled
+        #if DEBUG
+        print("Item \(droppedFiles.wrappedValue[idx].name) cancelled (was converting).")
+        #endif
             droppedFiles.wrappedValue[idx].progress = 0.0
             
-            // Re-compute progress and continue queue
+            // Re-compute overall progress; the existing convertNextFile call in the
+            // original conversion's completion handler will continue the queue, so
+            // we must NOT start a new one here to avoid parallel encodes.
             await updateOverallProgress(droppedFiles: droppedFiles)
-            if isConverting {
-                await convertNextFile(droppedFiles: droppedFiles,
-                                       outputFolder: currentOutputFolder ?? "",
-                                       preset: currentPreset)
-            }
             return
         }
         
         // If the item is still waiting, simply mark as cancelled
         if let waitingIdx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == id && $0.status == .waiting }) {
             droppedFiles.wrappedValue[waitingIdx].status = .cancelled
+            #if DEBUG
+            print("Item \(droppedFiles.wrappedValue[waitingIdx].name) cancelled (was waiting).")
+            #endif
             await updateOverallProgress(droppedFiles: droppedFiles)
         }
     }
@@ -224,18 +230,63 @@ actor ConversionManager: Sendable {
         stopProgressTimer()
     }
     
+    // Convert duration string ("hh:mm:ss" or "mm:ss" or "ss") to seconds
+    private func timeStringToSeconds(_ str: String) -> Double {
+        let components = str.split(separator: ":").map { Double($0) ?? 0 }
+        switch components.count {
+        case 3:
+            return components[0] * 3600 + components[1] * 60 + components[2]
+        case 2:
+            return components[0] * 60 + components[1]
+        case 1:
+            return components[0]
+        default:
+            return 0
+        }
+    }
+    
     private func updateOverallProgress(droppedFiles: Binding<[VideoItem]>) async {
+        #if DEBUG
+        print("=== updateOverallProgress called ===")
+        #endif
         let files = droppedFiles.wrappedValue
-        guard !files.isEmpty else {
+        
+        // Filter out cancelled items
+        #if DEBUG
+        print("Files: \(files.map{($0.name, $0.status, $0.durationSeconds, $0.progress)})")
+        #endif
+        let activeFiles = files.filter { $0.status != .cancelled && $0.status != .failed }
+        
+        guard !activeFiles.isEmpty else {
             progressContinuation?.yield(0.0)
             return
         }
         
-        let totalProgress = files.reduce(0.0) { result, file in
-            return result + (file.status == .done ? 1.0 : file.progress)
+        // Total duration of active files (seconds)
+        let totalDuration = activeFiles.reduce(0.0) { sum, file in
+            return sum + file.durationSeconds
+        }
+        guard totalDuration > 0 else {
+            progressContinuation?.yield(0.0)
+            return
         }
         
-        let progress = min(max(totalProgress / Double(files.count), 0.0), 1.0)
+        // Completed duration so far (seconds)
+        let completedDuration = activeFiles.reduce(0.0) { sum, file in
+            let durSec = file.durationSeconds
+            switch file.status {
+            case .done:
+                return sum + durSec
+            case .converting:
+                return sum + durSec * file.progress
+            default:
+                return sum
+            }
+        }
+        let progress = min(max(completedDuration / totalDuration, 0.0), 1.0)
+        #if DEBUG
+        print("totalDuration: \(totalDuration) s, completedDuration: \(completedDuration) s, overallProgress: \(progress * 100)%")
+        #endif
         progressContinuation?.yield(progress)
     }
 }

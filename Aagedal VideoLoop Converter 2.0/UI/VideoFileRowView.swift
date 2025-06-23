@@ -50,7 +50,7 @@ struct VideoFileRowView: View {
                         HStack(spacing: 4) {
                             Text(generateOutputFilename(from: file.name))
                                 .font(.headline)
-                                .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .secondary)
+                                .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .primary)
                             
                             if file.status == .waiting && file.outputFileExists, let outputURL = file.outputURL {
                                 Button(action: {
@@ -65,11 +65,11 @@ struct VideoFileRowView: View {
                             
                             if file.status == .done, let outputURL = file.outputURL {
                                 Button(action: {
-                                    NSWorkspace.shared.open(outputURL)
+                                    NSWorkspace.shared.activateFileViewerSelecting([outputURL])
                                 }) {
-                                    Image(systemName: "arrow.forward.circle.fill")
+                                    Image(systemName: "magnifyingglass.circle.fill")
                                         .foregroundColor(.blue)
-                                        .help("Open File")
+                                        .help("Show in Finder")
                                 }
                                 .buttonStyle(BorderlessButtonStyle())
                             }

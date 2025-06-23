@@ -172,16 +172,16 @@ actor FFMPEGConverter {
         
         print("FFmpeg command: \(ffmpegPath) \(arguments.joined(separator: " "))")
 
-        let outputPipe = Pipe()
+        // Only process stderr as that's where FFMPEG sends its progress updates
         let errorPipe = Pipe()
-        process.standardOutput = outputPipe
         process.standardError = errorPipe
+        process.standardOutput = Pipe() // Still need to capture stdout to prevent hanging
 
         let totalDurationBox = DurationBox()
-        let outputReadabilityHandler: @Sendable (FileHandle) -> Void = { fileHandle in
+        let errorReadabilityHandler: @Sendable (FileHandle) -> Void = { fileHandle in
             let data = fileHandle.availableData
-            if let output = String(data: data, encoding: .utf8) {
-                print("Raw FFMPEG output: \(output)")
+            if let output = String(data: data, encoding: .utf8), !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Process the output through our handler
                 let (newTotalDuration, _) = Self.handleFFMPEGOutput(output, totalDuration: totalDurationBox.value, progressUpdate: progressUpdate)
                 if let newTotalDuration = newTotalDuration {
                     totalDurationBox.value = newTotalDuration
@@ -189,8 +189,7 @@ actor FFMPEGConverter {
             }
         }
 
-        outputPipe.fileHandleForReading.readabilityHandler = outputReadabilityHandler
-        errorPipe.fileHandleForReading.readabilityHandler = outputReadabilityHandler
+        errorPipe.fileHandleForReading.readabilityHandler = errorReadabilityHandler
 
         process.terminationHandler = { [weak self] _ in
             Task { [weak self] in

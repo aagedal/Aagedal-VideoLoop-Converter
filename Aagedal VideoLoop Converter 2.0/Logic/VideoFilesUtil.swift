@@ -19,7 +19,10 @@ struct VideoFileUtils: Sendable {
         
         let name = url.lastPathComponent
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-        let duration = await getVideoDuration(url: url)
+        let asset = AVURLAsset(url: url)
+        let cmDuration = try? await asset.load(.duration)
+        let durationSec = CMTimeGetSeconds(cmDuration ?? CMTime.zero)
+        let durationString = formatDuration(seconds: durationSec)
         let thumbnailData = await getVideoThumbnail(url: url)
         
         // Generate output URL if output folder is provided
@@ -34,7 +37,8 @@ struct VideoFileUtils: Sendable {
             url: url,
             name: name,
             size: size,
-            duration: duration,
+            duration: durationString,
+            durationSeconds: durationSec,
             thumbnailData: thumbnailData,
             status: .waiting,
             progress: 0.0,
@@ -42,6 +46,20 @@ struct VideoFileUtils: Sendable {
             outputURL: outputURL
         )
     }
+    // utility to format seconds into hh:mm:ss or mm:ss
+    private static func formatDuration(seconds: Double) -> String {
+        let totalSeconds = Int(seconds)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%02d:%02d:%02d", hours, minutes, secs)
+        } else {
+            return String(format: "%02d:%02d", minutes, secs)
+        }
+    }
+    
+    @available(macOS 13.0, *)
     static func getVideoDuration(url: URL) async -> String {
         let asset = AVURLAsset(url: url)
         
@@ -116,6 +134,7 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var name: String
     var size: Int64
     var duration: String
+    var durationSeconds: Double = 0.0
     var thumbnailData: Data?
     var status: ConversionManager.ConversionStatus
     var progress: Double
