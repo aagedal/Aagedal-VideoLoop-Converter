@@ -67,6 +67,9 @@
         }
       }
     },
+    "Add ${video} to the encode queue" : {
+
+    },
     "Add files to begin conversion" : {
       "localizations" : {
         "en" : {
@@ -82,6 +85,15 @@
           }
         }
       }
+    },
+    "Add the selected video file to the Aagedal VideoLoop Converter queue." : {
+
+    },
+    "Add the selected video file to the queue, set the output folder to the same directory, and start conversion." : {
+
+    },
+    "Add to Encode Queue" : {
+
     },
     "Application Settings" : {
       "localizations" : {
@@ -194,6 +206,12 @@
           }
         }
       }
+    },
+    "Convert ${video} immediately" : {
+
+    },
+    "Convert Video Immediately" : {
+
     },
     "Default Output Folder:" : {
       "localizations" : {
@@ -745,6 +763,9 @@
           }
         }
       }
+    },
+    "Video File" : {
+
     }
   },
   "version" : "1.0"

@@ -212,6 +212,50 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showFileImporter)) { _ in
             isFileImporterPresented = true
         }
+        // Listen for App Intent to enqueue file
+        .onReceive(NotificationCenter.default.publisher(for: .enqueueFileURL)) { notification in
+            guard let url = notification.object as? URL else { return }
+            Task {
+                if let videoItem = await VideoFileUtils.createVideoItem(
+                    from: url,
+                    outputFolder: outputFolder,
+                    preset: selectedPreset
+                ) {
+                    await MainActor.run {
+                        if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
+                            droppedFiles.append(videoItem)
+                        }
+                    }
+                }
+            }
+        }
+        // Handle ConvertImmediatelyIntent
+        .onReceive(NotificationCenter.default.publisher(for: .convertImmediately)) { notification in
+            guard let info = notification.userInfo,
+                  let fileURL = info["fileURL"] as? URL,
+                  let folderURL = info["outputFolderURL"] as? URL else { return }
+
+            Task {
+                // Update output folder to match source directory
+                await MainActor.run {
+                    currentOutputFolder = folderURL
+                    outputFolder = folderURL.path
+                }
+
+                if let videoItem = await VideoFileUtils.createVideoItem(
+                    from: fileURL,
+                    outputFolder: folderURL.path,
+                    preset: selectedPreset
+                ) {
+                    await MainActor.run {
+                        if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
+                            droppedFiles.append(videoItem)
+                        }
+                    }
+                    await startConversion()
+                }
+            }
+        }
     }
 
     // Helper function for folder selection

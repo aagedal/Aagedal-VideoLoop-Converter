@@ -15,7 +15,7 @@ A lightweight macOS application for converting video files into formats that **l
   • ProRes (editing)  
   • Animated AVIF  
   • HEVC Proxy 1080 p
-- Automatic duration warning if a VideoLoop clip exceeds 15 s (may not autoplay)
+- Automatic duration warning if a VideoLoop clip exceeds 15s (short videos are best for auto-playing and looping on webpages)
 - Sandboxed with Security-Scoped Bookmarks for persistent file access
 - Localised string catalogs (/)
 

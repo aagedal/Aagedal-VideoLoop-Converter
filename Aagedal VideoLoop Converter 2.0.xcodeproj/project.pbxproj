@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		8E0C32C82E09E58F00F22B21 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 8E0C32C72E09E58F00F22B21 /* LICENSE */; };
+		8E0C32CB2E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */; };
+		8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */; };
 		8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */ = {isa = PBXBuildFile; fileRef = 8E0CA7A52C34160C00EA7C37 /* ffmpeg */; };
 		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
 		8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */; };
@@ -53,6 +55,8 @@
 
 /* Begin PBXFileReference section */
 		8E0C32C72E09E58F00F22B21 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToEncodeQueueIntent.swift; sourceTree = "<group>"; };
+		8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvertImmediatelyIntent.swift; sourceTree = "<group>"; };
 		8E0CA7A32C34160C00EA7C37 /* done.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = done.mp3; sourceTree = "<group>"; };
 		8E0CA7A42C34160C00EA7C37 /* error.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = error.mp3; sourceTree = "<group>"; };
 		8E0CA7A52C34160C00EA7C37 /* ffmpeg */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffmpeg; sourceTree = "<group>"; };
@@ -111,6 +115,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		8E0C32CA2E09EC3B00F22B21 /* AppIntents */ = {
+			isa = PBXGroup;
+			children = (
+				8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */,
+				8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */,
+			);
+			path = AppIntents;
+			sourceTree = "<group>";
+		};
 		8E0CA7A62C3416BD00EA7C37 /* Binaries */ = {
 			isa = PBXGroup;
 			children = (
@@ -207,6 +220,7 @@
 				8EE0BBB92E0980090096171D /* Resources */,
 				8E2CA2A32E09A9F8008D93F1 /* ToDo.md */,
 				8E0C32C72E09E58F00F22B21 /* LICENSE */,
+				8E0C32CA2E09EC3B00F22B21 /* AppIntents */,
 			);
 			path = "Aagedal VideoLoop Converter 2.0";
 			sourceTree = "<group>";
@@ -382,7 +396,9 @@
 				8E2C6BBF2E084BC200A9379F /* SecurityScopedBookmarkManager.swift in Sources */,
 				8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */,
 				8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */,
+				8E0C32CB2E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift in Sources */,
 				8E903F5F2E05642D0075E05C /* FileNameProcessor.swift in Sources */,
+				8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */,
 				8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */,
 				8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */,
 				8E545D832C33FD4A0088C274 /* DragAndDropView.swift in Sources */,
