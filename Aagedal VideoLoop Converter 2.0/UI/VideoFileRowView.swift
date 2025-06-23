@@ -92,7 +92,7 @@ struct VideoFileRowView: View {
                         Text("•")
                             .foregroundColor(.gray)
                         
-                        Text("Size: \(file.size / 1024) KB")
+                        Text("Input Size: \(file.formattedSize)")
                             .font(.subheadline)
                             .foregroundColor(.gray)
                         

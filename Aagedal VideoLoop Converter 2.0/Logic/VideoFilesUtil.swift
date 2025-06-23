@@ -141,6 +141,22 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var eta: String?
     var outputURL: URL?
     
+    /// Human-readable file size string (<1 MB ⇒ KB, 1–600 MB ⇒ MB, ≥600 MB ⇒ GB)
+    var formattedSize: String {
+        let bytes = Double(size)
+        let kb = 1024.0
+        let mb = kb * 1024
+        let gb = mb * 1024
+        
+        if bytes < mb {
+            return String(format: "%.0f KB", bytes / kb)
+        } else if bytes < 600 * mb {
+            return String(format: "%.1f MB", bytes / mb)
+        } else {
+            return String(format: "%.1f GB", bytes / gb)
+        }
+    }
+    
     var outputFileExists: Bool {
         guard let outputURL = outputURL else { return false }
         return FileManager.default.fileExists(atPath: outputURL.path)
