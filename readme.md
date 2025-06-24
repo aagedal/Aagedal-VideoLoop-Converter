@@ -5,6 +5,7 @@ A lightweight macOS application for converting video files into formats that **l
 Note that most of this version of the app is vibe-coded.
 
 <img width="940" alt="SCR-20250624-sxdp-2" src="https://github.com/user-attachments/assets/9e5de672-1881-482b-aada-3ea7d2194d21" />
+<img width="981" alt="SCR-20250624-syba" src="https://github.com/user-attachments/assets/1219abd7-445c-493e-a95e-ffa3bb229c11" />
 
 ---
 
@@ -32,8 +33,6 @@ Note that most of this version of the app is vibe-coded.
 |----------------|---------|
 | macOS          | 15.0 (Sonoma) |
 | Hardware       | Apple Silicon (M1 or later) |
-
----<img width="940" alt="SCR-20250624-sxdp" src="https://github.com/user-attachments/assets/c9fc0ab5-bab5-4669-8cf7-446a18c84d1f" />
 
 
 ## Building & Running
