@@ -94,6 +94,7 @@ This is a sparetime project, and I don't know when I will update it.
 7. Make it possible to install this app using Homebrew cask.
 8. New preset for Animated JPEG XL? Animated AVIF will likely remain better, but this could be an interesting addition.
 9. Update the preset UI, to be more usable with more presets.
+10. Add ability to reorder list, and the ability to shift select multiple list items for deletion or resetting of status.
 
 
 ### Unlikely to be implemented
