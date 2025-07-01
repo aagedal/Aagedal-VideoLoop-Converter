@@ -22,7 +22,6 @@ Note that most of this version of the app is vibe-coded.
   • HEVC Proxy 1080 p
 - Automatic duration warning if a VideoLoop clip exceeds 15s (short videos are best for auto-playing and looping on webpages)
 - Sandboxed with Security-Scoped Bookmarks for persistent file access
-- Localised string catalogs (/)
 - Language support: English and Norwegian
 
 ---
