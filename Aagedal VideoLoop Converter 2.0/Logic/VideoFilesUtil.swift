@@ -9,6 +9,7 @@
 
 import AVFoundation
 import Cocoa
+import OSLog
 
 struct VideoFileUtils: Sendable {
     static func isVideoFile(url: URL) -> Bool {
@@ -21,9 +22,34 @@ struct VideoFileUtils: Sendable {
         
         let name = url.lastPathComponent
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-        let asset = AVURLAsset(url: url)
-        let cmDuration = try? await asset.load(.duration)
-        let durationSec = CMTimeGetSeconds(cmDuration ?? CMTime.zero)
+        
+        // First try to get duration using FFprobe, fall back to AVFoundation if not available
+        var durationSec: Double = 0.0
+        let fileName = url.lastPathComponent
+        
+        // Try FFprobe if available
+        if Bundle.main.path(forResource: "ffprobe", ofType: nil) != nil {
+            Logger().info("Attempting to get duration using FFprobe for: \(fileName)")
+            durationSec = await FFMPEGConverter.getVideoDuration(url: url) ?? 0.0
+            
+            if durationSec > 0 {
+                Logger().info("Successfully got duration from FFprobe: \(durationSec) seconds for \(fileName)")
+            } else {
+                Logger().warning("FFprobe returned 0 duration for \(fileName), falling back to AVFoundation")
+            }
+        } else {
+            Logger().info("FFprobe not found in bundle, using AVFoundation for \(fileName)")
+        }
+        
+        // If FFprobe failed or not available, use AVFoundation
+        if durationSec <= 0 {
+            Logger().info("Using AVFoundation to get duration for: \(fileName)")
+            let asset = AVURLAsset(url: url)
+            let cmDuration = try? await asset.load(.duration)
+            durationSec = CMTimeGetSeconds(cmDuration ?? CMTime.zero)
+            Logger().info("AVFoundation returned duration: \(durationSec) seconds for \(fileName)")
+        }
+        
         let durationString = formatDuration(seconds: durationSec)
         let thumbnailData = await getVideoThumbnail(url: url)
         
@@ -62,25 +88,51 @@ struct VideoFileUtils: Sendable {
     }
     
     @available(macOS 13.0, *)
-    static func getVideoDuration(url: URL) async -> String {
-        let asset = AVURLAsset(url: url)
-        
+    private static func getDurationFromAVFoundation(url: URL) async -> Double? {
         do {
-            let duration = try await asset.load(.duration)
-            let durationTime = CMTimeGetSeconds(duration)
-            
-            let hours = Int(durationTime) / 3600
-            let minutes = (Int(durationTime) % 3600) / 60
-            let seconds = Int(durationTime) % 60
-            
-            if hours > 0 {
-                return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
-            } else {
-                return String(format: "%02d:%02d", minutes, seconds)
-            }
+            let asset = AVURLAsset(url: url)
+            let cmDuration = try await asset.load(.duration)
+            let duration = CMTimeGetSeconds(cmDuration)
+            Logger().info("AVFoundation duration: \(duration) seconds for \(url.lastPathComponent)")
+            return duration
         } catch {
-            print("Error loading video duration: \(error)")
-            return "Unknown"
+            Logger().error("Error getting duration from AVFoundation: \(error.localizedDescription) for \(url.lastPathComponent)")
+            return nil
+        }
+    }
+    
+    static func getVideoDuration(url: URL) async -> String {
+        let fileName = url.lastPathComponent
+        var duration: Double = 0.0
+        
+        if Bundle.main.path(forResource: "ffprobe", ofType: nil) != nil {
+            Logger().info("[getVideoDuration] Attempting FFprobe for: \(fileName)")
+            let ffprobeDuration = await FFMPEGConverter.getVideoDuration(url: url)
+            
+            if let ffprobeDuration = ffprobeDuration, ffprobeDuration > 0 {
+                duration = ffprobeDuration
+                Logger().info("[getVideoDuration] FFprobe success: \(duration) seconds for \(fileName)")
+            } else {
+                Logger().warning("[getVideoDuration] FFprobe failed or returned 0, falling back to AVFoundation for \(fileName)")
+                if let durationFromAV = await getDurationFromAVFoundation(url: url) {
+                    duration = durationFromAV
+                }
+            }
+        } else {
+            Logger().info("[getVideoDuration] FFprobe not found, using AVFoundation for \(fileName)")
+            if let durationFromAV = await getDurationFromAVFoundation(url: url) {
+                duration = durationFromAV
+            }
+        }
+        
+        let hours = Int(duration) / 3600
+        let minutes = (Int(duration) % 3600) / 60
+        let seconds = Int(duration) % 60
+        
+        if hours > 0 {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            return String(format: "%02d:%02d", minutes, seconds)
         }
     }
     

@@ -19,6 +19,7 @@
 		8E2C6BBF2E084BC200A9379F /* SecurityScopedBookmarkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */; };
 		8E2CA2A42E09A9F8008D93F1 /* ToDo.md in Resources */ = {isa = PBXBuildFile; fileRef = 8E2CA2A32E09A9F8008D93F1 /* ToDo.md */; };
 		8E2CA2A62E09AA09008D93F1 /* readme.md in Resources */ = {isa = PBXBuildFile; fileRef = 8E2CA2A52E09AA03008D93F1 /* readme.md */; };
+		8E2FFA3F2E217EEC00C06A0B /* ffprobe in Resources */ = {isa = PBXBuildFile; fileRef = 8E2FFA3E2E217EEC00C06A0B /* ffprobe */; };
 		8E545D832C33FD4A0088C274 /* DragAndDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D822C33FD4A0088C274 /* DragAndDropView.swift */; };
 		8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D842C33FD610088C274 /* DocumentPickerView.swift */; };
 		8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */; };
@@ -69,6 +70,7 @@
 		8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopedBookmarkManager.swift; sourceTree = "<group>"; };
 		8E2CA2A32E09A9F8008D93F1 /* ToDo.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ToDo.md; sourceTree = "<group>"; };
 		8E2CA2A52E09AA03008D93F1 /* readme.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = readme.md; sourceTree = "<group>"; };
+		8E2FFA3E2E217EEC00C06A0B /* ffprobe */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffprobe; sourceTree = "<group>"; };
 		8E545D822C33FD4A0088C274 /* DragAndDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragAndDropView.swift; sourceTree = "<group>"; };
 		8E545D842C33FD610088C274 /* DocumentPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPickerView.swift; sourceTree = "<group>"; };
 		8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFilesUtil.swift; sourceTree = "<group>"; };
@@ -138,6 +140,7 @@
 		8E0CA7A62C3416BD00EA7C37 /* Binaries */ = {
 			isa = PBXGroup;
 			children = (
+				8E2FFA3E2E217EEC00C06A0B /* ffprobe */,
 				8E0CA7A52C34160C00EA7C37 /* ffmpeg */,
 			);
 			path = Binaries;
@@ -373,6 +376,7 @@
 				8E0CA7AA2C3419CA00EA7C37 /* ffmpeg in Resources */,
 				8EE6EEA32C31FC6F007B629D /* Preview Assets.xcassets in Resources */,
 				8EE0BBBC2E0980560096171D /* Localizable.xcstrings in Resources */,
+				8E2FFA3F2E217EEC00C06A0B /* ffprobe in Resources */,
 				8E0C32C82E09E58F00F22B21 /* LICENSE in Resources */,
 				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
 				8E2CA2A42E09A9F8008D93F1 /* ToDo.md in Resources */,
@@ -619,7 +623,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 21;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal VideoLoop Converter 2.0/Preview Content\"";
 				ENABLE_APP_SANDBOX = YES;
@@ -646,7 +650,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 2.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -665,7 +669,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 21;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal VideoLoop Converter 2.0/Preview Content\"";
 				ENABLE_APP_SANDBOX = YES;
@@ -683,7 +687,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 2.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

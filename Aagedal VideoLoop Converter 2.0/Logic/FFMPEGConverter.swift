@@ -8,6 +8,7 @@
 // (at your option) any later version.
 
 import Foundation
+import OSLog
 
 enum ExportPreset: String, CaseIterable, Identifiable {
     case videoLoop = "VideoLoop"
@@ -286,22 +287,114 @@ actor FFMPEGConverter {
     private class DurationBox: @unchecked Sendable {
         var value: Double? = nil
     }
-
-    private static func handleFFMPEGOutput(_ output: String, totalDuration: Double?, progressUpdate: @escaping @Sendable (Double, String?) -> Void) -> (Double?, (Double, String?)?) {
-        print("FFMPEG Output: \(output)")
+    
+    /// Processes FFmpeg output to extract progress and duration information
+    /// - Parameters:
+    ///   - output: The FFmpeg output string to process
+    ///   - totalDuration: The current total duration if already known
+    ///   - progressUpdate: Callback to report progress updates
+    /// - Returns: A tuple containing the updated total duration (if found) and the current progress
+    private static func handleFFMPEGOutput(_ output: String, 
+                                         totalDuration: Double?, 
+                                         progressUpdate: @escaping @Sendable (Double, String?) -> Void) -> (Double?, (Double, String?)?) {
         var newTotalDuration = totalDuration
-        if let duration = ParsingUtils.parseDuration(from: output) {
+        
+        // Try to parse the total duration if not already known
+        if newTotalDuration == nil, let duration = ParsingUtils.parseDuration(from: output) {
             newTotalDuration = duration
             print("Total Duration: \(duration) seconds")
         }
+        
+        // Parse and report progress if we have a valid duration
         var progressTuple: (Double, String?)? = nil
         if let progress = ParsingUtils.parseProgress(from: output, totalDuration: newTotalDuration) {
-            Task {
+            // Update progress on the main thread
+            Task { @MainActor in
                 progressUpdate(progress.0, progress.1)
-                print("Progress: \(progress.0 * 100)% ETA: \(progress.1 ?? "N/A")")
+                print("Progress: \(Int(progress.0 * 100))% ETA: \(progress.1 ?? "N/A")")
             }
             progressTuple = progress
         }
+        
         return (newTotalDuration, progressTuple)
+    }
+    
+    /// Gets the duration of a video file using ffprobe
+    /// - Parameter url: URL of the video file
+    /// - Returns: Duration in seconds, or nil if unable to determine
+    static func getVideoDuration(url: URL) async -> Double? {
+        // First check if ffprobe is available
+        guard let ffprobePath = Bundle.main.path(forResource: "ffprobe", ofType: nil) else {
+            Logger().info("FFprobe not found in bundle, will use AVFoundation for duration extraction")
+            return nil
+        }
+        
+        Logger().info("Attempting to get duration using ffprobe for: \(url.lastPathComponent)")
+        return await getDurationUsingFFprobe(ffprobePath: ffprobePath, url: url)
+    }
+    
+    /// Gets the duration using ffprobe
+    /// - Parameters:
+    ///   - ffprobePath: Path to the ffprobe binary
+    ///   - url: URL of the video file
+    /// - Returns: Duration in seconds, or nil if unable to determine
+    private static func getDurationUsingFFprobe(ffprobePath: String, url: URL) async -> Double? {
+        let process = Process()
+        let pipe = Pipe()
+        
+        process.executableURL = URL(fileURLWithPath: ffprobePath)
+        process.arguments = [
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            url.path
+        ]
+        process.standardOutput = pipe
+        
+        do {
+            // Set a timeout for the process (5 seconds)
+            let timeout: TimeInterval = 5.0
+            
+            try process.run()
+            
+            // Read the output asynchronously with timeout
+            let output = try await withThrowingTaskGroup(of: Data.self) { group -> String? in
+                group.addTask {
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    process.terminate() // Ensure process is terminated
+                    return data
+                }
+                
+                // Add a timeout task
+                group.addTask {
+                    try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    process.terminate() // Terminate if timeout
+                    throw NSError(domain: "com.aagedal.videoconverter.ffprobe", code: -1, 
+                                userInfo: [NSLocalizedDescriptionKey: "FFprobe timeout"])
+                }
+                
+                // Wait for the first task to complete
+                let result = try await group.next()!
+                group.cancelAll()
+                return String(data: result, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            
+            if let output = output {
+                Logger().info("FFprobe raw output: \"\(output)\"")
+                if let duration = Double(output) {
+                    Logger().info("Successfully parsed duration from ffprobe: \(duration) seconds")
+                    return duration
+                } else {
+                    Logger().error("Failed to convert ffprobe output to Double: \"\(output)\"")
+                }
+            }
+            
+            Logger().error("Failed to parse duration from ffprobe output")
+            return nil
+            
+        } catch {
+            Logger().error("FFprobe process failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 }
