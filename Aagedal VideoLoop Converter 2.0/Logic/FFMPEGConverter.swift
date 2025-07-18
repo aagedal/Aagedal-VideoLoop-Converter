@@ -75,6 +75,12 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     }
     
     var ffmpegArguments: [String] {
+
+let dateFormatter = DateFormatter()
+dateFormatter.dateFormat = "yyyyMMdd"
+let todayString = dateFormatter.string(from: Date())
+
+        
         let commonArgs = [
             "-hide_banner",
         ]
@@ -82,6 +88,12 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .videoLoop:
             return commonArgs + [
+                "-bitexact",
+                "-bsf:v", "filter_units=remove_types=6",
+                "-map_metadata", "-1",
+                "-metadata", "encoder=' '",
+                "-metadata:s:v:0", "encoder=' '",
+                "-metadata", "comment=\(todayString) USER COMMENT HERE, TODO: Implement UI text box.",
                 "-pix_fmt", "yuv420p",
                 "-vcodec", "libx264",
                 "-movflags", "+faststart",
@@ -95,9 +107,18 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-an",
                 "-vf", "yadif=0,scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
+
+
+            // ffmpeg -i "/Users/traag222/Movies/VideoLoopExports/Sequence_02_loop.mp4" -c:v libx264 -bitexact -bsf:v 'filter_units=remove_types=6' -map_metadata -1 -metadata encoder=' ' -metadata:s:v:0 encoder=' '  -metadata comment="Processed on $(date +%Y%m%d)" seq_output.mp4
             
         case .videoLoopWithAudio:
             return commonArgs + [
+                                "-bitexact",
+                "-bsf:v", "filter_units=remove_types=6",
+                "-map_metadata", "-1",
+                "-metadata", "encoder=' '",
+                "-metadata:s:v:0", "encoder=' '",
+                "-metadata", "comment=\(todayString) USER COMMENT HERE, TODO: Implement UI text box.",
                 "-pix_fmt", "yuv420p",
                 "-vcodec", "libx264",
                 "-movflags", "+faststart",
