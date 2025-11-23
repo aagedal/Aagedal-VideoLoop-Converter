@@ -114,6 +114,19 @@ struct PreviewPlayerContent: View {
             }
             .padding(16)
             
+            // Top-right: Audio meter (when enabled) - moved to avoid overlap with native player controls
+            VStack {
+                HStack {
+                    Spacer()
+                    if controller.isAudioMeterEnabled {
+                        AudioMeterView(levels: controller.audioLevels ?? .silence)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
+                Spacer()
+            }
+            .padding(16)
+            
             // Center: Loading/buffering indicator
             if controller.isLoadingChunk {
                 VStack(spacing: 12) {

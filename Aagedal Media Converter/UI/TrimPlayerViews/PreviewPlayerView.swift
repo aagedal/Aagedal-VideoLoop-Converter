@@ -68,6 +68,9 @@ struct PreviewPlayerView: View {
         .padding(.vertical, 14)
         .frame(minWidth: 920, idealWidth: 1080, minHeight: 640, idealHeight: 720)
         .background(Color(NSColor.windowBackgroundColor))
+        .background(KeyboardHandler(onCommandA: {
+            controller.isAudioMeterEnabled.toggle()
+        }))
         .onAppear {
             controller.preparePreview(startTime: item.effectiveTrimStart)
         }
@@ -302,6 +305,41 @@ struct PreviewPlayerView: View {
             return true
         default:
             return false
+        }
+    }
+}
+
+// MARK: - Keyboard Handler
+
+/// Helper view to handle keyboard shortcuts using NSEvent
+private struct KeyboardHandler: NSViewRepresentable {
+    let onCommandA: () -> Void
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "a" {
+                onCommandA()
+                return nil // Event handled
+            }
+            return event
+        }
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator {
+        var monitor: Any?
+        
+        deinit {
+            if let monitor = monitor {
+                NSEvent.removeMonitor(monitor)
+            }
         }
     }
 }

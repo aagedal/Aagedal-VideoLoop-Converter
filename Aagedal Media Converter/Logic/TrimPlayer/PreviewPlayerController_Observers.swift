@@ -426,6 +426,9 @@ extension PreviewPlayerController {
                             // Direct playback successful
                             logger.debug("Direct AVPlayer playback ready")
                             
+                            // Apply audio track selection now that tracks are loaded
+                            self.applySelectedAudioTrack()
+                            
                         } catch {
                             // If we can't load tracks, assume it's okay and let AVPlayer try
                             logger.debug("Could not verify video tracks, proceeding with playback")

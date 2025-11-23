@@ -102,6 +102,13 @@ struct PreviewTrimControls: View {
             .padding(.trailing, 30)
 
             audioTrackSelector
+            
+            Toggle(isOn: $controller.isAudioMeterEnabled) {
+                Label("Audio Meter", systemImage: "waveform")
+                    .labelStyle(.iconOnly)
+            }
+            .toggleStyle(.button)
+            .help("Show/hide audio level meter")
 
             Toggle(isOn: loopBinding) {
                 Label("Loop", systemImage: "repeat")

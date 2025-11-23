@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import AVKit
+import Combine
 import OSLog
 
 @MainActor
@@ -46,6 +47,7 @@ final class PreviewPlayerController: ObservableObject {
     @Published var currentPlaybackTime: Double = 0
     @Published private(set) var currentPlaybackSpeed: Float = 1.0
     @Published private(set) var isReverseSimulating: Bool = false
+    // Audio monitoring is defined in extension/bottom section
     
     // Reverse simulation
     private var reverseSpeed: Int = 1 // 1x, 2x, 3x, 4x
@@ -103,6 +105,9 @@ final class PreviewPlayerController: ObservableObject {
     var previewAudioStreamIndices: [Int] = []
     var selectedAudioTrackOrderIndex: Int = 0
     
+    // MARK: - Audio Monitoring
+    // UniversalAudioMeterService is defined below in Audio Metering section
+    
     // MARK: - VLC State
     var vlcPlayer: VLCPlayer?
     var useVLC = false
@@ -113,6 +118,7 @@ final class PreviewPlayerController: ObservableObject {
 
     init(videoItem: VideoItem) {
         self.videoItem = videoItem
+        setupAudioMonitoring()
     }
     
     // MARK: - Video Item Management
@@ -177,6 +183,8 @@ final class PreviewPlayerController: ObservableObject {
         installPlaybackTimeObserver(for: player)
         updatePlayerActionAtEnd()
         loadPreviewAssets(for: currentItem.url)
+        
+        // Audio monitoring is handled globally by UniversalAudioMeterService
     }
     
     var debugWindowController: Any? // Holds strong reference to keep window alive
@@ -234,6 +242,8 @@ final class PreviewPlayerController: ObservableObject {
         // Reload preview assets (teardown() clears them when switching from AVPlayer)
         // This uses the cache so it's instant
         loadPreviewAssets(for: url)
+        
+        // Audio monitoring is handled globally by UniversalAudioMeterService
         
         // DON'T call updateCurrentWaveform() here!
         // It will be called automatically via previewAssets.didSet when assets finish loading
@@ -607,12 +617,26 @@ final class PreviewPlayerController: ObservableObject {
 
     func selectAudioTrack(at position: Int) {
         guard position != selectedAudioTrackOrderIndex else { return }
+        
+        // Pause playback to prevent audio overlap/buffering issues
+        let wasPlaying = (player?.rate ?? 0) > 0 || (vlcPlayer?.isPlaying ?? false)
+        if wasPlaying {
+            pause()
+        }
+        
         selectedAudioTrackOrderIndex = position
         applySelectedAudioTrack()
         updateCurrentWaveform()
+        
+        // Resume if it was playing, with a tiny delay to ensure track switch takes effect
+        if wasPlaying {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.togglePlayback()
+            }
+        }
     }
 
-    private func applySelectedAudioTrack() {
+    func applySelectedAudioTrack() {
         if useVLC {
             applySelectedAudioTrackToVLC()
         } else if usePreviewFallback {
@@ -666,40 +690,77 @@ final class PreviewPlayerController: ObservableObject {
             Task { @MainActor [weak self, weak playerItem] in
                 guard let self, let playerItem else { return }
                 
+                // 1. Try to load media selection group first (for alternate tracks)
                 var mediaGroup: AVMediaSelectionGroup?
                 do {
                     mediaGroup = try await playerItem.asset.loadMediaSelectionGroup(for: .audible)
                 } catch {
-                    // ignore
+                    Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("Failed to load audible group: \(error)")
                 }
                 
-                // If we have metadata, use it to enrich the options
-                // We assume the metadata audio streams match the player item tracks roughly in order
-                // But AVPlayer tracks might be different if it merged them
-                
-                // For now, we pass the metadata and let the builder try to match
-                // If mediaGroup is nil or empty, we might still want to show something if we have metadata?
-                // But if AVPlayer is active, we should rely on what AVPlayer sees.
-                
+                // 2. Build options (this populates self.audioTrackOptions)
                 self.buildAudioTrackOptions(metadata: self.videoItem.metadata, orderedIndices: [], mediaGroup: mediaGroup)
-
-                // Now apply the selection based on the built options
-                guard !self.audioTrackOptions.isEmpty, let mediaGroup, !mediaGroup.options.isEmpty else { return }
-
+                
+                guard !self.audioTrackOptions.isEmpty else { return }
+                
                 let desiredPosition = min(max(self.selectedAudioTrackOrderIndex, 0), self.audioTrackOptions.count - 1)
-                let option = self.audioTrackOptions[min(desiredPosition, self.audioTrackOptions.count - 1)]
-                let optionIndex: Int
-                if let mappedIndex = option.mediaOptionIndex, mediaGroup.options.indices.contains(mappedIndex) {
-                    optionIndex = mappedIndex
-                } else {
-                    optionIndex = min(desiredPosition, mediaGroup.options.count - 1)
+                let selectedOption = self.audioTrackOptions[desiredPosition]
+                
+                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                    .debug("Applying audio selection: position=\(desiredPosition), option=\(selectedOption.title)")
+
+                // 3. Strategy A: If we have a valid media group and option index, try using select()
+                // This works for mutually exclusive tracks (e.g. languages)
+                if let mediaGroup, let mappedIndex = selectedOption.mediaOptionIndex, mediaGroup.options.indices.contains(mappedIndex) {
+                    let avOption = mediaGroup.options[mappedIndex]
+                    if playerItem.currentMediaSelection.selectedMediaOption(in: mediaGroup) != avOption {
+                        playerItem.select(avOption, in: mediaGroup)
+                        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Selected media option via group")
+                        return // Done if successful
+                    }
                 }
-
-                guard mediaGroup.options.indices.contains(optionIndex) else { return }
-                let selectedOption = mediaGroup.options[optionIndex]
-
-                if playerItem.currentMediaSelection.selectedMediaOption(in: mediaGroup) != selectedOption {
-                    playerItem.select(selectedOption, in: mediaGroup)
+                
+                // 4. Strategy B: Direct track enabling/disabling
+                // This handles cases where tracks are not in a group (e.g. multi-channel recording)
+                // We iterate through all tracks in the player item.
+                
+                let tracks = playerItem.tracks
+                var audioTracks: [AVPlayerItemTrack] = []
+                
+                for track in tracks {
+                    if track.assetTrack?.mediaType == .audio {
+                        audioTracks.append(track)
+                    }
+                }
+                
+                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Found \(audioTracks.count) audio tracks in player item")
+                
+                if !audioTracks.isEmpty {
+                    // We need to map our 'selectedOption' to one of these tracks.
+                    // If we built options from metadata, 'streamIndex' should match the asset track index?
+                    // Or we can just assume the order matches if we built options sequentially.
+                    
+                    // Let's try to match by index first
+                    // The 'streamIndex' in AudioTrackOption comes from metadata or order.
+                    
+                    // If we have metadata, we can try to match the assetTrack.trackID?
+                    // But AVPlayerItemTrack wraps an AVAssetTrack.
+                    
+                    // Simplest robust approach: Enable ONE, disable OTHERS.
+                    // Which one? The one at 'desiredPosition' if we assume 1:1 mapping between our options and playerItem.tracks.
+                    // NOTE: This assumes our `buildAudioTrackOptions` created one option per track in the same order.
+                    
+                    // If we have fewer options than tracks (e.g. some filtered out), this might be tricky.
+                    // But usually we show all.
+                    
+                    for (index, track) in audioTracks.enumerated() {
+                        let shouldEnable = (index == desiredPosition)
+                        if track.isEnabled != shouldEnable {
+                            track.isEnabled = shouldEnable
+                            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                                .debug("Set track \(index) enabled: \(shouldEnable)")
+                        }
+                    }
                 }
             }
         }
@@ -784,6 +845,9 @@ final class PreviewPlayerController: ObservableObject {
         }
         audioTrackOptions = []
         currentWaveformURL = nil
+        
+        // Stop audio monitoring
+        isAudioMeterEnabled = false
     }
     
     // MARK: - Playback Control
@@ -1041,6 +1105,50 @@ final class PreviewPlayerController: ObservableObject {
                 }
             }
             self.isLoadingPreviewAssets = false
+        }
+    }
+    
+    // MARK: - Audio Metering
+    
+    private let universalAudioMeter = UniversalAudioMeterService()
+    private var cancellables = Set<AnyCancellable>()
+    
+    @Published var audioLevels: UniversalAudioMeterService.AudioLevels?
+    @Published var isAudioMeterEnabled = false {
+        didSet {
+            toggleAudioMeter()
+        }
+    }
+    
+    private func setupAudioMonitoring() {
+        // Subscribe to universal meter updates
+        universalAudioMeter.$currentLevels
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] levels in
+                self?.audioLevels = levels
+            }
+            .store(in: &cancellables)
+            
+        // Handle permission errors if needed
+        universalAudioMeter.$permissionError
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hasError in
+                if hasError {
+                    print("PreviewPlayerController: Audio meter permission denied")
+                    // Could show alert here or disable meter
+                    self?.isAudioMeterEnabled = false
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func toggleAudioMeter() {
+        Task {
+            if isAudioMeterEnabled {
+                await universalAudioMeter.startMonitoring()
+            } else {
+                await universalAudioMeter.stopMonitoring()
+            }
         }
     }
 }

@@ -200,7 +200,7 @@ private struct TrimHandlesInteractionLayer: View {
         GeometryReader { geometry in
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
-                    let _ = Logger(subsystem: "com.aagedal.MediaConverter", category: "TrimTimeline").debug("View received waveformURL: \(waveformURL?.path ?? "nil")")
+                    // let _ = Logger(subsystem: "com.aagedal.MediaConverter", category: "TrimTimeline").debug("View received waveformURL: \(waveformURL?.path ?? "nil")")
                     // For audio-only files (no thumbnails), show waveform spanning full height
                     if let thumbnails, !thumbnails.isEmpty {
                         filmstripSection
