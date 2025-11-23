@@ -100,7 +100,7 @@ final class PreviewPlayerController: ObservableObject {
     var usePreviewFallback = false
     var composition: AVMutableComposition?
     var compositionVideoTrack: AVMutableCompositionTrack?
-    var compositionAudioTrack: AVMutableCompositionTrack?
+    var compositionAudioTracks: [AVMutableCompositionTrack] = []
     weak var playerView: AVPlayerView?
     var previewAudioStreamIndices: [Int] = []
     var selectedAudioTrackOrderIndex: Int = 0
@@ -433,7 +433,7 @@ final class PreviewPlayerController: ObservableObject {
         return sorted.map { $0.offset }
     }
 
-    private func refreshAudioTrackOptions(for item: VideoItem, playerItem: AVPlayerItem?) {
+    func refreshAudioTrackOptions(for item: VideoItem, playerItem: AVPlayerItem?) {
         let existingSelection = selectedAudioTrackOrderIndex
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -639,8 +639,6 @@ final class PreviewPlayerController: ObservableObject {
     func applySelectedAudioTrack() {
         if useVLC {
             applySelectedAudioTrackToVLC()
-        } else if usePreviewFallback {
-            refreshFallbackAudioSelection()
         } else {
             applySelectedAudioTrackToCurrentPlayerItem()
         }
@@ -753,6 +751,30 @@ final class PreviewPlayerController: ObservableObject {
                     // If we have fewer options than tracks (e.g. some filtered out), this might be tricky.
                     // But usually we show all.
                     
+                    Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("applySelectedAudioTrackToCurrentPlayerItem: usePreviewFallback=\(self.usePreviewFallback)")
+                
+                if usePreviewFallback {
+                        // For AVComposition, AVPlayerItemTrack.isEnabled is often ignored or unreliable.
+                        // We must use AVMutableAudioMix to mute/unmute tracks.
+                        let audioMix = AVMutableAudioMix()
+                        var inputParams: [AVMutableAudioMixInputParameters] = []
+                        
+                        for (index, track) in audioTracks.enumerated() {
+                            guard let assetTrack = track.assetTrack else { continue }
+                            let params = AVMutableAudioMixInputParameters(track: assetTrack)
+                            let shouldEnable = (index == desiredPosition)
+                            params.setVolume(shouldEnable ? 1.0 : 0.0, at: .zero)
+                            inputParams.append(params)
+                            
+                            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                                .debug("AudioMix: Track \(index) (ID: \(assetTrack.trackID)) volume set to \(shouldEnable ? 1.0 : 0.0)")
+                        }
+                        
+                        audioMix.inputParameters = inputParams
+                        playerItem.audioMix = audioMix
+                        return
+                    }
+                    
                     for (index, track) in audioTracks.enumerated() {
                         let shouldEnable = (index == desiredPosition)
                         if track.isEnabled != shouldEnable {
@@ -766,11 +788,7 @@ final class PreviewPlayerController: ObservableObject {
         }
     }
 
-    private func refreshFallbackAudioSelection() {
-        let currentTime = getCurrentTime() ?? videoItem.effectiveTrimStart
-        teardown(resetAudioSelection: false)
-        preparePreview(startTime: currentTime, resetAudioSelection: false)
-    }
+
 
     private func selectedAudioStreamIndex() -> Int? {
         let position = selectedAudioTrackOrderIndex
@@ -833,10 +851,11 @@ final class PreviewPlayerController: ObservableObject {
         removeTimeObserver()
         removePlaybackTimeObserver()
         removePlayerItemStatusObserver()
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("teardown called. Resetting usePreviewFallback (was \(self.usePreviewFallback))")
         usePreviewFallback = false
         composition = nil
         compositionVideoTrack = nil
-        compositionAudioTrack = nil
+        compositionAudioTracks = []
         pendingChunkTime = nil
         appliedChunks.removeAll()
         previewAudioStreamIndices = []
