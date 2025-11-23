@@ -52,6 +52,7 @@ extension PreviewPlayerController {
             return
         }
 
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("fallbackToPreview called. Setting usePreviewFallback = true")
         usePreviewFallback = true
         isPreparing = true
         errorMessage = nil
@@ -120,6 +121,9 @@ extension PreviewPlayerController {
                 self.currentChunkIndex = chunkIndex
                 self.appliedChunks = [chunkIndex]
                 self.updateFallbackCoverageRange()
+                
+                // Refresh audio track options now that we have a player item (composition)
+                self.refreshAudioTrackOptions(for: currentItem, playerItem: self.player?.currentItem)
 
                 Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
                     .info("MP4 composition playback ready (chunk \(chunkIndex, privacy: .public), 5s) for item \(currentItem.id, privacy: .public)")
@@ -156,10 +160,7 @@ extension PreviewPlayerController {
         guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             throw MP4PreviewSession.PreviewError.failedToStart("Could not create video track")
         }
-        guard let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw MP4PreviewSession.PreviewError.failedToStart("Could not create audio track")
-        }
-
+        
         let asset = AVURLAsset(url: chunkURL)
         let videoSourceTracks = try await asset.loadTracks(withMediaType: .video)
         guard let videoSourceTrack = videoSourceTracks.first else {
@@ -167,13 +168,10 @@ extension PreviewPlayerController {
         }
 
         let audioSourceTracks = try await asset.loadTracks(withMediaType: .audio)
-        let orderedAudioTracks = orderAudioTracks(audioSourceTracks)
-        let primaryAudioTrack = orderedAudioTracks.first
-
-        guard let primaryAudioTrack else {
-            throw MP4PreviewSession.PreviewError.failedToStart("No audio tracks in chunk")
-        }
-
+        
+        // Clear existing tracks reference
+        self.compositionAudioTracks = []
+        
         let videoChunkDuration = CMTime(seconds: duration, preferredTimescale: 600)
         try videoTrack.insertTimeRange(
             CMTimeRange(start: .zero, duration: videoChunkDuration),
@@ -182,15 +180,21 @@ extension PreviewPlayerController {
         )
 
         let audioDuration = try await asset.load(.duration)
-        try audioTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: audioDuration),
-            of: primaryAudioTrack,
-            at: .zero
-        )
+        
+        // Create a composition track for each audio track in the chunk
+        for sourceTrack in audioSourceTracks {
+            if let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                try audioTrack.insertTimeRange(
+                    CMTimeRange(start: .zero, duration: audioDuration),
+                    of: sourceTrack,
+                    at: .zero
+                )
+                self.compositionAudioTracks.append(audioTrack)
+            }
+        }
         
         // Store references
         self.composition = composition
-        self.compositionAudioTrack = audioTrack
         self.compositionVideoTrack = videoTrack
         
         // Create player with composition
@@ -212,8 +216,7 @@ extension PreviewPlayerController {
         session: MP4PreviewSession
     ) async throws {
         guard let composition = self.composition,
-              let videoTrack = self.compositionVideoTrack,
-              let audioTrack = self.compositionAudioTrack else { return }
+              let videoTrack = self.compositionVideoTrack else { return }
 
         let insertTime = CMTime(seconds: Double(chunkIndex) * self.chunkDuration, preferredTimescale: 600)
         let newDurationTime = CMTime(seconds: newDuration, preferredTimescale: 600)
@@ -226,41 +229,61 @@ extension PreviewPlayerController {
         let chunkVideoTracks = try await chunkAsset.loadTracks(withMediaType: .video)
         guard let chunkVideoTrack = chunkVideoTracks.first else { return }
         let chunkAudioTracks = try await chunkAsset.loadTracks(withMediaType: .audio)
-        let orderedAudioTracks = orderAudioTracks(chunkAudioTracks)
-        let primaryAudioTrack = orderedAudioTracks.first
-        guard let primaryAudioTrack else { return }
 
+        // 1. Handle Video Track
         if let previousDuration {
             let previousDurationTime = CMTime(seconds: previousDuration, preferredTimescale: 600)
             let removeRange = CMTimeRange(start: insertTime, duration: previousDurationTime)
             videoTrack.removeTimeRange(removeRange)
-            audioTrack.removeTimeRange(removeRange)
         } else if appliedChunks.contains(chunkIndex) {
             let previousDurationTime = CMTime(seconds: chunkDurations[chunkIndex] ?? self.chunkDuration, preferredTimescale: 600)
             let removeRange = CMTimeRange(start: insertTime, duration: previousDurationTime)
             videoTrack.removeTimeRange(removeRange)
-            audioTrack.removeTimeRange(removeRange)
         } else if insertTime < composition.duration {
             let placeholderRange = CMTimeRange(start: insertTime, duration: newDurationTime)
             videoTrack.removeTimeRange(placeholderRange)
-            audioTrack.removeTimeRange(placeholderRange)
         }
 
         if insertTime > composition.duration {
             let gap = insertTime - composition.duration
             videoTrack.insertEmptyTimeRange(CMTimeRange(start: composition.duration, duration: gap))
-            audioTrack.insertEmptyTimeRange(CMTimeRange(start: composition.duration, duration: gap))
         }
         try videoTrack.insertTimeRange(
             CMTimeRange(start: .zero, duration: newDurationTime),
             of: chunkVideoTrack,
             at: insertTime
         )
-        try audioTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: newDurationTime),
-            of: primaryAudioTrack,
-            at: insertTime
-        )
+        
+        // 2. Handle Audio Tracks
+        // We iterate over our composition tracks and try to find matching chunk track by index
+        for (index, audioTrack) in self.compositionAudioTracks.enumerated() {
+            guard index < chunkAudioTracks.count else { continue }
+            let chunkTrack = chunkAudioTracks[index]
+            
+            if let previousDuration {
+                let previousDurationTime = CMTime(seconds: previousDuration, preferredTimescale: 600)
+                let removeRange = CMTimeRange(start: insertTime, duration: previousDurationTime)
+                audioTrack.removeTimeRange(removeRange)
+            } else if appliedChunks.contains(chunkIndex) {
+                let previousDurationTime = CMTime(seconds: chunkDurations[chunkIndex] ?? self.chunkDuration, preferredTimescale: 600)
+                let removeRange = CMTimeRange(start: insertTime, duration: previousDurationTime)
+                audioTrack.removeTimeRange(removeRange)
+            } else if insertTime < composition.duration {
+                let placeholderRange = CMTimeRange(start: insertTime, duration: newDurationTime)
+                audioTrack.removeTimeRange(placeholderRange)
+            }
+            
+            if insertTime > composition.duration {
+                let gap = insertTime - composition.duration
+                audioTrack.insertEmptyTimeRange(CMTimeRange(start: composition.duration, duration: gap))
+            }
+            
+            try audioTrack.insertTimeRange(
+                CMTimeRange(start: .zero, duration: newDurationTime),
+                of: chunkTrack,
+                at: insertTime
+            )
+        }
 
         appliedChunks.insert(chunkIndex)
         chunkDurations[chunkIndex] = newDuration
