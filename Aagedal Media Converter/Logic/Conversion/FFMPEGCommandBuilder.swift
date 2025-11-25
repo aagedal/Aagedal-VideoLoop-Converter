@@ -68,6 +68,7 @@ enum FFMPEGCommandBuilder {
         includeDateTag: Bool,
         trimStart: Double?,
         trimEnd: Double?,
+        audioRoutingConfig: AudioRoutingConfig? = nil,
         waveformRequest: WaveformVideoRequest? = nil,
         synthesizedVideoRequest: SynthesizedVideoRequest? = nil,
         customInputArguments: [String]? = nil,
@@ -166,6 +167,11 @@ enum FFMPEGCommandBuilder {
         var ffmpegArgs = preset.ffmpegArguments
         await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
         await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+        
+        // Apply audio routing configuration if provided and preset supports audio
+        if let audioRoutingConfig, preset.outputsAudioTrack {
+            applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
+        }
 
         applyCommentMetadata(
             to: &ffmpegArgs,
@@ -484,6 +490,68 @@ extension FFMPEGCommandBuilder {
         removeArgumentPair("-map", value: nil, from: &ffmpegArgs)
     }
 
+    /// Applies audio routing configuration by replacing preset's audio map arguments
+    /// with custom track selection, ordering, or channel-level operations
+    private static func applyAudioRouting(config: AudioRoutingConfig, to ffmpegArgs: inout [String]) {
+        // Remove all existing audio mapping arguments from preset
+        removeArgumentPair("-map", value: "0:a", from: &ffmpegArgs)
+        
+        // Also remove indexed audio maps if present
+        var index = 0
+        while index < ffmpegArgs.count {
+            if ffmpegArgs[index] == "-map",
+               index + 1 < ffmpegArgs.count,
+               ffmpegArgs[index + 1].hasPrefix("0:a:") {
+                ffmpegArgs.remove(at: index)
+                ffmpegArgs.remove(at: index)
+                continue
+            }
+            index += 1
+        }
+        
+        // Generate custom audio arguments (either simple -map or filter_complex)
+        let customAudioArgs = AudioRoutingService.buildFFmpegMapArguments(config: config)
+        
+        // Check if we're using filter_complex (channel operations)
+        if customAudioArgs.contains("-filter_complex") {
+            // Remove any existing audio-only filter_complex
+            var filterComplexIndex = 0
+            while filterComplexIndex < ffmpegArgs.count {
+                if ffmpegArgs[filterComplexIndex] == "-filter_complex" {
+                    if filterComplexIndex + 1 < ffmpegArgs.count {
+                        let filterContent = ffmpegArgs[filterComplexIndex + 1]
+                        // Simple heuristic: if it contains audio operations, remove it
+                        if filterContent.contains("[aout]") || filterContent.contains("amerge") || 
+                           filterContent.contains("channelsplit") || filterContent.contains("pan=") {
+                            ffmpegArgs.remove(at: filterComplexIndex)
+                            if filterComplexIndex < ffmpegArgs.count {
+                                ffmpegArgs.remove(at: filterComplexIndex)
+                            }
+                            continue
+                        }
+                    }
+                }
+                filterComplexIndex += 1
+            }
+            
+            // Insert filter_complex at the beginning (after input arguments)
+            ffmpegArgs.insert(contentsOf: customAudioArgs, at: 0)
+            logger.debug("Applied audio routing with filter_complex: \(customAudioArgs.joined(separator: " "))")
+        } else {
+            // Simple -map arguments: insert after video map if present
+            var insertionIndex = 0
+            for (idx, arg) in ffmpegArgs.enumerated() {
+                if arg == "-map", idx + 1 < ffmpegArgs.count, ffmpegArgs[idx + 1].hasPrefix("0:v") {
+                    insertionIndex = idx + 2
+                    break
+                }
+            }
+            
+            ffmpegArgs.insert(contentsOf: customAudioArgs, at: insertionIndex)
+            logger.debug("Applied audio routing with simple maps: \(customAudioArgs.joined(separator: " "))")
+        }
+    }
+    
     private static func synthesizedVideoCommandArguments(for request: SynthesizedVideoRequest) -> [String] {
         let finalWidth = evenDimension(max(request.width, 2))
         let finalHeight = evenDimension(max(request.height, 2))

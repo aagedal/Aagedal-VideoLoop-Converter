@@ -492,6 +492,7 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var detailsLoaded: Bool = false
     var waveformVideoEnabled: Bool = false
     var hasVideoStream: Bool = true
+    var audioRoutingConfig: AudioRoutingConfig? = nil
 
     mutating func apply(details: VideoFileUtils.VideoItemDetails) {
         size = details.size
