@@ -15,6 +15,7 @@ import OSLog
 actor MP4PreviewSession {
     struct PreviewResult: Sendable {
         let url: URL
+        let audioURLs: [URL]
         let startTime: TimeInterval
         let duration: TimeInterval
     }
@@ -72,11 +73,12 @@ actor MP4PreviewSession {
     }
 
     /// Generates a low-resolution MP4 preview clip.
-    /// - Parameters:
-    ///   - startTime: Timestamp in seconds to start encoding from.
-    ///   - durationLimit: Maximum duration of the preview.
-    ///   - maxShortEdge: Maximum pixel length for the shorter video edge.
     func generatePreview(startTime: TimeInterval, durationLimit: TimeInterval = 30, maxShortEdge: Int = 720) async throws -> PreviewResult {
+        // ... (implementation for single file preview remains mostly same but updated for PreviewResult)
+        // For full preview, we might still use single file or separate. 
+        // But generatePreview is mostly for single-file export/preview, not the chunk system.
+        // Let's keep it simple for now and assume it uses the muxed output.
+        
         logger.info("Transcoding MP4 preview for \(self.sourceURL.lastPathComponent, privacy: .public)")
 
         guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
@@ -91,10 +93,13 @@ actor MP4PreviewSession {
 
         let safeStart = max(0, startTime)
 
+        // For full preview, we use the original muxed approach
         let arguments = self.buildArguments(
             startTime: startTime,
             durationLimit: durationLimit,
-            maxShortEdge: maxShortEdge
+            maxShortEdge: maxShortEdge,
+            outputPath: self.outputURL.path,
+            separateAudio: false
         )
 
         try Task.checkCancellation()
@@ -107,6 +112,7 @@ actor MP4PreviewSession {
 
         return PreviewResult(
             url: previewURL,
+            audioURLs: [],
             startTime: safeStart,
             duration: max(0, durationSeconds)
         )
@@ -128,8 +134,7 @@ actor MP4PreviewSession {
         // Note: Audio/video chunk files persist for reuse across sessions. Call cleanupAllChunks() explicitly when removing video from queue or use app-wide cache cleanup.
     }
     
-    /// Explicitly clean up all preview files for this video (chunks and audio)
-    /// Call this when removing the video from queue or during app-wide cache cleanup
+    // ... (cleanupAllChunks updated to clean audio files)
     func cleanupAllChunks() {
         let fileManager = FileManager.default
         do {
@@ -150,17 +155,24 @@ actor MP4PreviewSession {
     }
     
     /// Generates a preview chunk for a specific time range (duration varies by caller)
-    func generatePreviewChunk(chunkIndex: Int, startTime: TimeInterval, durationLimit: TimeInterval, maxShortEdge: Int = 720) async throws -> PreviewResult {
+    func generatePreviewChunk(chunkIndex: Int, startTime: TimeInterval, durationLimit: TimeInterval, maxShortEdge: Int = 720, skipAudio: Bool = false) async throws -> PreviewResult {
         let chunkURL = chunkURL(for: chunkIndex)
+        let audioURLs = skipAudio ? [] : audioChunkURLs(for: chunkIndex)
+        
+        // Check if video chunk exists
+        let videoExists = FileManager.default.fileExists(atPath: chunkURL.path)
+        // Check if all expected audio chunks exist (if not skipping)
+        let allAudioExist = skipAudio || (!audioURLs.isEmpty && audioURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
         
         // Skip if already exists
-        if FileManager.default.fileExists(atPath: chunkURL.path) {
+        if videoExists && (audioStreamIndices.isEmpty || allAudioExist) {
             logger.info("Using cached chunk \(chunkIndex, privacy: .public) from: \(chunkURL.path, privacy: .public)")
             let asset = AVURLAsset(url: chunkURL)
             let loadedDuration = try await asset.load(.duration)
             let durationSeconds = loadedDuration.seconds.isFinite ? loadedDuration.seconds : durationLimit
             return PreviewResult(
                 url: chunkURL,
+                audioURLs: audioURLs,
                 startTime: startTime,
                 duration: max(0, durationSeconds)
             )
@@ -176,11 +188,14 @@ actor MP4PreviewSession {
             startTime: startTime,
             durationLimit: durationLimit,
             maxShortEdge: maxShortEdge,
-            outputPath: chunkURL.path
+            outputPath: chunkURL.path,
+            separateAudio: !skipAudio,
+            audioOutputPaths: audioURLs.map { $0.path }
         )
         
         try Task.checkCancellation()
         
+        // We pass the video URL as the primary output to check, but FFmpeg will generate all
         let previewURL = try await self.runFFmpeg(executablePath: ffmpegPath, arguments: arguments, outputURL: chunkURL)
         
         let asset = AVURLAsset(url: previewURL)
@@ -189,23 +204,119 @@ actor MP4PreviewSession {
         
         return PreviewResult(
             url: previewURL,
+            audioURLs: audioURLs,
             startTime: startTime,
             duration: max(0, durationSeconds)
         )
     }
     
-    /// Returns URL for a specific preview chunk (15 seconds each)
+    /// Extracts full audio tracks to separate files
+    func extractFullAudioTracks() async throws -> [URL] {
+        let audioURLs = fullAudioTrackURLs()
+        
+        // Check if all exist and are valid (> 1KB)
+        let allValid = audioURLs.allSatisfy { url in
+            guard FileManager.default.fileExists(atPath: url.path) else { return false }
+            do {
+                let attr = try FileManager.default.attributesOfItem(atPath: url.path)
+                let size = attr[.size] as? UInt64 ?? 0
+                return size > 1024 // Minimum 1KB to be considered valid
+            } catch {
+                return false
+            }
+        }
+        
+        if !audioURLs.isEmpty && allValid {
+            logger.info("Using cached full audio tracks")
+            return audioURLs
+        }
+        
+        logger.info("Extracting full audio tracks for \(self.sourceURL.lastPathComponent, privacy: .public)")
+        
+        // Cleanup any partial/invalid files
+        for url in audioURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+        
+        guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
+            throw PreviewError.ffmpegNotFound
+        }
+        
+        // We need to run one ffmpeg command to extract all audio tracks
+        var arguments: [String] = [
+            "-hide_banner",
+            "-nostdin",
+            "-y",
+            "-i", sourceURL.path
+        ]
+        
+        let targetAudioIndices = audioStreamIndices.isEmpty ? [0] : audioStreamIndices
+        
+        for (outputIndex, streamIndex) in targetAudioIndices.enumerated() {
+            guard outputIndex < audioURLs.count else { continue }
+            // Explicitly disable video/subtitles for audio outputs and force MP4 container
+            arguments.append(contentsOf: ["-map", "0:a:\(streamIndex)?"])
+            arguments.append(contentsOf: ["-c:a", "aac"])
+            arguments.append(contentsOf: ["-b:a", "128k"])
+            arguments.append(contentsOf: ["-ac", "2"])
+            arguments.append(contentsOf: ["-vn", "-sn"])
+            arguments.append(contentsOf: ["-f", "mp4"])
+            arguments.append(contentsOf: ["-movflags", "+faststart"])
+            arguments.append(audioURLs[outputIndex].path)
+        }
+        
+        logger.info("Running ffmpeg for audio extraction with arguments: \(arguments.joined(separator: " "))")
+        
+        try Task.checkCancellation()
+        
+        // We use the first audio file as the "outputURL" for runFFmpeg check
+        guard let firstAudioURL = audioURLs.first else { return [] }
+        
+        _ = try await self.runFFmpeg(executablePath: ffmpegPath, arguments: arguments, outputURL: firstAudioURL)
+        
+        // Verify all outputs were created and are valid
+        for url in audioURLs {
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                logger.error("Expected audio output missing: \(url.path)")
+                throw PreviewError.outputMissing
+            }
+            let attr = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let size = attr?[.size] as? UInt64 ?? 0
+            if size < 100 {
+                logger.error("Generated audio file is too small (\(size) bytes): \(url.path)")
+                throw PreviewError.failedToStart("Generated audio file is empty or too small")
+            }
+        }
+        
+        return audioURLs
+    }
+    
+    /// Returns URL for a specific preview chunk video
     nonisolated func chunkURL(for index: Int) -> URL {
         cacheDirectory.appendingPathComponent("chunks/preview_chunk_\(index).mp4")
     }
     
+    /// Returns URLs for audio chunks corresponding to the video chunk
+    nonisolated func audioChunkURLs(for index: Int) -> [URL] {
+        let targetAudioIndices = audioStreamIndices.isEmpty ? [0] : audioStreamIndices
+        return targetAudioIndices.enumerated().map { (outputIndex, _) in
+            cacheDirectory.appendingPathComponent("chunks/preview_chunk_\(index)_audio_\(outputIndex).m4a")
+        }
+    }
+    
+    /// Returns URLs for full audio tracks
+    nonisolated func fullAudioTrackURLs() -> [URL] {
+        let targetAudioIndices = audioStreamIndices.isEmpty ? [0] : audioStreamIndices
+        return targetAudioIndices.enumerated().map { (outputIndex, _) in
+            cacheDirectory.appendingPathComponent("full_audio_\(outputIndex).m4a")
+        }
+    }
+    
     // MARK: - Helpers
 
-    private func buildArguments(startTime: TimeInterval, durationLimit: TimeInterval, maxShortEdge: Int, outputPath: String? = nil) -> [String] {
+    private func buildArguments(startTime: TimeInterval, durationLimit: TimeInterval, maxShortEdge: Int, outputPath: String, separateAudio: Bool, audioOutputPaths: [String] = []) -> [String] {
         let safeStart = max(0, startTime)
         let limitedDuration = max(1, durationLimit)
-
-        let output = outputPath ?? self.outputURL.path
 
         var arguments: [String] = [
             "-hide_banner",
@@ -229,17 +340,36 @@ actor MP4PreviewSession {
                 "-bufsize", "6M",
                 "-pix_fmt", "yuv420p"
             ])
+            // Video output file
+            arguments.append(outputPath)
         }
 
         let targetAudioIndices = audioStreamIndices.isEmpty ? [0] : audioStreamIndices
-        for (outputIndex, streamIndex) in targetAudioIndices.enumerated() {
-            arguments.append(contentsOf: ["-map", "0:a:\(streamIndex)?"])
-            arguments.append(contentsOf: ["-c:a:\(outputIndex)", "aac"])
-            arguments.append(contentsOf: ["-b:a:\(outputIndex)", "128k"])
-            arguments.append(contentsOf: ["-ac:a:\(outputIndex)", "2"])
+        
+        if separateAudio {
+            // Separate audio files
+            for (outputIndex, streamIndex) in targetAudioIndices.enumerated() {
+                guard outputIndex < audioOutputPaths.count else { continue }
+                arguments.append(contentsOf: ["-map", "0:a:\(streamIndex)?"])
+                arguments.append(contentsOf: ["-c:a", "aac"]) // No stream specifier needed for single stream output
+                arguments.append(contentsOf: ["-b:a", "128k"])
+                arguments.append(contentsOf: ["-ac", "2"])
+                arguments.append(audioOutputPaths[outputIndex])
+            }
+        } else {
+            // Muxed audio (legacy/full preview)
+            for (outputIndex, streamIndex) in targetAudioIndices.enumerated() {
+                arguments.append(contentsOf: ["-map", "0:a:\(streamIndex)?"])
+                arguments.append(contentsOf: ["-c:a:\(outputIndex)", "aac"])
+                arguments.append(contentsOf: ["-b:a:\(outputIndex)", "128k"])
+                arguments.append(contentsOf: ["-ac:a:\(outputIndex)", "2"])
+            }
+            // If video stream is missing, outputPath wasn't appended above
+            if !hasVideoStream {
+                arguments.append(outputPath)
+            }
         }
 
-        arguments.append(output)
         return arguments
     }
 

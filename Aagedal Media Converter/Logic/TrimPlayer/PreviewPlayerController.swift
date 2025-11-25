@@ -96,6 +96,7 @@ final class PreviewPlayerController: ObservableObject {
     weak var playbackTimeObserverOwner: AVPlayer?
     weak var audioSyncObserverOwner: AVPlayer?
     var playerItemStatusObserver: Any?
+    var fullAudioTrackURLs: [URL] = []
     var hasSecurityScope = false
     var usePreviewFallback = false
     var composition: AVMutableComposition?
@@ -676,11 +677,14 @@ final class PreviewPlayerController: ObservableObject {
         }
     }
 
-    private func applySelectedAudioTrackToCurrentPlayerItem() {
+    func applySelectedAudioTrackToCurrentPlayerItem() {
         if usePreviewFallback {
-            // Fallback preview (chunk based)
-            let orderedIndices = previewAudioStreamIndices
-            buildAudioTrackOptions(metadata: videoItem.metadata, orderedIndices: orderedIndices, mediaGroup: nil)
+            // Fallback preview (chunk based) - rebuild composition with new audio track
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .info("applySelectedAudioTrackToCurrentPlayerItem: usePreviewFallback=true, calling rebuildComposition()")
+            Task { @MainActor in
+                await self.rebuildComposition()
+            }
         } else {
             // AVPlayer
             guard let playerItem = player?.currentItem else { return }
@@ -753,25 +757,12 @@ final class PreviewPlayerController: ObservableObject {
                     
                     Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("applySelectedAudioTrackToCurrentPlayerItem: usePreviewFallback=\(self.usePreviewFallback)")
                 
-                if usePreviewFallback {
-                        // For AVComposition, AVPlayerItemTrack.isEnabled is often ignored or unreliable.
-                        // We must use AVMutableAudioMix to mute/unmute tracks.
-                        let audioMix = AVMutableAudioMix()
-                        var inputParams: [AVMutableAudioMixInputParameters] = []
-                        
-                        for (index, track) in audioTracks.enumerated() {
-                            guard let assetTrack = track.assetTrack else { continue }
-                            let params = AVMutableAudioMixInputParameters(track: assetTrack)
-                            let shouldEnable = (index == desiredPosition)
-                            params.setVolume(shouldEnable ? 1.0 : 0.0, at: .zero)
-                            inputParams.append(params)
-                            
-                            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                                .debug("AudioMix: Track \(index) (ID: \(assetTrack.trackID)) volume set to \(shouldEnable ? 1.0 : 0.0)")
+                    if usePreviewFallback {
+                        // For fallback preview, we rebuild the composition with the selected audio track
+                        // This avoids issues with AVMutableAudioMix on compositions
+                        Task { @MainActor in
+                            await self.rebuildComposition()
                         }
-                        
-                        audioMix.inputParameters = inputParams
-                        playerItem.audioMix = audioMix
                         return
                     }
                     
@@ -856,6 +847,7 @@ final class PreviewPlayerController: ObservableObject {
         composition = nil
         compositionVideoTrack = nil
         compositionAudioTracks = []
+        fullAudioTrackURLs = []
         pendingChunkTime = nil
         appliedChunks.removeAll()
         previewAudioStreamIndices = []
