@@ -90,6 +90,7 @@ enum AppConstants {
     static let maxThumbnailSize = CGSize(width: 320, height: 320)
     static let includeDateTagPreferenceKey = "includeDateTagByDefault"
     static let preserveMetadataPreferenceKey = "preserveMetadataByDefault"
+    static let enableFileNameProcessingKey = "enableFileNameProcessing"
     static let customPresetCommandKey = "customPresetFFmpegCommand"
     static let customPresetSuffixKey = "customPresetFileSuffix"
     static let customPresetExtensionKey = "customPresetFileExtension"
