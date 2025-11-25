@@ -46,6 +46,7 @@ struct VideoFileRowView: View {
     @State private var isThumbnailHovered = false
     @State private var showPreview = false
     @State private var showMetadata = false
+    @State private var showAudioRouting = false
     @State private var cachedThumbnail: NSImage?
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
@@ -108,17 +109,54 @@ struct VideoFileRowView: View {
                             .padding(8)
                         }
                     }
+                    .overlay(alignment: .topTrailing) {
+                        // Audio routing indicator badge (only when customized)
+                        if let config = file.audioRoutingConfig, config.isCustomized {
+                            HStack(spacing: 4) {
+                                Image(systemName: "hifispeaker.2")
+                                    .font(.caption2)
+                                Text("\(config.outputTrackIndices.count)")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.accentColor)
+                            )
+                            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                            .padding(8)
+                        }
+                    }
                     .overlay {
                         if isThumbnailHovered {
-                            ZStack {
+                            ZStack(alignment: .topLeading) {
                                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                                     .fill(Color.black.opacity(0.35))
                                     .frame(width: 200, height: 150)
                                     .allowsHitTesting(false)
                                 
+                                // Audio Routing button (top-left corner)
+                                if let audioStreams = file.metadata?.audioStreams, !audioStreams.isEmpty {
+                                    Button {
+                                        showAudioRouting = true
+                                    } label: {
+                                        Label("Audio Routing", systemImage: "hifispeaker.2.badge.minus")
+                                            .labelStyle(.iconOnly)
+                                            .font(.system(size: 20, weight: .medium))
+                                            .symbolRenderingMode(file.audioRoutingConfig?.isCustomized == true ? .multicolor : .monochrome)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundColor(.white)
+                                    .help(file.audioRoutingConfig?.isCustomized == true ? "Audio routing customized (\(file.audioRoutingConfig?.outputTrackIndices.count ?? 0) tracks)" : "Configure audio track routing")
+                                    .padding(10)
+                                }
+                                
                                 VStack {
                                     Spacer()
-                                    HStack(spacing: 12) {
+                                    HStack(spacing: 16) {
                                         Button {
                                             showPreview = true
                                         } label: {
@@ -132,19 +170,17 @@ struct VideoFileRowView: View {
                                         
                                         Spacer()
 
-                                        //if file.metadata != nil {
-                                            Button {
-                                                showMetadata = true
-                                            } label: {
-                                                Label("Metadata", systemImage: "info.circle")
-                                                    .labelStyle(.iconOnly)
-                                                    .font(.system(size: 24, weight: .medium))
-                                                    .disabled(file.metadata == nil)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .foregroundColor(.white)
-                                            .help("View technical metadata")
-                                        //}
+                                        Button {
+                                            showMetadata = true
+                                        } label: {
+                                            Label("Metadata", systemImage: "info.circle")
+                                                .labelStyle(.iconOnly)
+                                                .font(.system(size: 24, weight: .medium))
+                                                .disabled(file.metadata == nil)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(.white)
+                                        .help("View technical metadata")
                                     }.padding(10)
                                 }
 
@@ -307,6 +343,9 @@ struct VideoFileRowView: View {
         }
         .sheet(isPresented: $showMetadata) {
             VideoMetadataView(item: $file)
+        }
+        .sheet(isPresented: $showAudioRouting) {
+            AudioRoutingView(item: $file, preset: preset)
         }
         .task(id: file.thumbnailData) {
             // Decode thumbnail asynchronously off main thread
