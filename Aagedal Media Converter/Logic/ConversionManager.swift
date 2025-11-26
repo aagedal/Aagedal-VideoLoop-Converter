@@ -150,7 +150,25 @@ actor ConversionManager: Sendable {
         let waveformPreferences = AudioWaveformPreferences.loadConfig()
         let resolvedWaveformResolution = preset.resolvedWaveformResolution(defaultResolution: waveformPreferences.resolution)
 
-        let waveformRequest: WaveformVideoRequest? = (preset != .streamCopy && orderedWaitingItems.contains(where: { $0.requiresWaveformVideo })) ? {
+        // Check if waveform generation is compatible with audio routing
+        let canGenerateWaveform = {
+            guard preset != .streamCopy else { return false }
+            guard orderedWaitingItems.contains(where: { $0.requiresWaveformVideo }) else { return false }
+            // splitToMono is incompatible with waveform video (needs 2 separate audio outputs)
+            // If any audio-only item uses splitToMono, disable waveform for all
+            if orderedWaitingItems.contains(where: { item in
+                guard item.requiresWaveformVideo else { return false }
+                if case .splitToMono = item.audioRoutingConfig?.channelOperation {
+                    return true
+                }
+                return false
+            }) {
+                return false
+            }
+            return true
+        }()
+
+        let waveformRequest: WaveformVideoRequest? = canGenerateWaveform ? {
             return WaveformVideoRequest(
                 width: Int(resolvedWaveformResolution.width),
                 height: Int(resolvedWaveformResolution.height),
@@ -166,6 +184,16 @@ actor ConversionManager: Sendable {
             guard waveformRequest == nil else { return nil }
             guard preset.outputsVideoTrack else { return nil }
             guard orderedWaitingItems.contains(where: { !$0.hasVideoStream }) else { return nil }
+            // splitToMono is incompatible with video generation (needs 2 separate audio outputs)
+            if orderedWaitingItems.contains(where: { item in
+                guard !item.hasVideoStream else { return false }
+                if case .splitToMono = item.audioRoutingConfig?.channelOperation {
+                    return true
+                }
+                return false
+            }) {
+                return nil
+            }
             return SynthesizedVideoRequest(
                 width: Int(resolvedWaveformResolution.width),
                 height: Int(resolvedWaveformResolution.height),
@@ -762,7 +790,17 @@ actor ConversionManager: Sendable {
         let waveformPreferences = AudioWaveformPreferences.loadConfig()
         let resolvedWaveformResolution = preset.resolvedWaveformResolution(defaultResolution: waveformPreferences.resolution)
 
-        let waveformRequest: WaveformVideoRequest? = (preset != .streamCopy && currentItem.requiresWaveformVideo) ? {
+        // Check if waveform generation is compatible with audio routing
+        let canGenerateWaveform = {
+            guard preset != .streamCopy && currentItem.requiresWaveformVideo else { return false }
+            // splitToMono is incompatible with waveform video (needs 2 separate audio outputs)
+            if case .splitToMono = currentItem.audioRoutingConfig?.channelOperation {
+                return false
+            }
+            return true
+        }()
+
+        let waveformRequest: WaveformVideoRequest? = canGenerateWaveform ? {
             return WaveformVideoRequest(
                 width: Int(resolvedWaveformResolution.width),
                 height: Int(resolvedWaveformResolution.height),
@@ -778,6 +816,10 @@ actor ConversionManager: Sendable {
             guard waveformRequest == nil else { return nil }
             guard preset.outputsVideoTrack else { return nil }
             guard !currentItem.hasVideoStream else { return nil }
+            // splitToMono is incompatible with video generation (needs 2 separate audio outputs)
+            if case .splitToMono = currentItem.audioRoutingConfig?.channelOperation {
+                return nil
+            }
             return SynthesizedVideoRequest(
                 width: Int(resolvedWaveformResolution.width),
                 height: Int(resolvedWaveformResolution.height),
