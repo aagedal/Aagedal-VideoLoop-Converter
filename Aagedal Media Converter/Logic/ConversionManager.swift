@@ -401,6 +401,7 @@ actor ConversionManager: Sendable {
             includeDateTag: plan.includeDateTag,
             trimStart: nil,
             trimEnd: nil,
+            audioRoutingConfig: primaryInput.audioRoutingConfig,
             waveformRequest: plan.waveformRequest,
             synthesizedVideoRequest: plan.synthesizedVideoRequest,
             customInputArguments: customInputs,
@@ -794,6 +795,7 @@ actor ConversionManager: Sendable {
             includeDateTag: currentItem.includeDateTag,
             trimStart: currentItem.trimStart,
             trimEnd: currentItem.trimEnd,
+            audioRoutingConfig: currentItem.audioRoutingConfig,
             waveformRequest: waveformRequest,
             synthesizedVideoRequest: synthesizedVideoRequest,
             progressUpdate: { progress, eta in

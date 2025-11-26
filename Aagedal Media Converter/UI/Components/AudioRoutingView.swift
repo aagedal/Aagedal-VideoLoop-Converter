@@ -25,7 +25,7 @@ struct AudioRoutingView: View {
                 } else if let metadata = item.metadata, !metadata.audioStreams.isEmpty {
                     let tracks = metadata.audioStreams.enumerated().map { (index, stream) in
                         AudioTrackInfo(
-                            streamIndex: stream.index ?? 0,
+                            streamIndex: index,  // Use audio-relative index for FFmpeg mapping (0, 1, 2...)
                             channels: stream.channels,
                             channelLayout: stream.channelLayout,
                             codec: stream.codec,
