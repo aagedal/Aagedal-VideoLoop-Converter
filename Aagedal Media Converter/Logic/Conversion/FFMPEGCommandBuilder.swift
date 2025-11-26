@@ -96,7 +96,7 @@ enum FFMPEGCommandBuilder {
                 arguments.append(contentsOf: durationArgument)
             }
 
-            arguments.append(contentsOf: waveformCommandArguments(for: waveformRequest, includeAudioOutput: includeAudioOutput))
+            arguments.append(contentsOf: waveformCommandArguments(for: waveformRequest, includeAudioOutput: includeAudioOutput, audioRoutingConfig: audioRoutingConfig))
 
             var ffmpegArgs = preset.ffmpegArguments
             await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
@@ -141,6 +141,12 @@ enum FFMPEGCommandBuilder {
             if synthesizedVideoRequest.includeAudio {
                 removeArgumentPair("-an", value: nil, from: &ffmpegArgs)
             }
+            
+            // Apply audio routing configuration if provided and preset supports audio
+            if let audioRoutingConfig, preset.outputsAudioTrack {
+                applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
+            }
+            
             applyCommentMetadata(
                 to: &ffmpegArgs,
                 comment: comment,
@@ -167,6 +173,10 @@ enum FFMPEGCommandBuilder {
         var ffmpegArgs = preset.ffmpegArguments
         await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
         await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+        
+        // If no waveform or synthesized video, we're encoding audio-only
+        // Remove video-related arguments that would fail on audio-only files
+        removeVideoArguments(from: &ffmpegArgs)
         
         // Apply audio routing configuration if provided and preset supports audio
         if let audioRoutingConfig, preset.outputsAudioTrack {
@@ -231,8 +241,71 @@ extension FFMPEGCommandBuilder {
         }
         return nil
     }
+    
+    /// Builds audio routing filter segments for waveform video generation
+    /// - Parameter config: The audio routing configuration
+    /// - Returns: Tuple of (filter segments, output label for routed audio)
+    private static func buildAudioRoutingFilters(config: AudioRoutingConfig) -> (segments: [String], outputLabel: String) {
+        // Check if we need channel operations (filter_complex)
+        if let operation = config.channelOperation {
+            let outputLabel = "arouted"
+            let filterSegment: String
+            
+            switch operation {
+            case .mergeToStereo(let trackIndices):
+                guard trackIndices.count >= 2 else {
+                    // Fallback to simple track selection
+                    return buildSimpleTrackRoutingFilters(config: config)
+                }
+                
+                let inputs = trackIndices.map { "[0:a:\($0)]" }.joined()
+                if trackIndices.count == 2 {
+                    // Simple stereo merge: combine two mono tracks
+                    filterSegment = "\(inputs)amerge=inputs=2,pan=stereo|c0<c0+c2|c1<c1+c3[\(outputLabel)]"
+                } else {
+                    // Multiple tracks: merge all into multi-channel, then downmix to stereo
+                    filterSegment = "\(inputs)amerge=inputs=\(trackIndices.count),pan=stereo|c0<c0|c1<c1[\(outputLabel)]"
+                }
+                
+            case .splitToMono(let trackIndex):
+                // For waveform video, we need to merge split channels back to visualize
+                // Split then immediately merge them back to stereo for visualization
+                filterSegment = "[0:a:\(trackIndex)]channelsplit=channel_layout=stereo[L][R];[L][R]amerge=inputs=2,pan=stereo|c0<c0+c2|c1<c1+c3[\(outputLabel)]"
+                
+            case .swapChannels(let trackIndex):
+                filterSegment = "[0:a:\(trackIndex)]pan=stereo|c0=c1|c1=c0[\(outputLabel)]"
+                
+            case .extractChannel(let trackIndex, let channelIndex, _):
+                // Extract channel but convert to mono for visualization
+                filterSegment = "[0:a:\(trackIndex)]pan=mono|c0=c\(channelIndex)[\(outputLabel)]"
+            }
+            
+            return ([filterSegment], outputLabel)
+        } else {
+            // Simple track selection without channel operations
+            return buildSimpleTrackRoutingFilters(config: config)
+        }
+    }
+    
+    /// Builds simple track selection filters for waveform video
+    private static func buildSimpleTrackRoutingFilters(config: AudioRoutingConfig) -> (segments: [String], outputLabel: String) {
+        if config.outputTrackIndices.count == 1 {
+            // Single track: use directly
+            let trackIndex = config.outputTrackIndices[0]
+            return ([], "0:a:\(trackIndex)")
+        } else if config.outputTrackIndices.count > 1 {
+            // Multiple tracks: merge them for visualization
+            let outputLabel = "arouted"
+            let inputs = config.outputTrackIndices.map { "[0:a:\($0)]" }.joined()
+            let filterSegment = "\(inputs)amerge=inputs=\(config.outputTrackIndices.count),pan=stereo|c0<c0|c1<c1[\(outputLabel)]"
+            return ([filterSegment], outputLabel)
+        } else {
+            // No tracks selected: fallback to all audio
+            return ([], "0:a")
+        }
+    }
 
-    static func waveformFilterGraph(for request: WaveformVideoRequest, includeAudioSplit: Bool) -> (filterComplex: String, videoMap: String, audioMap: String?) {
+    static func waveformFilterGraph(for request: WaveformVideoRequest, includeAudioSplit: Bool, audioRoutingConfig: AudioRoutingConfig? = nil) -> (filterComplex: String, videoMap: String, audioMap: String?) {
         let finalWidth = evenDimension(max(request.width, 2))
         let finalHeight = evenDimension(max(request.height, 2))
         let resolution = "\(finalWidth)x\(finalHeight)"
@@ -254,7 +327,20 @@ extension FFMPEGCommandBuilder {
         let waveInputLabel = includeAudioSplit ? "wavesrc" : "audproc"
 
         var segments: [String] = []
-        var audioSegment = "[0:a]\(audioProcessing)"
+        
+        // Apply audio routing if configured
+        let audioInputLabel: String
+        if let routingConfig = audioRoutingConfig {
+            // Generate audio routing filters
+            let (routingSegments, routingOutputLabel) = buildAudioRoutingFilters(config: routingConfig)
+            segments.append(contentsOf: routingSegments)
+            audioInputLabel = routingOutputLabel
+        } else {
+            // Default: use all audio from input
+            audioInputLabel = "0:a"
+        }
+        
+        var audioSegment = "[\(audioInputLabel)]\(audioProcessing)"
         if includeAudioSplit {
             audioSegment += ",asplit=2[\(waveInputLabel)][audout]"
         } else {
@@ -294,8 +380,8 @@ extension FFMPEGCommandBuilder {
         return (filterComplex, "[outv]", audioMap)
     }
 
-    static func waveformCommandArguments(for request: WaveformVideoRequest, includeAudioOutput: Bool) -> [String] {
-        let components = waveformFilterGraph(for: request, includeAudioSplit: includeAudioOutput)
+    static func waveformCommandArguments(for request: WaveformVideoRequest, includeAudioOutput: Bool, audioRoutingConfig: AudioRoutingConfig? = nil) -> [String] {
+        let components = waveformFilterGraph(for: request, includeAudioSplit: includeAudioOutput, audioRoutingConfig: audioRoutingConfig)
 
         var arguments: [String] = [
             "-filter_complex", components.filterComplex,
@@ -488,6 +574,44 @@ extension FFMPEGCommandBuilder {
     private static func sanitizeArgumentsForCustomVideoPipeline(_ ffmpegArgs: inout [String]) {
         removeArgumentPair("-vf", value: nil, from: &ffmpegArgs)
         removeArgumentPair("-map", value: nil, from: &ffmpegArgs)
+    }
+    
+    /// Removes video-related arguments for audio-only encoding
+    private static func removeVideoArguments(from ffmpegArgs: inout [String]) {
+        // Remove video codec arguments
+        removeArgumentPair("-c:v", value: nil, from: &ffmpegArgs)
+        removeArgumentPair("-pix_fmt", value: nil, from: &ffmpegArgs)
+        removeArgumentPair("-b:v", value: nil, from: &ffmpegArgs)
+        removeArgumentPair("-profile:v", value: nil, from: &ffmpegArgs)
+        removeArgumentPair("-tag:v", value: nil, from: &ffmpegArgs)
+        
+        // Remove video filter arguments
+        removeArgumentPair("-vf", value: nil, from: &ffmpegArgs)
+        
+        // Remove video mapping (this is the key one causing the error)
+        var index = 0
+        while index < ffmpegArgs.count {
+            if ffmpegArgs[index] == "-map",
+               index + 1 < ffmpegArgs.count,
+               ffmpegArgs[index + 1].contains("0:v") {
+                ffmpegArgs.remove(at: index)
+                ffmpegArgs.remove(at: index)
+                continue
+            }
+            index += 1
+        }
+        
+        // Remove metadata for video streams
+        var metadataIndex = 0
+        while metadataIndex < ffmpegArgs.count {
+            if ffmpegArgs[metadataIndex] == "-metadata:s:v:0",
+               metadataIndex + 1 < ffmpegArgs.count {
+                ffmpegArgs.remove(at: metadataIndex)
+                ffmpegArgs.remove(at: metadataIndex)
+                continue
+            }
+            metadataIndex += 1
+        }
     }
 
     /// Applies audio routing configuration by replacing preset's audio map arguments
