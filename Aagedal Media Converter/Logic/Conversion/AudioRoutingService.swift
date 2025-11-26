@@ -30,13 +30,17 @@ enum AudioRoutingService {
         var trackInfos: [AudioTrackInfo] = []
         
         for (position, basicStream) in basicStreams.enumerated() {
-            let streamIndex = basicStream.index ?? position
+            // Use position as the audio-relative index for FFmpeg's -map 0:a:X notation
+            // basicStream.index contains absolute stream index (e.g., 0=video, 1-4=audio)
+            // but FFmpeg's 0:a:X expects audio-relative indices (0, 1, 2, 3...)
+            let audioRelativeIndex = position
+            let absoluteStreamIndex = basicStream.index ?? position
             
-            // Try to find matching stream in detailed metadata
-            let detailedStream = metadata?.audioStreams.first { $0.index == streamIndex }
+            // Try to find matching stream in detailed metadata using absolute index
+            let detailedStream = metadata?.audioStreams.first { $0.index == absoluteStreamIndex }
             
             let trackInfo = AudioTrackInfo(
-                streamIndex: streamIndex,
+                streamIndex: audioRelativeIndex,
                 channels: basicStream.channels ?? detailedStream?.channels,
                 channelLayout: basicStream.channelLayout ?? detailedStream?.channelLayout,
                 codec: detailedStream?.codec,
