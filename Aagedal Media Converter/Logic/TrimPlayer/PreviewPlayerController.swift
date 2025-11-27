@@ -113,7 +113,15 @@ final class PreviewPlayerController: ObservableObject {
     // MARK: - VLC State
     var vlcPlayer: VLCPlayer?
     var useVLC = false
-    
+
+    /// Codecs that require chunk-based fallback (not supported by AVPlayer but FFMPEG can decode)
+    private static let chunkFallbackCodecs: Set<String> = [
+        "apv",                   // Apple Advanced Professional Video
+        "vvc", "vvc1", "vvi1",  // VVC/H.266
+        "h266"                   // Alternative H.266 identifier
+        // Future codecs can be added here
+    ]
+
     // MARK: - Initialization
     
     var playbackTimePublisher: Published<Double>.Publisher { $currentPlaybackTime }
@@ -143,7 +151,23 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     // MARK: - Preview Preparation
-    
+
+    /// Checks if the video codec requires chunk-based fallback (not supported by AVPlayer)
+    /// Returns true if chunk fallback should be used, false if AVPlayer should be tried first
+    private func requiresChunkFallback(for item: VideoItem) -> Bool {
+        // Check cached metadata first (instant if available)
+        if let codec = item.metadata?.videoStream?.codec?.lowercased() {
+            // Check against known codecs requiring chunk fallback
+            for fallbackCodec in Self.chunkFallbackCodecs {
+                if codec.contains(fallbackCodec) {
+                    return true
+                }
+            }
+        }
+
+        return false  // Unknown or no metadata - try AVPlayer first, async detection will catch it
+    }
+
     func preparePreview(startTime: TimeInterval, resetAudioSelection: Bool = true) {
         teardown(resetAudioSelection: resetAudioSelection)
         isPreparing = true
@@ -155,7 +179,15 @@ final class PreviewPlayerController: ObservableObject {
 
         let currentItem = videoItem
         let url = currentItem.url
-        
+
+        // Check if this codec requires chunk-based fallback before creating AVPlayer
+        if requiresChunkFallback(for: currentItem) {
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .info("Detected codec requiring chunk fallback from metadata - using fallback preview directly")
+            fallbackToPreview(startTime: startTime)
+            return  // Skip AVPlayer creation entirely
+        }
+
         // Try AVPlayer directly first with security-scoped resource access
         
         // First try bookmark-based access (more reliable for sandboxed apps)

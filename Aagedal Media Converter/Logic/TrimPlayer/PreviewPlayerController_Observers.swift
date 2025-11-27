@@ -350,12 +350,17 @@ extension PreviewPlayerController {
                         }
                     }
                     
-                    // Check if we should use chunk fallback (e.g. for APV) or VLC
+                    // Check if we should use chunk fallback (e.g. for APV, VVC) or VLC
                     let codec = self.videoItem.metadata?.videoStream?.codec?.lowercased() ?? ""
                     let codecLong = self.videoItem.metadata?.videoStream?.codecLongName?.lowercased() ?? ""
-                    
+
                     if codec.contains("apv") || codecLong.contains("advanced professional video") {
                         logger.info("AVPlayer failed and codec is APV. Attempting Chunk Fallback.")
+                        self.teardown(resetAudioSelection: false)
+                        self.fallbackToPreview(startTime: startTime)
+                    } else if codec.contains("vvc") || codec == "h266" || codecLong.contains("vvc") || codecLong.contains("h.266") {
+                        // VVC/H.266 uses chunk-based fallback (FFMPEG can decode VVC for chunks)
+                        logger.info("AVPlayer failed and codec is VVC/H.266. Attempting Chunk Fallback.")
                         self.teardown(resetAudioSelection: false)
                         self.fallbackToPreview(startTime: startTime)
                     } else {
@@ -412,9 +417,17 @@ extension PreviewPlayerController {
                                         logger.debug("Video codec detected: '\(codecString)' (raw: \(codec))")
                                         
                                         // Check for truly unsupported codecs
-                                        // Only APV codecs are unsupported - all ProRes variants work with AVPlayer
+                                        // APV codecs use chunk fallback, VVC and other unsupported codecs use VLC
                                         if codecString == "apv1" || codecString == "apvx" {
                                             logger.warning("AVPlayer ready but codec '\(codecString)' unsupported. Attempting Chunk Fallback.")
+                                            self.teardown(resetAudioSelection: false)
+                                            self.fallbackToPreview(startTime: startTime)
+                                            return
+                                        }
+
+                                        // VVC (H.266) uses chunk-based fallback like APV (FFMPEG can decode it)
+                                        if codecString == "vvc1" || codecString == "vvi1" {
+                                            logger.warning("AVPlayer ready but codec '\(codecString)' (VVC/H.266) not supported. Attempting Chunk Fallback.")
                                             self.teardown(resetAudioSelection: false)
                                             self.fallbackToPreview(startTime: startTime)
                                             return

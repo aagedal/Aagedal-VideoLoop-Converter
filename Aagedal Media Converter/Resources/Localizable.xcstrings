@@ -164,7 +164,6 @@
       }
     },
     "Add ${video} to the encode queue" : {
-      "extractionState" : "stale",
       "localizations" : {
         "nb" : {
           "stringUnit" : {
@@ -651,7 +650,6 @@
       }
     },
     "Convert ${video} immediately" : {
-      "extractionState" : "stale",
       "localizations" : {
         "nb" : {
           "stringUnit" : {
