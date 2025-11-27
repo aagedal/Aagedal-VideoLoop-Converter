@@ -361,7 +361,7 @@ extension ExportPreset {
         case .audioUncompressedWAV, .audioStereoAAC:
             return false
         case .streamCopy:
-            return false
+            return true  // Stream copy preserves video if present, and timecode metadata works with -c copy
         default:
             return true
         }

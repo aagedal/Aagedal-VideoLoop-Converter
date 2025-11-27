@@ -421,6 +421,20 @@ actor ConversionManager: Sendable {
             "-ignore_unknown"
         ] : nil
 
+        // For merges, always use the first clip's timecode as the master
+        // If no timecode config is set, create one with preserveSource mode
+        let mergeTimecodeConfig: TimecodeConfig? = {
+            if let existing = primaryInput.timecodeConfig {
+                return existing
+            }
+            // Auto-create a preserveSource config for merges to use first clip as master
+            return TimecodeConfig(mode: .preserveSource)
+        }()
+
+        // For merges, use the first clip's audio routing as the master
+        // This applies the same audio routing to the entire concatenated stream
+        let mergeAudioRoutingConfig = primaryInput.audioRoutingConfig
+
         await ffmpegConverter.convert(
             inputURL: primaryInput.url,
             outputURL: plan.outputBaseURL,
@@ -429,9 +443,9 @@ actor ConversionManager: Sendable {
             includeDateTag: plan.includeDateTag,
             trimStart: nil,
             trimEnd: nil,
-            audioRoutingConfig: primaryInput.audioRoutingConfig,
+            audioRoutingConfig: mergeAudioRoutingConfig,
             cropConfig: primaryInput.cropConfig,
-            timecodeConfig: primaryInput.timecodeConfig,
+            timecodeConfig: mergeTimecodeConfig,
             waveformRequest: plan.waveformRequest,
             synthesizedVideoRequest: plan.synthesizedVideoRequest,
             customInputArguments: customInputs,
