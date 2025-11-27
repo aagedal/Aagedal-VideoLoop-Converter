@@ -204,7 +204,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-pix_fmt", "p210le",
                 "-c:v", "hevc_videotoolbox",
                 "-b:v", "18M",
-                "-profile:v", "main10",
+                "-profile:v", "main42210",
                 "-tag:v", "hvc1",
                 "-c:a", "pcm_s24le",
                 "-map", "0:v",
@@ -218,7 +218,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-pix_fmt", "p210le",
                 "-c:v", "hevc_videotoolbox",
                 "-b:v", "60M",
-                "-profile:v", "main10",
+                "-profile:v", "main42210",
                 "-tag:v", "hvc1",
                 "-c:a", "pcm_s24le",
                 "-map", "0:v",
@@ -270,6 +270,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             var args = commonArgs + [
                 "-map", "0",
                 "-c", "copy",
+                "-map", "-0:d?",  // Exclude data streams (e.g., timecode metadata)
+                "-map", "-0:t?",  // Exclude subtitle streams
+                "-ignore_unknown"  // Ignore unknown stream types
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
@@ -313,6 +316,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
     var appliesCrop: Bool {
         switch self {
+        case .streamCopy:
+            return false // Stream copy cannot apply filters like crop
         case .custom1, .custom2, .custom3:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesCrop(for: slot)
@@ -323,6 +328,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
     var appliesAudioRouting: Bool {
         switch self {
+        case .streamCopy:
+            return false // Stream copy cannot apply audio filters
         case .custom1, .custom2, .custom3:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesAudioRouting(for: slot)

@@ -435,6 +435,11 @@ actor ConversionManager: Sendable {
         // This applies the same audio routing to the entire concatenated stream
         let mergeAudioRoutingConfig = primaryInput.audioRoutingConfig
 
+        // For merges, use the first clip's crop settings as the master
+        // The crop filter will apply to the entire concatenated stream
+        // Note: Crop requires re-encoding and won't work with Stream Copy preset
+        let mergeCropConfig = primaryInput.cropConfig
+
         await ffmpegConverter.convert(
             inputURL: primaryInput.url,
             outputURL: plan.outputBaseURL,
@@ -444,7 +449,7 @@ actor ConversionManager: Sendable {
             trimStart: nil,
             trimEnd: nil,
             audioRoutingConfig: mergeAudioRoutingConfig,
-            cropConfig: primaryInput.cropConfig,
+            cropConfig: mergeCropConfig,
             timecodeConfig: mergeTimecodeConfig,
             waveformRequest: plan.waveformRequest,
             synthesizedVideoRequest: plan.synthesizedVideoRequest,
