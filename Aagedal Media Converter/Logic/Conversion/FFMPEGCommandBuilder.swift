@@ -144,8 +144,8 @@ enum FFMPEGCommandBuilder {
                 removeArgumentPair("-an", value: nil, from: &ffmpegArgs)
             }
             
-            // Apply audio routing configuration if provided and preset supports audio
-            if let audioRoutingConfig, preset.outputsAudioTrack {
+            // Apply audio routing configuration if provided and preset supports audio and audio routing
+            if let audioRoutingConfig, preset.outputsAudioTrack, preset.appliesAudioRouting {
                 applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
             }
             
@@ -176,10 +176,11 @@ enum FFMPEGCommandBuilder {
         await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
         await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
 
-        // Apply crop to video filter if configured
+        // Apply crop to video filter if configured and preset supports it
         if let cropConfig = cropConfig,
            cropConfig.isActive,
-           preset.outputsVideoTrack {
+           preset.outputsVideoTrack,
+           preset.appliesCrop {
             if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL),
                let width = metadata.videoStream?.width,
                let height = metadata.videoStream?.height {
@@ -197,8 +198,8 @@ enum FFMPEGCommandBuilder {
             removeVideoArguments(from: &ffmpegArgs)
         }
         
-        // Apply audio routing configuration if provided and preset supports audio
-        if let audioRoutingConfig, preset.outputsAudioTrack {
+        // Apply audio routing configuration if provided and preset supports audio and audio routing
+        if let audioRoutingConfig, preset.outputsAudioTrack, preset.appliesAudioRouting {
             applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
         }
 
@@ -682,9 +683,18 @@ extension FFMPEGCommandBuilder {
     /// Applies audio routing configuration by replacing preset's audio map arguments
     /// with custom track selection, ordering, or channel-level operations
     private static func applyAudioRouting(config: AudioRoutingConfig, to ffmpegArgs: inout [String]) {
+        // Check if there's already a video map - if not, we need to add one
+        let hasVideoMap = ffmpegArgs.contains(where: { arg in
+            if let idx = ffmpegArgs.firstIndex(of: "-map"),
+               idx + 1 < ffmpegArgs.count {
+                return ffmpegArgs[idx + 1].hasPrefix("0:v")
+            }
+            return false
+        })
+
         // Remove all existing audio mapping arguments from preset
         removeArgumentPair("-map", value: "0:a", from: &ffmpegArgs)
-        
+
         // Also remove indexed audio maps if present
         var index = 0
         while index < ffmpegArgs.count {
@@ -697,10 +707,17 @@ extension FFMPEGCommandBuilder {
             }
             index += 1
         }
-        
+
+        // Ensure video is mapped if not already present
+        if !hasVideoMap {
+            // Insert -map 0:v at the beginning
+            ffmpegArgs.insert(contentsOf: ["-map", "0:v"], at: 0)
+            logger.debug("Added video mapping for audio routing")
+        }
+
         // Generate custom audio arguments (either simple -map or filter_complex)
         let customAudioArgs = AudioRoutingService.buildFFmpegMapArguments(config: config)
-        
+
         // Check if we're using filter_complex (channel operations)
         if customAudioArgs.contains("-filter_complex") {
             // Remove any existing audio-only filter_complex
@@ -710,7 +727,7 @@ extension FFMPEGCommandBuilder {
                     if filterComplexIndex + 1 < ffmpegArgs.count {
                         let filterContent = ffmpegArgs[filterComplexIndex + 1]
                         // Simple heuristic: if it contains audio operations, remove it
-                        if filterContent.contains("[aout]") || filterContent.contains("amerge") || 
+                        if filterContent.contains("[aout]") || filterContent.contains("amerge") ||
                            filterContent.contains("channelsplit") || filterContent.contains("pan=") {
                             ffmpegArgs.remove(at: filterComplexIndex)
                             if filterComplexIndex < ffmpegArgs.count {
@@ -722,7 +739,7 @@ extension FFMPEGCommandBuilder {
                 }
                 filterComplexIndex += 1
             }
-            
+
             // Insert filter_complex at the beginning (after input arguments)
             ffmpegArgs.insert(contentsOf: customAudioArgs, at: 0)
             logger.debug("Applied audio routing with filter_complex: \(customAudioArgs.joined(separator: " "))")
@@ -735,7 +752,7 @@ extension FFMPEGCommandBuilder {
                     break
                 }
             }
-            
+
             ffmpegArgs.insert(contentsOf: customAudioArgs, at: insertionIndex)
             logger.debug("Applied audio routing with simple maps: \(customAudioArgs.joined(separator: " "))")
         }
@@ -772,15 +789,27 @@ extension FFMPEGCommandBuilder {
             return
         }
 
-        // Find -vf index
-        guard let vfIndex = ffmpegArgs.firstIndex(of: "-vf"),
-              vfIndex + 1 < ffmpegArgs.count else {
-            logger.debug("No -vf argument found, skipping crop")
-            return
+        // Find -vf index, or add it if it doesn't exist
+        var vfIndex = ffmpegArgs.firstIndex(of: "-vf")
+        var filterChain = ""
+
+        if let existingIndex = vfIndex, existingIndex + 1 < ffmpegArgs.count {
+            // Use existing filter chain
+            filterChain = ffmpegArgs[existingIndex + 1]
+        } else {
+            // No -vf found, add it
+            // Insert before output file (which is last)
+            let insertIndex = ffmpegArgs.count
+            ffmpegArgs.insert("-vf", at: insertIndex)
+            ffmpegArgs.insert("", at: insertIndex + 1)  // Empty placeholder
+            vfIndex = insertIndex
+            logger.debug("Added -vf argument for crop")
         }
 
-        // Get current filter chain
-        var filterChain = ffmpegArgs[vfIndex + 1]
+        guard let vfIndex else {
+            logger.debug("Failed to create -vf argument for crop")
+            return
+        }
 
         // Generate crop filter
         guard let cropFilter = CropService.buildCropFilter(
@@ -792,9 +821,12 @@ extension FFMPEGCommandBuilder {
             return
         }
 
-        // Insert crop AFTER setsar, BEFORE final scale
-        // Pattern: find ",scale=w=" and insert crop before it
-        if let scaleRange = filterChain.range(of: ",scale=w=") {
+        // Insert crop into filter chain
+        if filterChain.isEmpty {
+            // No existing filters, just use crop
+            filterChain = cropFilter
+        } else if let scaleRange = filterChain.range(of: ",scale=w=") {
+            // Insert crop AFTER setsar, BEFORE final scale
             let beforeScale = filterChain[..<scaleRange.lowerBound]
             let afterSetsar = filterChain[scaleRange.lowerBound...]
             filterChain = "\(beforeScale),\(cropFilter)\(afterSetsar)"

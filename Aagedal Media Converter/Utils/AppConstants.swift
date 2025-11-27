@@ -154,4 +154,12 @@ enum AppConstants {
     static let defaultTimecodeValueKey = "defaultTimecodeValue"
     static let defaultTimecodeModeRaw = "preserveSource" // preserveSource, manual, disabled
     static let defaultTimecodeValue = "00:00:00:00"
+
+    // Custom preset feature toggles
+    static let customPreset1ApplyCropKey = "customPreset1ApplyCrop"
+    static let customPreset1ApplyAudioRoutingKey = "customPreset1ApplyAudioRouting"
+    static let customPreset2ApplyCropKey = "customPreset2ApplyCrop"
+    static let customPreset2ApplyAudioRoutingKey = "customPreset2ApplyAudioRouting"
+    static let customPreset3ApplyCropKey = "customPreset3ApplyCrop"
+    static let customPreset3ApplyAudioRoutingKey = "customPreset3ApplyAudioRouting"
 }
