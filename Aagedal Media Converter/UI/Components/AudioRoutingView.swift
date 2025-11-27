@@ -383,21 +383,34 @@ struct AudioRoutingView: View {
             channelOperationsSection
             
             Spacer()
-            
-            // Reset button
-            Button("Reset to Default") {
+
+            // Reset button (icon only)
+            Button {
                 withAnimation {
                     var updatedConfig = config
                     updatedConfig.resetToDefault()
                     configBinding.wrappedValue = updatedConfig
                 }
+            } label: {
+                Image(systemName: "arrow.counterclockwise.circle.fill")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundColor(config.isCustomized ? .accentColor : .secondary)
             }
+            .buttonStyle(.plain)
             .disabled(!config.isCustomized)
-            
-            // Close button
-            Button("Close") {
+            .help("Reset to default")
+
+            // Close button (icon only)
+            Button {
                 dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 24, weight: .medium))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.secondary.opacity(0.7), .secondary.opacity(0.25))
             }
+            .buttonStyle(.plain)
+            .help("Close")
             .keyboardShortcut(.cancelAction)
         }
         .padding()

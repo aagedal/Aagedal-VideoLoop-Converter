@@ -9,6 +9,7 @@ struct SettingsView: View {
 
     private enum SettingsTab: Hashable {
         case general
+        case metadata
         case presets
         case waveform
         case watchFolder
@@ -20,6 +21,10 @@ struct SettingsView: View {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
+
+            MetadataSettingsView()
+                .tabItem { Label("Metadata", systemImage: "info.circle") }
+                .tag(SettingsTab.metadata)
 
             PresetsSettingsView()
                 .tabItem { Label("Presets", systemImage: "slider.horizontal.3") }
