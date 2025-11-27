@@ -16,10 +16,12 @@ struct TimecodeView: View {
     @State private var selectedMode: TimecodeMode = .preserveSource
     @State private var manualTimecode: String = "00:00:00:00"
     @State private var isValidTimecode: Bool = true
+    @FocusState private var isTextFieldFocused: Bool
 
     private enum TimecodeMode: String, CaseIterable, Identifiable {
         case preserveSource = "Preserve Source"
         case manual = "Manual Override"
+        case disabled = "Disable"
 
         var id: String { rawValue }
     }
@@ -41,6 +43,7 @@ struct TimecodeView: View {
                 Spacer()
 
                 Button {
+                    autoCorrectTimecode()
                     dismiss()
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -67,6 +70,22 @@ struct TimecodeView: View {
                 }
 
                 Divider()
+
+                // Disabled mode info
+                if selectedMode == .disabled {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                            Text("No timecode will be written to the output file.")
+                                .font(.callout)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                    .cornerRadius(10)
+                }
 
                 // Source timecode info
                 if selectedMode == .preserveSource {
@@ -118,21 +137,99 @@ struct TimecodeView: View {
                                 .foregroundColor(.secondary)
                         }
 
+                        // Show source timecode for reference
+                        if let sourceTimecode = item.metadata?.timecode {
+                            HStack {
+                                Text("Source Timecode:")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text(sourceTimecode)
+                                    .font(.system(.subheadline, design: .monospaced))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.secondary.opacity(0.15))
+                                    .foregroundColor(.secondary)
+                                    .cornerRadius(6)
+                                Button(action: {
+                                    manualTimecode = sourceTimecode
+                                    autoCorrectTimecode()
+                                }) {
+                                    Label("Copy", systemImage: "doc.on.doc")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(.accentColor)
+                                .help("Copy source timecode")
+                            }
+                        }
+
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Timecode")
+                            Text("Output Timecode")
                                 .font(.subheadline.weight(.semibold))
 
-                            TextField("00:00:00:00", text: $manualTimecode)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.body, design: .monospaced))
-                                .onChange(of: manualTimecode) { _, newValue in
-                                    let sanitized = sanitizeTimecode(newValue)
-                                    if sanitized != newValue {
-                                        manualTimecode = sanitized
-                                    }
-                                    isValidTimecode = validateTimecode(sanitized)
-                                    updateTimecodeConfig()
+                            HStack(spacing: 6) {
+                                // Subtract buttons
+                                Button(action: { adjustFrames(by: -10) }) {
+                                    Text("-10")
+                                        .font(.caption)
+                                        .frame(minWidth: 32)
                                 }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help("Subtract 10 frames")
+
+                                Button(action: { adjustFrames(by: -1) }) {
+                                    Text("-1")
+                                        .font(.caption)
+                                        .frame(minWidth: 32)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help("Subtract 1 frame")
+
+                                // Timecode input field
+                                TextField("00:00:00:00", text: $manualTimecode)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.body, design: .monospaced))
+                                    .focused($isTextFieldFocused)
+                                    .onChange(of: manualTimecode) { _, newValue in
+                                        let sanitized = sanitizeTimecode(newValue)
+                                        if sanitized != newValue {
+                                            manualTimecode = sanitized
+                                        }
+                                        isValidTimecode = validateTimecode(sanitized)
+                                        updateTimecodeConfig()
+                                    }
+                                    .onChange(of: isTextFieldFocused) { _, isFocused in
+                                        // Auto-correct when losing focus
+                                        if !isFocused {
+                                            autoCorrectTimecode()
+                                        }
+                                    }
+                                    .onSubmit {
+                                        // Auto-correct when user presses Enter
+                                        autoCorrectTimecode()
+                                    }
+
+                                // Add buttons
+                                Button(action: { adjustFrames(by: 1) }) {
+                                    Text("+1")
+                                        .font(.caption)
+                                        .frame(minWidth: 32)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help("Add 1 frame")
+
+                                Button(action: { adjustFrames(by: 10) }) {
+                                    Text("+10")
+                                        .font(.caption)
+                                        .frame(minWidth: 32)
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .help("Add 10 frames")
+                            }
 
                             if !isValidTimecode {
                                 HStack {
@@ -148,6 +245,7 @@ struct TimecodeView: View {
                                 Text("Format: HH:MM:SS:FF (hours: 00-23, frames: 00-\(String(format: "%02d", maxFrames - 1))) or HH:MM:SS;FF for drop-frame")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
@@ -157,29 +255,18 @@ struct TimecodeView: View {
                 }
 
                 Spacer()
-
-                // Action buttons
-                HStack {
-                    Button("Disable Timecode") {
-                        item.timecodeConfig = nil
-                        dismiss()
-                    }
-                    .buttonStyle(.bordered)
-
-                    Spacer()
-
-                    Button("Done") {
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.return, modifiers: [])
-                }
             }
         }
         .padding(24)
-        .frame(minWidth: 480, idealWidth: 520, minHeight: 300, idealHeight: 400)
+        .frame(minWidth: 520, idealWidth: 560, minHeight: 300, idealHeight: 400)
         .onAppear {
             initializeFromConfig()
+            // Validate on appear
+            isValidTimecode = validateTimecode(manualTimecode)
+        }
+        .onDisappear {
+            // Auto-correct on dismiss as safety net
+            autoCorrectTimecode()
         }
     }
 
@@ -193,8 +280,22 @@ struct TimecodeView: View {
                 manualTimecode = tc
             }
         } else {
-            selectedMode = .preserveSource
-            manualTimecode = item.metadata?.timecode ?? "00:00:00:00"
+            // nil config: use default from settings
+            let defaultModeRaw = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeModeKey) ?? AppConstants.defaultTimecodeModeRaw
+            let defaultValue = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeValueKey) ?? AppConstants.defaultTimecodeValue
+
+            switch defaultModeRaw {
+            case "preserveSource":
+                selectedMode = .preserveSource
+                item.timecodeConfig = TimecodeConfig(mode: .preserveSource)
+            case "manual":
+                selectedMode = .manual
+                manualTimecode = defaultValue
+                item.timecodeConfig = TimecodeConfig(mode: .manual(defaultValue))
+            default: // "disabled"
+                selectedMode = .disabled
+                manualTimecode = item.metadata?.timecode ?? defaultValue
+            }
         }
     }
 
@@ -204,6 +305,8 @@ struct TimecodeView: View {
             item.timecodeConfig = TimecodeConfig(mode: .preserveSource)
         case .manual:
             item.timecodeConfig = TimecodeConfig(mode: .manual(manualTimecode))
+        case .disabled:
+            item.timecodeConfig = nil
         }
     }
 
@@ -310,5 +413,113 @@ struct TimecodeView: View {
         }
 
         return "Invalid timecode format"
+    }
+
+    private func autoCorrectTimecode() {
+        // Only auto-correct if in manual mode
+        guard selectedMode == .manual else { return }
+
+        let components = manualTimecode.split(whereSeparator: { $0 == ":" || $0 == ";" })
+
+        // If format is completely wrong, reset to default
+        guard components.count == 4 else {
+            manualTimecode = "00:00:00:00"
+            isValidTimecode = true
+            updateTimecodeConfig()
+            return
+        }
+
+        // Parse components
+        guard let hours = Int(components[0]),
+              let minutes = Int(components[1]),
+              let seconds = Int(components[2]),
+              let frames = Int(components[3]) else {
+            manualTimecode = "00:00:00:00"
+            isValidTimecode = true
+            updateTimecodeConfig()
+            return
+        }
+
+        // Clamp each component to valid range
+        let clampedHours = min(hours, 23)
+        let clampedMinutes = min(minutes, 59)
+        let clampedSeconds = min(seconds, 59)
+        let maxFrames = getMaxFramesFromMetadata()
+        let clampedFrames = min(frames, maxFrames - 1)
+
+        // Preserve the separator (: or ;)
+        let separator = manualTimecode.contains(";") ? ";" : ":"
+
+        // Build corrected timecode
+        let corrected = String(format: "%02d:%02d:%02d%@%02d",
+                              clampedHours,
+                              clampedMinutes,
+                              clampedSeconds,
+                              separator,
+                              clampedFrames)
+
+        manualTimecode = corrected
+        isValidTimecode = true
+        updateTimecodeConfig()
+    }
+
+    private func adjustFrames(by delta: Int) {
+        let components = manualTimecode.split(whereSeparator: { $0 == ":" || $0 == ";" })
+
+        guard components.count == 4,
+              let hours = Int(components[0]),
+              let minutes = Int(components[1]),
+              let seconds = Int(components[2]),
+              let frames = Int(components[3]) else {
+            return
+        }
+
+        let maxFrames = getMaxFramesFromMetadata()
+
+        // Convert everything to total frames
+        var totalFrames = hours * 3600 * maxFrames
+        totalFrames += minutes * 60 * maxFrames
+        totalFrames += seconds * maxFrames
+        totalFrames += frames
+
+        // Add delta
+        totalFrames += delta
+
+        // Ensure non-negative
+        totalFrames = max(0, totalFrames)
+
+        // Convert back to timecode components
+        var newFrames = totalFrames % maxFrames
+        totalFrames /= maxFrames
+
+        var newSeconds = totalFrames % 60
+        totalFrames /= 60
+
+        var newMinutes = totalFrames % 60
+        totalFrames /= 60
+
+        var newHours = totalFrames % 24
+
+        // Clamp to 23:59:59:FF
+        if newHours >= 24 {
+            newHours = 23
+            newMinutes = 59
+            newSeconds = 59
+            newFrames = maxFrames - 1
+        }
+
+        // Preserve the separator (: or ;)
+        let separator = manualTimecode.contains(";") ? ";" : ":"
+
+        // Build new timecode
+        manualTimecode = String(format: "%02d:%02d:%02d%@%02d",
+                                newHours,
+                                newMinutes,
+                                newSeconds,
+                                separator,
+                                newFrames)
+
+        isValidTimecode = true
+        updateTimecodeConfig()
     }
 }
