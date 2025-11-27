@@ -24,6 +24,7 @@ struct TrimTimelineView: View {
     let fallbackPreviewRange: ClosedRange<Double>?
     let loadedChunks: Set<Int>?
     let step: Double
+    let hideFilmstrip: Bool
     let onEditingChanged: (Bool) -> Void
     let onSeek: (Double) -> Void
 
@@ -44,6 +45,7 @@ struct TrimTimelineView: View {
         fallbackPreviewRange: ClosedRange<Double>? = nil,
         loadedChunks: Set<Int>? = nil,
         step: Double = 0.1,
+        hideFilmstrip: Bool = false,
         onEditingChanged: @escaping (Bool) -> Void,
         onSeek: @escaping (Double) -> Void
     ) {
@@ -58,6 +60,7 @@ struct TrimTimelineView: View {
         self.fallbackPreviewRange = fallbackPreviewRange
         self.loadedChunks = loadedChunks
         self.step = step
+        self.hideFilmstrip = hideFilmstrip
         self.onEditingChanged = onEditingChanged
         self.onSeek = onSeek
     }
@@ -202,7 +205,14 @@ private struct TrimHandlesInteractionLayer: View {
                 VStack(spacing: 0) {
                     // let _ = Logger(subsystem: "com.aagedal.MediaConverter", category: "TrimTimeline").debug("View received waveformURL: \(waveformURL?.path ?? "nil")")
                     // For audio-only files (no thumbnails), show waveform spanning full height
-                    if let thumbnails, !thumbnails.isEmpty {
+                    // Hide filmstrip when crop mode is active to save space
+                    if hideFilmstrip {
+                        // Crop mode: waveform spans full height
+                        GeometryReader { geo in
+                            waveformContent(width: geo.size.width, height: geo.size.height)
+                        }
+                        .frame(height: combinedHeight)
+                    } else if let thumbnails, !thumbnails.isEmpty {
                         filmstripSection
                         waveformSection
                     } else {

@@ -70,7 +70,8 @@ final class PreviewPlayerController: ObservableObject {
     @Published var pendingChunkTime: Double?
     @Published var loadingChunkIndex: Int?
     @Published var audioTrackOptions: [AudioTrackOption] = []
-    
+    @Published var isCropEnabled: Bool = false
+
     // MARK: - Configuration
     
     let chunkDuration: TimeInterval = 5.0

@@ -93,6 +93,8 @@ struct VideoMetadata: Equatable, Sendable {
     let sizeBytes: Int64?
     let bitRate: Int64?
     let comment: String?
+    let timecode: String?
+    let frameCount: Int?
 
     struct VideoStream: Equatable, Sendable {
         let codec: String?
@@ -313,6 +315,12 @@ actor VideoMetadataService {
 
         let formatComment = format?.tags?.comment ?? primaryVideoStream?.tags?.comment ?? filteredAudioStreams.first?.tags?.comment
 
+        // Extract timecode from format tags or video stream tags
+        let timecode = format?.tags?.timecode ?? primaryVideoStream?.tags?.timecode
+
+        // Extract frame count from video stream
+        let frameCount = primaryVideoStream?.nbFrames.flatMap { Int($0) }
+
         let video = primaryVideoStream.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
             return VideoMetadata.VideoStream(
@@ -362,6 +370,8 @@ actor VideoMetadataService {
             sizeBytes: format?.size.flatMap { Int64($0) },
             bitRate: format?.bitRate.flatMap { Int64($0) },
             comment: formatComment,
+            timecode: timecode,
+            frameCount: frameCount,
             videoStream: video,
             audioStreams: audio
         )
@@ -422,6 +432,7 @@ private struct FFprobeResponse: Decodable {
         let chromaLocation: String?
         let fieldOrder: String?
         let maxBitRate: String?
+        let nbFrames: String?
         let disposition: Disposition?
         let tags: Tags?
 
@@ -435,6 +446,7 @@ private struct FFprobeResponse: Decodable {
         let comment: String?
         let language: String?
         let title: String?
+        let timecode: String?
     }
 
     func toVideoMetadata() -> VideoMetadata {
@@ -449,6 +461,12 @@ private struct FFprobeResponse: Decodable {
         let audioStreams = streams.filter { $0.codecType == "audio" }
 
         let formatComment = formatMetadata?.tags?.comment ?? videoStream?.tags?.comment
+
+        // Extract timecode from format tags or video stream tags
+        let timecode = formatMetadata?.tags?.timecode ?? videoStream?.tags?.timecode
+
+        // Extract frame count from video stream
+        let frameCount = videoStream?.nbFrames.flatMap { Int($0) }
 
         let video = videoStream.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
@@ -501,6 +519,8 @@ private struct FFprobeResponse: Decodable {
             sizeBytes: formatMetadata?.size.flatMap { Int64($0) },
             bitRate: formatMetadata?.bitRate.flatMap { Int64($0) },
             comment: formatComment,
+            timecode: timecode,
+            frameCount: frameCount,
             videoStream: video,
             audioStreams: audio
         )

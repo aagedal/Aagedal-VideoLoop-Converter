@@ -27,7 +27,7 @@ struct PreviewPlayerView: View {
     var body: some View {
         VStack(spacing: 8) {
             PreviewPlayerContent(
-                item: item,
+                item: $item,
                 controller: controller,
                 showsPlaybackControls: showsPlaybackControls,
                 togglePlaybackControls: { showsPlaybackControls.toggle() },
@@ -43,7 +43,7 @@ struct PreviewPlayerView: View {
             )
 
             PreviewTrimControls(
-                item: item,
+                item: $item,
                 controller: controller,
                 currentPlaybackTime: $currentPlaybackTime,
                 onSeek: controller.seekTo,
@@ -302,6 +302,9 @@ struct PreviewPlayerView: View {
             return true
         case "l":
             controller.fastForward()
+            return true
+        case "c":
+            controller.isCropEnabled.toggle()
             return true
         default:
             return false

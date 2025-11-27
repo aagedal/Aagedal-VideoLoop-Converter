@@ -130,6 +130,27 @@ struct VideoFileRowView: View {
                             .padding(8)
                         }
                     }
+                    .overlay(alignment: .bottomLeading) {
+                        // Crop indicator badge (only when active)
+                        if let cropConfig = file.cropConfig, cropConfig.isActive {
+                            HStack(spacing: 4) {
+                                Image(systemName: "crop")
+                                    .font(.caption2)
+                                Text("\(Int(cropConfig.normalizedRect.width * 100))%")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.accentColor)
+                            )
+                            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                            .padding(8)
+                        }
+                    }
                     .overlay {
                         if isThumbnailHovered {
                             ZStack(alignment: .topLeading) {
@@ -137,23 +158,40 @@ struct VideoFileRowView: View {
                                     .fill(Color.black.opacity(0.35))
                                     .frame(width: 200, height: 150)
                                     .allowsHitTesting(false)
-                                
-                                // Audio Routing button (top-left corner)
-                                if let audioStreams = file.metadata?.audioStreams, !audioStreams.isEmpty {
+
+                                // Top row: Audio Routing (left) and Timecode (right)
+                                HStack {
+                                    // Audio Routing button (top-left corner)
+                                    if let audioStreams = file.metadata?.audioStreams, !audioStreams.isEmpty {
+                                        Button {
+                                            showAudioRouting = true
+                                        } label: {
+                                            Label("Audio Routing", systemImage: "hifispeaker.2.badge.minus")
+                                                .labelStyle(.iconOnly)
+                                                .font(.system(size: 24, weight: .medium))
+                                                .symbolRenderingMode(file.audioRoutingConfig?.isCustomized == true ? .multicolor : .monochrome)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundColor(.white)
+                                        .help(file.audioRoutingConfig?.isCustomized == true ? "Audio routing customized (\(file.audioRoutingConfig?.outputTrackIndices.count ?? 0) tracks)" : "Configure audio track routing")
+                                    }
+
+                                    Spacer()
+
+                                    // Timecode button (top-right corner)
                                     Button {
-                                        showAudioRouting = true
+                                        // TODO: Show timecode overlay
                                     } label: {
-                                        Label("Audio Routing", systemImage: "hifispeaker.2.badge.minus")
+                                        Label("Timecode", systemImage: "timer")
                                             .labelStyle(.iconOnly)
-                                            .font(.system(size: 20, weight: .medium))
-                                            .symbolRenderingMode(file.audioRoutingConfig?.isCustomized == true ? .multicolor : .monochrome)
+                                            .font(.system(size: 24, weight: .medium))
                                     }
                                     .buttonStyle(.plain)
                                     .foregroundColor(.white)
-                                    .help(file.audioRoutingConfig?.isCustomized == true ? "Audio routing customized (\(file.audioRoutingConfig?.outputTrackIndices.count ?? 0) tracks)" : "Configure audio track routing")
-                                    .padding(10)
+                                    .help("Configure output timecode")
                                 }
-                                
+                                .padding(10)
+
                                 VStack {
                                     Spacer()
                                     HStack(spacing: 16) {
@@ -167,7 +205,7 @@ struct VideoFileRowView: View {
                                         .buttonStyle(.plain)
                                         .foregroundColor(.white)
                                         .help("Open preview and trim editor")
-                                        
+
                                         Spacer()
 
                                         Button {

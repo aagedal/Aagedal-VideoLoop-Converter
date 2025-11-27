@@ -471,6 +471,25 @@ struct VideoFileUtils: Sendable {
     }
 }
 
+/// Configuration for timecode preservation or manual override
+struct TimecodeConfig: Equatable, Sendable {
+    enum Mode: Equatable, Sendable {
+        case preserveSource  // Copy timecode from source file
+        case manual(String)  // Manually set timecode (HH:MM:SS:FF or HH:MM:SS;FF)
+    }
+
+    var mode: Mode = .preserveSource
+
+    var isActive: Bool {
+        switch mode {
+        case .preserveSource:
+            return true
+        case .manual(let tc):
+            return !tc.isEmpty
+        }
+    }
+}
+
 struct VideoItem: Identifiable, Equatable, Sendable {
     let id: UUID = UUID()
     var url: URL
@@ -493,6 +512,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var waveformVideoEnabled: Bool = false
     var hasVideoStream: Bool = true
     var audioRoutingConfig: AudioRoutingConfig? = nil
+    var cropConfig: CropConfig? = nil
+    var timecodeConfig: TimecodeConfig? = nil
 
     mutating func apply(details: VideoFileUtils.VideoItemDetails) {
         size = details.size

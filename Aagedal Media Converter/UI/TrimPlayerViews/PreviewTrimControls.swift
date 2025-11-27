@@ -7,7 +7,7 @@
 import SwiftUI
 
 struct PreviewTrimControls: View {
-    let item: VideoItem
+    @Binding var item: VideoItem
     @ObservedObject var controller: PreviewPlayerController
     @Binding var currentPlaybackTime: Double
     let onSeek: (Double) -> Void
@@ -18,29 +18,40 @@ struct PreviewTrimControls: View {
     let onTrimEditingChanged: (Bool) -> Void
     let loopBinding: Binding<Bool>
 
+    @State private var isCropControlsExpanded: Bool = false
+
     var body: some View {
         let duration = max(item.durationSeconds, 0)
         return VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 6) {
-                TrimTimelineView(
-                    trimStart: trimStartBinding,
-                    trimEnd: trimEndBinding,
-                    duration: duration,
-                    playbackTime: currentPlaybackTime,
-                    thumbnails: controller.previewAssets?.thumbnails,
-                    waveformURL: controller.currentWaveformURL,
-                    isLoading: controller.isLoadingPreviewAssets,
-                    fallbackPreviewRange: controller.fallbackPreviewRange,
-                    loadedChunks: controller.loadedChunks,
-                    step: 0.1,
-                    onEditingChanged: onTrimEditingChanged,
-                    onSeek: onSeek
-                )
-                .onReceive(controller.playbackTimePublisher) { time in
-                    currentPlaybackTime = time
-                }
+                // Hide entire trim timeline when crop mode is active
+                if !controller.isCropEnabled {
+                    TrimTimelineView(
+                        trimStart: trimStartBinding,
+                        trimEnd: trimEndBinding,
+                        duration: duration,
+                        playbackTime: currentPlaybackTime,
+                        thumbnails: controller.previewAssets?.thumbnails,
+                        waveformURL: controller.currentWaveformURL,
+                        isLoading: controller.isLoadingPreviewAssets,
+                        fallbackPreviewRange: controller.fallbackPreviewRange,
+                        loadedChunks: controller.loadedChunks,
+                        step: 0.1,
+                        hideFilmstrip: false,
+                        onEditingChanged: onTrimEditingChanged,
+                        onSeek: onSeek
+                    )
+                    .onReceive(controller.playbackTimePublisher) { time in
+                        currentPlaybackTime = time
+                    }
 
-                controlButtons
+                    controlButtons
+                }
+            }
+
+            // Crop controls
+            if item.hasVideoStream {
+                CropControlsView(item: $item, controller: controller, isExpanded: $isCropControlsExpanded)
             }
         }
     }
@@ -99,7 +110,42 @@ struct PreviewTrimControls: View {
                     }
                     .disabled(controller.lastScreenshotURL == nil ? true : false)
             }
-            .padding(.trailing, 30)
+            .padding(.trailing, 16)
+
+            // Crop toggle button
+            if item.hasVideoStream {
+                HStack(spacing: 10) {
+                    Button(action: {
+                        controller.isCropEnabled.toggle()
+                    }) {
+                        Image(systemName: controller.isCropEnabled ? "eye.fill" : "eye.slash.fill")
+                            .foregroundColor(controller.isCropEnabled ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(controller.isCropEnabled ? "Hide crop overlay (C)" : "Show crop overlay (C)")
+
+                    Button(action: {
+                        isCropControlsExpanded.toggle()
+                        // Auto-enable crop mode when expanding
+                        if isCropControlsExpanded && !controller.isCropEnabled {
+                            controller.isCropEnabled = true
+                        }
+                    }) {
+                        Label("Crop", systemImage: "crop")
+                            .labelStyle(.iconOnly)
+                            .foregroundColor(isCropControlsExpanded ? .accentColor : .primary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Toggle crop controls")
+
+                    if let config = item.cropConfig, config.isActive {
+                        Text("\(Int(config.normalizedRect.width * 100))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.trailing, 30)
+            }
 
             audioTrackSelector
             
