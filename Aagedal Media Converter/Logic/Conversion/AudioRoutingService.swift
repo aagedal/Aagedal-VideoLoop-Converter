@@ -174,13 +174,19 @@ enum AudioRoutingService {
     /// - Returns: Array of warning/info messages (empty if no issues)
     static func validateRoutingConfig(config: AudioRoutingConfig, preset: ExportPreset) -> [String] {
         var messages: [String] = []
-        
+
         // Check if preset removes all audio
         if !preset.outputsAudioTrack {
             messages.append("Note: \(preset.displayName) preset removes all audio. Routing configuration will not affect output.")
             return messages
         }
-        
+
+        // Check if preset supports audio routing
+        if !preset.appliesAudioRouting {
+            messages.append("Warning: Audio routing is not compatible with \(preset.displayName) preset. Routing will be ignored.")
+            return messages
+        }
+
         // Check for preset-specific audio handling
         switch preset {
         case .audioStereoAAC:

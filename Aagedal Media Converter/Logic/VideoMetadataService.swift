@@ -102,6 +102,8 @@ struct VideoMetadata: Equatable, Sendable {
         let profile: String?
         let width: Int?
         let height: Int?
+        let pixelFormat: String?
+        let hasAlpha: Bool
         let pixelAspectRatio: Ratio?
         let displayAspectRatio: Ratio?
         let frameRate: FrameRate?
@@ -323,12 +325,15 @@ actor VideoMetadataService {
 
         let video = primaryVideoStream.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
+            let hasAlpha = stream.pixFmt.map { hasAlphaChannel(pixelFormat: $0) } ?? false
             return VideoMetadata.VideoStream(
                 codec: stream.codecName,
                 codecLongName: stream.codecLongName,
                 profile: stream.profile,
                 width: stream.width,
                 height: stream.height,
+                pixelFormat: stream.pixFmt,
+                hasAlpha: hasAlpha,
                 pixelAspectRatio: stream.sampleAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
                 displayAspectRatio: stream.displayAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
                 frameRate: frameRateString.flatMap(VideoMetadata.FrameRate.init(frameRateString:)),
@@ -379,6 +384,54 @@ actor VideoMetadataService {
 
 }
 
+/// Detects if a pixel format contains an alpha channel
+/// Based on common FFmpeg pixel format naming conventions
+private func hasAlphaChannel(pixelFormat: String) -> Bool {
+    let format = pixelFormat.lowercased()
+
+    // Common patterns for alpha channel pixel formats:
+    // - Formats ending with 'a' (e.g., rgba, yuva420p, gbrap)
+    // - Formats containing 'alpha' (e.g., pal8_alpha)
+    // - Specific ProRes formats with alpha (4444, 4444xq)
+
+    // ProRes 4444 and 4444 XQ have alpha
+    if format.contains("4444") {
+        return true
+    }
+
+    // RGBA, BGRA, ARGB, ABGR formats
+    if format.contains("rgba") || format.contains("bgra") ||
+       format.contains("argb") || format.contains("abgr") {
+        return true
+    }
+
+    // YUV formats with alpha (yuva, yuv444ap, etc.)
+    if format.hasPrefix("yuva") {
+        return true
+    }
+
+    // GBRAP (planar RGB with alpha)
+    if format.hasPrefix("gbrap") {
+        return true
+    }
+
+    // Generic patterns
+    if format.contains("alpha") {
+        return true
+    }
+
+    // Formats ending with 'a' followed by bit depth or 'p' (planar)
+    // e.g., rgba64, yuva420p, etc.
+    let alphaPatterns = ["rgba", "bgra", "argb", "yuva", "gbrap"]
+    for pattern in alphaPatterns {
+        if format.hasPrefix(pattern) {
+            return true
+        }
+    }
+
+    return false
+}
+
 private struct FFprobeResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case format
@@ -416,6 +469,7 @@ private struct FFprobeResponse: Decodable {
         let codecType: String?
         let width: Int?
         let height: Int?
+        let pixFmt: String?
         let sampleAspectRatio: String?
         let displayAspectRatio: String?
         let avgFrameRate: String?
@@ -470,12 +524,15 @@ private struct FFprobeResponse: Decodable {
 
         let video = videoStream.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
+            let hasAlpha = stream.pixFmt.map { hasAlphaChannel(pixelFormat: $0) } ?? false
             return VideoMetadata.VideoStream(
                 codec: stream.codecName,
                 codecLongName: stream.codecLongName,
                 profile: stream.profile,
                 width: stream.width,
                 height: stream.height,
+                pixelFormat: stream.pixFmt,
+                hasAlpha: hasAlpha,
                 pixelAspectRatio: stream.sampleAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
                 displayAspectRatio: stream.displayAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
                 frameRate: frameRateString.flatMap(VideoMetadata.FrameRate.init(frameRateString:)),
@@ -486,7 +543,7 @@ private struct FFprobeResponse: Decodable {
                 colorRange: stream.colorRange,
                 chromaLocation: stream.chromaLocation,
                 fieldOrder: stream.fieldOrder,
-                isInterlaced: stream.fieldOrder.map { 
+                isInterlaced: stream.fieldOrder.map {
                     let value = $0.lowercased()
                     // Field order values: progressive, tt (top first), bb (bottom first), tb, bt
                     // Anything other than "progressive" or "unknown" is interlaced

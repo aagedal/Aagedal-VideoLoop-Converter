@@ -391,80 +391,72 @@ extension PreviewPlayerController {
             )
         }
 
-        let transfer = stream.colorTransfer?.lowercased()
-        let primaries = stream.colorPrimaries?.lowercased()
-        let colorSpace = stream.colorSpace?.lowercased()
         let bitDepth = stream.bitDepth ?? 8
-        let hdrTransfers: Set<String> = ["smpte2084", "arib-std-b67"]
-        let metadataIndicatesHDR = (transfer.map(hdrTransfers.contains) ?? false) || (primaries?.contains("2020") ?? false) || (colorSpace?.contains("2020") ?? false)
+        let hasAlpha = stream.hasAlpha
 
-        let codec = stream.codec?.lowercased()
-        let profile = stream.profile?.lowercased()
-        let codecLongName = stream.codecLongName?.lowercased()
-        
-        // Check for ProRes RAW in multiple ways:
-        // 1. Codec name contains "raw" (e.g., "prores_raw", "proresraw")
-        // 2. Profile contains "raw"
-        // 3. Codec long name contains "raw"
-        let isProResRAW = (codec?.contains("prores") == true && codec?.contains("raw") == true) ||
-                         (codec == "prores" && profile?.contains("raw") == true) ||
-                         (codecLongName?.contains("prores") == true && codecLongName?.contains("raw") == true)
-        
-        if bitDepth >= 10 || isProResRAW {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Screenshots").debug("Screenshot format detection - codec: \(codec ?? "nil", privacy: .public), profile: \(profile ?? "nil", privacy: .public), codecLongName: \(codecLongName ?? "nil", privacy: .public), bitDepth: \(bitDepth), isProResRAW: \(isProResRAW)")
-        }
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Screenshots")
+            .debug("Screenshot format detection - bitDepth: \(bitDepth), hasAlpha: \(hasAlpha)")
 
-        var isHDR = metadataIndicatesHDR
+        // Format selection based on bit depth and alpha channel:
+        // - Alpha channel present: PNG with alpha
+        // - 8-bit: JPEG
+        // - 10-bit: AVIF
+        // - >10-bit (12-bit+): 16-bit PNG
 
-        if !isHDR {
-            if isProResRAW {
-                isHDR = true
-            } else if bitDepth >= 10 {
-                let primariesMissing = isMissingColorMetadata(stream.colorPrimaries)
-                let transferMissing = isMissingColorMetadata(stream.colorTransfer)
-                if primariesMissing && transferMissing {
-                    isHDR = true
-                }
-            }
-        }
-
-        if isHDR {
-            if isProResRAW {
+        if hasAlpha {
+            // Sources with alpha channel → PNG with alpha preservation
+            if bitDepth > 8 {
+                // 10-bit+ with alpha → 16-bit RGBA PNG
                 return ScreenshotParameters(
                     fileExtension: "png",
                     codecArguments: [
                         "-c:v", "png",
                         "-compression_level", "1"
                     ],
-                    pixelFormat: "rgb48be"
+                    pixelFormat: "rgba64be"
+                )
+            } else {
+                // 8-bit with alpha → 8-bit RGBA PNG
+                return ScreenshotParameters(
+                    fileExtension: "png",
+                    codecArguments: [
+                        "-c:v", "png",
+                        "-compression_level", "1"
+                    ],
+                    pixelFormat: "rgba"
                 )
             }
-            
-            let pixelFormat: String
-            if bitDepth >= 12 {
-                pixelFormat = "yuv420p12le"
-            } else {
-                pixelFormat = "yuv420p10le"
-            }
-
+        } else if bitDepth > 10 {
+            // >10-bit sources without alpha (12-bit, 16-bit, etc.) → 16-bit PNG
+            return ScreenshotParameters(
+                fileExtension: "png",
+                codecArguments: [
+                    "-c:v", "png",
+                    "-compression_level", "1"
+                ],
+                pixelFormat: "rgb48be"
+            )
+        } else if bitDepth == 10 {
+            // 10-bit sources without alpha → AVIF
             return ScreenshotParameters(
                 fileExtension: "avif",
                 codecArguments: [
                     "-c:v", "libsvtav1",
-                    "-pix_fmt", pixelFormat,
+                    "-pix_fmt", "yuv420p10le",
                     "-preset", "12",
                     "-crf", "35",
                     "-svtav1-params", "fast-decode=1:enable-overlays=0"
                 ],
                 pixelFormat: nil
             )
+        } else {
+            // 8-bit sources without alpha → JPEG
+            return ScreenshotParameters(
+                fileExtension: "jpg",
+                codecArguments: ["-c:v", "mjpeg", "-q:v", "1"],
+                pixelFormat: "yuvj444p"
+            )
         }
-
-        return ScreenshotParameters(
-            fileExtension: "jpg",
-            codecArguments: ["-c:v", "mjpeg", "-q:v", "1"],
-            pixelFormat: "yuvj444p"
-        )
     }
     
     // MARK: - Color Metadata Helpers

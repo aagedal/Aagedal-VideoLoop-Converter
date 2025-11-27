@@ -57,85 +57,102 @@ struct CropControlsView: View {
 
     var body: some View {
         if isExpanded {
-            // Everything in a single horizontal line
-            HStack(spacing: 8) {
-                // Aspect ratio picker
-                Picker("", selection: $selectedAspectRatio) {
-                    ForEach(AspectRatio.allCases) { ratio in
-                        Text(ratio.displayName).tag(ratio)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 100)
-                .onChange(of: selectedAspectRatio) { _, newRatio in
-                    var config = configBinding.wrappedValue
-                    config.aspectRatioLock = newRatio == .free ? nil : newRatio
-
-                    // If not free, adjust the rectangle to match the aspect ratio
-                    if let targetRatio = newRatio.numericRatio {
-                        var rect = config.normalizedRect
-
-                        // Calculate center point to maintain position
-                        let centerX = rect.x + rect.width / 2
-                        let centerY = rect.y + rect.height / 2
-
-                        // Try to keep the same area, adjust both dimensions to match ratio
-                        let area = rect.width * rect.height
-                        // area = w * h, and w/h = targetRatio, so w = h * targetRatio
-                        // area = h * targetRatio * h = h^2 * targetRatio
-                        // h = sqrt(area / targetRatio)
-                        var newHeight = sqrt(area / targetRatio)
-                        var newWidth = newHeight * targetRatio
-
-                        // Clamp to bounds
-                        if newWidth > 1.0 {
-                            newWidth = 1.0
-                            newHeight = newWidth / targetRatio
+            VStack(spacing: 4) {
+                // Main controls row
+                HStack(spacing: 8) {
+                    // Aspect ratio picker
+                    Picker("", selection: $selectedAspectRatio) {
+                        ForEach(AspectRatio.allCases) { ratio in
+                            Text(ratio.displayName).tag(ratio)
                         }
-                        if newHeight > 1.0 {
-                            newHeight = 1.0
-                            newWidth = newHeight * targetRatio
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 100)
+                    .onChange(of: selectedAspectRatio) { _, newRatio in
+                        var config = configBinding.wrappedValue
+                        config.aspectRatioLock = newRatio == .free ? nil : newRatio
+
+                        // If not free, adjust the rectangle to match the aspect ratio
+                        if let targetRatio = newRatio.numericRatio {
+                            var rect = config.normalizedRect
+
+                            // Calculate center point to maintain position
+                            let centerX = rect.x + rect.width / 2
+                            let centerY = rect.y + rect.height / 2
+
+                            // Try to keep the same area, adjust both dimensions to match ratio
+                            let area = rect.width * rect.height
+                            // area = w * h, and w/h = targetRatio, so w = h * targetRatio
+                            // area = h * targetRatio * h = h^2 * targetRatio
+                            // h = sqrt(area / targetRatio)
+                            var newHeight = sqrt(area / targetRatio)
+                            var newWidth = newHeight * targetRatio
+
+                            // Clamp to bounds
+                            if newWidth > 1.0 {
+                                newWidth = 1.0
+                                newHeight = newWidth / targetRatio
+                            }
+                            if newHeight > 1.0 {
+                                newHeight = 1.0
+                                newWidth = newHeight * targetRatio
+                            }
+
+                            // Position centered on previous center
+                            rect.width = newWidth
+                            rect.height = newHeight
+                            rect.x = max(0, min(1.0 - rect.width, centerX - rect.width / 2))
+                            rect.y = max(0, min(1.0 - rect.height, centerY - rect.height / 2))
+
+                            config.normalizedRect = rect
                         }
 
-                        // Position centered on previous center
-                        rect.width = newWidth
-                        rect.height = newHeight
-                        rect.x = max(0, min(1.0 - rect.width, centerX - rect.width / 2))
-                        rect.y = max(0, min(1.0 - rect.height, centerY - rect.height / 2))
-
-                        config.normalizedRect = rect
+                        configBinding.wrappedValue = config
+                        updatePixelInputsFromConfig()
                     }
 
-                    configBinding.wrappedValue = config
-                    updatePixelInputsFromConfig()
+                    Divider()
+                        .frame(height: 20)
+
+                    // Pixel inputs with auto-apply
+                    compactPixelField(label: "X", value: $pixelX, field: .x, autoApply: true)
+                    compactPixelField(label: "Y", value: $pixelY, field: .y, autoApply: true)
+                    compactPixelField(label: "W", value: $pixelWidth, field: .width, autoApply: true)
+                    compactPixelField(label: "H", value: $pixelHeight, field: .height, autoApply: true)
+
+                    Divider()
+                        .frame(height: 20)
+
+                    // Quick actions
+                    Button("Reset") {
+                        resetCrop()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button("Center") {
+                        centerCrop()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Spacer()
                 }
 
-                Divider()
-                    .frame(height: 20)
-
-                // Pixel inputs with auto-apply
-                compactPixelField(label: "X", value: $pixelX, field: .x, autoApply: true)
-                compactPixelField(label: "Y", value: $pixelY, field: .y, autoApply: true)
-                compactPixelField(label: "W", value: $pixelWidth, field: .width, autoApply: true)
-                compactPixelField(label: "H", value: $pixelHeight, field: .height, autoApply: true)
-
-                Divider()
-                    .frame(height: 20)
-
-                // Quick actions
-                Button("Reset") {
-                    resetCrop()
+                // Warning message for Stream Copy preset
+                if let config = item.cropConfig, config.isActive {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("Note: Crop requires re-encoding and will not work with Stream Copy preset.")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 2)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Button("Center") {
-                    centerCrop()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                Spacer()
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

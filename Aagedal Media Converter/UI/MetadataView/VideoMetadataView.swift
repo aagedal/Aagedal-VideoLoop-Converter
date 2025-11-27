@@ -83,6 +83,8 @@ struct VideoMetadataView: View {
                 infoRow("Frame Count", value: metadata?.frameCount.map(String.init))
                 infoRow("Timecode", value: metadata?.timecode)
                 infoRow("Bit Depth", value: stream.bitDepth.map { "\($0)-bit" })
+                infoRow("Pixel Format", value: stream.pixelFormat)
+                infoRow("Alpha Channel", value: stream.hasAlpha ? "Yes" : "No")
                 infoRow("Color Primaries", value: stream.colorPrimaries)
                 infoRow("Color Transfer", value: stream.colorTransfer)
                 infoRow("Color Space", value: stream.colorSpace)
