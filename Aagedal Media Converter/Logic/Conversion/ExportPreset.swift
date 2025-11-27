@@ -191,8 +191,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-bufsize", "18000k",
                 "-profile:v", "main",
                 "-level:v", "4.0",
+                "-map", "0:v",
                 "-c:a", "aac",
                 "-b:a", "192k",
+                "-map", "0:a",
                 "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
@@ -252,11 +254,12 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .prores:
             let profileRaw = UserDefaults.standard.string(forKey: AppConstants.proResProfileKey) ?? ProResProfile.standard.rawValue
             let profile = ProResProfile(rawValue: profileRaw) ?? .standard
-            
+
             var args = commonArgs + [
                 "-pix_fmt", "yuv422p10le",
                 "-vcodec", "prores_videotoolbox",
                 "-profile:v", profile.ffmpegProfileName,
+                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1",
                 "-c:a", "pcm_s24le",
                 "-map", "0:v",
                 "-map", "0:a"

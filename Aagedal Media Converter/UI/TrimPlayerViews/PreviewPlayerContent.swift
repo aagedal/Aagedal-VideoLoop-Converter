@@ -9,7 +9,7 @@ import AppKit
 import AVKit
 
 struct PreviewPlayerContent: View {
-    let item: VideoItem
+    @Binding var item: VideoItem
     let controller: PreviewPlayerController
     let showsPlaybackControls: Bool
     let togglePlaybackControls: () -> Void
@@ -39,6 +39,20 @@ struct PreviewPlayerContent: View {
                     }
                     .aspectRatio(playerAspectRatio, contentMode: .fit)
 
+                    // Crop overlay
+                    if controller.isCropEnabled, item.hasVideoStream {
+                        CropOverlayView(
+                            cropConfig: Binding(
+                                get: { item.cropConfig ?? CropConfig(normalizedRect: .fullFrame) },
+                                set: { item.cropConfig = $0.isActive ? $0 : nil }
+                            ),
+                            sourceWidth: item.metadata?.videoStream?.width ?? 1920,
+                            sourceHeight: item.metadata?.videoStream?.height ?? 1080,
+                            videoAspectRatio: Double(playerAspectRatio),
+                            isEnabled: true
+                        )
+                    }
+
                     overlayIndicators
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -55,7 +69,21 @@ struct PreviewPlayerContent: View {
                     
                     VLCVideoView(player: vlcPlayer, keyHandler: keyHandler)
                         .aspectRatio(playerAspectRatio, contentMode: .fit)
-                    
+
+                    // Crop overlay
+                    if controller.isCropEnabled, item.hasVideoStream {
+                        CropOverlayView(
+                            cropConfig: Binding(
+                                get: { item.cropConfig ?? CropConfig(normalizedRect: .fullFrame) },
+                                set: { item.cropConfig = $0.isActive ? $0 : nil }
+                            ),
+                            sourceWidth: item.metadata?.videoStream?.width ?? 1920,
+                            sourceHeight: item.metadata?.videoStream?.height ?? 1080,
+                            videoAspectRatio: Double(playerAspectRatio),
+                            isEnabled: true
+                        )
+                    }
+
                     overlayIndicators
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -151,8 +179,8 @@ struct PreviewPlayerContent: View {
                 )
             }
             
-            // Bottom: badges and controls
-            if controller.fallbackPreviewRange != nil && !controller.isGeneratingFallbackPreview {
+            // Bottom: badges and controls (hide when crop mode is active)
+            if controller.fallbackPreviewRange != nil && !controller.isGeneratingFallbackPreview && !controller.isCropEnabled {
                 VStack {
                     Spacer()
                     HStack {

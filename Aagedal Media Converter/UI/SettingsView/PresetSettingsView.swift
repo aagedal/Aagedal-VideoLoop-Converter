@@ -153,6 +153,16 @@ struct PresetsSettingsView: View {
                             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                     )
                     .focused($focusedCustomCommandSlot, equals: slot)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.blue)
+                            .font(.footnote)
+                        Text("For crop support, include `-vf` filter argument and `-map 0:v` for video stream.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(alignment: .top, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {

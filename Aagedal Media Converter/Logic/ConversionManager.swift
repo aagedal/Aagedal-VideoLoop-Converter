@@ -430,6 +430,8 @@ actor ConversionManager: Sendable {
             trimStart: nil,
             trimEnd: nil,
             audioRoutingConfig: primaryInput.audioRoutingConfig,
+            cropConfig: primaryInput.cropConfig,
+            timecodeConfig: primaryInput.timecodeConfig,
             waveformRequest: plan.waveformRequest,
             synthesizedVideoRequest: plan.synthesizedVideoRequest,
             customInputArguments: customInputs,
@@ -838,6 +840,8 @@ actor ConversionManager: Sendable {
             trimStart: currentItem.trimStart,
             trimEnd: currentItem.trimEnd,
             audioRoutingConfig: currentItem.audioRoutingConfig,
+            cropConfig: currentItem.cropConfig,
+            timecodeConfig: currentItem.timecodeConfig,
             waveformRequest: waveformRequest,
             synthesizedVideoRequest: synthesizedVideoRequest,
             progressUpdate: { progress, eta in

@@ -69,6 +69,8 @@ enum FFMPEGCommandBuilder {
         trimStart: Double?,
         trimEnd: Double?,
         audioRoutingConfig: AudioRoutingConfig? = nil,
+        cropConfig: CropConfig? = nil,
+        timecodeConfig: TimecodeConfig? = nil,
         waveformRequest: WaveformVideoRequest? = nil,
         synthesizedVideoRequest: SynthesizedVideoRequest? = nil,
         customInputArguments: [String]? = nil,
@@ -173,10 +175,27 @@ enum FFMPEGCommandBuilder {
         var ffmpegArgs = preset.ffmpegArguments
         await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
         await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
-        
-        // If no waveform or synthesized video, we're encoding audio-only
-        // Remove video-related arguments that would fail on audio-only files
-        removeVideoArguments(from: &ffmpegArgs)
+
+        // Apply crop to video filter if configured
+        if let cropConfig = cropConfig,
+           cropConfig.isActive,
+           preset.outputsVideoTrack {
+            if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL),
+               let width = metadata.videoStream?.width,
+               let height = metadata.videoStream?.height {
+                applyCropToVideoFilter(
+                    &ffmpegArgs,
+                    cropConfig: cropConfig,
+                    sourceWidth: width,
+                    sourceHeight: height
+                )
+            }
+        }
+
+        // Only remove video arguments if preset doesn't output video (audio-only export)
+        if !preset.outputsVideoTrack {
+            removeVideoArguments(from: &ffmpegArgs)
+        }
         
         // Apply audio routing configuration if provided and preset supports audio
         if let audioRoutingConfig, preset.outputsAudioTrack {
@@ -188,6 +207,19 @@ enum FFMPEGCommandBuilder {
             comment: comment,
             includeDateTag: includeDateTag
         )
+
+        // Apply timecode configuration if provided and preset outputs video
+        if let timecodeConfig = timecodeConfig,
+           timecodeConfig.isActive,
+           preset.outputsVideoTrack {
+            if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL) {
+                await applyTimecode(
+                    &ffmpegArgs,
+                    timecodeConfig: timecodeConfig,
+                    sourceMetadata: metadata
+                )
+            }
+        }
 
         if let durationArgument = trimDurationArgument(start: normalizedTrimStart, end: normalizedTrimEnd) {
             arguments.append(contentsOf: durationArgument)
@@ -470,6 +502,39 @@ extension FFMPEGCommandBuilder {
         }
     }
 
+    static func applyTimecode(
+        _ ffmpegArgs: inout [String],
+        timecodeConfig: TimecodeConfig,
+        sourceMetadata: VideoMetadata
+    ) async {
+        let timecodeValue: String?
+
+        switch timecodeConfig.mode {
+        case .preserveSource:
+            // Use timecode from source metadata
+            timecodeValue = sourceMetadata.timecode
+        case .manual(let tc):
+            // Use manually specified timecode
+            timecodeValue = tc.isEmpty ? nil : tc
+        }
+
+        guard let timecode = timecodeValue else { return }
+
+        // Remove existing timecode metadata if present
+        var index = 0
+        while index < ffmpegArgs.count - 1 {
+            if ffmpegArgs[index] == "-metadata" && ffmpegArgs[index + 1].hasPrefix("timecode=") {
+                ffmpegArgs.remove(at: index + 1)
+                ffmpegArgs.remove(at: index)
+                continue
+            }
+            index += 1
+        }
+
+        // Add timecode metadata
+        ffmpegArgs.append(contentsOf: ["-metadata", "timecode=\(timecode)"])
+    }
+
     static func adjustArgumentsForInput(
         preset: ExportPreset,
         inputURL: URL,
@@ -691,6 +756,68 @@ extension FFMPEGCommandBuilder {
 
         arguments.append("-shortest")
         return arguments
+    }
+
+    /// Applies crop filter to video filter chain
+    /// Inserts crop AFTER setsar, BEFORE final scale for maximum quality
+    static func applyCropToVideoFilter(
+        _ ffmpegArgs: inout [String],
+        cropConfig: CropConfig,
+        sourceWidth: Int,
+        sourceHeight: Int
+    ) {
+        // Don't apply crop to stream copy preset
+        guard !ffmpegArgs.contains("-c:v") || !ffmpegArgs.contains("copy") else {
+            logger.debug("Skipping crop for stream copy preset")
+            return
+        }
+
+        // Find -vf index
+        guard let vfIndex = ffmpegArgs.firstIndex(of: "-vf"),
+              vfIndex + 1 < ffmpegArgs.count else {
+            logger.debug("No -vf argument found, skipping crop")
+            return
+        }
+
+        // Get current filter chain
+        var filterChain = ffmpegArgs[vfIndex + 1]
+
+        // Generate crop filter
+        guard let cropFilter = CropService.buildCropFilter(
+            config: cropConfig,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight
+        ) else {
+            logger.debug("Crop filter not generated (inactive or invalid)")
+            return
+        }
+
+        // Insert crop AFTER setsar, BEFORE final scale
+        // Pattern: find ",scale=w=" and insert crop before it
+        if let scaleRange = filterChain.range(of: ",scale=w=") {
+            let beforeScale = filterChain[..<scaleRange.lowerBound]
+            let afterSetsar = filterChain[scaleRange.lowerBound...]
+            filterChain = "\(beforeScale),\(cropFilter)\(afterSetsar)"
+        } else if filterChain.contains("setsar") {
+            // Fallback: append after setsar
+            if let setsarRange = filterChain.range(of: "setsar=1/1") {
+                let index = filterChain.index(after: setsarRange.upperBound)
+                if index < filterChain.endIndex {
+                    let beforeCrop = filterChain[...setsarRange.upperBound]
+                    let afterCrop = filterChain[index...]
+                    filterChain = "\(beforeCrop),\(cropFilter)\(afterCrop)"
+                } else {
+                    filterChain = "\(filterChain),\(cropFilter)"
+                }
+            }
+        } else {
+            // Last resort: prepend to filter chain
+            filterChain = "\(cropFilter),\(filterChain)"
+        }
+
+        // Update args
+        ffmpegArgs[vfIndex + 1] = filterChain
+        logger.info("Applied crop to video filter chain: \(filterChain, privacy: .public)")
     }
 
 }
