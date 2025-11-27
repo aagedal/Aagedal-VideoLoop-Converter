@@ -47,6 +47,7 @@ struct VideoFileRowView: View {
     @State private var showPreview = false
     @State private var showMetadata = false
     @State private var showAudioRouting = false
+    @State private var showTimecode = false
     @State private var cachedThumbnail: NSImage?
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
@@ -180,15 +181,16 @@ struct VideoFileRowView: View {
 
                                     // Timecode button (top-right corner)
                                     Button {
-                                        // TODO: Show timecode overlay
+                                        showTimecode = true
                                     } label: {
                                         Label("Timecode", systemImage: "timer")
                                             .labelStyle(.iconOnly)
                                             .font(.system(size: 24, weight: .medium))
+                                            .symbolRenderingMode(file.timecodeConfig?.isActive == true ? .multicolor : .monochrome)
                                     }
                                     .buttonStyle(.plain)
                                     .foregroundColor(.white)
-                                    .help("Configure output timecode")
+                                    .help(file.timecodeConfig?.isActive == true ? "Timecode configured" : "Configure output timecode")
                                 }
                                 .padding(10)
 
@@ -384,6 +386,9 @@ struct VideoFileRowView: View {
         }
         .sheet(isPresented: $showAudioRouting) {
             AudioRoutingView(item: $file, preset: preset)
+        }
+        .sheet(isPresented: $showTimecode) {
+            TimecodeView(item: $file)
         }
         .task(id: file.thumbnailData) {
             // Decode thumbnail asynchronously off main thread
