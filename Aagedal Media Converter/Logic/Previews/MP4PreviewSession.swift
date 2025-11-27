@@ -75,10 +75,10 @@ actor MP4PreviewSession {
     /// Generates a low-resolution MP4 preview clip.
     func generatePreview(startTime: TimeInterval, durationLimit: TimeInterval = 30, maxShortEdge: Int = 720) async throws -> PreviewResult {
         // ... (implementation for single file preview remains mostly same but updated for PreviewResult)
-        // For full preview, we might still use single file or separate. 
+        // For full preview, we might still use single file or separate.
         // But generatePreview is mostly for single-file export/preview, not the chunk system.
         // Let's keep it simple for now and assume it uses the muxed output.
-        
+
         logger.info("Transcoding MP4 preview for \(self.sourceURL.lastPathComponent, privacy: .public)")
 
         guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
@@ -158,12 +158,12 @@ actor MP4PreviewSession {
     func generatePreviewChunk(chunkIndex: Int, startTime: TimeInterval, durationLimit: TimeInterval, maxShortEdge: Int = 720, skipAudio: Bool = false) async throws -> PreviewResult {
         let chunkURL = chunkURL(for: chunkIndex)
         let audioURLs = skipAudio ? [] : audioChunkURLs(for: chunkIndex)
-        
+
         // Check if video chunk exists
         let videoExists = FileManager.default.fileExists(atPath: chunkURL.path)
         // Check if all expected audio chunks exist (if not skipping)
         let allAudioExist = skipAudio || (!audioURLs.isEmpty && audioURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
-        
+
         // Skip if already exists
         if videoExists && (audioStreamIndices.isEmpty || allAudioExist) {
             logger.info("Using cached chunk \(chunkIndex, privacy: .public) from: \(chunkURL.path, privacy: .public)")
@@ -177,13 +177,13 @@ actor MP4PreviewSession {
                 duration: max(0, durationSeconds)
             )
         }
-        
+
         logger.info("Generating preview chunk \(chunkIndex, privacy: .public) (\(durationLimit, privacy: .public)s starting at \(startTime, privacy: .public)s) for \(self.sourceURL.lastPathComponent, privacy: .public)")
-        
+
         guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
             throw PreviewError.ffmpegNotFound
         }
-        
+
         let arguments = self.buildArguments(
             startTime: startTime,
             durationLimit: durationLimit,
@@ -192,16 +192,16 @@ actor MP4PreviewSession {
             separateAudio: !skipAudio,
             audioOutputPaths: audioURLs.map { $0.path }
         )
-        
+
         try Task.checkCancellation()
-        
+
         // We pass the video URL as the primary output to check, but FFmpeg will generate all
         let previewURL = try await self.runFFmpeg(executablePath: ffmpegPath, arguments: arguments, outputURL: chunkURL)
-        
+
         let asset = AVURLAsset(url: previewURL)
         let loadedDuration = try await asset.load(.duration)
         let durationSeconds = loadedDuration.seconds.isFinite ? loadedDuration.seconds : durationLimit
-        
+
         return PreviewResult(
             url: previewURL,
             audioURLs: audioURLs,
@@ -351,9 +351,13 @@ actor MP4PreviewSession {
             for (outputIndex, streamIndex) in targetAudioIndices.enumerated() {
                 guard outputIndex < audioOutputPaths.count else { continue }
                 arguments.append(contentsOf: ["-map", "0:a:\(streamIndex)?"])
-                arguments.append(contentsOf: ["-c:a", "aac"]) // No stream specifier needed for single stream output
+                arguments.append(contentsOf: ["-c:a", "aac"])
                 arguments.append(contentsOf: ["-b:a", "128k"])
                 arguments.append(contentsOf: ["-ac", "2"])
+                // Force MP4 container with faststart for proper playback
+                arguments.append(contentsOf: ["-vn", "-sn"])
+                arguments.append(contentsOf: ["-f", "mp4"])
+                arguments.append(contentsOf: ["-movflags", "+faststart"])
                 arguments.append(audioOutputPaths[outputIndex])
             }
         } else {

@@ -778,19 +778,20 @@ actor PreviewAssetGenerator {
                     return .proresRAW
                 }
             }
-            
-            // 10-bit or higher without color metadata needs tonemapping
-            let is10BitPlus = pixFmt.contains("10") || pixFmt.contains("12") || pixFmt.contains("16") || 
-                             pixFmt.contains("p010") || pixFmt.contains("p016")
-            let hasNoColorInfo = (colorSpace.isEmpty || colorSpace == "unknown") && 
-                                (colorPrimaries.isEmpty || colorPrimaries == "unknown") &&
-                                (colorTransfer.isEmpty || colorTransfer == "unknown")
-            
-            if is10BitPlus && hasNoColorInfo {
-                self.logger.info("Detected 10-bit+ content without color metadata - using HDR tonemapping")
+
+            // Note: Previously we applied zscale tonemapping for 10-bit content without color metadata,
+            // but this causes failures with VVC, XAVC-I, and other 10-bit formats that don't need it.
+            // The decoder handles these correctly without explicit tonemapping.
+            // Only apply tonemapping if we have explicit HDR color metadata (bt2020, smpte2084, etc.)
+
+            let hasHDRColorSpace = colorSpace.contains("bt2020") || colorPrimaries.contains("bt2020")
+            let hasHDRTransfer = colorTransfer.contains("smpte2084") || colorTransfer.contains("arib-std-b67")
+
+            if hasHDRColorSpace || hasHDRTransfer {
+                self.logger.info("Detected HDR content with explicit color metadata - using tonemapping")
                 return .hdr10Bit
             }
-            
+
             return .none
         }
     }
@@ -804,10 +805,10 @@ actor PreviewAssetGenerator {
         hdrType: HDRType
     ) async throws {
         let position = min(10, max(duration * 0.1, 0.5))
-        
+
         // Apply SAR scaling, then scale to target size
         var videoFilter = "scale=iw*sar:ih,scale=\(rowThumbnailSize)"
-        
+
         switch hdrType {
         case .none:
             // Standard SDR content - just scale
@@ -819,7 +820,7 @@ actor PreviewAssetGenerator {
             // 10-bit+ HDR - apply full tonemapping chain
             videoFilter += ",zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
         }
-        
+
         let arguments: [String] = [
             "-hide_banner",
             "-loglevel", "error",
@@ -831,7 +832,7 @@ actor PreviewAssetGenerator {
             "-y",
             destination.path
         ]
-        
+
         try await runProcess(
             executable: URL(fileURLWithPath: ffmpegPath),
             arguments: arguments
