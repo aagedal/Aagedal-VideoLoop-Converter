@@ -15,7 +15,14 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.customPreset3SuffixKey) private var customPreset3Suffix = AppConstants.defaultCustomPresetSuffixes[2]
     @AppStorage(AppConstants.customPreset3ExtensionKey) private var customPreset3Extension = AppConstants.defaultCustomPresetExtensions[2]
     @AppStorage(AppConstants.customPreset3NameKey) private var customPreset3Name = AppConstants.defaultCustomPresetNameSuffixes[2]
-    
+
+    @AppStorage(AppConstants.customPreset1ApplyCropKey) private var customPreset1ApplyCrop = false
+    @AppStorage(AppConstants.customPreset1ApplyAudioRoutingKey) private var customPreset1ApplyAudioRouting = false
+    @AppStorage(AppConstants.customPreset2ApplyCropKey) private var customPreset2ApplyCrop = false
+    @AppStorage(AppConstants.customPreset2ApplyAudioRoutingKey) private var customPreset2ApplyAudioRouting = false
+    @AppStorage(AppConstants.customPreset3ApplyCropKey) private var customPreset3ApplyCrop = false
+    @AppStorage(AppConstants.customPreset3ApplyAudioRoutingKey) private var customPreset3ApplyAudioRouting = false
+
     @AppStorage(AppConstants.proResProfileKey) private var proResProfileRawValue = ProResProfile.standard.rawValue
 
     @AppStorage(AppConstants.defaultPresetKey) private var storedDefaultPresetRawValue = ExportPreset.videoLoop.rawValue
@@ -153,17 +160,46 @@ struct PresetsSettingsView: View {
                             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                     )
                     .focused($focusedCustomCommandSlot, equals: slot)
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "info.circle")
-                            .foregroundColor(.blue)
-                            .font(.footnote)
-                        Text("For crop support, include `-vf` filter argument and `-map 0:v` for video stream.")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
                 }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Feature Support")
+                        .font(.subheadline.weight(.semibold))
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle(isOn: Binding(
+                            get: { applyCrop(for: slot) },
+                            set: { updateApplyCrop($0, slot: slot) }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Apply crop configuration")
+                                    .font(.subheadline)
+                                Text("When enabled, crop settings will be applied to files using this preset")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .toggleStyle(SwitchToggleStyle())
+
+                        Toggle(isOn: Binding(
+                            get: { applyAudioRouting(for: slot) },
+                            set: { updateApplyAudioRouting($0, slot: slot) }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Apply audio routing configuration")
+                                    .font(.subheadline)
+                                Text("When enabled, audio track routing will be applied to files using this preset")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .toggleStyle(SwitchToggleStyle())
+                    }
+                }
+                .padding(12)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.6))
+                .cornerRadius(10)
+
                 HStack(alignment: .top, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Output file suffix")
@@ -242,6 +278,42 @@ struct PresetsSettingsView: View {
             return AppConstants.defaultCustomPresetExtensions.indices.contains(slot)
                 ? AppConstants.defaultCustomPresetExtensions[slot]
                 : "mp4"
+        }
+    }
+
+    private func applyCrop(for slot: Int) -> Bool {
+        switch slot {
+        case 0: return customPreset1ApplyCrop
+        case 1: return customPreset2ApplyCrop
+        case 2: return customPreset3ApplyCrop
+        default: return false
+        }
+    }
+
+    private func applyAudioRouting(for slot: Int) -> Bool {
+        switch slot {
+        case 0: return customPreset1ApplyAudioRouting
+        case 1: return customPreset2ApplyAudioRouting
+        case 2: return customPreset3ApplyAudioRouting
+        default: return false
+        }
+    }
+
+    private func updateApplyCrop(_ value: Bool, slot: Int) {
+        switch slot {
+        case 0: customPreset1ApplyCrop = value
+        case 1: customPreset2ApplyCrop = value
+        case 2: customPreset3ApplyCrop = value
+        default: break
+        }
+    }
+
+    private func updateApplyAudioRouting(_ value: Bool, slot: Int) {
+        switch slot {
+        case 0: customPreset1ApplyAudioRouting = value
+        case 1: customPreset2ApplyAudioRouting = value
+        case 2: customPreset3ApplyAudioRouting = value
+        default: break
         }
     }
 

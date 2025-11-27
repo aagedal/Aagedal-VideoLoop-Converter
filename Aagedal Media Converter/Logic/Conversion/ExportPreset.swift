@@ -201,7 +201,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return args
         case .tvQualityHD:
             var args = commonArgs + [
-                "-pix_fmt", "p010le",
+                "-pix_fmt", "p210le",
                 "-c:v", "hevc_videotoolbox",
                 "-b:v", "18M",
                 "-profile:v", "main10",
@@ -215,7 +215,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return args
         case .tvQuality4K:
             var args = commonArgs + [
-                "-pix_fmt", "p010le",
+                "-pix_fmt", "p210le",
                 "-c:v", "hevc_videotoolbox",
                 "-b:v", "60M",
                 "-profile:v", "main10",
@@ -310,6 +310,48 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     }
     
     var isCustom: Bool { customSlotIndex != nil }
+
+    var appliesCrop: Bool {
+        switch self {
+        case .custom1, .custom2, .custom3:
+            guard let slot = customSlotIndex else { return false }
+            return Self.customAppliesCrop(for: slot)
+        default:
+            return true // Built-in presets support crop
+        }
+    }
+
+    var appliesAudioRouting: Bool {
+        switch self {
+        case .custom1, .custom2, .custom3:
+            guard let slot = customSlotIndex else { return false }
+            return Self.customAppliesAudioRouting(for: slot)
+        default:
+            return true // Built-in presets support audio routing
+        }
+    }
+
+    private static func customAppliesCrop(for slot: Int) -> Bool {
+        let defaults = UserDefaults.standard
+        let keys = [
+            AppConstants.customPreset1ApplyCropKey,
+            AppConstants.customPreset2ApplyCropKey,
+            AppConstants.customPreset3ApplyCropKey
+        ]
+        let key = slot < keys.count ? keys[slot] : nil
+        return key.map { defaults.bool(forKey: $0) } ?? false
+    }
+
+    private static func customAppliesAudioRouting(for slot: Int) -> Bool {
+        let defaults = UserDefaults.standard
+        let keys = [
+            AppConstants.customPreset1ApplyAudioRoutingKey,
+            AppConstants.customPreset2ApplyAudioRoutingKey,
+            AppConstants.customPreset3ApplyAudioRoutingKey
+        ]
+        let key = slot < keys.count ? keys[slot] : nil
+        return key.map { defaults.bool(forKey: $0) } ?? false
+    }
 }
 
 extension ExportPreset {
