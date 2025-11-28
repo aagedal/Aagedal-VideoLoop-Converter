@@ -80,13 +80,19 @@ struct CropControlsView: View {
                             let centerX = rect.x + rect.width / 2
                             let centerY = rect.y + rect.height / 2
 
+                            // Convert target aspect ratio from pixel space to normalized space
+                            // Normalized coords are fraction of source dimensions
+                            // To maintain pixel aspect ratio, we must account for source aspect
+                            let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
+                            let normalizedTargetRatio = targetRatio / sourceAspect
+
                             // Try to keep the same area, adjust both dimensions to match ratio
                             let area = rect.width * rect.height
-                            // area = w * h, and w/h = targetRatio, so w = h * targetRatio
-                            // area = h * targetRatio * h = h^2 * targetRatio
-                            // h = sqrt(area / targetRatio)
-                            var newHeight = sqrt(area / targetRatio)
-                            var newWidth = newHeight * targetRatio
+                            // area = w * h, and w/h = normalizedTargetRatio, so w = h * normalizedTargetRatio
+                            // area = h * normalizedTargetRatio * h = h^2 * normalizedTargetRatio
+                            // h = sqrt(area / normalizedTargetRatio)
+                            var newHeight = sqrt(area / normalizedTargetRatio)
+                            var newWidth = newHeight * normalizedTargetRatio
 
                             // Clamp to bounds
                             if newWidth > 1.0 {

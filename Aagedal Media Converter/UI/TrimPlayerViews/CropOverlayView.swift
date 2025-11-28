@@ -488,16 +488,22 @@ struct CropOverlayView: View {
     // MARK: - Aspect Ratio Constraints
 
     private func constrainToAspectRatio(_ rect: CropRect, ratio: Double, dragMode: DragMode) -> CropRect {
+        // Convert target aspect ratio from pixel space to normalized space
+        // Normalized coords are fractions of source dimensions
+        // To maintain pixel aspect ratio, we must account for source aspect
+        let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
+        let normalizedTargetRatio = ratio / sourceAspect
+
         let currentRatio = rect.width / rect.height
 
-        if abs(currentRatio - ratio) < 0.01 {
+        if abs(currentRatio - normalizedTargetRatio) < 0.01 {
             return rect  // Already at correct ratio
         }
 
         switch dragMode {
         case .resizeTopLeft, .resizeTopRight, .resizeBottomLeft, .resizeBottomRight:
-            // Corner resize: adjust height to match width * ratio
-            let newHeight = rect.width / ratio
+            // Corner resize: adjust height to match width / normalizedTargetRatio
+            let newHeight = rect.width / normalizedTargetRatio
             let deltaY = newHeight - rect.height
 
             // Adjust y position for top corners to maintain bottom edge
@@ -508,14 +514,14 @@ struct CropOverlayView: View {
             }
 
         case .resizeTop, .resizeBottom:
-            // Vertical edge: adjust width to match height * ratio
-            let newWidth = rect.height * ratio
+            // Vertical edge: adjust width to match height * normalizedTargetRatio
+            let newWidth = rect.height * normalizedTargetRatio
             let deltaX = (newWidth - rect.width) / 2
             return CropRect(x: rect.x - deltaX, y: rect.y, width: newWidth, height: rect.height)
 
         case .resizeLeft, .resizeRight:
-            // Horizontal edge: adjust height to match width / ratio
-            let newHeight = rect.width / ratio
+            // Horizontal edge: adjust height to match width / normalizedTargetRatio
+            let newHeight = rect.width / normalizedTargetRatio
             let deltaY = (newHeight - rect.height) / 2
             return CropRect(x: rect.x, y: rect.y - deltaY, width: rect.width, height: newHeight)
 
