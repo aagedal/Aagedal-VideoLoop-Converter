@@ -137,6 +137,14 @@ struct CropControlsView: View {
                     .controlSize(.small)
 
                     Spacer()
+
+                    // Exit/Done button
+                    Button("Done") {
+                        isExpanded = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("Exit crop mode")
                 }
 
                 // Warning message for Stream Copy preset
