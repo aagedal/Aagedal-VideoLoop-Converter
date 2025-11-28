@@ -18,6 +18,7 @@ struct PreviewPlayerView: View {
     @State private var activeTrimGestures: Int = 0
     @State private var currentPlaybackTime: Double = 0
     @State private var showsPlaybackControls: Bool = false
+    @State private var isCropControlsExpanded: Bool = false
 
     init(item: Binding<VideoItem>) {
         self._item = item
@@ -46,6 +47,7 @@ struct PreviewPlayerView: View {
                 item: $item,
                 controller: controller,
                 currentPlaybackTime: $currentPlaybackTime,
+                isCropControlsExpanded: $isCropControlsExpanded,
                 onSeek: controller.seekTo,
                 onReset: resetTrim,
                 onCaptureScreenshot: captureScreenshot,
@@ -304,7 +306,9 @@ struct PreviewPlayerView: View {
             controller.fastForward()
             return true
         case "c":
-            controller.isCropEnabled.toggle()
+            isCropControlsExpanded.toggle()
+            // Sync crop overlay with controls state
+            controller.isCropEnabled = isCropControlsExpanded
             return true
         default:
             return false

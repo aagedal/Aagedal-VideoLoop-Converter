@@ -25,12 +25,14 @@ struct TrimTimelineView: View {
     let loadedChunks: Set<Int>?
     let step: Double
     let hideFilmstrip: Bool
+    let compactMode: Bool
     let onEditingChanged: (Bool) -> Void
     let onSeek: (Double) -> Void
 
     private let filmstripHeight: CGFloat = 72
     private let waveformHeight: CGFloat = 36
     private let combinedHeight: CGFloat = 108
+    private let compactHeight: CGFloat = 20
     private let chunkDuration: TimeInterval = 5.0
 
     init(
@@ -46,6 +48,7 @@ struct TrimTimelineView: View {
         loadedChunks: Set<Int>? = nil,
         step: Double = 0.1,
         hideFilmstrip: Bool = false,
+        compactMode: Bool = false,
         onEditingChanged: @escaping (Bool) -> Void,
         onSeek: @escaping (Double) -> Void
     ) {
@@ -61,6 +64,7 @@ struct TrimTimelineView: View {
         self.loadedChunks = loadedChunks
         self.step = step
         self.hideFilmstrip = hideFilmstrip
+        self.compactMode = compactMode
         self.onEditingChanged = onEditingChanged
         self.onSeek = onSeek
     }
@@ -74,7 +78,7 @@ private struct TrimHandlesInteractionLayer: View {
     let step: Double
     let onEditingChanged: (Bool) -> Void
 
-    private let handleWidth: CGFloat = 16
+    private let handleWidth: CGFloat = 12  // Reduced from 16 for thinner handles
 
     @State private var startInitialValue: Double?
     @State private var endInitialValue: Double?
@@ -200,13 +204,19 @@ private struct TrimHandlesInteractionLayer: View {
 }
 
     var body: some View {
-        GeometryReader { geometry in
+        let effectiveHeight = compactMode ? compactHeight : combinedHeight
+
+        return GeometryReader { geometry in
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
                     // let _ = Logger(subsystem: "com.aagedal.MediaConverter", category: "TrimTimeline").debug("View received waveformURL: \(waveformURL?.path ?? "nil")")
                     // For audio-only files (no thumbnails), show waveform spanning full height
                     // Hide filmstrip when crop mode is active to save space
-                    if hideFilmstrip {
+                    if compactMode {
+                        // Compact mode: minimal scrubber bar only
+                        Color.clear
+                            .frame(height: compactHeight)
+                    } else if hideFilmstrip {
                         // Crop mode: waveform spans full height
                         GeometryReader { geo in
                             waveformContent(width: geo.size.width, height: geo.size.height)
@@ -223,7 +233,7 @@ private struct TrimHandlesInteractionLayer: View {
                         .frame(height: combinedHeight)
                     }
                 }
-                
+
                 TrimTimelineOverlay(
                     duration: duration,
                     trimStart: trimStart,
@@ -231,7 +241,7 @@ private struct TrimHandlesInteractionLayer: View {
                     playbackTime: playbackTime
                 )
                 .allowsHitTesting(false)
-                
+
                 // Preview range overlay (shows unavailable chunks in orange)
                 if fallbackPreviewRange != nil {
                     ChunkedPreviewOverlay(
@@ -241,7 +251,7 @@ private struct TrimHandlesInteractionLayer: View {
                     )
                     .allowsHitTesting(false)
                 }
-                
+
                 // Scrubbing layer (behind handles)
                 TimelineScrubLayer(
                     duration: duration,
@@ -249,7 +259,7 @@ private struct TrimHandlesInteractionLayer: View {
                     trimEnd: trimEnd,
                     onSeek: onSeek
                 )
-                
+
                 TrimHandlesInteractionLayer(
                     trimStart: $trimStart,
                     trimEnd: $trimEnd,
@@ -259,7 +269,7 @@ private struct TrimHandlesInteractionLayer: View {
                 )
             }
         }
-        .frame(height: combinedHeight)
+        .frame(height: effectiveHeight)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -430,9 +440,9 @@ private struct TimelineScrubLayer: View {
     let trimStart: Double
     let trimEnd: Double
     let onSeek: (Double) -> Void
-    
-    private let handleWidth: CGFloat = 20
-    private let handleMargin: CGFloat = 4
+
+    private let handleWidth: CGFloat = 12  // Matches handle visual width
+    private let handleMargin: CGFloat = 6  // Increased margin to compensate for thinner handle
     
     @State private var isScrubbing = false
     

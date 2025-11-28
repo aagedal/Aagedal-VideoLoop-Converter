@@ -10,6 +10,7 @@ struct PreviewTrimControls: View {
     @Binding var item: VideoItem
     @ObservedObject var controller: PreviewPlayerController
     @Binding var currentPlaybackTime: Double
+    @Binding var isCropControlsExpanded: Bool
     let onSeek: (Double) -> Void
     let onReset: () -> Void
     let onCaptureScreenshot: () -> Void
@@ -18,33 +19,33 @@ struct PreviewTrimControls: View {
     let onTrimEditingChanged: (Bool) -> Void
     let loopBinding: Binding<Bool>
 
-    @State private var isCropControlsExpanded: Bool = false
-
     var body: some View {
         let duration = max(item.durationSeconds, 0)
+        let isCompactMode = isCropControlsExpanded
         return VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 6) {
-                // Hide entire trim timeline when crop mode is active
-                if !controller.isCropEnabled {
-                    TrimTimelineView(
-                        trimStart: trimStartBinding,
-                        trimEnd: trimEndBinding,
-                        duration: duration,
-                        playbackTime: currentPlaybackTime,
-                        thumbnails: controller.previewAssets?.thumbnails,
-                        waveformURL: controller.currentWaveformURL,
-                        isLoading: controller.isLoadingPreviewAssets,
-                        fallbackPreviewRange: controller.fallbackPreviewRange,
-                        loadedChunks: controller.loadedChunks,
-                        step: 0.1,
-                        hideFilmstrip: false,
-                        onEditingChanged: onTrimEditingChanged,
-                        onSeek: onSeek
-                    )
-                    .onReceive(controller.playbackTimePublisher) { time in
-                        currentPlaybackTime = time
-                    }
+                // Minimize trim timeline when crop controls are expanded
+                TrimTimelineView(
+                    trimStart: trimStartBinding,
+                    trimEnd: trimEndBinding,
+                    duration: duration,
+                    playbackTime: currentPlaybackTime,
+                    thumbnails: controller.previewAssets?.thumbnails,
+                    waveformURL: controller.currentWaveformURL,
+                    isLoading: controller.isLoadingPreviewAssets,
+                    fallbackPreviewRange: controller.fallbackPreviewRange,
+                    loadedChunks: controller.loadedChunks,
+                    step: 0.1,
+                    hideFilmstrip: false,
+                    compactMode: isCompactMode,
+                    onEditingChanged: onTrimEditingChanged,
+                    onSeek: onSeek
+                )
+                .onReceive(controller.playbackTimePublisher) { time in
+                    currentPlaybackTime = time
+                }
 
+                if !isCompactMode {
                     controlButtons
                 }
             }
@@ -116,27 +117,16 @@ struct PreviewTrimControls: View {
             if item.hasVideoStream {
                 HStack(spacing: 10) {
                     Button(action: {
-                        controller.isCropEnabled.toggle()
-                    }) {
-                        Image(systemName: controller.isCropEnabled ? "eye.fill" : "eye.slash.fill")
-                            .foregroundColor(controller.isCropEnabled ? .accentColor : .secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(controller.isCropEnabled ? "Hide crop overlay (C)" : "Show crop overlay (C)")
-
-                    Button(action: {
                         isCropControlsExpanded.toggle()
-                        // Auto-enable crop mode when expanding
-                        if isCropControlsExpanded && !controller.isCropEnabled {
-                            controller.isCropEnabled = true
-                        }
+                        // Auto-enable crop overlay when expanding controls
+                        controller.isCropEnabled = isCropControlsExpanded
                     }) {
                         Label("Crop", systemImage: "crop")
                             .labelStyle(.iconOnly)
                             .foregroundColor(isCropControlsExpanded ? .accentColor : .primary)
                     }
                     .buttonStyle(.plain)
-                    .help("Toggle crop controls")
+                    .help("Toggle crop controls (C)")
 
                     if let config = item.cropConfig, config.isActive {
                         Text("\(Int(config.normalizedRect.width * 100))%")
