@@ -578,7 +578,8 @@ actor PreviewAssetGenerator {
             case .proresRAW:
                 videoFilter += ",format=yuv420p"
             case .hdr10Bit:
-                videoFilter += ",zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+                // Previously used zscale and tonemap; remove zscale usage and keep output format compatible
+                videoFilter += ",format=yuv420p"
             }
 
             let arguments: [String] = [
@@ -731,7 +732,7 @@ actor PreviewAssetGenerator {
     private enum HDRType {
         case none           // Standard SDR content
         case proresRAW      // ProRes RAW (needs simple decoding, no tonemapping)
-        case hdr10Bit       // 10-bit+ HDR content (needs tonemapping)
+        case hdr10Bit       // 10-bit+ HDR content (previously tonemapped; now handled without zscale)
     }
     
     /// Detects HDR processing requirement (ProRes RAW, 10-bit+ without color metadata)
@@ -779,16 +780,13 @@ actor PreviewAssetGenerator {
                 }
             }
 
-            // Note: Previously we applied zscale tonemapping for 10-bit content without color metadata,
-            // but this causes failures with VVC, XAVC-I, and other 10-bit formats that don't need it.
-            // The decoder handles these correctly without explicit tonemapping.
-            // Only apply tonemapping if we have explicit HDR color metadata (bt2020, smpte2084, etc.)
-
+            // We no longer apply zscale/tonemapping. Even for HDR metadata, we will generate thumbnails
+            // using a standard output format to maximize compatibility and avoid zscale issues.
             let hasHDRColorSpace = colorSpace.contains("bt2020") || colorPrimaries.contains("bt2020")
             let hasHDRTransfer = colorTransfer.contains("smpte2084") || colorTransfer.contains("arib-std-b67")
 
             if hasHDRColorSpace || hasHDRTransfer {
-                self.logger.info("Detected HDR content with explicit color metadata - using tonemapping")
+                self.logger.info("Detected HDR content with explicit color metadata - proceeding without zscale")
                 return .hdr10Bit
             }
 
@@ -817,8 +815,8 @@ actor PreviewAssetGenerator {
             // ProRes RAW - let decoder handle color, just ensure proper output format
             videoFilter += ",format=yuv420p"
         case .hdr10Bit:
-            // 10-bit+ HDR - apply full tonemapping chain
-            videoFilter += ",zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+            // Remove zscale/tonemap; output a compatible pixel format
+            videoFilter += ",format=yuv420p"
         }
 
         let arguments: [String] = [
