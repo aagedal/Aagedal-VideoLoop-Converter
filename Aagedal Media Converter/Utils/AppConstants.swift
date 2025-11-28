@@ -142,6 +142,12 @@ enum AppConstants {
     static let defaultCustomPresetExtensions = ["mp4", "mp4", "mp4"]
 
     static let screenshotDirectoryKey = "screenshotDirectory"
+    static let screenshot8BitFormatKey = "screenshot8BitFormat"
+    static let screenshot10BitFormatKey = "screenshot10BitFormat"
+    static let screenshotHighBitFormatKey = "screenshotHighBitFormat"
+    static let defaultScreenshotFormat = "JPEG XL" // Default to JPEG XL for all bit depths (must match ScreenshotFormat.jpegXL.rawValue)
+    static let screenshotAlphaHandlingKey = "screenshotAlphaHandling"
+    static let defaultScreenshotAlphaHandling = "auto" // auto, useSelectedFormat
     static let proResProfileKey = "proResProfile"
     
     // Update checking
