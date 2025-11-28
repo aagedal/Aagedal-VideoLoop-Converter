@@ -10,7 +10,11 @@ struct GeneralSettingsView: View {
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path
     @AppStorage(AppConstants.screenshotDirectoryKey) private var screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
     @AppStorage(AppConstants.previewCacheCleanupPolicyKey) private var previewCacheCleanupPolicyRaw = AppConstants.defaultPreviewCacheCleanupPolicyRaw
-    
+    @AppStorage(AppConstants.screenshot8BitFormatKey) private var screenshot8BitFormat = AppConstants.defaultScreenshotFormat
+    @AppStorage(AppConstants.screenshot10BitFormatKey) private var screenshot10BitFormat = AppConstants.defaultScreenshotFormat
+    @AppStorage(AppConstants.screenshotHighBitFormatKey) private var screenshotHighBitFormat = AppConstants.defaultScreenshotFormat
+    @AppStorage(AppConstants.screenshotAlphaHandlingKey) private var screenshotAlphaHandling = AppConstants.defaultScreenshotAlphaHandling
+
     @State private var isClearingPreviewCache = false
     @State private var previewCacheSizeBytes: Int64 = 0
 
@@ -80,49 +84,119 @@ struct GeneralSettingsView: View {
 
     private var screenshotSection: some View {
         Section(header: Text("Screenshots")) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Default Screenshot Folder:")
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 12) {
+                // Folder selection
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Default Screenshot Folder:")
+                        .font(.headline)
 
-                HStack {
-                    Text(screenshotDirectoryPath)
-                        .truncationMode(.middle)
-                        .lineLimit(1)
-                        .help(screenshotDirectoryPath)
+                    HStack {
+                        Text(screenshotDirectoryPath)
+                            .truncationMode(.middle)
+                            .lineLimit(1)
+                            .help(screenshotDirectoryPath)
 
-                    Button(action: {
-                        let url = URL(fileURLWithPath: screenshotDirectoryPath)
-                        guard FileManager.default.fileExists(atPath: url.path) else {
-                            screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
-                            return
+                        Button(action: {
+                            let url = URL(fileURLWithPath: screenshotDirectoryPath)
+                            guard FileManager.default.fileExists(atPath: url.path) else {
+                                screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
+                                return
+                            }
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        }) {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .foregroundColor(.accentColor)
                         }
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }) {
-                        Image(systemName: "arrow.right.circle.fill")
-                            .foregroundColor(.accentColor)
-                    }
-                    .buttonStyle(BorderlessButtonStyle())
-                    .help("Show in Finder")
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Show in Finder")
 
-                    Button(action: { selectScreenshotDirectory() }) {
-                        Image(systemName: "camera.on.rectangle")
-                            .foregroundColor(.accentColor)
-                    }
-                    .buttonStyle(BorderlessButtonStyle())
-                    .help("Change screenshot folder")
+                        Button(action: { selectScreenshotDirectory() }) {
+                            Image(systemName: "camera.on.rectangle")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Change screenshot folder")
 
-                    Button(action: { screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path }) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .foregroundColor(.secondary)
+                        Button(action: { screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path }) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Reset to Downloads")
                     }
-                    .buttonStyle(BorderlessButtonStyle())
-                    .help("Reset to Downloads")
+                }
+
+                Divider()
+
+                // Format settings
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Screenshot Formats:")
+                        .font(.headline)
+
+                    Text("Select the image format for screenshots based on source bit depth.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack {
+                        Text("8-bit sources:")
+                            .frame(width: 120, alignment: .trailing)
+                        Picker("", selection: $screenshot8BitFormat) {
+                            ForEach(ScreenshotFormat.allCases) { format in
+                                Text(format.displayName).tag(format.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
+                    }
+
+                    HStack {
+                        Text("10-bit sources:")
+                            .frame(width: 120, alignment: .trailing)
+                        Picker("", selection: $screenshot10BitFormat) {
+                            ForEach(ScreenshotFormat.allCases) { format in
+                                Text(format.displayName).tag(format.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
+                    }
+
+                    HStack {
+                        Text(">10-bit sources:")
+                            .frame(width: 120, alignment: .trailing)
+                        Picker("", selection: $screenshotHighBitFormat) {
+                            ForEach(ScreenshotFormat.allCases) { format in
+                                Text(format.displayName).tag(format.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 120)
+                    }
+
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    Text("Alpha Channel Handling:")
+                        .font(.headline)
+
+                    Text("Choose how to handle screenshots with alpha transparency.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack {
+                        Text("Alpha handling:")
+                            .frame(width: 120, alignment: .trailing)
+                        Picker("", selection: $screenshotAlphaHandling) {
+                            ForEach(ScreenshotAlphaHandling.allCases) { handling in
+                                Text(handling.displayName).tag(handling.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 300)
+                    }
                 }
             }
             .padding(8)
-            Text("Frames captured from the preview will be saved as JPEGs into this folder.")
-                .font(.caption)
-                .foregroundColor(.secondary)
         }
     }
 
