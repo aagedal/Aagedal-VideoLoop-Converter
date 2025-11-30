@@ -63,6 +63,7 @@ struct PreviewTrimControls: View {
                 Label("\(formattedTime(item.effectiveTrimStart))", systemImage: "arrow.left.to.line")
             }
             .buttonStyle(.plain)
+            .font(.system(.subheadline, design: .monospaced))
             .foregroundColor(.accentColor)
             .help("Jump to trim start")
 
