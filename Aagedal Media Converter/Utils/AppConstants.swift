@@ -143,10 +143,30 @@ enum AppConstants {
     static let defaultCustomPresetExtensions = ["mp4", "mp4", "mp4"]
 
     static let screenshotDirectoryKey = "screenshotDirectory"
+    static let screenshot8BitFormatKey = "screenshot8BitFormat"
+    static let screenshot10BitFormatKey = "screenshot10BitFormat"
+    static let screenshotHighBitFormatKey = "screenshotHighBitFormat"
+    static let defaultScreenshotFormat = "JPEG XL" // Default to JPEG XL for all bit depths (must match ScreenshotFormat.jpegXL.rawValue)
+    static let screenshotAlphaHandlingKey = "screenshotAlphaHandling"
+    static let defaultScreenshotAlphaHandling = "auto" // auto, useSelectedFormat
     static let proResProfileKey = "proResProfile"
     
     // Update checking
     static let checkForUpdatesKey = "checkForUpdates"
     static let updateCheckFrequencyKey = "updateCheckFrequency"
     static let lastUpdateCheckDateKey = "lastUpdateCheckDate"
+
+    // Timecode defaults
+    static let defaultTimecodeModeKey = "defaultTimecodeMode"
+    static let defaultTimecodeValueKey = "defaultTimecodeValue"
+    static let defaultTimecodeModeRaw = "preserveSource" // preserveSource, manual, disabled
+    static let defaultTimecodeValue = "00:00:00:00"
+
+    // Custom preset feature toggles
+    static let customPreset1ApplyCropKey = "customPreset1ApplyCrop"
+    static let customPreset1ApplyAudioRoutingKey = "customPreset1ApplyAudioRouting"
+    static let customPreset2ApplyCropKey = "customPreset2ApplyCrop"
+    static let customPreset2ApplyAudioRoutingKey = "customPreset2ApplyAudioRouting"
+    static let customPreset3ApplyCropKey = "customPreset3ApplyCrop"
+    static let customPreset3ApplyAudioRoutingKey = "customPreset3ApplyAudioRouting"
 }

@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import AVKit
+import Combine
 import OSLog
 
 @MainActor
@@ -23,10 +24,37 @@ final class PreviewPlayerController: ObservableObject {
 
     // MARK: - Published State
     
+    @Published var volume: Double = 100 {
+        didSet {
+            // Only apply if VLC is active
+            if useVLC, let vlcPlayer {
+                vlcPlayer.volume = volume
+            }
+        }
+    }
+    @Published var isMuted: Bool = false {
+        didSet {
+            // Only apply if VLC is active
+            if useVLC, let vlcPlayer {
+                vlcPlayer.isMuted = isMuted
+            }
+        }
+    }
     @Published var player: AVPlayer?
     @Published var isPreparing = false
     @Published var errorMessage: String?
+    @Published private(set) var currentWaveformURL: URL?
     @Published var currentPlaybackTime: Double = 0
+    @Published private(set) var currentPlaybackSpeed: Float = 1.0
+    @Published private(set) var isReverseSimulating: Bool = false
+    // Audio monitoring is defined in extension/bottom section
+    
+    // Reverse simulation
+    private var reverseSpeed: Int = 1 // 1x, 2x, 3x, 4x
+    private var reverseTimer: Timer?
+    
+    // VLC trim observer
+    var vlcTrimObserverTimer: Timer?
     @Published var previewAssets: PreviewAssets? {
         didSet { updateCurrentWaveform() }
     }
@@ -42,8 +70,8 @@ final class PreviewPlayerController: ObservableObject {
     @Published var pendingChunkTime: Double?
     @Published var loadingChunkIndex: Int?
     @Published var audioTrackOptions: [AudioTrackOption] = []
-    @Published private(set) var currentWaveformURL: URL?
-    
+    @Published var isCropEnabled: Bool = false
+
     // MARK: - Configuration
     
     let chunkDuration: TimeInterval = 5.0
@@ -69,21 +97,38 @@ final class PreviewPlayerController: ObservableObject {
     weak var playbackTimeObserverOwner: AVPlayer?
     weak var audioSyncObserverOwner: AVPlayer?
     var playerItemStatusObserver: Any?
+    var fullAudioTrackURLs: [URL] = []
     var hasSecurityScope = false
     var usePreviewFallback = false
     var composition: AVMutableComposition?
     var compositionVideoTrack: AVMutableCompositionTrack?
-    var compositionAudioTrack: AVMutableCompositionTrack?
+    var compositionAudioTracks: [AVMutableCompositionTrack] = []
     weak var playerView: AVPlayerView?
     var previewAudioStreamIndices: [Int] = []
     var selectedAudioTrackOrderIndex: Int = 0
     
+    // MARK: - Audio Monitoring
+    // UniversalAudioMeterService is defined below in Audio Metering section
+    
+    // MARK: - VLC State
+    var vlcPlayer: VLCPlayer?
+    var useVLC = false
+
+    /// Codecs that require chunk-based fallback (not supported by AVPlayer but FFMPEG can decode)
+    private static let chunkFallbackCodecs: Set<String> = [
+        "apv",                   // Apple Advanced Professional Video
+        "vvc", "vvc1", "vvi1",  // VVC/H.266
+        "h266"                   // Alternative H.266 identifier
+        // Future codecs can be added here
+    ]
+
     // MARK: - Initialization
     
     var playbackTimePublisher: Published<Double>.Publisher { $currentPlaybackTime }
 
     init(videoItem: VideoItem) {
         self.videoItem = videoItem
+        setupAudioMonitoring()
     }
     
     // MARK: - Video Item Management
@@ -96,7 +141,7 @@ final class PreviewPlayerController: ObservableObject {
             preparePreview(startTime: newValue.effectiveTrimStart)
             loadPreviewAssets(for: newValue.url)
         } else if previous.loopPlayback != newValue.loopPlayback {
-            applyLoopSetting()
+            updatePlayerActionAtEnd()
         } else if previous.trimStart != newValue.trimStart || previous.trimEnd != newValue.trimEnd {
             // Trim values changed, reinstall time observer with new boundaries
             if let player = player {
@@ -106,7 +151,23 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     // MARK: - Preview Preparation
-    
+
+    /// Checks if the video codec requires chunk-based fallback (not supported by AVPlayer)
+    /// Returns true if chunk fallback should be used, false if AVPlayer should be tried first
+    private func requiresChunkFallback(for item: VideoItem) -> Bool {
+        // Check cached metadata first (instant if available)
+        if let codec = item.metadata?.videoStream?.codec?.lowercased() {
+            // Check against known codecs requiring chunk fallback
+            for fallbackCodec in Self.chunkFallbackCodecs {
+                if codec.contains(fallbackCodec) {
+                    return true
+                }
+            }
+        }
+
+        return false  // Unknown or no metadata - try AVPlayer first, async detection will catch it
+    }
+
     func preparePreview(startTime: TimeInterval, resetAudioSelection: Bool = true) {
         teardown(resetAudioSelection: resetAudioSelection)
         isPreparing = true
@@ -114,11 +175,20 @@ final class PreviewPlayerController: ObservableObject {
         isLoadingPreviewAssets = true
         previewAssets = nil
         usePreviewFallback = false
+        useVLC = false
 
         let currentItem = videoItem
-        
-        // Try AVPlayer directly first with security-scoped resource access
         let url = currentItem.url
+
+        // Check if this codec requires chunk-based fallback before creating AVPlayer
+        if requiresChunkFallback(for: currentItem) {
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .info("Detected codec requiring chunk fallback from metadata - using fallback preview directly")
+            fallbackToPreview(startTime: startTime)
+            return  // Skip AVPlayer creation entirely
+        }
+
+        // Try AVPlayer directly first with security-scoped resource access
         
         // First try bookmark-based access (more reliable for sandboxed apps)
         let bookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url)
@@ -132,7 +202,7 @@ final class PreviewPlayerController: ObservableObject {
         
         self.player = player
         
-        // Monitor player item status for failures, fallback to HLS if needed
+        // Monitor player item status for failures, fallback to VLC if needed
         installPlayerItemStatusObserver(for: playerItem, startTime: startTime)
         
         self.isPreparing = false
@@ -145,8 +215,230 @@ final class PreviewPlayerController: ObservableObject {
         installLoopObserver(for: playerItem)
         installTimeObserver(for: player)
         installPlaybackTimeObserver(for: player)
-        applyLoopSetting()
+        updatePlayerActionAtEnd()
         loadPreviewAssets(for: currentItem.url)
+        
+        // Audio monitoring is handled globally by UniversalAudioMeterService
+    }
+    
+    var debugWindowController: Any? // Holds strong reference to keep window alive
+
+    func setupVLC(url: URL, startTime: Double) {
+        // Explicitly nil the player to prevent key consumption
+        player = nil
+        
+        let vlc = VLCPlayer()
+        self.vlcPlayer = vlc
+        self.useVLC = true
+        self.isPreparing = false
+        
+        // Load without autostarting
+        vlc.load(url: url, autostart: false)
+        
+        // Seek to start position
+        // IMPORTANT: Seeking can trigger playback on some VLC versions, so pause immediately after
+        // We do this even for startTime == 0 to ensure consistent paused state
+        vlc.seek(to: startTime)
+        
+        // Mute before force-render to prevent audio burst
+        vlc.isMuted = true
+        
+        // Force a brief play to render the first frame (black frame fix)
+        vlc.play()
+        
+        // Wait briefly for frame to render, then pause and unmute
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak vlc] in
+            guard let self, let vlc else { return }
+            vlc.pause()
+            vlc.seek(to: startTime) // Seek back to start to ensure we are on the first frame, not the second
+            vlc.isMuted = false
+            
+            // Refresh audio tracks now that VLC has likely parsed the media
+            self.refreshAudioTrackOptions(for: self.videoItem, playerItem: nil)
+            
+            // Double-check pause state after another small delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if vlc.isPlaying { vlc.pause() }
+            }
+        }
+        
+        // Sync time
+        Task { @MainActor [weak self, weak vlc] in
+            guard let self, let vlc else { return }
+            for await time in vlc.$timePos.values {
+                self.currentPlaybackTime = time
+            }
+        }
+        
+        // Install VLC trim boundary observer for looping
+        installVLCTrimObserver()
+        
+        // Reload preview assets (teardown() clears them when switching from AVPlayer)
+        // This uses the cache so it's instant
+        loadPreviewAssets(for: url)
+        
+        // Audio monitoring is handled globally by UniversalAudioMeterService
+        
+        // DON'T call updateCurrentWaveform() here!
+        // It will be called automatically via previewAssets.didSet when assets finish loading
+    }
+    
+    // MARK: - Unified Playback Control
+    
+    func togglePlayback() {
+        // If reversing, K/Space should just stop reverse (stay paused)
+        if isReverseSimulating {
+            stopReverseSimulation()
+            return
+        }
+        
+        if useVLC, let vlc = vlcPlayer {
+            // Check if currently playing
+            let wasPlaying = vlc.isPlaying
+            // Reset rate FIRST, ensure it's applied
+            vlc.rate = 1.0
+            currentPlaybackSpeed = 1.0
+            
+            if wasPlaying {
+                vlc.pause()
+            } else {
+                // Make sure rate is 1.0 before playing
+                vlc.play()
+            }
+        } else if let player = player {
+            currentPlaybackSpeed = 1.0
+            if player.rate != 0 {
+                player.pause()
+            } else {
+                player.rate = 1.0
+                player.play()
+            }
+        }
+    }
+    
+    func pause() {
+        stopReverseSimulation()
+        
+        if useVLC, let vlc = vlcPlayer {
+            // Reset rate FIRST, then pause
+            vlc.rate = 1.0
+            currentPlaybackSpeed = 1.0
+            vlc.pause()
+        } else {
+            currentPlaybackSpeed = 1.0
+            player?.pause()
+        }
+    }
+    
+    func stepRate(forward: Bool) {
+        if useVLC, let vlc = vlcPlayer {
+            // VLC rate stepping: 0.5 -> 1.0 -> 1.5 -> 2.0 etc
+            let current = vlc.rate
+            let step: Float = 0.5
+            let newRate = forward ? current + step : current - step
+            vlc.rate = max(0.25, min(newRate, 4.0))
+            currentPlaybackSpeed = vlc.rate
+        } else if let player = player {
+            // AVPlayer rate stepping
+            let current = player.rate
+            let step: Float = 1.0
+            let newRate = forward ? current + step : current - step
+            player.rate = newRate
+            currentPlaybackSpeed = player.rate
+        }
+    }
+    
+    func startReverseSimulation() {
+        // If already reversing, increase speed (max 4x)
+        if isReverseSimulating {
+            reverseSpeed = min(reverseSpeed + 1, 4)
+            // Restart timer with new speed
+            reverseTimer?.invalidate()
+            let interval = (1.0/24.0) / Double(reverseSpeed)
+            reverseTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    self?.seekByFrames(-1)
+                }
+            }
+            currentPlaybackSpeed = -Float(reverseSpeed)
+            return
+        }
+        
+        // Start new reverse simulation
+        pause()
+        reverseSpeed = 1
+        isReverseSimulating = true
+        currentPlaybackSpeed = -1.0
+        
+        // Start reverse simulation (step backwards at ~24fps)
+        let interval = 1.0/24.0
+        reverseTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.seekByFrames(-1)
+            }
+        }
+    }
+    
+    func stopReverseSimulation() {
+        isReverseSimulating = false
+        reverseSpeed = 1
+        reverseTimer?.invalidate()
+        reverseTimer = nil
+        // Reset speed when stopping reverse
+        if !isReverseSimulating {
+            currentPlaybackSpeed = 1.0
+        }
+    }
+    
+    func rewind() {
+        stopReverseSimulation()
+        stepRate(forward: false)
+    }
+    
+    func fastForward() {
+        // If reversing, L stops reverse
+        if isReverseSimulating {
+            stopReverseSimulation()
+            return
+        }
+        
+        // If paused, start playing at 1×
+        if useVLC, let vlc = vlcPlayer {
+            if !vlc.isPlaying {
+                vlc.rate = 1.0
+                currentPlaybackSpeed = 1.0
+                vlc.play()
+                return
+            }
+        } else if let player = player {
+            if player.rate == 0 {
+                player.rate = 1.0
+                currentPlaybackSpeed = 1.0
+                player.play()
+                return
+            }
+        }
+        
+        // Otherwise increase forward speed
+        stepRate(forward: true)
+    }
+    
+    func seek(by seconds: Double) {
+        let currentTime = getCurrentTime() ?? videoItem.effectiveTrimStart
+        let newTime = currentTime + seconds
+        seekTo(max(videoItem.effectiveTrimStart, min(newTime, videoItem.effectiveTrimEnd)))
+    }
+    
+    func seekByFrames(_ frameCount: Int) {
+        // Calculate seconds per frame from video metadata
+        if let frameRate = videoItem.metadata?.videoStream?.frameRate,
+           let frameRateValue = frameRate.value, frameRateValue > 0 {
+            let secondsPerFrame = 1.0 / frameRateValue
+            seek(by: Double(frameCount) * secondsPerFrame)
+        } else {
+            // Fallback to 1/30th second if no frame rate available
+            seek(by: Double(frameCount) / 30.0)
+        }
     }
 
     /// Determines the preferred ordering of audio stream indices based on metadata (default + channel count).
@@ -175,31 +467,38 @@ final class PreviewPlayerController: ObservableObject {
         return sorted.map { $0.offset }
     }
 
-    private func refreshAudioTrackOptions(for item: VideoItem, playerItem: AVPlayerItem?) {
+    func refreshAudioTrackOptions(for item: VideoItem, playerItem: AVPlayerItem?) {
         let existingSelection = selectedAudioTrackOrderIndex
         Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let metadata: VideoMetadata?
-            if let cached = item.metadata {
-                metadata = cached
+            if useVLC {
+                guard let vlc = vlcPlayer else { return }
+                let names = vlc.audioTrackNames
+                let indexes = vlc.audioTrackIndexes
+                buildVLCAudioTrackOptions(names: names, indexes: indexes)
             } else {
-                metadata = try? await VideoMetadataService.shared.metadata(for: item.url)
-            }
+                let metadata: VideoMetadata?
+                if let cached = item.metadata {
+                    metadata = cached
+                } else {
+                    metadata = try? await VideoMetadataService.shared.metadata(for: item.url)
+                }
 
-            let orderedIndices = metadata.map { self.orderAudioStreams(from: $0) } ?? []
-            let mediaGroup: AVMediaSelectionGroup?
-            if let playerItem {
-                mediaGroup = try? await playerItem.asset.loadMediaSelectionGroup(for: .audible)
-            } else {
-                mediaGroup = nil
-            }
+                let orderedIndices = metadata.map { self.orderAudioStreams(from: $0) } ?? []
+                let mediaGroup: AVMediaSelectionGroup?
+                if let playerItem {
+                    mediaGroup = try? await playerItem.asset.loadMediaSelectionGroup(for: .audible)
+                } else {
+                    mediaGroup = nil
+                }
 
-            if !orderedIndices.isEmpty {
-                self.previewAudioStreamIndices = orderedIndices
-            }
+                if !orderedIndices.isEmpty {
+                    self.previewAudioStreamIndices = orderedIndices
+                }
 
-            self.buildAudioTrackOptions(metadata: metadata, orderedIndices: orderedIndices, mediaGroup: mediaGroup)
+                self.buildAudioTrackOptions(metadata: metadata, orderedIndices: orderedIndices, mediaGroup: mediaGroup)
+            }
 
             if self.audioTrackOptions.isEmpty {
                 self.selectedAudioTrackOrderIndex = 0
@@ -275,6 +574,52 @@ final class PreviewPlayerController: ObservableObject {
 
         audioTrackOptions = options
     }
+    
+    private func buildVLCAudioTrackOptions(names: [String], indexes: [Int32]) {
+        var options: [AudioTrackOption] = []
+        
+        // VLC returns tracks including "Disable" (id -1).
+        // We want to skip "Disable" for our list, or handle it differently.
+        // Usually "Disable" is index 0.
+        
+        for (index, trackID) in indexes.enumerated() {
+            if trackID == -1 { continue } // Skip "Disable" track
+            
+            let name = index < names.count ? names[index] : "Track \(trackID)"
+            
+            // Try to match with metadata if possible, but VLC names are usually descriptive enough
+            // or just "Track 1", "Track 2"
+            
+            // We use the index in the 'indexes' array as the ID for now, or the trackID itself?
+            // AudioTrackOption expects 'id' to be Int.
+            // We'll use the trackID as the ID.
+            
+            // Position in our UI list (0-based)
+            let position = options.count
+            
+            options.append(
+                AudioTrackOption(
+                    id: Int(trackID),
+                    position: position,
+                    streamIndex: Int(trackID) - 1, // VLC track IDs are 1-based, waveforms are 0-based
+                    mediaOptionIndex: nil,
+                    title: name,
+                    subtitle: nil // Could try to fetch more info if available
+                )
+            )
+        }
+        
+        audioTrackOptions = options
+        
+        // Update selection if needed
+        if !audioTrackOptions.isEmpty {
+             // If we have a stored selection, try to maintain it?
+             // For now, default to 0 if out of bounds
+             if selectedAudioTrackOrderIndex >= audioTrackOptions.count {
+                 selectedAudioTrackOrderIndex = 0
+             }
+        }
+    }
 
     private func formattedAudioTrackTitle(for stream: VideoMetadata.AudioStream, position: Int) -> String {
         var components: [String] = []
@@ -306,59 +651,168 @@ final class PreviewPlayerController: ObservableObject {
 
     func selectAudioTrack(at position: Int) {
         guard position != selectedAudioTrackOrderIndex else { return }
+        
+        // Pause playback to prevent audio overlap/buffering issues
+        let wasPlaying = (player?.rate ?? 0) > 0 || (vlcPlayer?.isPlaying ?? false)
+        if wasPlaying {
+            pause()
+        }
+        
         selectedAudioTrackOrderIndex = position
         applySelectedAudioTrack()
         updateCurrentWaveform()
+        
+        // Resume if it was playing, with a tiny delay to ensure track switch takes effect
+        if wasPlaying {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.togglePlayback()
+            }
+        }
     }
 
-    private func applySelectedAudioTrack() {
-        if usePreviewFallback {
-            refreshFallbackAudioSelection()
+    func applySelectedAudioTrack() {
+        if useVLC {
+            applySelectedAudioTrackToVLC()
         } else {
             applySelectedAudioTrackToCurrentPlayerItem()
         }
         updateCurrentWaveform()
     }
+    
+    private func applySelectedAudioTrackToVLC() {
+        guard let vlc = vlcPlayer else {
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("applySelectedAudioTrackToVLC: vlcPlayer is nil")
+            return
+        }
+        
+        let indexes = vlc.audioTrackIndexes
+        let names = vlc.audioTrackNames
+        
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+            .debug("applySelectedAudioTrackToVLC: indexes=\(indexes), names=\(names), selectedOrderIndex=\(self.selectedAudioTrackOrderIndex)")
+        
+        // VLC usually has [-1, 1, 2, ...] where -1 is "Disable"
+        // Our selectedAudioTrackOrderIndex is 0-based for actual tracks
+        // So we want indexes[selectedAudioTrackOrderIndex + 1]
+        
+        // Check if we have enough indexes (need at least 1 for Disable + 1 for first track)
+        // If selectedAudioTrackOrderIndex is 0, we need index 1.
+        let vlcIndex = selectedAudioTrackOrderIndex + 1
+        
+        if vlcIndex < indexes.count {
+            let trackID = indexes[vlcIndex]
+            vlc.currentAudioTrackIndex = trackID
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .debug("Selected VLC audio track ID: \(trackID) (name: \(vlcIndex < names.count ? names[vlcIndex] : "?"))")
+        } else {
+             Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .warning("Could not map audio track index \(self.selectedAudioTrackOrderIndex) to VLC indexes: \(indexes)")
+        }
+    }
 
-    private func applySelectedAudioTrackToCurrentPlayerItem() {
-        guard !usePreviewFallback,
-              !audioTrackOptions.isEmpty,
-              let playerItem = player?.currentItem else { return }
-
-        let desiredPosition = min(max(selectedAudioTrackOrderIndex, 0), audioTrackOptions.count - 1)
-
-        Task { @MainActor [weak playerItem, weak self] in
-            guard let self, let playerItem else { return }
-            let mediaGroup: AVMediaSelectionGroup?
-            do {
-                mediaGroup = try await playerItem.asset.loadMediaSelectionGroup(for: .audible)
-            } catch {
-                return
+    func applySelectedAudioTrackToCurrentPlayerItem() {
+        if usePreviewFallback {
+            // Fallback preview (chunk based) - rebuild composition with new audio track
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .info("applySelectedAudioTrackToCurrentPlayerItem: usePreviewFallback=true, calling rebuildComposition()")
+            Task { @MainActor in
+                await self.rebuildComposition()
             }
-            guard let mediaGroup, !mediaGroup.options.isEmpty else { return }
+        } else {
+            // AVPlayer
+            guard let playerItem = player?.currentItem else { return }
+            
+            Task { @MainActor [weak self, weak playerItem] in
+                guard let self, let playerItem else { return }
+                
+                // 1. Try to load media selection group first (for alternate tracks)
+                var mediaGroup: AVMediaSelectionGroup?
+                do {
+                    mediaGroup = try await playerItem.asset.loadMediaSelectionGroup(for: .audible)
+                } catch {
+                    Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("Failed to load audible group: \(error)")
+                }
+                
+                // 2. Build options (this populates self.audioTrackOptions)
+                self.buildAudioTrackOptions(metadata: self.videoItem.metadata, orderedIndices: [], mediaGroup: mediaGroup)
+                
+                guard !self.audioTrackOptions.isEmpty else { return }
+                
+                let desiredPosition = min(max(self.selectedAudioTrackOrderIndex, 0), self.audioTrackOptions.count - 1)
+                let selectedOption = self.audioTrackOptions[desiredPosition]
+                
+                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                    .debug("Applying audio selection: position=\(desiredPosition), option=\(selectedOption.title)")
 
-            let option = self.audioTrackOptions[min(desiredPosition, self.audioTrackOptions.count - 1)]
-            let optionIndex: Int
-            if let mappedIndex = option.mediaOptionIndex, mediaGroup.options.indices.contains(mappedIndex) {
-                optionIndex = mappedIndex
-            } else {
-                optionIndex = min(desiredPosition, mediaGroup.options.count - 1)
-            }
-
-            guard mediaGroup.options.indices.contains(optionIndex) else { return }
-            let selectedOption = mediaGroup.options[optionIndex]
-
-            if playerItem.currentMediaSelection.selectedMediaOption(in: mediaGroup) != selectedOption {
-                playerItem.select(selectedOption, in: mediaGroup)
+                // 3. Strategy A: If we have a valid media group and option index, try using select()
+                // This works for mutually exclusive tracks (e.g. languages)
+                if let mediaGroup, let mappedIndex = selectedOption.mediaOptionIndex, mediaGroup.options.indices.contains(mappedIndex) {
+                    let avOption = mediaGroup.options[mappedIndex]
+                    if playerItem.currentMediaSelection.selectedMediaOption(in: mediaGroup) != avOption {
+                        playerItem.select(avOption, in: mediaGroup)
+                        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Selected media option via group")
+                        return // Done if successful
+                    }
+                }
+                
+                // 4. Strategy B: Direct track enabling/disabling
+                // This handles cases where tracks are not in a group (e.g. multi-channel recording)
+                // We iterate through all tracks in the player item.
+                
+                let tracks = playerItem.tracks
+                var audioTracks: [AVPlayerItemTrack] = []
+                
+                for track in tracks {
+                    if track.assetTrack?.mediaType == .audio {
+                        audioTracks.append(track)
+                    }
+                }
+                
+                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Found \(audioTracks.count) audio tracks in player item")
+                
+                if !audioTracks.isEmpty {
+                    // We need to map our 'selectedOption' to one of these tracks.
+                    // If we built options from metadata, 'streamIndex' should match the asset track index?
+                    // Or we can just assume the order matches if we built options sequentially.
+                    
+                    // Let's try to match by index first
+                    // The 'streamIndex' in AudioTrackOption comes from metadata or order.
+                    
+                    // If we have metadata, we can try to match the assetTrack.trackID?
+                    // But AVPlayerItemTrack wraps an AVAssetTrack.
+                    
+                    // Simplest robust approach: Enable ONE, disable OTHERS.
+                    // Which one? The one at 'desiredPosition' if we assume 1:1 mapping between our options and playerItem.tracks.
+                    // NOTE: This assumes our `buildAudioTrackOptions` created one option per track in the same order.
+                    
+                    // If we have fewer options than tracks (e.g. some filtered out), this might be tricky.
+                    // But usually we show all.
+                    
+                    Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("applySelectedAudioTrackToCurrentPlayerItem: usePreviewFallback=\(self.usePreviewFallback)")
+                
+                    if usePreviewFallback {
+                        // For fallback preview, we rebuild the composition with the selected audio track
+                        // This avoids issues with AVMutableAudioMix on compositions
+                        Task { @MainActor in
+                            await self.rebuildComposition()
+                        }
+                        return
+                    }
+                    
+                    for (index, track) in audioTracks.enumerated() {
+                        let shouldEnable = (index == desiredPosition)
+                        if track.isEnabled != shouldEnable {
+                            track.isEnabled = shouldEnable
+                            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                                .debug("Set track \(index) enabled: \(shouldEnable)")
+                        }
+                    }
+                }
             }
         }
     }
 
-    private func refreshFallbackAudioSelection() {
-        let currentTime = getCurrentTime() ?? videoItem.effectiveTrimStart
-        teardown(resetAudioSelection: false)
-        preparePreview(startTime: currentTime, resetAudioSelection: false)
-    }
+
 
     private func selectedAudioStreamIndex() -> Int? {
         let position = selectedAudioTrackOrderIndex
@@ -369,6 +823,7 @@ final class PreviewPlayerController: ObservableObject {
     private func updateCurrentWaveform() {
         let streamIndex = selectedAudioStreamIndex()
         currentWaveformURL = previewAssets?.waveform(forAudioStream: streamIndex)
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform URL: \(self.currentWaveformURL?.lastPathComponent ?? "nil", privacy: .public) for stream index: \(streamIndex ?? -1)")
     }
     
     func teardown(resetAudioSelection: Bool = true) {
@@ -398,6 +853,12 @@ final class PreviewPlayerController: ObservableObject {
             mp4Session = nil
             Task { await session.cancel(); await session.cleanup() }
         }
+        
+        if let vlc = vlcPlayer {
+            vlc.stop()
+            vlcPlayer = nil
+        }
+        useVLC = false
 
         isPreparing = false
         isGeneratingFallbackPreview = false
@@ -414,10 +875,12 @@ final class PreviewPlayerController: ObservableObject {
         removeTimeObserver()
         removePlaybackTimeObserver()
         removePlayerItemStatusObserver()
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("teardown called. Resetting usePreviewFallback (was \(self.usePreviewFallback))")
         usePreviewFallback = false
         composition = nil
         compositionVideoTrack = nil
-        compositionAudioTrack = nil
+        compositionAudioTracks = []
+        fullAudioTrackURLs = []
         pendingChunkTime = nil
         appliedChunks.removeAll()
         previewAudioStreamIndices = []
@@ -426,11 +889,19 @@ final class PreviewPlayerController: ObservableObject {
         }
         audioTrackOptions = []
         currentWaveformURL = nil
+        
+        // Stop audio monitoring
+        isAudioMeterEnabled = false
     }
     
     // MARK: - Playback Control
     
     func refreshPreviewForTrim() {
+        if useVLC, let vlc = vlcPlayer {
+            vlc.seek(to: videoItem.effectiveTrimStart)
+            return
+        }
+        
         guard let player else {
             preparePreview(startTime: videoItem.effectiveTrimStart)
             return
@@ -453,6 +924,11 @@ final class PreviewPlayerController: ObservableObject {
     func seekTo(_ time: Double) {
         // Update playback time immediately for UI responsiveness
         currentPlaybackTime = time
+        
+        if useVLC, let vlc = vlcPlayer {
+            vlc.seek(to: time)
+            return
+        }
         
         guard let player else { return }
         
@@ -507,21 +983,12 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func getCurrentTime() -> TimeInterval? {
-        guard let player else { return nil }
-        let currentTime = player.currentTime()
-        guard currentTime.seconds.isFinite else { return nil }
-        
-        // For composition-based playback, time is already absolute
-        if usePreviewFallback, composition != nil {
-            return currentTime.seconds
-        }
-        
-        // For legacy chunked playback, calculate absolute time
-        if usePreviewFallback, let previewRange = fallbackPreviewRange {
-            return previewRange.lowerBound + currentTime.seconds
-        }
-        
-        return currentTime.seconds
+        // Return the UI's current playhead position
+        // This is the authoritative source - it updates when:
+        // - Player is playing (continuously synced from player)
+        // - User drags the playhead (set by UI)
+        // - User seeks with keyboard (updated before seeking)
+        return currentPlaybackTime
     }
     
     func isChunkAvailable(for time: Double) -> Bool {
@@ -656,22 +1123,76 @@ final class PreviewPlayerController: ObservableObject {
         previewAssetTask = Task { [weak self] in
             guard let self else { return }
             do {
-                if let cached = await PreviewAssetGenerator.shared.cachedAssetsIfPresent(for: url),
-                   !cached.thumbnails.isEmpty || cached.waveform != nil || !cached.audioWaveforms.isEmpty {
+                // 1. Try to load cached assets first for immediate display
+                if let cached = await PreviewAssetGenerator.shared.cachedAssetsIfPresent(for: url) {
                     self.previewAssets = cached
-                    self.isLoadingPreviewAssets = false
-                    return
+                    
+                    // 2. If we have a waveform, we're good! Return early.
+                    if cached.waveform != nil {
+                        self.isLoadingPreviewAssets = false
+                        return
+                    }
+                    // If waveform is missing, continue to generateAssets to get the rest
                 }
+                
+                // 3. Generate full assets (waits for existing task if running)
                 let assets = try await PreviewAssetGenerator.shared.generateAssets(for: url)
                 try Task.checkCancellation()
                 self.previewAssets = assets
             } catch {
-                self.previewAssets = nil
+                // Only clear assets if we don't have any (don't wipe partial cache on error)
+                if self.previewAssets == nil {
+                    self.previewAssets = nil
+                }
                 if (error as? CancellationError) == nil {
                     Logger(subsystem: "com.aagedal.MediaConverter", category: "PreviewAssets").error("Failed to load preview assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
             self.isLoadingPreviewAssets = false
+        }
+    }
+    
+    // MARK: - Audio Metering
+    
+    private let universalAudioMeter = UniversalAudioMeterService()
+    private var cancellables = Set<AnyCancellable>()
+    
+    @Published var audioLevels: UniversalAudioMeterService.AudioLevels?
+    @Published var isAudioMeterEnabled = false {
+        didSet {
+            toggleAudioMeter()
+        }
+    }
+    
+    private func setupAudioMonitoring() {
+        // Subscribe to universal meter updates
+        universalAudioMeter.$currentLevels
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] levels in
+                self?.audioLevels = levels
+            }
+            .store(in: &cancellables)
+            
+        // Handle permission errors if needed
+        universalAudioMeter.$permissionError
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hasError in
+                if hasError {
+                    print("PreviewPlayerController: Audio meter permission denied")
+                    // Could show alert here or disable meter
+                    self?.isAudioMeterEnabled = false
+                }
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func toggleAudioMeter() {
+        Task {
+            if isAudioMeterEnabled {
+                await universalAudioMeter.startMonitoring()
+            } else {
+                await universalAudioMeter.stopMonitoring()
+            }
         }
     }
 }

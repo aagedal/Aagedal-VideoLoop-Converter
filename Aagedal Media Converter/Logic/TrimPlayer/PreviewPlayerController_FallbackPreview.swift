@@ -52,11 +52,15 @@ extension PreviewPlayerController {
             return
         }
 
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("fallbackToPreview called. Setting usePreviewFallback = true")
         usePreviewFallback = true
         isPreparing = true
         errorMessage = nil
 
         let currentItem = videoItem
+        
+        // Reload preview assets (teardown() clears them when switching from AVPlayer)
+        loadPreviewAssets(for: currentItem.url)
         
         // Use the same fingerprint-based cache directory as preview assets
         Task { @MainActor in
@@ -90,33 +94,62 @@ extension PreviewPlayerController {
             }
             
             self.isGeneratingFallbackPreview = true
+            
+            // Ensure fallback flag is true (in case it was reset by unexpected teardown)
+            self.usePreviewFallback = true
 
             do {
                 guard let session = self.mp4Session else {
                     throw MP4PreviewSession.PreviewError.outputMissing
                 }
 
-                // Generate initial chunk (with embedded audio)
+                // Extract full audio tracks ONCE (instead of per-chunk)
+                let audioURLs = try await session.extractFullAudioTracks()
+                self.fullAudioTrackURLs = audioURLs
+                
+                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                    .info("Extracted \(audioURLs.count) full audio tracks. URLs: \(audioURLs.map { $0.lastPathComponent })")
+
+                // Generate initial chunk (video only, skip audio)
                 let chunkIndex = 0
                 let chunkStart = Double(chunkIndex) * self.chunkDuration
                 let chunkResult = try await session.generatePreviewChunk(
                     chunkIndex: chunkIndex,
                     startTime: chunkStart,
                     durationLimit: self.chunkDuration,
-                    maxShortEdge: self.previewMaxShortEdge
+                    maxShortEdge: self.previewMaxShortEdge,
+                    skipAudio: true
                 )
                 try Task.checkCancellation()
 
                 self.chunkDurations[chunkIndex] = chunkResult.duration
 
-                // Create AVMutableComposition using muxed chunk
-                try await self.createComposition(from: chunkResult.url, duration: chunkResult.duration)
+                // Initialize composition with full audio track (empty video track)
+                try await self.initializeComposition()
                 
                 // Track the loaded chunk
                 self.loadedChunks = [chunkIndex]
                 self.currentChunkIndex = chunkIndex
-                self.appliedChunks = [chunkIndex]
+                self.appliedChunks = [] // Will be added by applyChunkToComposition
                 self.updateFallbackCoverageRange()
+                
+                // Refresh audio track options now that we have a player item (composition)
+                self.refreshAudioTrackOptions(for: currentItem, playerItem: self.player?.currentItem)
+                
+                // Explicitly apply the selected audio track to the new composition
+                // This ensures the AVMutableAudioMix is constructed and applied immediately
+                self.applySelectedAudioTrackToCurrentPlayerItem()
+
+                // Apply the first chunk
+                try await self.applyChunkToComposition(
+                    chunkIndex: chunkIndex,
+                    newDuration: chunkResult.duration,
+                    previousDuration: nil,
+                    session: session
+                )
+
+                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                    .info("MP4 composition playback ready (chunk \(chunkIndex, privacy: .public), 5s) for item \(currentItem.id, privacy: .public)")
 
                 Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
                     .info("MP4 composition playback ready (chunk \(chunkIndex, privacy: .public), 5s) for item \(currentItem.id, privacy: .public)")
@@ -145,49 +178,46 @@ extension PreviewPlayerController {
     
     // MARK: - Composition Management
     
-    /// Creates composition with audio and video tracks
-    private func createComposition(from chunkURL: URL, duration: TimeInterval) async throws {
+    /// Initializes composition with audio track (full length) and empty video track
+    private func initializeComposition() async throws {
         let composition = AVMutableComposition()
 
-        // Add video track
+        // Add video track (empty initially)
         guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
             throw MP4PreviewSession.PreviewError.failedToStart("Could not create video track")
         }
-        guard let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
-            throw MP4PreviewSession.PreviewError.failedToStart("Could not create audio track")
+        
+        // Clear existing tracks reference
+        self.compositionAudioTracks = []
+        
+        // Add the SELECTED full audio track
+        let selectedIndex = self.selectedAudioTrackOrderIndex
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+            .info("Initializing composition with audio track index: \(selectedIndex) (Total tracks: \(self.fullAudioTrackURLs.count))")
+            
+        if selectedIndex >= 0 && selectedIndex < fullAudioTrackURLs.count {
+            let audioURL = fullAudioTrackURLs[selectedIndex]
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .info("Using audio file: \(audioURL.lastPathComponent)")
+                
+            let audioAsset = AVURLAsset(url: audioURL)
+            let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
+            
+            if let sourceTrack = audioTracks.first,
+               let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                // Insert the FULL audio track
+                let audioDuration = try await audioAsset.load(.duration)
+                try audioTrack.insertTimeRange(
+                    CMTimeRange(start: .zero, duration: audioDuration),
+                    of: sourceTrack,
+                    at: .zero
+                )
+                self.compositionAudioTracks.append(audioTrack)
+            }
         }
-
-        let asset = AVURLAsset(url: chunkURL)
-        let videoSourceTracks = try await asset.loadTracks(withMediaType: .video)
-        guard let videoSourceTrack = videoSourceTracks.first else {
-            throw MP4PreviewSession.PreviewError.failedToStart("No video track in chunk")
-        }
-
-        let audioSourceTracks = try await asset.loadTracks(withMediaType: .audio)
-        let orderedAudioTracks = orderAudioTracks(audioSourceTracks)
-        let primaryAudioTrack = orderedAudioTracks.first
-
-        guard let primaryAudioTrack else {
-            throw MP4PreviewSession.PreviewError.failedToStart("No audio tracks in chunk")
-        }
-
-        let videoChunkDuration = CMTime(seconds: duration, preferredTimescale: 600)
-        try videoTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: videoChunkDuration),
-            of: videoSourceTrack,
-            at: .zero
-        )
-
-        let audioDuration = try await asset.load(.duration)
-        try audioTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: audioDuration),
-            of: primaryAudioTrack,
-            at: .zero
-        )
         
         // Store references
         self.composition = composition
-        self.compositionAudioTrack = audioTrack
         self.compositionVideoTrack = videoTrack
         
         // Create player with composition
@@ -198,7 +228,7 @@ extension PreviewPlayerController {
         installLoopObserver(for: playerItem)
         installTimeObserver(for: player)
         installPlaybackTimeObserver(for: player)
-        applyLoopSetting()
+        updatePlayerActionAtEnd()
     }
     
     @MainActor
@@ -209,8 +239,7 @@ extension PreviewPlayerController {
         session: MP4PreviewSession
     ) async throws {
         guard let composition = self.composition,
-              let videoTrack = self.compositionVideoTrack,
-              let audioTrack = self.compositionAudioTrack else { return }
+              let videoTrack = self.compositionVideoTrack else { return }
 
         let insertTime = CMTime(seconds: Double(chunkIndex) * self.chunkDuration, preferredTimescale: 600)
         let newDurationTime = CMTime(seconds: newDuration, preferredTimescale: 600)
@@ -222,42 +251,32 @@ extension PreviewPlayerController {
         let chunkAsset = AVURLAsset(url: chunkURL)
         let chunkVideoTracks = try await chunkAsset.loadTracks(withMediaType: .video)
         guard let chunkVideoTrack = chunkVideoTracks.first else { return }
-        let chunkAudioTracks = try await chunkAsset.loadTracks(withMediaType: .audio)
-        let orderedAudioTracks = orderAudioTracks(chunkAudioTracks)
-        let primaryAudioTrack = orderedAudioTracks.first
-        guard let primaryAudioTrack else { return }
 
+        // Handle Video Track ONLY (audio is from full track)
         if let previousDuration {
             let previousDurationTime = CMTime(seconds: previousDuration, preferredTimescale: 600)
             let removeRange = CMTimeRange(start: insertTime, duration: previousDurationTime)
             videoTrack.removeTimeRange(removeRange)
-            audioTrack.removeTimeRange(removeRange)
         } else if appliedChunks.contains(chunkIndex) {
             let previousDurationTime = CMTime(seconds: chunkDurations[chunkIndex] ?? self.chunkDuration, preferredTimescale: 600)
             let removeRange = CMTimeRange(start: insertTime, duration: previousDurationTime)
             videoTrack.removeTimeRange(removeRange)
-            audioTrack.removeTimeRange(removeRange)
         } else if insertTime < composition.duration {
             let placeholderRange = CMTimeRange(start: insertTime, duration: newDurationTime)
             videoTrack.removeTimeRange(placeholderRange)
-            audioTrack.removeTimeRange(placeholderRange)
         }
 
         if insertTime > composition.duration {
             let gap = insertTime - composition.duration
             videoTrack.insertEmptyTimeRange(CMTimeRange(start: composition.duration, duration: gap))
-            audioTrack.insertEmptyTimeRange(CMTimeRange(start: composition.duration, duration: gap))
         }
         try videoTrack.insertTimeRange(
             CMTimeRange(start: .zero, duration: newDurationTime),
             of: chunkVideoTrack,
             at: insertTime
         )
-        try audioTrack.insertTimeRange(
-            CMTimeRange(start: .zero, duration: newDurationTime),
-            of: primaryAudioTrack,
-            at: insertTime
-        )
+        
+        // Audio is handled by the full audio track, no need to insert chunks
 
         appliedChunks.insert(chunkIndex)
         chunkDurations[chunkIndex] = newDuration
@@ -324,7 +343,8 @@ extension PreviewPlayerController {
                         chunkIndex: chunk,
                         startTime: chunkStart,
                         durationLimit: self.chunkDuration,
-                        maxShortEdge: self.previewMaxShortEdge
+                        maxShortEdge: self.previewMaxShortEdge,
+                        skipAudio: true
                     )
 
                     let previousDuration = self.chunkDurations[chunk]
@@ -400,7 +420,8 @@ extension PreviewPlayerController {
                     chunkIndex: chunkIndex,
                     startTime: chunkStart,
                     durationLimit: self.chunkDuration,
-                    maxShortEdge: self.previewMaxShortEdge
+                    maxShortEdge: self.previewMaxShortEdge,
+                    skipAudio: true
                 )
                 
                 try Task.checkCancellation()
@@ -437,6 +458,60 @@ extension PreviewPlayerController {
                     .error("Failed to load chunk: \(error.localizedDescription, privacy: .public)")
                 self.pendingChunkTime = nil
             }
+        }
+    }
+    
+    /// Rebuilds the composition with the currently selected audio track
+    func rebuildComposition() async {
+        guard let session = self.mp4Session, !loadedChunks.isEmpty else { return }
+        
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+            .info("Rebuilding composition for audio track switch (Index: \(self.selectedAudioTrackOrderIndex))")
+        
+        // 1. Pause playback
+        let wasPlaying = (self.player?.rate ?? 0) > 0
+        self.player?.pause()
+        let currentTime = self.player?.currentTime() ?? .zero
+        
+        // 2. Reset composition state
+        self.composition = nil
+        self.compositionVideoTrack = nil
+        self.compositionAudioTracks = []
+        self.appliedChunks.removeAll()
+        
+        let sortedChunks = self.loadedChunks.sorted()
+        
+        // 3. Initialize composition (full audio, empty video)
+        do {
+            try await self.initializeComposition()
+        } catch {
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .error("Failed to initialize composition during rebuild: \(error.localizedDescription)")
+            return
+        }
+        
+        // 4. Apply all loaded chunks
+        for chunkIndex in sortedChunks {
+            let chunkDuration = self.chunkDurations[chunkIndex] ?? self.chunkDuration
+            do {
+                // We pass nil for previousDuration because we are building fresh
+                try await self.applyChunkToComposition(
+                    chunkIndex: chunkIndex,
+                    newDuration: chunkDuration,
+                    previousDuration: nil,
+                    session: session
+                )
+            } catch {
+                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                    .error("Failed to apply chunk \(chunkIndex) during rebuild: \(error.localizedDescription)")
+                // Continue to next chunk even if this one fails
+            }
+        }
+        
+        // 5. Restore playback state
+        await self.player?.seek(to: currentTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        if wasPlaying {
+            self.player?.play()
         }
     }
 }

@@ -7,9 +7,10 @@
 import SwiftUI
 
 struct PreviewTrimControls: View {
-    let item: VideoItem
+    @Binding var item: VideoItem
     @ObservedObject var controller: PreviewPlayerController
     @Binding var currentPlaybackTime: Double
+    @Binding var isCropControlsExpanded: Bool
     let onSeek: (Double) -> Void
     let onReset: () -> Void
     let onCaptureScreenshot: () -> Void
@@ -20,8 +21,10 @@ struct PreviewTrimControls: View {
 
     var body: some View {
         let duration = max(item.durationSeconds, 0)
+        let isCompactMode = isCropControlsExpanded
         return VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 6) {
+                // Minimize trim timeline when crop controls are expanded
                 TrimTimelineView(
                     trimStart: trimStartBinding,
                     trimEnd: trimEndBinding,
@@ -33,6 +36,8 @@ struct PreviewTrimControls: View {
                     fallbackPreviewRange: controller.fallbackPreviewRange,
                     loadedChunks: controller.loadedChunks,
                     step: 0.1,
+                    hideFilmstrip: false,
+                    compactMode: isCompactMode,
                     onEditingChanged: onTrimEditingChanged,
                     onSeek: onSeek
                 )
@@ -40,7 +45,14 @@ struct PreviewTrimControls: View {
                     currentPlaybackTime = time
                 }
 
-                controlButtons
+                if !isCompactMode {
+                    controlButtons
+                }
+            }
+
+            // Crop controls
+            if item.hasVideoStream {
+                CropControlsView(item: $item, controller: controller, isExpanded: $isCropControlsExpanded)
             }
         }
     }
@@ -99,9 +111,40 @@ struct PreviewTrimControls: View {
                     }
                     .disabled(controller.lastScreenshotURL == nil ? true : false)
             }
-            .padding(.trailing, 30)
+            .padding(.trailing, 16)
+
+            // Crop toggle button
+            if item.hasVideoStream {
+                HStack(spacing: 10) {
+                    Button(action: {
+                        isCropControlsExpanded.toggle()
+                        // Auto-enable crop overlay when expanding controls
+                        controller.isCropEnabled = isCropControlsExpanded
+                    }) {
+                        Label("Crop", systemImage: "crop")
+                            .labelStyle(.iconOnly)
+                            .foregroundColor(isCropControlsExpanded ? .accentColor : .primary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Toggle crop controls (C)")
+
+                    if let config = item.cropConfig, config.isActive {
+                        Text("\(Int(config.normalizedRect.width * 100))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.trailing, 30)
+            }
 
             audioTrackSelector
+            
+            Toggle(isOn: $controller.isAudioMeterEnabled) {
+                Label("Audio Meter", systemImage: "waveform")
+                    .labelStyle(.iconOnly)
+            }
+            .toggleStyle(.button)
+            .help("Show/hide audio level meter")
 
             Toggle(isOn: loopBinding) {
                 Label("Loop", systemImage: "repeat")

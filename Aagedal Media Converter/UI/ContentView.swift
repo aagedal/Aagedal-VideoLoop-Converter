@@ -99,6 +99,12 @@ struct ContentView: View {
                         droppedFiles[index].progress = 0.0
                         droppedFiles[index].eta = nil
                         droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
+                        // Reset configurations
+                        droppedFiles[index].audioRoutingConfig = nil
+                        droppedFiles[index].cropConfig = nil
+                        droppedFiles[index].timecodeConfig = nil
+                        droppedFiles[index].trimStart = nil
+                        droppedFiles[index].trimEnd = nil
                     }
                 },
                 preset: selectedPreset,

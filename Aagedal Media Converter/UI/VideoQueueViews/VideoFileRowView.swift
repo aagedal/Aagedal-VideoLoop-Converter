@@ -46,6 +46,8 @@ struct VideoFileRowView: View {
     @State private var isThumbnailHovered = false
     @State private var showPreview = false
     @State private var showMetadata = false
+    @State private var showAudioRouting = false
+    @State private var showTimecode = false
     @State private var cachedThumbnail: NSImage?
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
@@ -62,105 +64,7 @@ struct VideoFileRowView: View {
             
             VStack(spacing: 0) {
                 HStack {
-                    // Thumbnail
-                    ZStack {
-                        CheckerboardBackground()
-                            .frame(width: 200, height: 150)
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                            .frame(width: 200, height: 150)
-
-                        if let cachedImage = cachedThumbnail {
-                            Image(nsImage: cachedImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 200, height: 150)
-                                .cornerRadius(4)
-                        } else {
-                            VStack {
-                                Image(systemName: "film")
-                                    .font(.largeTitle)
-                                Text("Generating thumbnail...")
-                                    .font(.caption2)
-                                    .foregroundColor(.gray)
-                            }
-                        }
-                    }
-                    .overlay(alignment: .topLeading) {
-                        // Trim indicator badge
-                        if file.trimStart != nil || file.trimEnd != nil {
-                            HStack(spacing: 4) {
-                                Image(systemName: "scissors")
-                                    .font(.caption2)
-                                Text(formattedTime(file.trimmedDuration))
-                                    .font(.caption2)
-                                    .fontWeight(.medium)
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color.accentColor)
-                            )
-                            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-                            .padding(8)
-                        }
-                    }
-                    .overlay {
-                        if isThumbnailHovered {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .fill(Color.black.opacity(0.35))
-                                    .frame(width: 200, height: 150)
-                                    .allowsHitTesting(false)
-                                
-                                VStack {
-                                    Spacer()
-                                    HStack(spacing: 12) {
-                                        Button {
-                                            showPreview = true
-                                        } label: {
-                                            Label("Preview", systemImage: "timeline.selection")
-                                                .labelStyle(.iconOnly)
-                                                .font(.system(size: 28, weight: .medium))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .foregroundColor(.white)
-                                        .help("Open preview and trim editor")
-                                        
-                                        Spacer()
-
-                                        //if file.metadata != nil {
-                                            Button {
-                                                showMetadata = true
-                                            } label: {
-                                                Label("Metadata", systemImage: "info.circle")
-                                                    .labelStyle(.iconOnly)
-                                                    .font(.system(size: 24, weight: .medium))
-                                                    .disabled(file.metadata == nil)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .foregroundColor(.white)
-                                            .help("View technical metadata")
-                                        //}
-                                    }.padding(10)
-                                }
-
-                            }
-                            .transition(.opacity)
-                        }
-                    }
-                    .onHover { hovering in
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            isThumbnailHovered = hovering
-                        }
-                    }
-                    .onTapGesture {
-                        showPreview = true
-                    }
-                    .help("Click to preview and trim video")
+                    thumbnailView
                     
                     VStack(alignment: .leading, spacing: 4) {
                         // Input and output file names
@@ -308,6 +212,12 @@ struct VideoFileRowView: View {
         .sheet(isPresented: $showMetadata) {
             VideoMetadataView(item: $file)
         }
+        .sheet(isPresented: $showAudioRouting) {
+            AudioRoutingView(item: $file, preset: preset)
+        }
+        .sheet(isPresented: $showTimecode) {
+            TimecodeView(item: $file)
+        }
         .task(id: file.thumbnailData) {
             // Decode thumbnail asynchronously off main thread
             guard let data = file.thumbnailData else {
@@ -338,6 +248,181 @@ struct VideoFileRowView: View {
                 file.comment = newValue
             }
         }
+    }
+
+    private var thumbnailView: some View {
+        thumbnailImageView
+            .overlay(alignment: .topLeading, content: { audioRoutingBadge })
+            .overlay(alignment: .topTrailing, content: { timecodeBadge })
+            .overlay(alignment: .bottomLeading, content: { trimBadge })
+            .overlay(alignment: .bottomTrailing, content: { cropBadge })
+            .overlay { if isThumbnailHovered { thumbnailHoverOverlay } }
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isThumbnailHovered = hovering
+                }
+            }
+            .onTapGesture { showPreview = true }
+            .help("Click to preview and trim video")
+    }
+
+    @ViewBuilder
+    private var thumbnailImageView: some View {
+        ZStack {
+            CheckerboardBackground()
+                .frame(width: 200, height: 150)
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color.black.opacity(0.2), lineWidth: 1)
+                .frame(width: 200, height: 150)
+
+            if let cachedImage = cachedThumbnail {
+                Image(nsImage: cachedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 200, height: 150)
+                    .cornerRadius(4)
+            } else {
+                VStack {
+                    Image(systemName: "film")
+                        .font(.largeTitle)
+                    Text("Generating thumbnail...")
+                        .font(.caption2)
+                        .foregroundColor(.gray)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var audioRoutingBadge: some View {
+        if let config = file.audioRoutingConfig, config.isCustomized {
+            badgeView(icon: "hifispeaker.2", text: "\(config.outputTrackIndices.count)")
+        }
+    }
+
+    @ViewBuilder
+    private var trimBadge: some View {
+        if file.trimStart != nil || file.trimEnd != nil {
+            badgeView(icon: "scissors", text: formattedTime(file.trimmedDuration))
+        }
+    }
+
+    @ViewBuilder
+    private var timecodeBadge: some View {
+        if let timecodeConfig = file.timecodeConfig, timecodeConfig.isActive {
+            switch timecodeConfig.mode {
+            case .manual:
+                badgeView(icon: "timer", text: "Manual")
+            case .preserveSource:
+                badgeView(icon: "timer", text: "Source")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var cropBadge: some View {
+        if let cropConfig = file.cropConfig, cropConfig.isActive {
+            badgeView(icon: "crop", text: "\(Int(cropConfig.normalizedRect.width * 100))%")
+        }
+    }
+
+    private func badgeView(icon: String, text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.caption2)
+            Text(text)
+                .font(.caption2)
+                .fontWeight(.medium)
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.accentColor)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+        .padding(8)
+    }
+
+    private var thumbnailHoverOverlay: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.black.opacity(0.35))
+                .frame(width: 200, height: 150)
+                .allowsHitTesting(false)
+
+            VStack {
+                // Top row: Audio Routing (left) and Timecode (right)
+                HStack {
+                    // Audio Routing button (top-left corner)
+                    if let audioStreams = file.metadata?.audioStreams, !audioStreams.isEmpty {
+                        Button {
+                            showAudioRouting = true
+                        } label: {
+                            Label("Audio Routing", systemImage: "hifispeaker.2.badge.minus")
+                                .labelStyle(.iconOnly)
+                                .font(.system(size: 24, weight: .medium))
+                                .symbolRenderingMode(file.audioRoutingConfig?.isCustomized == true ? .multicolor : .monochrome)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.white)
+                        .help(file.audioRoutingConfig?.isCustomized == true ? "Audio routing customized (\(file.audioRoutingConfig?.outputTrackIndices.count ?? 0) tracks)" : "Configure audio track routing")
+                    }
+
+                    Spacer()
+
+                    // Timecode button (top-right corner)
+                    Button {
+                        showTimecode = true
+                    } label: {
+                        Label("Timecode", systemImage: "timer")
+                            .labelStyle(.iconOnly)
+                            .font(.system(size: 24, weight: .medium))
+                            .symbolRenderingMode(file.timecodeConfig?.isActive == true ? .multicolor : .monochrome)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.white)
+                    .help(file.timecodeConfig?.isActive == true ? "Timecode configured" : "Configure output timecode")
+                }
+                .padding(10)
+
+                Spacer()
+
+                // Bottom row: Preview (left), Info (right)
+                HStack(spacing: 16) {
+                    // Preview button (bottom-left)
+                    Button {
+                        showPreview = true
+                    } label: {
+                        Label("Preview", systemImage: "timeline.selection")
+                            .labelStyle(.iconOnly)
+                            .font(.system(size: 28, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.white)
+                    .help("Open preview and trim editor")
+
+                    Spacer()
+
+                    // Metadata button (bottom-right)
+                    Button {
+                        showMetadata = true
+                    } label: {
+                        Label("Metadata", systemImage: "info.circle")
+                            .labelStyle(.iconOnly)
+                            .font(.system(size: 24, weight: .medium))
+                            .disabled(file.metadata == nil)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.white)
+                    .help("View technical metadata")
+                }
+                .padding(10)
+            }
+        }
+        .transition(.opacity)
     }
 
     private var commentSection: some View {

@@ -150,7 +150,25 @@ actor ConversionManager: Sendable {
         let waveformPreferences = AudioWaveformPreferences.loadConfig()
         let resolvedWaveformResolution = preset.resolvedWaveformResolution(defaultResolution: waveformPreferences.resolution)
 
-        let waveformRequest: WaveformVideoRequest? = (preset != .streamCopy && orderedWaitingItems.contains(where: { $0.requiresWaveformVideo })) ? {
+        // Check if waveform generation is compatible with audio routing
+        let canGenerateWaveform = {
+            guard preset != .streamCopy else { return false }
+            guard orderedWaitingItems.contains(where: { $0.requiresWaveformVideo }) else { return false }
+            // splitToMono is incompatible with waveform video (needs 2 separate audio outputs)
+            // If any audio-only item uses splitToMono, disable waveform for all
+            if orderedWaitingItems.contains(where: { item in
+                guard item.requiresWaveformVideo else { return false }
+                if case .splitToMono = item.audioRoutingConfig?.channelOperation {
+                    return true
+                }
+                return false
+            }) {
+                return false
+            }
+            return true
+        }()
+
+        let waveformRequest: WaveformVideoRequest? = canGenerateWaveform ? {
             return WaveformVideoRequest(
                 width: Int(resolvedWaveformResolution.width),
                 height: Int(resolvedWaveformResolution.height),
@@ -166,6 +184,16 @@ actor ConversionManager: Sendable {
             guard waveformRequest == nil else { return nil }
             guard preset.outputsVideoTrack else { return nil }
             guard orderedWaitingItems.contains(where: { !$0.hasVideoStream }) else { return nil }
+            // splitToMono is incompatible with video generation (needs 2 separate audio outputs)
+            if orderedWaitingItems.contains(where: { item in
+                guard !item.hasVideoStream else { return false }
+                if case .splitToMono = item.audioRoutingConfig?.channelOperation {
+                    return true
+                }
+                return false
+            }) {
+                return nil
+            }
             return SynthesizedVideoRequest(
                 width: Int(resolvedWaveformResolution.width),
                 height: Int(resolvedWaveformResolution.height),
@@ -393,6 +421,25 @@ actor ConversionManager: Sendable {
             "-ignore_unknown"
         ] : nil
 
+        // For merges, always use the first clip's timecode as the master
+        // If no timecode config is set, create one with preserveSource mode
+        let mergeTimecodeConfig: TimecodeConfig? = {
+            if let existing = primaryInput.timecodeConfig {
+                return existing
+            }
+            // Auto-create a preserveSource config for merges to use first clip as master
+            return TimecodeConfig(mode: .preserveSource)
+        }()
+
+        // For merges, use the first clip's audio routing as the master
+        // This applies the same audio routing to the entire concatenated stream
+        let mergeAudioRoutingConfig = primaryInput.audioRoutingConfig
+
+        // For merges, use the first clip's crop settings as the master
+        // The crop filter will apply to the entire concatenated stream
+        // Note: Crop requires re-encoding and won't work with Stream Copy preset
+        let mergeCropConfig = primaryInput.cropConfig
+
         await ffmpegConverter.convert(
             inputURL: primaryInput.url,
             outputURL: plan.outputBaseURL,
@@ -401,6 +448,9 @@ actor ConversionManager: Sendable {
             includeDateTag: plan.includeDateTag,
             trimStart: nil,
             trimEnd: nil,
+            audioRoutingConfig: mergeAudioRoutingConfig,
+            cropConfig: mergeCropConfig,
+            timecodeConfig: mergeTimecodeConfig,
             waveformRequest: plan.waveformRequest,
             synthesizedVideoRequest: plan.synthesizedVideoRequest,
             customInputArguments: customInputs,
@@ -761,7 +811,17 @@ actor ConversionManager: Sendable {
         let waveformPreferences = AudioWaveformPreferences.loadConfig()
         let resolvedWaveformResolution = preset.resolvedWaveformResolution(defaultResolution: waveformPreferences.resolution)
 
-        let waveformRequest: WaveformVideoRequest? = (preset != .streamCopy && currentItem.requiresWaveformVideo) ? {
+        // Check if waveform generation is compatible with audio routing
+        let canGenerateWaveform = {
+            guard preset != .streamCopy && currentItem.requiresWaveformVideo else { return false }
+            // splitToMono is incompatible with waveform video (needs 2 separate audio outputs)
+            if case .splitToMono = currentItem.audioRoutingConfig?.channelOperation {
+                return false
+            }
+            return true
+        }()
+
+        let waveformRequest: WaveformVideoRequest? = canGenerateWaveform ? {
             return WaveformVideoRequest(
                 width: Int(resolvedWaveformResolution.width),
                 height: Int(resolvedWaveformResolution.height),
@@ -777,6 +837,10 @@ actor ConversionManager: Sendable {
             guard waveformRequest == nil else { return nil }
             guard preset.outputsVideoTrack else { return nil }
             guard !currentItem.hasVideoStream else { return nil }
+            // splitToMono is incompatible with video generation (needs 2 separate audio outputs)
+            if case .splitToMono = currentItem.audioRoutingConfig?.channelOperation {
+                return nil
+            }
             return SynthesizedVideoRequest(
                 width: Int(resolvedWaveformResolution.width),
                 height: Int(resolvedWaveformResolution.height),
@@ -794,6 +858,9 @@ actor ConversionManager: Sendable {
             includeDateTag: currentItem.includeDateTag,
             trimStart: currentItem.trimStart,
             trimEnd: currentItem.trimEnd,
+            audioRoutingConfig: currentItem.audioRoutingConfig,
+            cropConfig: currentItem.cropConfig,
+            timecodeConfig: currentItem.timecodeConfig,
             waveformRequest: waveformRequest,
             synthesizedVideoRequest: synthesizedVideoRequest,
             progressUpdate: { progress, eta in

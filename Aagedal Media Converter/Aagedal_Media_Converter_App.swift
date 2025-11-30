@@ -10,9 +10,12 @@
 import SwiftUI
 import SwiftData
 import AppKit
+import OSLog
 
 @main
 struct Aagedal_Media_Converter_App: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     init() {
         UserDefaults.standard.register(defaults: [
             AppConstants.watchFolderIgnoreOlderThan24hKey: false,
@@ -41,6 +44,7 @@ struct Aagedal_Media_Converter_App: App {
                 ContentView()
             }
         }
+        .handlesExternalEvents(matching: []) // Prevent automatic window creation for opened files
         .windowStyle(.automatic)
         .windowToolbarStyle(.automatic)
         .windowResizability(.contentMinSize)
@@ -83,6 +87,77 @@ private extension Aagedal_Media_Converter_App {
 
         Task {
             await PreviewAssetGenerator.shared.applyCleanupPolicy(policy)
+        }
+    }
+}
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    private var isFirstActivation = true
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // Ignore the first activation (app launch) to avoid conflict with default SwiftUI window creation
+        if isFirstActivation {
+            isFirstActivation = false
+            return
+        }
+
+        let visibleWindows = NSApp.windows.filter { $0.isVisible }
+
+        // If there are no visible windows, open a new one
+        if visibleWindows.isEmpty {
+            var foundItem: NSMenuItem?
+            
+            if let mainMenu = NSApp.mainMenu {
+                for item in mainMenu.items {
+                    if let submenu = item.submenu {
+                        for subitem in submenu.items {
+                            if subitem.keyEquivalent == "n" && subitem.keyEquivalentModifierMask.contains(.command) {
+                                foundItem = subitem
+                                break
+                            }
+                        }
+                    }
+                    if foundItem != nil { break }
+                }
+            }
+            
+            if let item = foundItem, let action = item.action {
+                 DispatchQueue.main.async {
+                    // IMPORTANT: Pass 'item' as sender so SwiftUI knows which command to trigger
+                    NSApp.sendAction(action, to: item.target, from: item)
+                }
+            }
+        }
+    }
+    
+    // MARK: - Handle files dropped on dock icon
+    func application(_ application: NSApplication, open urls: [URL]) {
+        // Filter for supported video files only
+        let videoURLs = urls.filter { VideoFileUtils.isVideoFile(url: $0) }
+        
+        guard !videoURLs.isEmpty else { return }
+        
+        // Check if there are any visible windows
+        let visibleWindows = NSApp.windows.filter { $0.isVisible && $0.canBecomeKey }
+        
+        if visibleWindows.isEmpty {
+            // No windows open - let SwiftUI create a new window and add files there
+            // We need to delay posting notifications until the new window is created
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                for url in videoURLs {
+                    NotificationCenter.default.post(name: .enqueueFileURL, object: url)
+                }
+            }
+        } else {
+            // Windows exist - bring the frontmost one forward and add files there
+            if let frontWindow = visibleWindows.first {
+                frontWindow.makeKeyAndOrderFront(nil)
+            }
+            
+            // Post notifications for the existing window(s)
+            for url in videoURLs {
+                NotificationCenter.default.post(name: .enqueueFileURL, object: url)
+            }
         }
     }
 }
