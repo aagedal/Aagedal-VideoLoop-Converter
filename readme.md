@@ -1,8 +1,10 @@
 # Aagedal Media Converter
 
-A lightweight minimal macOS application for simple batch encoding of video files. Powered by FFMPEG and FFPROBE under the hood and written entirely in Swift / SwiftUI.
+A lightweight minimal-ish macOS application for simple batch encoding of video files. Powered by FFMPEG, FFPROBE and VLCKit under the hood and written entirely in Swift / SwiftUI.
 
 Removes almost all metdata by default. Fully private local only processing.
+
+Completely free and open source. No subscriptions, no paid add-ons.
 
 Note that most of this app is vibe-coded.
 
@@ -29,47 +31,105 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 
 ## Key Features
 
-- Drag-and-Drop or File Picker import
-- Batch conversion with per-file progress and overall dock progress indicator
-- Watch Folder, with optional auto-delete after a set time.
-- Trim and preview files
-- Merge files into one if they are the same codec, frame rate etc.
-- Generate audio waveforms
-- Grab screenshots at source resolution. (Interlaced files are deinterlaced. Non-square pixel sources are exported as square.)
-- **Export Presets**  
-  • Video Loop (silent) — x264 very slow 1080p max resolution, keeping original aspect ratio, removing all audio channels, nice for compact web distribution such as GIF-replacements, slow export
-  
-  • Video Loop w/ Audio — same as above but keeping a stereo AAC track
+### General
+- Launches quickly
+- Can encode almost every file format that exists (FFMPEG 8.0.1 backend)
+- Minimal and easy to understand
+- Advanced features easily accessible
+- Trim, crop
 
-  • TV Quality HD / 4K — HEVC hardware encoding for fast high quality exports, compatible with most editing software, 10-bit 4:2:0, limit resolution to either 1080p or 2160p
+### Batch conversion
+- Automatically encode all the files in the queue
+- Reorder files by drag and drop to reorder encoding queue
+- Delete files from the queue while encoding
 
-  • Stream copy: copy the input codecs into a new file, most useful when combined with merge or trim
+### Watch folder
+- Automatically import files from a specified folder
+- Works along the manual drag and drop window, collecting all encodes into one window
+- Optional auto-delete and ignore files in the watch folder
+- Activate by pressing the eye-icon in the main window toolbar
 
-  • ProRes — High quality file maintaining original resolution
+### Preview files
+- Common NLE shortcuts like JKL and arrow keys
+- A simple audio meter (CMD + A)
+- Uses native macOS player for compatible files, for smooth playback even in reverse
+- Invisible fallback to VLCKit player for files not supported by macOS natively (though reverse playback is less reliable)
+- A second fallback for VVC and APV files, using FFMPEG to generate cached chunks to allow previews without encoding the entire file. With automatic cache deletion.
 
-  • Animated AVIF — Another GIF-alternative without sound. Doesn't need special web-code to loop, but less hardware and software compatibility than VideoLoops
 
-  • HEVC Proxy 1080p — Compact proxy file format, 10-bit 4:2:0, can be used fast file sharing
+### Quick adjustments
+- Trim using UI handles or I/O keyboard shortcut
+- Timecode can be copied from the source, set manually or be removed
+- Crop the video with on screen controls – accessible in the trim view by pressing C or the crop icon.
+    - Does not work with the Stream Copy preset
+- Audio Track deletion and rearrangement
+    - Does not work with the Stream Copy preset
 
-  • Audio Only AAC — Extract a small stereo audio file from video
+### Merge queued files
+- Merge files into one if they are the same codec, resolution, frame rate, bit depth, and audio tracks.
+- The first clip in the queue works as a master for timecode and crop.
+- Allows trimming and Copy Stream at the same time, allowing you to trim and merge files without any quality loss. (Some metadata may be lost)
 
-  • Audio Only WAV — Extract uncompressed audio from video, keeping all audio channels
+### Generate Audio Waveform Animation
+- Generate Audio Waveform Animations for audio only files
+- 5 different presets, with color and normalization options
 
-  • 3 Custom FFMPEG presets, which can be named.
-  
+### Quickly Grab Screenshots at source resoltuion and bit depth
+In the trim player there is a camera button that allows capturing still images. Images will automatically be captured at source resolution. By default the app will capture screenshots in JPEG XL. Format for screenshots and can be changed in the settings on a per bit-depth basis. Also a setting to specify what to do with alpha-channel video.
+
+
+### Export and file-naming
+- By default the app will remove spaces and special characters. æ, ø, å is replaced with ae, o and aa.
+- The app will preview the filename after processing
+- Warning if file already exists, 
+- After encoding there is an icon to show the converted file in the export directory
+- After encoding there is a draggable icon, making it possible to drag and open the encoded file directly in another app to copy to a new directory.
+
 - Set default preset in the settings menu
 - Set default export location
-- Add metadata comment with optional date tag (YYYYMMDD)
-- Drag to rearrange encoding queue
-- Warning if file already exists
-- Draggable icon on encoded files, making it possible to open the new file directly in another app to copy to a new directory. (Useful for fast sharing to Slack or Web-services)
-- Icon to open the file in the export directory
-- Thumbnail preview with checkerboard background to clearly see original aspect ratio
-- Automatic duration warning if a VideoLoop clip exceeds 15s (short videos are best for auto-playing and looping on webpages)
-- Sandboxed with Security-Scoped Bookmarks for persistent file access
-- Auto remove spaces and special characters. æ, ø, å is replaced with ae, o and aa.
+
+
+### Metadata
+- Per file comment field, to add an optional comment to the file metadata. Useful for embedding credit information
+- Optional date tag (Generated [YYYYMMDD]) in the comment field before the comment.
 - Language support: English and Norwegian
-- Subtle update notifications
+- Automatically check for updates with a subtle update notification, can be turned off.
+
+
+## Export Presets
+  
+#### Video Loop
+x264 very slow 1080p max resolution, keeping original aspect ratio, removing all audio channels, nice for compact web distribution such as GIF-replacements, slow export.
+Automatic duration warning if a VideoLoop clip exceeds 15s (short videos are best for auto-playing and looping on webpages)
+  
+#### Video Loop w/ Audio
+same as above but keeping a stereo AAC track
+
+#### TV Quality HD / 4K
+HEVC hardware encoding for fast high quality exports, compatible with most editing software, 10-bit 4:2:2, limit short side resolution to either 1080p or 2160p.
+
+#### Stream copy
+Copy the input codecs into a new file, most useful when combined with merge or trim as it will keep the same file extension as the source. Keeps extra metadata. Compatible with trimming, timecode adjustments and merging, but not cropping.
+
+### ProRes
+High quality file maintaining original resolution. The default ProRes version can be set in the Preset Settings Menu
+
+#### Animated AVIF
+Another GIF-alternative without sound. Doesn't need special web-code to loop, but less hardware and software compatibility than VideoLoops
+
+#### HEVC Proxy 1080p
+Compact proxy file format, 10-bit 4:2:0, can be used fast file sharing
+
+#### Audio Only AAC
+Extract a small stereo audio file from video
+
+#### Audio Only WAV
+Extract uncompressed audio from video, keeping all audio channels
+
+#### 3 Custom FFMPEG presets
+If you don't like my presets you can make your own and give them a name. There is a toggle to apply crop and audio routing, but -copy won't work.
+  
+
 
 ![SCR-20251110-bulz](https://github.com/user-attachments/assets/b1aba332-0058-480a-8f29-5f7ce5da07c0)
 <img width="642" height="594" alt="SCR-20251110-bvdx" src="https://github.com/user-attachments/assets/58504f3c-0e28-41d1-af37-4f109aff96af" />
@@ -108,6 +168,8 @@ Command + , → Open Settings
 2. Drag video files onto the window **or** click the plus button to import files.
 3. Select an **Export Preset** from the toolbar menu.
 4. Hit the green *Convert* button or press ⌘⏎.
+
+
 
 ### 15-Second Autoplay Warning
 

@@ -73,44 +73,51 @@ struct ContentView: View {
         droppedFiles.contains { $0.status != .waiting }
     }
 
+    private var fileListView: some View {
+        VideoFileListView(
+            droppedFiles: $droppedFiles,
+            currentProgress: $overallProgress,
+            onFileImport: { isFileImporterPresented = true },
+            onDoubleClick: { isFileImporterPresented = true },
+            onDelete: handleFileDeletion,
+            onReset: handleFileReset,
+            preset: selectedPreset,
+            mergeClipsEnabled: mergeClipsEnabled,
+            mergeClipsAvailable: mergeClipsAvailable
+        )
+    }
+
+    private func handleFileDeletion(_ indexSet: IndexSet) {
+        // Clean up cache for removed items
+        for index in indexSet {
+            if index < droppedFiles.count {
+                let fileURL = droppedFiles[index].url
+                Task {
+                    await PreviewAssetGenerator.shared.cleanupAssets(for: fileURL)
+                }
+            }
+        }
+        droppedFiles.remove(atOffsets: indexSet)
+    }
+
+    private func handleFileReset(_ index: Int) {
+        if index < droppedFiles.count {
+            droppedFiles[index].status = .waiting
+            droppedFiles[index].progress = 0.0
+            droppedFiles[index].eta = nil
+            droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
+            // Reset configurations
+            droppedFiles[index].audioRoutingConfig = nil
+            droppedFiles[index].cropConfig = nil
+            droppedFiles[index].timecodeConfig = nil
+            droppedFiles[index].trimStart = nil
+            droppedFiles[index].trimEnd = nil
+        }
+    }
+
     var body: some View {
         VStack {
-            // File list with drag and drop support
-            VideoFileListView(
-                droppedFiles: $droppedFiles,
-                currentProgress: $overallProgress,
-                onFileImport: { isFileImporterPresented = true },
-                onDoubleClick: { isFileImporterPresented = true },
-                onDelete: { indexSet in
-                    // Clean up cache for removed items
-                    for index in indexSet {
-                        if index < droppedFiles.count {
-                            let fileURL = droppedFiles[index].url
-                            Task {
-                                await PreviewAssetGenerator.shared.cleanupAssets(for: fileURL)
-                            }
-                        }
-                    }
-                    droppedFiles.remove(atOffsets: indexSet)
-                },
-                onReset: { index in
-                    if index < droppedFiles.count {
-                        droppedFiles[index].status = .waiting
-                        droppedFiles[index].progress = 0.0
-                        droppedFiles[index].eta = nil
-                        droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
-                        // Reset configurations
-                        droppedFiles[index].audioRoutingConfig = nil
-                        droppedFiles[index].cropConfig = nil
-                        droppedFiles[index].timecodeConfig = nil
-                        droppedFiles[index].trimStart = nil
-                        droppedFiles[index].trimEnd = nil
-                    }
-                },
-                preset: selectedPreset,
-                mergeClipsEnabled: mergeClipsEnabled,
-                mergeClipsAvailable: mergeClipsAvailable
-            )
+            fileListView
             .fileImporter(
                 isPresented: $isFileImporterPresented,
                 allowedContentTypes: supportedVideoTypes,
@@ -122,30 +129,7 @@ struct ContentView: View {
                 await startProgressUpdates()
             }
             .toolbar {
-                ConversionToolbarView(
-                    isConverting: isConverting,
-                    canStartConversion: canStartConversion,
-                    hasFiles: !droppedFiles.isEmpty,
-                    watchFolderModeEnabled: $watchFolderModeEnabled,
-                    watchFolderPath: watchFolderPath,
-                    selectedPreset: toolbarPresetBinding,
-                    presets: ExportPreset.allCases,
-                    displayName: { displayName(for: $0) },
-                    mergeClipsEnabled: $mergeClipsEnabled,
-                    mergeClipsAvailable: mergeClipsAvailable,
-                    onToggleConversion: handleConversionToggle,
-                    onImport: { isFileImporterPresented = true },
-                    onSelectOutputFolder: {
-                        Task {
-                            if let folder = await selectOutputFolder() {
-                                currentOutputFolder = folder
-                            }
-                        }
-                    },
-                    onResetAll: resetAllFiles,
-                    hasResettableItems: hasResettableItems,
-                    onClear: clearAllFiles
-                )
+                conversionToolbar
             }
             
             // Overall progress bar
@@ -248,15 +232,41 @@ struct ContentView: View {
         // Listen for App Intent to enqueue file
         .onReceive(NotificationCenter.default.publisher(for: .enqueueFileURL)) { notification in
             guard let url = notification.object as? URL else { return }
-            Task {
-                if let videoItem = await VideoFileUtils.createVideoItem(
-                    from: url,
-                    outputFolder: outputFolder,
-                    preset: selectedPreset
-                ) {
-                    await MainActor.run {
-                        if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
-                            droppedFiles.append(videoItem)
+
+            // Check for duplicates before creating placeholder
+            guard !droppedFiles.contains(where: { $0.url == url }) else { return }
+
+            guard let placeholder = VideoFileUtils.makePlaceholderItem(
+                from: url,
+                outputFolder: outputFolder,
+                preset: selectedPreset
+            ) else {
+                print("Skipping unsupported file from AppIntent: \(url.lastPathComponent)")
+                return
+            }
+
+            droppedFiles.append(placeholder)
+            let placeholderID = placeholder.id
+
+            // Load details asynchronously in background
+            Task(priority: .utility) {
+                let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
+                let durationSeconds = details.durationSeconds
+                let metadata = await VideoFileUtils.fetchMetadata(for: url)
+
+                await MainActor.run {
+                    if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
+                        self.droppedFiles[index].apply(details: details)
+                        self.droppedFiles[index].detailsLoaded = true
+                        self.droppedFiles[index].metadata = metadata
+
+                        let effectiveDuration = self.droppedFiles[index].durationSeconds
+                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
+                        if durationForPrefetch > 0 {
+                            VideoFileUtils.prefetchPreviewAssets(
+                                for: url,
+                                durationSeconds: durationForPrefetch
+                            )
                         }
                     }
                 }
@@ -322,20 +332,47 @@ struct ContentView: View {
     private func handleFileSelection(result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
-            Task {
-                for url in urls {
-                    if let videoItem = await VideoFileUtils.createVideoItem(
-                        from: url,
-                        outputFolder: outputFolder,
-                        preset: selectedPreset
-                    ) {
-                        if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
-                            droppedFiles.append(videoItem)
+            for url in urls {
+                // Check for duplicates before creating placeholder
+                guard !droppedFiles.contains(where: { $0.url == url }) else {
+                    continue
+                }
+
+                guard let placeholder = VideoFileUtils.makePlaceholderItem(
+                    from: url,
+                    outputFolder: outputFolder,
+                    preset: selectedPreset
+                ) else {
+                    print("Skipping unsupported file: \(url.lastPathComponent)")
+                    continue
+                }
+
+                droppedFiles.append(placeholder)
+                let placeholderID = placeholder.id
+
+            // Load details asynchronously in background
+            Task(priority: .utility) {
+                let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
+                let durationSeconds = details.durationSeconds
+                let metadata = await VideoFileUtils.fetchMetadata(for: url)
+
+                await MainActor.run {
+                    if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
+                        self.droppedFiles[index].apply(details: details)
+                        self.droppedFiles[index].detailsLoaded = true
+                        self.droppedFiles[index].metadata = metadata
+
+                        let effectiveDuration = self.droppedFiles[index].durationSeconds
+                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
+                        if durationForPrefetch > 0 {
+                            VideoFileUtils.prefetchPreviewAssets(
+                                for: url,
+                                durationSeconds: durationForPrefetch
+                            )
                         }
-                    } else {
-                        print("Skipping unsupported file: \(url.lastPathComponent)")
                     }
                 }
+            }
             }
         case .failure(let error):
             print("Error selecting files: \(error.localizedDescription)")
@@ -456,6 +493,33 @@ struct ContentView: View {
             }
         )
     }
+
+    private var conversionToolbar: some ToolbarContent {
+        ConversionToolbarView(
+            isConverting: isConverting,
+            canStartConversion: canStartConversion,
+            hasFiles: !droppedFiles.isEmpty,
+            watchFolderModeEnabled: $watchFolderModeEnabled,
+            watchFolderPath: watchFolderPath,
+            selectedPreset: toolbarPresetBinding,
+            presets: ExportPreset.allCases,
+            displayName: { displayName(for: $0) },
+            mergeClipsEnabled: $mergeClipsEnabled,
+            mergeClipsAvailable: mergeClipsAvailable,
+            onToggleConversion: handleConversionToggle,
+            onImport: { isFileImporterPresented = true },
+            onSelectOutputFolder: {
+                Task {
+                    if let folder = await selectOutputFolder() {
+                        currentOutputFolder = folder
+                    }
+                }
+            },
+            onResetAll: resetAllFiles,
+            hasResettableItems: hasResettableItems,
+            onClear: clearAllFiles
+        )
+    }
     
     // MARK: - Watch Folder Management
     
@@ -466,13 +530,41 @@ struct ContentView: View {
             guard !droppedFiles.contains(where: { $0.url == url }) else {
                 continue
             }
-            
-            if let videoItem = await VideoFileUtils.createVideoItem(
+
+            guard let placeholder = VideoFileUtils.makePlaceholderItem(
                 from: url,
                 outputFolder: outputFolder,
                 preset: selectedPreset
-            ) {
-                droppedFiles.append(videoItem)
+            ) else {
+                print("Skipping unsupported file from watch folder: \(url.lastPathComponent)")
+                continue
+            }
+
+            droppedFiles.append(placeholder)
+            let placeholderID = placeholder.id
+
+            // Load details asynchronously in background
+            Task(priority: .utility) {
+                let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
+                let durationSeconds = details.durationSeconds
+                let metadata = await VideoFileUtils.fetchMetadata(for: url)
+
+                await MainActor.run {
+                    if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
+                        self.droppedFiles[index].apply(details: details)
+                        self.droppedFiles[index].detailsLoaded = true
+                        self.droppedFiles[index].metadata = metadata
+
+                        let effectiveDuration = self.droppedFiles[index].durationSeconds
+                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
+                        if durationForPrefetch > 0 {
+                            VideoFileUtils.prefetchPreviewAssets(
+                                for: url,
+                                durationSeconds: durationForPrefetch
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -27,8 +27,6 @@ struct VideoFileListView: View {
     /// Selected row indices for built-in multi-selection
     @State private var selection = Set<Int>()
     @State private var focusedCommentID: UUID?
-    @State private var importQueue: [NSItemProvider] = []
-    @State private var isProcessingBatch = false
 
     var body: some View {
         ZStack {
@@ -102,33 +100,11 @@ struct VideoFileListView: View {
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         print(" handleDrop called with \(providers.count) providers")
-        var handled = false
-
-        importQueue.append(contentsOf: providers)
-        processNextImportBatch()
-        handled = true
-        
-        print(" handleDrop returning: \(handled)")
-        return handled
-    }
-    
-    private func processNextImportBatch() {
-        guard !isProcessingBatch else { return }
-        isProcessingBatch = true
-
         Task { @MainActor in
-            defer {
-                self.isProcessingBatch = false
-                if !self.importQueue.isEmpty {
-                    self.processNextImportBatch()
-                }
-            }
-            // Small delay gives the system time to deliver the rest of the drop
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            let providers = importQueue
-            importQueue.removeAll()
             await self.importProviders(providers)
         }
+        print(" handleDrop returning: true")
+        return true
     }
     
     @MainActor
