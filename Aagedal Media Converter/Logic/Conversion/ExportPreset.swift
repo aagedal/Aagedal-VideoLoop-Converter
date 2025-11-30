@@ -270,9 +270,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             var args = commonArgs + [
                 "-map", "0",
                 "-c", "copy",
-                "-map", "-0:d?",  // Exclude data streams (e.g., timecode metadata)
-                "-map", "-0:t?",  // Exclude subtitle streams
-                "-ignore_unknown"  // Ignore unknown stream types
+                "-map", "-0:t?",  // Exclude subtitle streams only
+                "-copy_unknown"  // Copy unknown stream types (for MXF acquisition metadata)
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args

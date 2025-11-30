@@ -209,15 +209,36 @@ enum FFMPEGCommandBuilder {
             includeDateTag: includeDateTag
         )
 
-        // Apply timecode configuration if provided and preset outputs video
-        if let timecodeConfig = timecodeConfig,
-           timecodeConfig.isActive,
-           preset.outputsVideoTrack {
-            if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL) {
+        // Apply timecode configuration if preset outputs video
+        if preset.outputsVideoTrack {
+            // Use provided config, or default from settings
+            let effectiveConfig: TimecodeConfig?
+            if let timecodeConfig = timecodeConfig {
+                effectiveConfig = timecodeConfig
+            } else {
+                // Use default from settings
+                let defaultMode = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeModeKey) ?? AppConstants.defaultTimecodeModeRaw
+                let defaultValue = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeValueKey) ?? AppConstants.defaultTimecodeValue
+
+                switch defaultMode {
+                case "preserveSource":
+                    effectiveConfig = TimecodeConfig(mode: .preserveSource)
+                case "manual":
+                    effectiveConfig = TimecodeConfig(mode: .manual(defaultValue))
+                default: // "disabled"
+                    // Skip timecode application if disabled by default
+                    effectiveConfig = nil
+                }
+            }
+
+            if let effectiveConfig = effectiveConfig,
+               effectiveConfig.isActive,
+               let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL) {
                 await applyTimecode(
                     &ffmpegArgs,
-                    timecodeConfig: timecodeConfig,
-                    sourceMetadata: metadata
+                    timecodeConfig: effectiveConfig,
+                    sourceMetadata: metadata,
+                    trimStart: normalizedTrimStart
                 )
             }
         }
@@ -227,6 +248,18 @@ enum FFMPEGCommandBuilder {
         }
 
         arguments.append(contentsOf: ffmpegArgs)
+
+        // For MOV/QuickTime files with stream copy, add movflags to preserve vendor-specific metadata
+        // This is critical for ProRes RAW files to preserve white balance and camera metadata
+        if preset == .streamCopy {
+            let inputExtension = inputURL.pathExtension.lowercased()
+            let outputExtension = outputFileURL.pathExtension.lowercased()
+            if (inputExtension == "mov" || outputExtension == "mov") {
+                // Add use_metadata_tags to preserve custom QuickTime atoms (com.apple.*, com.atomos.*, org.smpte.*)
+                arguments.append(contentsOf: ["-movflags", "use_metadata_tags"])
+            }
+        }
+
         if let additionalOutputArguments {
             arguments.append(contentsOf: additionalOutputArguments)
         }
@@ -506,22 +539,28 @@ extension FFMPEGCommandBuilder {
     static func applyTimecode(
         _ ffmpegArgs: inout [String],
         timecodeConfig: TimecodeConfig,
-        sourceMetadata: VideoMetadata
+        sourceMetadata: VideoMetadata,
+        trimStart: Double?
     ) async {
         let timecodeValue: String?
 
         switch timecodeConfig.mode {
         case .preserveSource:
-            // Use timecode from source metadata
-            timecodeValue = sourceMetadata.timecode
+            // Use timecode from source metadata, offsetting by trim-in point if present
+            if let sourceTimecode = sourceMetadata.timecode,
+               let trimOffset = trimStart,
+               trimOffset > 0,
+               let frameRate = sourceMetadata.videoStream?.frameRate?.value {
+                timecodeValue = offsetTimecode(sourceTimecode, bySeconds: trimOffset, frameRate: frameRate)
+            } else {
+                timecodeValue = sourceMetadata.timecode
+            }
         case .manual(let tc):
             // Use manually specified timecode
             timecodeValue = tc.isEmpty ? nil : tc
         }
 
-        guard let timecode = timecodeValue else { return }
-
-        // Remove existing timecode metadata if present
+        // Remove existing timecode metadata if present in args
         var index = 0
         while index < ffmpegArgs.count - 1 {
             if ffmpegArgs[index] == "-metadata" && ffmpegArgs[index + 1].hasPrefix("timecode=") {
@@ -532,8 +571,74 @@ extension FFMPEGCommandBuilder {
             index += 1
         }
 
-        // Add timecode metadata
-        ffmpegArgs.append(contentsOf: ["-metadata", "timecode=\(timecode)"])
+        if let timecode = timecodeValue {
+            // Set our timecode value
+            // This should override any timecode from -map_metadata since it comes later in args
+            ffmpegArgs.append(contentsOf: ["-metadata", "timecode=\(timecode)"])
+        }
+    }
+
+    /// Offsets a timecode string by a given number of seconds
+    /// - Parameters:
+    ///   - timecode: Source timecode in format HH:MM:SS:FF or HH:MM:SS;FF
+    ///   - seconds: Number of seconds to offset
+    ///   - frameRate: Frame rate of the video
+    /// - Returns: Offset timecode string, or original if parsing fails
+    private static func offsetTimecode(_ timecode: String, bySeconds seconds: Double, frameRate: Double) -> String {
+        // Parse timecode components
+        let components = timecode.split(whereSeparator: { $0 == ":" || $0 == ";" })
+
+        guard components.count == 4,
+              let hours = Int(components[0]),
+              let minutes = Int(components[1]),
+              let secs = Int(components[2]),
+              let frames = Int(components[3]) else {
+            logger.warning("Failed to parse timecode: \(timecode, privacy: .public)")
+            return timecode
+        }
+
+        // Determine frame rate (round to nearest integer for frame calculation)
+        let fps = Int(frameRate.rounded())
+
+        // Convert timecode to total frames
+        var totalFrames = hours * 3600 * fps
+        totalFrames += minutes * 60 * fps
+        totalFrames += secs * fps
+        totalFrames += frames
+
+        // Add offset in frames (round to nearest frame to avoid off-by-one errors)
+        let offsetFrames = Int(round(seconds * Double(fps)))
+        totalFrames += offsetFrames
+
+        // Ensure non-negative
+        totalFrames = max(0, totalFrames)
+
+        // Convert back to timecode components
+        let newFrames = totalFrames % fps
+        var remainingFrames = totalFrames / fps
+
+        let newSeconds = remainingFrames % 60
+        remainingFrames /= 60
+
+        let newMinutes = remainingFrames % 60
+        remainingFrames /= 60
+
+        let newHours = remainingFrames % 24
+
+        // Preserve the separator (: for non-drop-frame, ; for drop-frame)
+        let separator = timecode.contains(";") ? ";" : ":"
+
+        // Build new timecode
+        let offsetTimecode = String(format: "%02d:%02d:%02d%@%02d",
+                                    newHours,
+                                    newMinutes,
+                                    newSeconds,
+                                    separator,
+                                    newFrames)
+
+        logger.debug("Offset timecode from \(timecode, privacy: .public) to \(offsetTimecode, privacy: .public) (offset: \(seconds, privacy: .public)s at \(frameRate, privacy: .public)fps)")
+
+        return offsetTimecode
     }
 
     static func adjustArgumentsForInput(
