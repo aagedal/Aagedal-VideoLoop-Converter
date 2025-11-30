@@ -7,9 +7,6 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-// TODO: Add user setting to enable or disable filename processing
-
-
 import Foundation
 
 /// Utility for processing and sanitizing file names.
@@ -17,8 +14,16 @@ struct FileNameProcessor {
     /// Processes a file name to ensure it's safe for use in file systems.
     /// - Parameter input: The input file name to process
     /// - Returns: A sanitized version of the input string with spaces replaced by underscores,
-    ///   special characters removed, and other sanitization applied.
+    ///   special characters removed, and other sanitization applied. If filename processing is disabled
+    ///   in user preferences, returns the input unchanged.
     static func processFileName(_ input: String) -> String {
+        // Check if filename processing is enabled in user preferences
+        let isEnabled = UserDefaults.standard.object(forKey: AppConstants.enableFileNameProcessingKey) as? Bool ?? true
+
+        // If disabled, return the original input
+        guard isEnabled else {
+            return input
+        }
         var cleanedName = input
             .replacingOccurrences(of: " ", with: "_")
         
