@@ -18,6 +18,7 @@ struct PreviewPlayerView: View {
     @State private var activeTrimGestures: Int = 0
     @State private var currentPlaybackTime: Double = 0
     @State private var showsPlaybackControls: Bool = false
+    @State private var isCropControlsExpanded: Bool = false
 
     init(item: Binding<VideoItem>) {
         self._item = item
@@ -27,7 +28,7 @@ struct PreviewPlayerView: View {
     var body: some View {
         VStack(spacing: 8) {
             PreviewPlayerContent(
-                item: item,
+                item: $item,
                 controller: controller,
                 showsPlaybackControls: showsPlaybackControls,
                 togglePlaybackControls: { showsPlaybackControls.toggle() },
@@ -43,9 +44,10 @@ struct PreviewPlayerView: View {
             )
 
             PreviewTrimControls(
-                item: item,
+                item: $item,
                 controller: controller,
                 currentPlaybackTime: $currentPlaybackTime,
+                isCropControlsExpanded: $isCropControlsExpanded,
                 onSeek: controller.seekTo,
                 onReset: resetTrim,
                 onCaptureScreenshot: captureScreenshot,
@@ -68,6 +70,9 @@ struct PreviewPlayerView: View {
         .padding(.vertical, 14)
         .frame(minWidth: 920, idealWidth: 1080, minHeight: 640, idealHeight: 720)
         .background(Color(NSColor.windowBackgroundColor))
+        .background(KeyboardHandler(onCommandA: {
+            controller.isAudioMeterEnabled.toggle()
+        }))
         .onAppear {
             controller.preparePreview(startTime: item.effectiveTrimStart)
         }
@@ -211,16 +216,28 @@ struct PreviewPlayerView: View {
 
     private func handleKeyCommand(key: String, modifiers: NSEvent.ModifierFlags, specialKey: NSEvent.SpecialKey? = nil) -> Bool {
         if specialKey == .downArrow {
-            if controller.jumpToNextCachedSegmentStart() {
-                return true
-            }
+            // Down: Jump forward 10 frames
+            controller.seekByFrames(10)
+            return true
         } else if specialKey == .upArrow {
-            if controller.jumpToPreviousCachedSegmentEnd() {
-                return true
-            }
+            // Up: Jump backward 10 frames
+            controller.seekByFrames(-10)
+            return true
+        } else if specialKey == .leftArrow {
+            controller.seekByFrames(-1)
+            return true
+        } else if specialKey == .rightArrow {
+            controller.seekByFrames(1)
+            return true
         }
 
         let lowerKey = key.lowercased()
+        
+        // Space to toggle playback
+        if key == " " {
+            controller.togglePlayback()
+            return true
+        }
 
         if modifiers.contains(.command) {
             switch lowerKey {
@@ -279,8 +296,57 @@ struct PreviewPlayerView: View {
         case "o":
             handleTrimOutPoint(clearToEnd: false)
             return true
+        case "j":
+            controller.startReverseSimulation()
+            return true
+        case "k":
+            controller.togglePlayback()
+            return true
+        case "l":
+            controller.fastForward()
+            return true
+        case "c":
+            isCropControlsExpanded.toggle()
+            // Sync crop overlay with controls state
+            controller.isCropEnabled = isCropControlsExpanded
+            return true
         default:
             return false
+        }
+    }
+}
+
+// MARK: - Keyboard Handler
+
+/// Helper view to handle keyboard shortcuts using NSEvent
+private struct KeyboardHandler: NSViewRepresentable {
+    let onCommandA: () -> Void
+    
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "a" {
+                onCommandA()
+                return nil // Event handled
+            }
+            return event
+        }
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+    
+    class Coordinator {
+        var monitor: Any?
+        
+        deinit {
+            if let monitor = monitor {
+                NSEvent.removeMonitor(monitor)
+            }
         }
     }
 }

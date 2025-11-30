@@ -9,7 +9,7 @@ import AppKit
 import AVKit
 
 struct PreviewPlayerContent: View {
-    let item: VideoItem
+    @Binding var item: VideoItem
     let controller: PreviewPlayerController
     let showsPlaybackControls: Bool
     let togglePlaybackControls: () -> Void
@@ -38,6 +38,51 @@ struct PreviewPlayerContent: View {
                             )
                     }
                     .aspectRatio(playerAspectRatio, contentMode: .fit)
+
+                    // Crop overlay
+                    if controller.isCropEnabled, item.hasVideoStream {
+                        CropOverlayView(
+                            cropConfig: Binding(
+                                get: { item.cropConfig ?? CropConfig(normalizedRect: .fullFrame) },
+                                set: { item.cropConfig = $0.isActive ? $0 : nil }
+                            ),
+                            sourceWidth: item.metadata?.videoStream?.width ?? 1920,
+                            sourceHeight: item.metadata?.videoStream?.height ?? 1080,
+                            videoAspectRatio: Double(playerAspectRatio),
+                            isEnabled: true
+                        )
+                    }
+
+                    overlayIndicators
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onReceive(controller.playbackTimePublisher) { time in
+                    currentPlaybackTime = time
+                }
+                .onReceive(controller.playbackTimePublisher) { time in
+                    currentPlaybackTime = time
+                }
+            } else if controller.useVLC, let vlcPlayer = controller.vlcPlayer {
+                ZStack {
+                    CheckerboardBackground()
+                    
+                    VLCVideoView(player: vlcPlayer, keyHandler: keyHandler)
+                        .aspectRatio(playerAspectRatio, contentMode: .fit)
+
+                    // Crop overlay
+                    if controller.isCropEnabled, item.hasVideoStream {
+                        CropOverlayView(
+                            cropConfig: Binding(
+                                get: { item.cropConfig ?? CropConfig(normalizedRect: .fullFrame) },
+                                set: { item.cropConfig = $0.isActive ? $0 : nil }
+                            ),
+                            sourceWidth: item.metadata?.videoStream?.width ?? 1920,
+                            sourceHeight: item.metadata?.videoStream?.height ?? 1080,
+                            videoAspectRatio: Double(playerAspectRatio),
+                            isEnabled: true
+                        )
+                    }
 
                     overlayIndicators
                 }
@@ -80,34 +125,78 @@ struct PreviewPlayerContent: View {
         }
     }
 
+
     @ViewBuilder
     private var overlayIndicators: some View {
-        if controller.isCapturingScreenshot {
-            dimOverlay(title: "Capturing Still…")
-        }
-
-        if controller.isGeneratingFallbackPreview {
-            dimOverlay(
-                title: "Generating Preview…",
-                subtitle: "This format requires transcoding for playback"
-            )
-        }
-
-        if controller.fallbackPreviewRange != nil && !controller.isGeneratingFallbackPreview {
+        ZStack {
+            // Top-left: Speed indicator (always visible when speed != 1.0)
             VStack {
-                Spacer()
                 HStack {
-                    fallbackBadge
+                    PlaybackSpeedIndicator(
+                        speed: controller.currentPlaybackSpeed,
+                        isReversing: controller.isReverseSimulating
+                    )
                     Spacer()
-                    if controller.showScreenshotOverlay {
-                        screenshotBadge
+                }
+                Spacer()
+            }
+            .padding(16)
+            
+            // Top-right: Audio meter (when enabled) - moved to avoid overlap with native player controls
+            VStack {
+                HStack {
+                    Spacer()
+                    if controller.isAudioMeterEnabled {
+                        AudioMeterView(levels: controller.audioLevels ?? .silence)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
+                }
+                Spacer()
+            }
+            .padding(16)
+            
+            // Center: Loading/buffering indicator
+            if controller.isLoadingChunk {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .scaleEffect(1.2)
+                        .tint(.white)
+                    
+                    Text("Loading...")
+                        .foregroundColor(.white)
+                }
+            }
+            
+            if controller.isCapturingScreenshot {
+                dimOverlay(title: "Capturing Still…")
+            }
+            
+            if controller.isGeneratingFallbackPreview {
+                dimOverlay(
+                    title: "Generating Preview…",
+                    subtitle: "This format requires transcoding for playback"
+                )
+            }
+            
+            // Bottom: badges and controls (hide when crop mode is active)
+            if controller.fallbackPreviewRange != nil && !controller.isGeneratingFallbackPreview && !controller.isCropEnabled {
+                VStack {
                     Spacer()
-                    toggleControlsButton
+                    HStack {
+                        fallbackBadge
+                        Spacer()
+                        if controller.showScreenshotOverlay {
+                            screenshotBadge
+                        }
+                        Spacer()
+                        toggleControlsButton
+                    }
                 }
             }
         }
     }
+
 
     private func dimOverlay(title: String, subtitle: String? = nil) -> some View {
         ZStack {

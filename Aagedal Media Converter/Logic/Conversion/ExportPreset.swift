@@ -191,18 +191,20 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-bufsize", "18000k",
                 "-profile:v", "main",
                 "-level:v", "4.0",
+                "-map", "0:v",
                 "-c:a", "aac",
                 "-b:a", "192k",
+                "-map", "0:a",
                 "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
         case .tvQualityHD:
             var args = commonArgs + [
-                "-pix_fmt", "p010le",
+                "-pix_fmt", "p210le",
                 "-c:v", "hevc_videotoolbox",
                 "-b:v", "18M",
-                "-profile:v", "main10",
+                "-profile:v", "main42210",
                 "-tag:v", "hvc1",
                 "-c:a", "pcm_s24le",
                 "-map", "0:v",
@@ -213,10 +215,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return args
         case .tvQuality4K:
             var args = commonArgs + [
-                "-pix_fmt", "p010le",
+                "-pix_fmt", "p210le",
                 "-c:v", "hevc_videotoolbox",
                 "-b:v", "60M",
-                "-profile:v", "main10",
+                "-profile:v", "main42210",
                 "-tag:v", "hvc1",
                 "-c:a", "pcm_s24le",
                 "-map", "0:v",
@@ -252,11 +254,12 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .prores:
             let profileRaw = UserDefaults.standard.string(forKey: AppConstants.proResProfileKey) ?? ProResProfile.standard.rawValue
             let profile = ProResProfile(rawValue: profileRaw) ?? .standard
-            
+
             var args = commonArgs + [
                 "-pix_fmt", "yuv422p10le",
                 "-vcodec", "prores_videotoolbox",
                 "-profile:v", profile.ffmpegProfileName,
+                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1",
                 "-c:a", "pcm_s24le",
                 "-map", "0:v",
                 "-map", "0:a"
@@ -267,6 +270,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             var args = commonArgs + [
                 "-map", "0",
                 "-c", "copy",
+                "-map", "-0:t?",  // Exclude subtitle streams only
+                "-copy_unknown"  // Copy unknown stream types (for MXF acquisition metadata)
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
@@ -307,6 +312,52 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     }
     
     var isCustom: Bool { customSlotIndex != nil }
+
+    var appliesCrop: Bool {
+        switch self {
+        case .streamCopy:
+            return false // Stream copy cannot apply filters like crop
+        case .custom1, .custom2, .custom3:
+            guard let slot = customSlotIndex else { return false }
+            return Self.customAppliesCrop(for: slot)
+        default:
+            return true // Built-in presets support crop
+        }
+    }
+
+    var appliesAudioRouting: Bool {
+        switch self {
+        case .streamCopy:
+            return false // Stream copy cannot apply audio filters
+        case .custom1, .custom2, .custom3:
+            guard let slot = customSlotIndex else { return false }
+            return Self.customAppliesAudioRouting(for: slot)
+        default:
+            return true // Built-in presets support audio routing
+        }
+    }
+
+    private static func customAppliesCrop(for slot: Int) -> Bool {
+        let defaults = UserDefaults.standard
+        let keys = [
+            AppConstants.customPreset1ApplyCropKey,
+            AppConstants.customPreset2ApplyCropKey,
+            AppConstants.customPreset3ApplyCropKey
+        ]
+        let key = slot < keys.count ? keys[slot] : nil
+        return key.map { defaults.bool(forKey: $0) } ?? false
+    }
+
+    private static func customAppliesAudioRouting(for slot: Int) -> Bool {
+        let defaults = UserDefaults.standard
+        let keys = [
+            AppConstants.customPreset1ApplyAudioRoutingKey,
+            AppConstants.customPreset2ApplyAudioRoutingKey,
+            AppConstants.customPreset3ApplyAudioRoutingKey
+        ]
+        let key = slot < keys.count ? keys[slot] : nil
+        return key.map { defaults.bool(forKey: $0) } ?? false
+    }
 }
 
 extension ExportPreset {
@@ -316,7 +367,7 @@ extension ExportPreset {
         case .audioUncompressedWAV, .audioStereoAAC:
             return false
         case .streamCopy:
-            return false
+            return true  // Stream copy preserves video if present, and timecode metadata works with -c copy
         default:
             return true
         }

@@ -9,8 +9,53 @@ import AppKit
 import AVKit
 import OSLog
 
+/// Screenshot format options for still image capture
+enum ScreenshotFormat: String, CaseIterable, Identifiable, Codable {
+    case jpeg = "JPEG"
+    case jpegXL = "JPEG XL"
+    case avif = "AVIF"
+    case png = "PNG"
+    case tiff = "TIFF"
+
+    var id: String { rawValue }
+
+    var displayName: String { rawValue }
+
+    var fileExtension: String {
+        switch self {
+        case .jpeg: return "jpg"
+        case .jpegXL: return "jxl"
+        case .avif: return "avif"
+        case .png: return "png"
+        case .tiff: return "tiff"
+        }
+    }
+
+    var supportsAlpha: Bool {
+        switch self {
+        case .jpeg, .avif: return false
+        case .jpegXL, .png, .tiff: return true
+        }
+    }
+}
+
+/// Alpha channel handling preference for screenshots
+enum ScreenshotAlphaHandling: String, CaseIterable, Identifiable, Codable {
+    case auto = "auto"
+    case useSelectedFormat = "useSelectedFormat"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .auto: return "Auto (Use PNG or JPEG XL)"
+        case .useSelectedFormat: return "Use selected format (discard alpha if unsupported)"
+        }
+    }
+}
+
 extension PreviewPlayerController {
-    
+
     // MARK: - Screenshot UI State
     @MainActor
     var lastScreenshotURL: URL? {
@@ -95,7 +140,7 @@ extension PreviewPlayerController {
             throw ScreenshotError.captureInProgress
         }
 
-        guard player != nil else {
+        guard player != nil || vlcPlayer != nil else {
             throw ScreenshotError.videoUnavailable
         }
 
@@ -381,90 +426,131 @@ extension PreviewPlayerController {
     }
     
     // MARK: - Format Detection
-    
+
     func screenshotParameters(for stream: VideoMetadata.VideoStream?) -> ScreenshotParameters {
-        guard let stream else {
+        let bitDepth = stream?.bitDepth ?? 8
+        let hasAlpha = stream?.hasAlpha ?? false
+
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Screenshots")
+            .debug("Screenshot format detection - bitDepth: \(bitDepth), hasAlpha: \(hasAlpha)")
+
+        // Get user-selected format based on bit depth
+        let formatRawValue: String
+        if bitDepth > 10 {
+            formatRawValue = UserDefaults.standard.string(forKey: AppConstants.screenshotHighBitFormatKey) ?? AppConstants.defaultScreenshotFormat
+        } else if bitDepth == 10 {
+            formatRawValue = UserDefaults.standard.string(forKey: AppConstants.screenshot10BitFormatKey) ?? AppConstants.defaultScreenshotFormat
+        } else {
+            formatRawValue = UserDefaults.standard.string(forKey: AppConstants.screenshot8BitFormatKey) ?? AppConstants.defaultScreenshotFormat
+        }
+
+        guard let format = ScreenshotFormat(rawValue: formatRawValue) else {
+            // Fallback to JPEG XL if invalid
+            return formatParameters(for: .jpegXL, bitDepth: bitDepth, hasAlpha: hasAlpha)
+        }
+
+        // Handle alpha channel based on preference
+        if hasAlpha {
+            let alphaHandling = UserDefaults.standard.string(forKey: AppConstants.screenshotAlphaHandlingKey) ?? AppConstants.defaultScreenshotAlphaHandling
+
+            if alphaHandling == ScreenshotAlphaHandling.auto.rawValue {
+                // Auto: Use PNG or JPEG XL if selected, otherwise fallback to PNG
+                if format.supportsAlpha {
+                    return formatParameters(for: format, bitDepth: bitDepth, hasAlpha: true)
+                } else {
+                    // Fallback to PNG for alpha support
+                    return formatParameters(for: .png, bitDepth: bitDepth, hasAlpha: true)
+                }
+            } else {
+                // useSelectedFormat: Use selected format, discard alpha if not supported
+                return formatParameters(for: format, bitDepth: bitDepth, hasAlpha: format.supportsAlpha)
+            }
+        }
+
+        return formatParameters(for: format, bitDepth: bitDepth, hasAlpha: false)
+    }
+
+    private func formatParameters(for format: ScreenshotFormat, bitDepth: Int, hasAlpha: Bool) -> ScreenshotParameters {
+        switch format {
+        case .jpeg:
+            // JPEG does not support alpha
             return ScreenshotParameters(
                 fileExtension: "jpg",
                 codecArguments: ["-c:v", "mjpeg", "-q:v", "1"],
                 pixelFormat: "yuvj444p"
             )
-        }
 
-        let transfer = stream.colorTransfer?.lowercased()
-        let primaries = stream.colorPrimaries?.lowercased()
-        let colorSpace = stream.colorSpace?.lowercased()
-        let bitDepth = stream.bitDepth ?? 8
-        let hdrTransfers: Set<String> = ["smpte2084", "arib-std-b67"]
-        let metadataIndicatesHDR = (transfer.map(hdrTransfers.contains) ?? false) || (primaries?.contains("2020") ?? false) || (colorSpace?.contains("2020") ?? false)
-
-        let codec = stream.codec?.lowercased()
-        let profile = stream.profile?.lowercased()
-        let codecLongName = stream.codecLongName?.lowercased()
-        
-        // Check for ProRes RAW in multiple ways:
-        // 1. Codec name contains "raw" (e.g., "prores_raw", "proresraw")
-        // 2. Profile contains "raw"
-        // 3. Codec long name contains "raw"
-        let isProResRAW = (codec?.contains("prores") == true && codec?.contains("raw") == true) ||
-                         (codec == "prores" && profile?.contains("raw") == true) ||
-                         (codecLongName?.contains("prores") == true && codecLongName?.contains("raw") == true)
-        
-        if bitDepth >= 10 || isProResRAW {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Screenshots").debug("Screenshot format detection - codec: \(codec ?? "nil", privacy: .public), profile: \(profile ?? "nil", privacy: .public), codecLongName: \(codecLongName ?? "nil", privacy: .public), bitDepth: \(bitDepth), isProResRAW: \(isProResRAW)")
-        }
-
-        var isHDR = metadataIndicatesHDR
-
-        if !isHDR {
-            if isProResRAW {
-                isHDR = true
-            } else if bitDepth >= 10 {
-                let primariesMissing = isMissingColorMetadata(stream.colorPrimaries)
-                let transferMissing = isMissingColorMetadata(stream.colorTransfer)
-                if primariesMissing && transferMissing {
-                    isHDR = true
-                }
-            }
-        }
-
-        if isHDR {
-            if isProResRAW {
+        case .jpegXL:
+            if bitDepth > 8 {
                 return ScreenshotParameters(
-                    fileExtension: "png",
-                    codecArguments: [
-                        "-c:v", "png",
-                        "-compression_level", "1"
-                    ],
-                    pixelFormat: "rgb48be"
+                    fileExtension: "jxl",
+                    codecArguments: ["-c:v", "libjxl", "-distance", "0.5", "-effort", "7"],
+                    pixelFormat: hasAlpha ? "rgba64le" : "rgb48le"
+                )
+            } else {
+                return ScreenshotParameters(
+                    fileExtension: "jxl",
+                    codecArguments: ["-c:v", "libjxl", "-distance", "0.5", "-effort", "7"],
+                    pixelFormat: hasAlpha ? "rgba" : "rgb24"
                 )
             }
-            
-            let pixelFormat: String
-            if bitDepth >= 12 {
-                pixelFormat = "yuv420p12le"
+
+        case .avif:
+            // AVIF does not support alpha in this encoder
+            if bitDepth > 8 {
+                return ScreenshotParameters(
+                    fileExtension: "avif",
+                    codecArguments: [
+                        "-c:v", "libsvtav1",
+                        "-preset", "12",
+                        "-crf", "35",
+                        "-svtav1-params", "fast-decode=1:enable-overlays=0"
+                    ],
+                    pixelFormat: bitDepth > 10 ? "yuv444p12le" : "yuv420p10le"
+                )
             } else {
-                pixelFormat = "yuv420p10le"
+                return ScreenshotParameters(
+                    fileExtension: "avif",
+                    codecArguments: [
+                        "-c:v", "libsvtav1",
+                        "-preset", "12",
+                        "-crf", "35",
+                        "-svtav1-params", "fast-decode=1:enable-overlays=0"
+                    ],
+                    pixelFormat: "yuv420p"
+                )
             }
 
-            return ScreenshotParameters(
-                fileExtension: "avif",
-                codecArguments: [
-                    "-c:v", "libsvtav1",
-                    "-pix_fmt", pixelFormat,
-                    "-preset", "12",
-                    "-crf", "35",
-                    "-svtav1-params", "fast-decode=1:enable-overlays=0"
-                ],
-                pixelFormat: nil
-            )
-        }
+        case .png:
+            if bitDepth > 8 {
+                return ScreenshotParameters(
+                    fileExtension: "png",
+                    codecArguments: ["-c:v", "png", "-compression_level", "1"],
+                    pixelFormat: hasAlpha ? "rgba64be" : "rgb48be"
+                )
+            } else {
+                return ScreenshotParameters(
+                    fileExtension: "png",
+                    codecArguments: ["-c:v", "png", "-compression_level", "1"],
+                    pixelFormat: hasAlpha ? "rgba" : "rgb24"
+                )
+            }
 
-        return ScreenshotParameters(
-            fileExtension: "jpg",
-            codecArguments: ["-c:v", "mjpeg", "-q:v", "1"],
-            pixelFormat: "yuvj444p"
-        )
+        case .tiff:
+            if bitDepth > 8 {
+                return ScreenshotParameters(
+                    fileExtension: "tiff",
+                    codecArguments: ["-c:v", "tiff"],
+                    pixelFormat: hasAlpha ? "rgba64le" : "rgb48le"
+                )
+            } else {
+                return ScreenshotParameters(
+                    fileExtension: "tiff",
+                    codecArguments: ["-c:v", "tiff"],
+                    pixelFormat: hasAlpha ? "rgba" : "rgb24"
+                )
+            }
+        }
     }
     
     // MARK: - Color Metadata Helpers

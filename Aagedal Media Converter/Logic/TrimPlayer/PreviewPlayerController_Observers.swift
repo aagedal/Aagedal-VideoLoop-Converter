@@ -40,8 +40,49 @@ extension PreviewPlayerController {
         }
     }
 
-    func applyLoopSetting() {
+    private func updateLoopBehavior() {
+        // VLC loop not yet implemented - will need playback end notification
+        guard videoItem.loopPlayback, let player else { return }
+        player.actionAtItemEnd = .none
+    }
+    
+    func updatePlayerActionAtEnd() {
+        // VLC loop is handled via installVLCTrimObserver
         player?.actionAtItemEnd = videoItem.loopPlayback ? .none : .pause
+    }
+    
+    // MARK: - VLC Trim Observer
+    
+    func installVLCTrimObserver() {
+        removeVLCTrimObserver()
+        
+        guard useVLC, vlcPlayer != nil else { return }
+        
+        // Check playback position every 0.1 seconds
+        vlcTrimObserverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let vlc = self.vlcPlayer else { return }
+                
+                // Only loop if actually playing (not paused)
+                guard vlc.isPlaying else { return }
+                guard self.videoItem.loopPlayback else { return }
+                
+                let currentTime = vlc.timePos
+                let trimStart = self.videoItem.effectiveTrimStart
+                let trimEnd = self.videoItem.effectiveTrimEnd
+                let tolerance = 0.05
+                
+                // If we've reached the end trim, seek back to start
+                if currentTime >= trimEnd - tolerance {
+                    vlc.seek(to: trimStart)
+                }
+            }
+        }
+    }
+    
+    func removeVLCTrimObserver() {
+        vlcTrimObserverTimer?.invalidate()
+        vlcTrimObserverTimer = nil
     }
     
     // MARK: - Time Observer (Trim Boundaries)
@@ -309,7 +350,25 @@ extension PreviewPlayerController {
                         }
                     }
                     
-                    self.fallbackToPreview(startTime: startTime)
+                    // Check if we should use chunk fallback (e.g. for APV, VVC) or VLC
+                    let codec = self.videoItem.metadata?.videoStream?.codec?.lowercased() ?? ""
+                    let codecLong = self.videoItem.metadata?.videoStream?.codecLongName?.lowercased() ?? ""
+
+                    if codec.contains("apv") || codecLong.contains("advanced professional video") {
+                        logger.info("AVPlayer failed and codec is APV. Attempting Chunk Fallback.")
+                        self.teardown(resetAudioSelection: false)
+                        self.fallbackToPreview(startTime: startTime)
+                    } else if codec.contains("vvc") || codec == "h266" || codecLong.contains("vvc") || codecLong.contains("h.266") {
+                        // VVC/H.266 uses chunk-based fallback (FFMPEG can decode VVC for chunks)
+                        logger.info("AVPlayer failed and codec is VVC/H.266. Attempting Chunk Fallback.")
+                        self.teardown(resetAudioSelection: false)
+                        self.fallbackToPreview(startTime: startTime)
+                    } else {
+                        // Try VLC for everything else
+                        logger.info("Attempting VLC playback as fallback")
+                        self.teardown(resetAudioSelection: false)
+                        self.setupVLC(url: self.videoItem.url, startTime: startTime)
+                    }
                     
                 case .readyToPlay:
                     let asset = item.asset
@@ -330,8 +389,9 @@ extension PreviewPlayerController {
                                 }
                                 
                                 if !hasValidVideoFormat {
-                                    logger.warning("AVPlayer ready but video format invalid. Preparing MP4 fallback preview.")
-                                    self.fallbackToPreview(startTime: startTime)
+                                    logger.warning("AVPlayer ready but video format invalid. Attempting VLC playback.")
+                                    self.teardown(resetAudioSelection: false)
+                                    self.setupVLC(url: self.videoItem.url, startTime: startTime)
                                     return
                                 }
                                 
@@ -357,9 +417,18 @@ extension PreviewPlayerController {
                                         logger.debug("Video codec detected: '\(codecString)' (raw: \(codec))")
                                         
                                         // Check for truly unsupported codecs
-                                        // Only APV codecs are unsupported - all ProRes variants work with AVPlayer
+                                        // APV codecs use chunk fallback, VVC and other unsupported codecs use VLC
                                         if codecString == "apv1" || codecString == "apvx" {
-                                            logger.warning("AVPlayer ready but codec '\(codecString)' unsupported. Preparing MP4 fallback preview.")
+                                            logger.warning("AVPlayer ready but codec '\(codecString)' unsupported. Attempting Chunk Fallback.")
+                                            self.teardown(resetAudioSelection: false)
+                                            self.fallbackToPreview(startTime: startTime)
+                                            return
+                                        }
+
+                                        // VVC (H.266) uses chunk-based fallback like APV (FFMPEG can decode it)
+                                        if codecString == "vvc1" || codecString == "vvi1" {
+                                            logger.warning("AVPlayer ready but codec '\(codecString)' (VVC/H.266) not supported. Attempting Chunk Fallback.")
+                                            self.teardown(resetAudioSelection: false)
                                             self.fallbackToPreview(startTime: startTime)
                                             return
                                         }
@@ -369,6 +438,9 @@ extension PreviewPlayerController {
                             
                             // Direct playback successful
                             logger.debug("Direct AVPlayer playback ready")
+                            
+                            // Apply audio track selection now that tracks are loaded
+                            self.applySelectedAudioTrack()
                             
                         } catch {
                             // If we can't load tracks, assume it's okay and let AVPlayer try
