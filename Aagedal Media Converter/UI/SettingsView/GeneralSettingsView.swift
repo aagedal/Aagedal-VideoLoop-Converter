@@ -8,6 +8,9 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path
+    @AppStorage(AppConstants.includeDateTagPreferenceKey) private var includeDateTagByDefault = false
+    @AppStorage(AppConstants.preserveMetadataPreferenceKey) private var preserveMetadataByDefault = false
+    @AppStorage(AppConstants.enableFileNameProcessingKey) private var enableFileNameProcessing = true
     @AppStorage(AppConstants.screenshotDirectoryKey) private var screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
     @AppStorage(AppConstants.previewCacheCleanupPolicyKey) private var previewCacheCleanupPolicyRaw = AppConstants.defaultPreviewCacheCleanupPolicyRaw
     @AppStorage(AppConstants.screenshot8BitFormatKey) private var screenshot8BitFormat = AppConstants.defaultScreenshotFormat
@@ -21,6 +24,7 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             outputFolderSection
+            fileNameSection
             screenshotSection
             previewCacheSection
             linksSection
@@ -80,7 +84,20 @@ struct GeneralSettingsView: View {
         }
     }
 
-
+    private var fileNameSection: some View {
+        Section(header: Text("File Names")) {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Enable filename processing", isOn: $enableFileNameProcessing)
+                    .toggleStyle(SwitchToggleStyle())
+                    .help("When enabled, spaces and special characters in filenames are sanitized")
+                Text("When enabled, output filenames will be processed to replace spaces with underscores, convert Scandinavian characters (æ, ø, å) to ASCII equivalents, and remove special characters. When disabled, original filenames are preserved as-is.")
+                    .font(Font.caption.italic())
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(8)
+        }
+    }
 
     private var screenshotSection: some View {
         Section(header: Text("Screenshots")) {
