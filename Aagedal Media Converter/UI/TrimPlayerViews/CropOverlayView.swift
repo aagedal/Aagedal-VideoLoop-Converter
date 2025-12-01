@@ -261,13 +261,17 @@ struct CropOverlayView: View {
         }
     }
 
-    /// Converts normalized crop rect (0-1) to screen coordinates within video frame
+    /// Converts normalized crop rect (0-1 in source pixel space) to screen coordinates within video frame
     private func normalizedToScreen(_ rect: CropRect, videoFrame: CGRect) -> CGRect {
-        CGRect(
-            x: videoFrame.origin.x + rect.x * videoFrame.width,
-            y: videoFrame.origin.y + rect.y * videoFrame.height,
-            width: rect.width * videoFrame.width,
-            height: rect.height * videoFrame.height
+        // Scale factors from source pixel space to display space
+        let scaleX = videoFrame.width / Double(sourceWidth)
+        let scaleY = videoFrame.height / Double(sourceHeight)
+
+        return CGRect(
+            x: videoFrame.origin.x + rect.x * Double(sourceWidth) * scaleX,
+            y: videoFrame.origin.y + rect.y * Double(sourceHeight) * scaleY,
+            width: rect.width * Double(sourceWidth) * scaleX,
+            height: rect.height * Double(sourceHeight) * scaleY
         )
     }
 
