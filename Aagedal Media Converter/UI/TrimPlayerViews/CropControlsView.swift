@@ -72,46 +72,80 @@ struct CropControlsView: View {
                         var config = configBinding.wrappedValue
                         config.aspectRatioLock = newRatio == .free ? nil : newRatio
 
-                        // If not free, adjust the rectangle to match the aspect ratio
-                        if let targetRatio = newRatio.numericRatio {
-                            var rect = config.normalizedRect
+                         // If not free, adjust the rectangle to match the aspect ratio
+                         if let targetRatio = newRatio.numericRatio {
+                             var rect = config.normalizedRect
 
-                            // Calculate center point to maintain position
-                            let centerX = rect.x + rect.width / 2
-                            let centerY = rect.y + rect.height / 2
+                             // Calculate center point to maintain position
+                             let centerX = rect.x + rect.width / 2
+                             let centerY = rect.y + rect.height / 2
 
-                            // Convert target aspect ratio from pixel space to normalized space
-                            // Normalized coords are fraction of source dimensions
-                            // To maintain pixel aspect ratio, we must account for source aspect
-                            let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
-                            let normalizedTargetRatio = targetRatio / sourceAspect
+                             // Convert target aspect ratio from pixel space to normalized space
+                             // Normalized coords are fraction of source dimensions
+                             // To maintain pixel aspect ratio, we must account for source aspect
+                             let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
+                             let normalizedTargetRatio = targetRatio / sourceAspect
 
-                            // Try to keep the same area, adjust both dimensions to match ratio
-                            let area = rect.width * rect.height
-                            // area = w * h, and w/h = normalizedTargetRatio, so w = h * normalizedTargetRatio
-                            // area = h * normalizedTargetRatio * h = h^2 * normalizedTargetRatio
-                            // h = sqrt(area / normalizedTargetRatio)
-                            var newHeight = sqrt(area / normalizedTargetRatio)
-                            var newWidth = newHeight * normalizedTargetRatio
+                             // Calculate maximum rectangle that fits aspect ratio within bounds
+                             // Start with current area, but ensure it fits within 1.0 x 1.0 bounds
+                             let area = min(rect.width * rect.height, 1.0 * 1.0)
 
-                            // Clamp to bounds
-                            if newWidth > 1.0 {
-                                newWidth = 1.0
-                                newHeight = newWidth / targetRatio
-                            }
-                            if newHeight > 1.0 {
-                                newHeight = 1.0
-                                newWidth = newHeight * targetRatio
-                            }
+                             // Calculate dimensions that maintain aspect ratio and fit within bounds
+                             var newWidth: Double
+                             var newHeight: Double
 
-                            // Position centered on previous center
-                            rect.width = newWidth
-                            rect.height = newHeight
-                            rect.x = max(0, min(1.0 - rect.width, centerX - rect.width / 2))
-                            rect.y = max(0, min(1.0 - rect.height, centerY - rect.height / 2))
+                             // Try to fit rectangle with target aspect ratio within full frame
+                             if normalizedTargetRatio >= 1.0 {
+                                 // Wider than tall: fit width to 1.0, scale height accordingly
+                                 newWidth = 1.0
+                                 newHeight = newWidth / normalizedTargetRatio
+                                 if newHeight > 1.0 {
+                                     // If height still exceeds, scale down proportionally
+                                     newHeight = 1.0
+                                     newWidth = newHeight * normalizedTargetRatio
+                                 }
+                             } else {
+                                 // Taller than wide: fit height to 1.0, scale width accordingly
+                                 newHeight = 1.0
+                                 newWidth = newHeight * normalizedTargetRatio
+                                 if newWidth > 1.0 {
+                                     // If width still exceeds, scale down proportionally
+                                     newWidth = 1.0
+                                     newHeight = newWidth / normalizedTargetRatio
+                                 }
+                             }
 
-                            config.normalizedRect = rect
-                        }
+                             // If the calculated rectangle is smaller than we'd like, try to make it larger
+                             // while maintaining aspect ratio and staying within bounds
+                             let maxPossibleWidth = 1.0
+                             let maxPossibleHeight = 1.0
+
+                             if normalizedTargetRatio >= 1.0 {
+                                 // For wide ratios, maximize width first
+                                 newWidth = min(maxPossibleWidth, sqrt(area * normalizedTargetRatio))
+                                 newHeight = newWidth / normalizedTargetRatio
+                                 if newHeight > maxPossibleHeight {
+                                     newHeight = maxPossibleHeight
+                                     newWidth = newHeight * normalizedTargetRatio
+                                 }
+                             } else {
+                                 // For tall ratios, maximize height first
+                                 newHeight = min(maxPossibleHeight, sqrt(area / normalizedTargetRatio))
+                                 newWidth = newHeight * normalizedTargetRatio
+                                 if newWidth > maxPossibleWidth {
+                                     newWidth = maxPossibleWidth
+                                     newHeight = newWidth / normalizedTargetRatio
+                                 }
+                             }
+
+                             // Position to maintain center as much as possible, but ensure it fits
+                             rect.width = newWidth
+                             rect.height = newHeight
+                             rect.x = max(0, min(1.0 - rect.width, centerX - rect.width / 2))
+                             rect.y = max(0, min(1.0 - rect.height, centerY - rect.height / 2))
+
+                             config.normalizedRect = rect
+                         }
 
                         configBinding.wrappedValue = config
                         updatePixelInputsFromConfig()
