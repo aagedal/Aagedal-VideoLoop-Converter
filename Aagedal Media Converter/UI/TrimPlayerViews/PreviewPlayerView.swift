@@ -74,7 +74,19 @@ struct PreviewPlayerView: View {
             controller.isAudioMeterEnabled.toggle()
         }))
         .onAppear {
-            controller.preparePreview(startTime: item.effectiveTrimStart)
+            // Ensure metadata is loaded before preparing preview
+            Task {
+                if item.metadata == nil {
+                    if let metadata = await VideoFileUtils.fetchMetadata(for: item.url) {
+                        await MainActor.run {
+                            item.metadata = metadata
+                        }
+                    }
+                }
+                await MainActor.run {
+                    controller.preparePreview(startTime: item.effectiveTrimStart)
+                }
+            }
         }
         .onDisappear {
             Task { @MainActor in controller.teardown() }
@@ -161,19 +173,6 @@ struct PreviewPlayerView: View {
         controller.refreshPreviewForTrim()
     }
 
-    private func formattedTime(_ seconds: Double) -> String {
-        guard seconds.isFinite else { return "--:--" }
-        let totalSeconds = Int(seconds.rounded())
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let secs = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        } else {
-            return String(format: "%02d:%02d", minutes, secs)
-        }
-    }
-    
     private func handleTrimInPoint(clearToStart: Bool) {
         if clearToStart {
             // Option+I: Clear trim start (set to beginning)

@@ -310,13 +310,21 @@ struct VideoFileRowView: View {
 
     @ViewBuilder
     private var timecodeBadge: some View {
-        if let timecodeConfig = file.timecodeConfig, timecodeConfig.isActive {
+        if let timecodeConfig = file.timecodeConfig {
             switch timecodeConfig.mode {
             case .manual:
                 badgeView(icon: "timer", text: "Manual")
             case .preserveSource:
-                badgeView(icon: "timer", text: "Source")
+                // Show different badge if source has timecode vs doesn't
+                if file.metadata?.timecode != nil {
+                    badgeView(icon: "timer", text: "Source")
+                } else {
+                    badgeView(icon: "timer", text: "No TC")
+                }
             }
+        } else {
+            // No config = disabled
+            badgeView(icon: "timer", text: "No TC")
         }
     }
 

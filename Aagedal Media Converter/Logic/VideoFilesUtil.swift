@@ -47,6 +47,9 @@ struct VideoFileUtils: Sendable {
 
         let waveformEnabledDefault = UserDefaults.standard.bool(forKey: AppConstants.audioWaveformVideoDefaultEnabledKey)
 
+        // Initialize timecode config based on user defaults
+        let defaultTimecodeConfig = getDefaultTimecodeConfig()
+
         let placeholder = VideoItem(
             url: url,
             name: name,
@@ -62,10 +65,26 @@ struct VideoFileUtils: Sendable {
             includeDateTag: includeDateTagByDefault,
             metadata: nil,
             detailsLoaded: false,
-            waveformVideoEnabled: waveformEnabledDefault
+            waveformVideoEnabled: waveformEnabledDefault,
+            timecodeConfig: defaultTimecodeConfig
         )
 
         return placeholder
+    }
+
+    /// Get the default timecode configuration from user preferences
+    static func getDefaultTimecodeConfig() -> TimecodeConfig? {
+        let defaultModeRaw = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeModeKey) ?? AppConstants.defaultTimecodeModeRaw
+        let defaultValue = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeValueKey) ?? AppConstants.defaultTimecodeValue
+
+        switch defaultModeRaw {
+        case "preserveSource":
+            return TimecodeConfig(mode: .preserveSource)
+        case "manual":
+            return TimecodeConfig(mode: .manual(defaultValue))
+        default: // "disabled"
+            return nil
+        }
     }
 
     static func loadDetails(for url: URL, outputFolder: String? = nil, preset: ExportPreset = .videoLoop) async -> VideoItemDetails {
