@@ -580,6 +580,32 @@ struct VideoItem: Identifiable, Equatable, Sendable {
         return FileManager.default.fileExists(atPath: outputURL.path)
     }
 
+    /// Size of the output file in bytes, or nil if the file doesn't exist
+    var outputFileSize: Int64? {
+        guard let outputURL = outputURL else { return nil }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: outputURL.path) else {
+            return nil
+        }
+        return attrs[.size] as? Int64
+    }
+
+    /// Human-readable output file size string
+    var formattedOutputSize: String? {
+        guard let bytes = outputFileSize else { return nil }
+        let kb = 1024.0
+        let mb = kb * 1024
+        let gb = mb * 1024
+        let bytesDouble = Double(bytes)
+
+        if bytesDouble < mb {
+            return String(format: "%.0f KB", bytesDouble / kb)
+        } else if bytesDouble < 600 * mb {
+            return String(format: "%.1f MB", bytesDouble / mb)
+        } else {
+            return String(format: "%.1f GB", bytesDouble / gb)
+        }
+    }
+
     var requiresWaveformVideo: Bool {
         !hasVideoStream && waveformVideoEnabled
     }

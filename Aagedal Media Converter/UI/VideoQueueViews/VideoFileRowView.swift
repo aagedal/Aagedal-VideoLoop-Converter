@@ -144,11 +144,19 @@ struct VideoFileRowView: View {
                             
                             Text("•")
                                 .foregroundColor(.gray)
-                            
+
                             Text("Input Size: \(file.formattedSize)")
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
-                                
+
+                            if file.status == .done, let exportSize = file.formattedOutputSize {
+                                Text("•")
+                                    .foregroundColor(.gray)
+                                Text("Export Size: \(exportSize)")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                            }
+
                             if file.status == .waiting && file.outputFileExists {
                                 Text("•")
                                     .foregroundColor(.gray)
