@@ -60,7 +60,7 @@ struct PreviewTrimControls: View {
     private var controlButtons: some View {
         HStack(spacing: 12) {
             Button(action: { controller.seekTo(item.effectiveTrimStart) }) {
-                Label("\(formattedTime(item.effectiveTrimStart))", systemImage: "arrow.left.to.line")
+                Label("\(TimecodeFormatter.formatTimeForDisplay(seconds: item.effectiveTrimStart, item: item))", systemImage: "arrow.left.to.line")
             }
             .buttonStyle(.plain)
             .font(.system(.subheadline, design: .monospaced))
@@ -68,14 +68,14 @@ struct PreviewTrimControls: View {
             .help("Jump to trim start")
 
             HStack {
-                Label("\(formattedTime(currentPlaybackTime))", systemImage: "arrowtriangle.left.and.line.vertical.and.arrowtriangle.right")
+                Label("\(TimecodeFormatter.formatTimeForDisplay(seconds: currentPlaybackTime, item: item))", systemImage: "arrowtriangle.left.and.line.vertical.and.arrowtriangle.right")
                     .font(.system(.subheadline, design: .monospaced))
                     .padding(0)
             }
             .padding(.horizontal, 30)
 
             Button(action: { controller.seekTo(item.effectiveTrimEnd) }) {
-                Label("\(formattedTime(item.effectiveTrimEnd))", systemImage: "arrow.right.to.line")
+                Label("\(TimecodeFormatter.formatTimeForDisplay(seconds: item.effectiveTrimEnd, item: item, isOutPoint: true))", systemImage: "arrow.right.to.line")
                     .labelStyle(.trailingIcon)
             }
             .buttonStyle(.plain)
@@ -194,18 +194,5 @@ struct PreviewTrimControls: View {
         .menuStyle(.borderlessButton)
         .disabled(controller.audioTrackOptions.count <= 1)
         .help(controller.audioTrackOptions.isEmpty ? "No alternate audio tracks" : "Select audio track")
-    }
-
-    private func formattedTime(_ seconds: Double) -> String {
-        guard seconds.isFinite else { return "--:--" }
-        let totalSeconds = Int(seconds.rounded())
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let secs = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        } else {
-            return String(format: "%02d:%02d", minutes, secs)
-        }
     }
 }

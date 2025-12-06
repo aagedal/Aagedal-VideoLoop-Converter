@@ -36,6 +36,17 @@ struct DragAndDropView: NSViewRepresentable {
                                 parent.droppedFiles.append(videoItem)
                             }
                         }
+
+                        // Fetch metadata asynchronously
+                        Task(priority: .utility) {
+                            if let metadata = await VideoFileUtils.fetchMetadata(for: url) {
+                                await MainActor.run {
+                                    if let index = parent.droppedFiles.firstIndex(where: { $0.id == videoItem.id }) {
+                                        parent.droppedFiles[index].metadata = metadata
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         print("Skipping unsupported file: \(url.lastPathComponent)")
                     }
