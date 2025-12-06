@@ -48,10 +48,10 @@ struct PreviewPlayerFooter: View {
 
     private var durationDetails: some View {
         HStack(spacing: 4) {
-            Text("Input Duration: \(item.duration)")
+            Text("Input Duration: \(TimecodeFormatter.formatTimeForDisplay(seconds: item.durationSeconds, item: item, isDuration: true))")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-            Text("| Trimmed duration: \(formattedTime(item.trimmedDuration))")
+            Text("| Trimmed duration: \(TimecodeFormatter.formatTimeForDisplay(seconds: item.trimmedDuration, item: item, isDuration: true))")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
@@ -68,18 +68,5 @@ struct PreviewPlayerFooter: View {
             }
         }
         .multilineTextAlignment(.leading)
-    }
-
-    private func formattedTime(_ seconds: Double) -> String {
-        guard seconds.isFinite else { return "--:--" }
-        let totalSeconds = Int(seconds.rounded())
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let secs = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        } else {
-            return String(format: "%02d:%02d", minutes, secs)
-        }
     }
 }

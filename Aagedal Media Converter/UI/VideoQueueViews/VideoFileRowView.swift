@@ -133,7 +133,7 @@ struct VideoFileRowView: View {
                         
                         // Metadata
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("Duration: \(file.duration)")
+                            Text("Duration: \(TimecodeFormatter.formatTimeForDisplay(seconds: file.durationSeconds, item: file, isDuration: true))")
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
                             if showDurationWarning {
@@ -304,7 +304,7 @@ struct VideoFileRowView: View {
     @ViewBuilder
     private var trimBadge: some View {
         if file.trimStart != nil || file.trimEnd != nil {
-            badgeView(icon: "scissors", text: formattedTime(file.trimmedDuration))
+            badgeView(icon: "scissors", text: TimecodeFormatter.formatTimeForDisplay(seconds: file.trimmedDuration, item: file, isDuration: true))
         }
     }
 
@@ -706,19 +706,6 @@ struct VideoFileRowView: View {
                 provider.suggestedName = outputURL.lastPathComponent
                 return provider
             }
-    }
-    
-    private func formattedTime(_ seconds: Double) -> String {
-        guard seconds.isFinite else { return "--:--" }
-        let totalSeconds = Int(seconds.rounded())
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let secs = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        } else {
-            return String(format: "%02d:%02d", minutes, secs)
-        }
     }
 }
 
