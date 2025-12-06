@@ -133,10 +133,11 @@ struct TimecodeFormatter {
     ///   - seconds: Time in seconds
     ///   - item: Video item to get timecode configuration from
     ///   - isOutPoint: If true, adds one frame to make the display inclusive
+    ///   - isDuration: If true, displays as duration (length) without start timecode offset
     /// - Returns: Formatted time string in timecode format
-    static func formatTimeForDisplay(seconds: Double, item: VideoItem, isOutPoint: Bool = false) -> String {
+    static func formatTimeForDisplay(seconds: Double, item: VideoItem, isOutPoint: Bool = false, isDuration: Bool = false) -> String {
         // Always use timecode format in trim player
-        let startTC = effectiveStartTimecode(for: item)
+        let startTC = isDuration ? nil : effectiveStartTimecode(for: item)
         let frameRate = effectiveFrameRate(for: item)
         let useDropFrame = startTC?.contains(";") ?? false
 

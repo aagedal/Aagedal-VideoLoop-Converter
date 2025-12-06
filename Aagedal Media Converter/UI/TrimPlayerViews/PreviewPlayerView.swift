@@ -19,6 +19,8 @@ struct PreviewPlayerView: View {
     @State private var currentPlaybackTime: Double = 0
     @State private var showsPlaybackControls: Bool = false
     @State private var isCropControlsExpanded: Bool = false
+    @State private var timecodeActivationTrigger: String?
+    @State private var isEditingTimecode: Bool = false
 
     init(item: Binding<VideoItem>) {
         self._item = item
@@ -54,7 +56,9 @@ struct PreviewPlayerView: View {
                 trimStartBinding: trimStartBinding,
                 trimEndBinding: trimEndBinding,
                 onTrimEditingChanged: handleTrimEditingChanged,
-                loopBinding: loopBinding
+                loopBinding: loopBinding,
+                timecodeActivationTrigger: $timecodeActivationTrigger,
+                isEditingTimecode: $isEditingTimecode
             )
             .transition(.opacity)
 
@@ -231,11 +235,22 @@ struct PreviewPlayerView: View {
         }
 
         let lowerKey = key.lowercased()
-        
+
         // Space to toggle playback
         if key == " " {
             controller.togglePlayback()
             return true
+        }
+
+        // Check for number keys, +, -, ., : to activate timecode input (only if no modifiers and not already editing)
+        let noModifiers = modifiers.intersection([.command, .option, .control, .shift]).isEmpty
+        if noModifiers && !isEditingTimecode {
+            let isNumberOrTimecodeChar = key.rangeOfCharacter(from: CharacterSet(charactersIn: "0123456789+-.:;")) != nil
+            if isNumberOrTimecodeChar {
+                // Activate timecode input with this character
+                timecodeActivationTrigger = key
+                return true
+            }
         }
 
         if modifiers.contains(.command) {
