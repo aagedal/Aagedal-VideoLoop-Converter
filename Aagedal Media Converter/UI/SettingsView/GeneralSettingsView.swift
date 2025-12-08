@@ -238,6 +238,11 @@ struct GeneralSettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Button {
+                        NSWorkspace.shared.open(AppConstants.previewCacheDirectory)
+                    } label: {
+                        Label("Show in Finder", systemImage: "folder")
+                    }
+                    Button {
                         isClearingPreviewCache = true
                         Task {
                             await PreviewAssetGenerator.shared.cleanupAllCache()

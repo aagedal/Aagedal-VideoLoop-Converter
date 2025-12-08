@@ -73,8 +73,8 @@ final class PreviewPlayerController: ObservableObject {
     @Published var isCropEnabled: Bool = false
 
     // MARK: - Configuration
-    
-    let chunkDuration: TimeInterval = 5.0
+
+    let chunkDuration: TimeInterval = 2.0
     let previewMaxShortEdge: Int = 720
     var currentChunkIndex: Int = 0
     var chunkDurations: [Int: TimeInterval] = [:]
@@ -424,9 +424,10 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func seek(by seconds: Double) {
-        let currentTime = getCurrentTime() ?? videoItem.effectiveTrimStart
+        let currentTime = getCurrentTime() ?? 0
         let newTime = currentTime + seconds
-        seekTo(max(videoItem.effectiveTrimStart, min(newTime, videoItem.effectiveTrimEnd)))
+        // Allow seeking anywhere in the video, not just within trim range
+        seekTo(max(0, min(newTime, videoItem.durationSeconds)))
     }
     
     func seekByFrames(_ frameCount: Int) {
