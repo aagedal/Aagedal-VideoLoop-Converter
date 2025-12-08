@@ -55,26 +55,29 @@ extension PreviewPlayerController {
     
     func installVLCTrimObserver() {
         removeVLCTrimObserver()
-        
+
         guard useVLC, vlcPlayer != nil else { return }
-        
+
         // Check playback position every 0.1 seconds
         vlcTrimObserverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, let vlc = self.vlcPlayer else { return }
-                
-                // Only loop if actually playing (not paused)
-                guard vlc.isPlaying else { return }
+
+                // Only loop if loopPlayback is enabled
                 guard self.videoItem.loopPlayback else { return }
-                
+
                 let currentTime = vlc.timePos
                 let trimStart = self.videoItem.effectiveTrimStart
                 let trimEnd = self.videoItem.effectiveTrimEnd
                 let tolerance = 0.05
-                
-                // If we've reached the end trim, seek back to start
+
+                // If we've reached the end trim, seek back to start and continue playing
                 if currentTime >= trimEnd - tolerance {
+                    let wasPlaying = vlc.isPlaying
                     vlc.seek(to: trimStart)
+                    if wasPlaying {
+                        vlc.play()
+                    }
                 }
             }
         }
@@ -100,34 +103,52 @@ extension PreviewPlayerController {
                 // For composition-based fallback, still enforce trim boundaries if looping
                 if self.usePreviewFallback, self.composition != nil {
                     let currentTime = time.seconds
-                    
+
                     // Enforce trim boundaries when looping is enabled
                     guard self.videoItem.loopPlayback else { return }
-                    
+
                     let trimStart = self.videoItem.effectiveTrimStart
                     let trimEnd = self.videoItem.effectiveTrimEnd
                     let tolerance = 0.05
-                    
+
                     // Keep playback within trim boundaries
                     if currentTime < trimStart - tolerance {
                         // Before trim start - load correct chunk and seek
                         let targetChunk = Int(trimStart / self.chunkDuration)
+                        let wasPlaying = (self.player?.rate ?? 0) > 0
                         if targetChunk != self.currentChunkIndex {
                             self.loadChunkForTime(trimStart)
+                            if wasPlaying {
+                                self.player?.play()
+                            }
                         } else {
                             let startTime = CMTime(seconds: trimStart, preferredTimescale: 600)
-                            self.player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                            self.player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+                                guard finished && wasPlaying else { return }
+                                Task { @MainActor [weak self] in
+                                    self?.player?.play()
+                                }
+                            }
                         }
                     } else if currentTime >= trimEnd - tolerance {
                         // At trim end - loop back to trim start
                         let targetChunk = Int(trimStart / self.chunkDuration)
+                        let wasPlaying = (self.player?.rate ?? 0) > 0
                         if targetChunk != self.currentChunkIndex {
                             // Need to load different chunk for trim start
                             self.loadChunkForTime(trimStart)
+                            if wasPlaying {
+                                self.player?.play()
+                            }
                         } else {
-                            // Same chunk - just seek
+                            // Same chunk - just seek and continue playing
                             let startTime = CMTime(seconds: trimStart, preferredTimescale: 600)
-                            self.player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                            self.player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+                                guard finished && wasPlaying else { return }
+                                Task { @MainActor [weak self] in
+                                    self?.player?.play()
+                                }
+                            }
                         }
                     }
                     return

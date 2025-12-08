@@ -190,7 +190,8 @@ struct PreviewTrimControls: View {
                     .labelStyle(.iconOnly)
             }
             .toggleStyle(.button)
-            .help("Loop playback (⌘L)")
+            .disabled(isLoopDisabled)
+            .help(loopButtonTooltip)
 
             Button(action: onReset) {
                 Label("Reset", systemImage: "arrow.counterclockwise")
@@ -507,6 +508,21 @@ struct PreviewTrimControls: View {
             let totalSeconds = Double(hours * 3600 + minutes * 60 + seconds)
             let frameSeconds = Double(frames) / frameRate
             return totalSeconds + frameSeconds
+        }
+    }
+
+    // MARK: - Helper Properties
+
+    private var isLoopDisabled: Bool {
+        // Disable loop when using fallback preview modes (VLC or chunk-based)
+        controller.useVLC || controller.usePreviewFallback
+    }
+
+    private var loopButtonTooltip: String {
+        if isLoopDisabled {
+            return "Loop is not available for this video format"
+        } else {
+            return "Loop playback (⌘L)"
         }
     }
 }

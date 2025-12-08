@@ -183,15 +183,15 @@ struct PreviewPlayerView: View {
             item.trimStart = nil
         } else {
             // I: Set trim start to current playback position
-            if let currentTime = controller.getCurrentTime() {
-                let duration = max(item.durationSeconds, 0)
-                let clamped = max(0, min(currentTime, duration))
-                // Only set if it's not at the very start
-                item.trimStart = clamped <= 0.05 ? nil : clamped
-                // Ensure trim end is after trim start
-                if let end = item.trimEnd, end < item.effectiveTrimStart {
-                    item.trimEnd = item.trimStart
-                }
+            // Use currentPlaybackTime directly instead of getCurrentTime() to work during preparation
+            let currentTime = currentPlaybackTime
+            let duration = max(item.durationSeconds, 0)
+            let clamped = max(0, min(currentTime, duration))
+            // Only set if it's not at the very start
+            item.trimStart = clamped <= 0.05 ? nil : clamped
+            // Ensure trim end is after trim start
+            if let end = item.trimEnd, end < item.effectiveTrimStart {
+                item.trimEnd = item.trimStart
             }
         }
     }
@@ -202,17 +202,17 @@ struct PreviewPlayerView: View {
             item.trimEnd = nil
         } else {
             // O: Set trim end to current playback position
-            if let currentTime = controller.getCurrentTime() {
-                let duration = max(item.durationSeconds, 0)
-                let clamped = max(0, min(currentTime, duration))
-                let minEnd = item.effectiveTrimStart
-                let sanitizedValue = max(clamped, minEnd)
-                // Only set if it's not at the very end
-                if sanitizedValue >= duration - 0.05 {
-                    item.trimEnd = nil
-                } else {
-                    item.trimEnd = sanitizedValue
-                }
+            // Use currentPlaybackTime directly instead of getCurrentTime() to work during preparation
+            let currentTime = currentPlaybackTime
+            let duration = max(item.durationSeconds, 0)
+            let clamped = max(0, min(currentTime, duration))
+            let minEnd = item.effectiveTrimStart
+            let sanitizedValue = max(clamped, minEnd)
+            // Only set if it's not at the very end
+            if sanitizedValue >= duration - 0.05 {
+                item.trimEnd = nil
+            } else {
+                item.trimEnd = sanitizedValue
             }
         }
     }
@@ -256,7 +256,10 @@ struct PreviewPlayerView: View {
         if modifiers.contains(.command) {
             switch lowerKey {
             case "l":
-                item.loopPlayback.toggle()
+                // Only allow loop toggle when not in fallback mode
+                if !controller.useVLC && !controller.usePreviewFallback {
+                    item.loopPlayback.toggle()
+                }
                 return true
             case "f":
                 controller.toggleFullscreen()
