@@ -37,6 +37,11 @@ struct CropControlsView: View {
         item.metadata?.videoStream?.height ?? 1080
     }
 
+    /// The video's display aspect ratio (accounting for pixel aspect ratio / PAR)
+    private var videoDisplayAspectRatio: Double {
+        item.videoDisplayAspectRatio ?? (Double(sourceWidth) / Double(sourceHeight))
+    }
+
     private var configBinding: Binding<CropConfig> {
         // Lazy initialization pattern from AudioRoutingView
         Binding(
@@ -80,9 +85,10 @@ struct CropControlsView: View {
                              let centerX = rect.x + rect.width / 2
                              let centerY = rect.y + rect.height / 2
 
-                             // Convert target aspect ratio from pixel space to normalized space
-                             // Normalized coords are fraction of source dimensions
-                             // To maintain pixel aspect ratio, we must account for source aspect
+                             // Convert target aspect ratio from OUTPUT space to normalized (pixel) space
+                             // The target ratio (e.g., 1:1) specifies the desired OUTPUT aspect ratio.
+                             // Since output uses setsar=1:1 (square pixels), we work in pixel space.
+                             // The preview will compensate visually by stretching the crop box by PAR.
                              let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
                              let normalizedTargetRatio = targetRatio / sourceAspect
 
@@ -187,20 +193,18 @@ struct CropControlsView: View {
                     .help("Exit crop mode")
                 }
 
-                // Warning message for Stream Copy preset
-                if let config = item.cropConfig, config.isActive {
-                    HStack(spacing: 4) {
-                        Image(systemName: "info.circle")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        Text("Note: Crop requires re-encoding and will not work with Stream Copy preset.")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 2)
+                // Warning message for Stream Copy preset (always visible to prevent UI shift)
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text("Note: Crop requires re-encoding and will not work with Stream Copy preset.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Spacer()
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 2)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

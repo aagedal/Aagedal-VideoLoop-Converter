@@ -17,28 +17,29 @@ extension Notification.Name {
 }
 
 struct ConvertImmediatelyIntent: AppIntent {
-    static let title: LocalizedStringResource = "Convert Video Immediately"
-    static let description = IntentDescription("Add the selected video file to the queue, set the output folder to the same directory, and start conversion.")
+    static let title: LocalizedStringResource = "Convert Videos Immediately"
+    static let description = IntentDescription("Add the selected video files to the queue, set the output folder to the same directory, and start conversion.")
 
-    @Parameter(title: "Video File", supportedContentTypes: [.movie])
-    var video: IntentFile
+    @Parameter(title: "Video Files", supportedContentTypes: [.movie])
+    var videos: [IntentFile]
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Convert \(\.$video) immediately")
+        Summary("Convert \(\.$videos) immediately")
     }
 
     func perform() async throws -> some IntentResult {
-        guard let url = video.fileURL else {
-            throw NSError(domain: "ConvertImmediatelyIntent", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid file URL"])
+        let urls = videos.compactMap { $0.fileURL }
+        guard let firstURL = urls.first else {
+            throw NSError(domain: "ConvertImmediatelyIntent", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid file URLs"])
         }
 
-        // Prepare payload
-        let folder = url.deletingLastPathComponent()
+        // Use the folder of the first file as the output folder
+        let folder = firstURL.deletingLastPathComponent()
         await MainActor.run {
             NotificationCenter.default.post(name: .convertImmediately,
                                             object: nil,
                                             userInfo: [
-                                                "fileURL": url,
+                                                "fileURLs": urls,
                                                 "outputFolderURL": folder
                                             ])
         }

@@ -169,4 +169,8 @@ enum AppConstants {
     static let customPreset2ApplyAudioRoutingKey = "customPreset2ApplyAudioRouting"
     static let customPreset3ApplyCropKey = "customPreset3ApplyCrop"
     static let customPreset3ApplyAudioRoutingKey = "customPreset3ApplyAudioRouting"
+
+    // Reset behavior
+    static let resetClearsSettingsKey = "resetClearsSettings"
+    static let defaultResetClearsSettings = false // false = only reset status, true = also clear trim/crop/audio routing
 }
