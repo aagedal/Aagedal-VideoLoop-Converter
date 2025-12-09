@@ -30,7 +30,7 @@ struct ConversionToolbarView: ToolbarContent {
     let onToggleConversion: () -> Void
     let onImport: () -> Void
     let onSelectOutputFolder: () -> Void
-    let onResetAll: () -> Void
+    let onResetAll: (_ optionKeyPressed: Bool) -> Void
     let hasResettableItems: Bool
     let onClear: () -> Void
 
@@ -89,12 +89,11 @@ struct ConversionToolbarView: ToolbarContent {
         }
 
         ToolbarItem(placement: .automatic) {
-            Button(action: onResetAll) {
-                Label("Reset All", systemImage: "arrow.clockwise.circle")
-                    .foregroundStyle((!hasResettableItems || isConverting) ? Color.gray : Color.blue)
-            }
-            .help("Reset all completed or failed items back to waiting")
-            .disabled(!hasResettableItems || isConverting)
+            ResetButton(
+                hasResettableItems: hasResettableItems,
+                isConverting: isConverting,
+                onReset: onResetAll
+            )
         }
 
         ToolbarItem(placement: .automatic) {
@@ -127,6 +126,73 @@ struct ConversionToolbarView: ToolbarContent {
             .buttonStyle(.plain)
             .help("Application Settings")
             .padding(.horizontal, 8)
+        }
+    }
+}
+
+// MARK: - Reset Button with Option Key Support
+
+private struct ResetButton: View {
+    let hasResettableItems: Bool
+    let isConverting: Bool
+    let onReset: (_ optionKeyPressed: Bool) -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        ResetButtonNSViewWrapper(
+            hasResettableItems: hasResettableItems,
+            isConverting: isConverting,
+            onReset: onReset
+        )
+    }
+}
+
+private struct ResetButtonNSViewWrapper: NSViewRepresentable {
+    let hasResettableItems: Bool
+    let isConverting: Bool
+    let onReset: (_ optionKeyPressed: Bool) -> Void
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.bezelStyle = .regularSquare
+        button.isBordered = true
+        button.image = NSImage(systemSymbolName: "arrow.clockwise.circle", accessibilityDescription: "Reset All")
+        button.imagePosition = .imageOnly
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.buttonClicked(_:))
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        let isEnabled = hasResettableItems && !isConverting
+        nsView.isEnabled = isEnabled
+
+        // Update tooltip based on settings
+        let resetClearsSettings = UserDefaults.standard.bool(forKey: AppConstants.resetClearsSettingsKey)
+        if resetClearsSettings {
+            nsView.toolTip = "Reset all items (clears trim, crop, audio routing). Hold Option to only reset status."
+        } else {
+            nsView.toolTip = "Reset all items to waiting status. Hold Option to also clear trim, crop, and audio routing."
+        }
+
+        context.coordinator.onReset = onReset
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onReset: onReset)
+    }
+
+    class Coordinator: NSObject {
+        var onReset: (_ optionKeyPressed: Bool) -> Void
+
+        init(onReset: @escaping (_ optionKeyPressed: Bool) -> Void) {
+            self.onReset = onReset
+        }
+
+        @objc func buttonClicked(_ sender: NSButton) {
+            let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+            onReset(optionKeyPressed)
         }
     }
 }

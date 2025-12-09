@@ -938,12 +938,22 @@ extension FFMPEGCommandBuilder {
         } else if filterChain.contains("setsar") {
             // Fallback: append after setsar
             if let setsarRange = filterChain.range(of: "setsar=1/1") {
-                let index = filterChain.index(after: setsarRange.upperBound)
-                if index < filterChain.endIndex {
+                // Check if there's content after setsar
+                if setsarRange.upperBound < filterChain.endIndex {
+                    // There's more filter chain after setsar
                     let beforeCrop = filterChain[...setsarRange.upperBound]
-                    let afterCrop = filterChain[index...]
-                    filterChain = "\(beforeCrop),\(cropFilter)\(afterCrop)"
+                    let afterCrop = filterChain[setsarRange.upperBound...]
+
+                    // Insert crop with proper separator
+                    if afterCrop.starts(with: ",") {
+                        // Already has comma separator
+                        filterChain = "\(beforeCrop),\(cropFilter)\(afterCrop)"
+                    } else {
+                        // No comma, add one
+                        filterChain = "\(beforeCrop),\(cropFilter),\(afterCrop)"
+                    }
                 } else {
+                    // setsar is at the end, just append
                     filterChain = "\(filterChain),\(cropFilter)"
                 }
             }

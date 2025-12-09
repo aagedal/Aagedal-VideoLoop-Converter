@@ -100,18 +100,25 @@ struct ContentView: View {
         droppedFiles.remove(atOffsets: indexSet)
     }
 
-    private func handleFileReset(_ index: Int) {
+    private func handleFileReset(_ index: Int, optionKeyPressed: Bool = false) {
         if index < droppedFiles.count {
             droppedFiles[index].status = .waiting
             droppedFiles[index].progress = 0.0
             droppedFiles[index].eta = nil
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
-            // Reset configurations
-            droppedFiles[index].audioRoutingConfig = nil
-            droppedFiles[index].cropConfig = nil
-            droppedFiles[index].timecodeConfig = nil
-            droppedFiles[index].trimStart = nil
-            droppedFiles[index].trimEnd = nil
+
+            // Determine whether to clear settings based on preference and Option key
+            let resetClearsSettings = UserDefaults.standard.bool(forKey: AppConstants.resetClearsSettingsKey)
+            let shouldClearSettings = optionKeyPressed ? !resetClearsSettings : resetClearsSettings
+
+            // Reset configurations if needed
+            if shouldClearSettings {
+                droppedFiles[index].audioRoutingConfig = nil
+                droppedFiles[index].cropConfig = nil
+                droppedFiles[index].timecodeConfig = nil
+                droppedFiles[index].trimStart = nil
+                droppedFiles[index].trimEnd = nil
+            }
         }
     }
 
@@ -229,44 +236,54 @@ struct ContentView: View {
                 scheduleAutoEncode()
             }
         }
-        // Listen for App Intent to enqueue file
+        // Listen for App Intent to enqueue file(s)
         .onReceive(NotificationCenter.default.publisher(for: .enqueueFileURL)) { notification in
-            guard let url = notification.object as? URL else { return }
-
-            // Check for duplicates before creating placeholder
-            guard !droppedFiles.contains(where: { $0.url == url }) else { return }
-
-            guard let placeholder = VideoFileUtils.makePlaceholderItem(
-                from: url,
-                outputFolder: outputFolder,
-                preset: selectedPreset
-            ) else {
-                print("Skipping unsupported file from AppIntent: \(url.lastPathComponent)")
+            // Support both single URL and array of URLs
+            let urls: [URL]
+            if let singleURL = notification.object as? URL {
+                urls = [singleURL]
+            } else if let multipleURLs = notification.object as? [URL] {
+                urls = multipleURLs
+            } else {
                 return
             }
 
-            droppedFiles.append(placeholder)
-            let placeholderID = placeholder.id
+            for url in urls {
+                // Check for duplicates before creating placeholder
+                guard !droppedFiles.contains(where: { $0.url == url }) else { continue }
 
-            // Load details asynchronously in background
-            Task(priority: .utility) {
-                let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let durationSeconds = details.durationSeconds
-                let metadata = await VideoFileUtils.fetchMetadata(for: url)
+                guard let placeholder = VideoFileUtils.makePlaceholderItem(
+                    from: url,
+                    outputFolder: outputFolder,
+                    preset: selectedPreset
+                ) else {
+                    print("Skipping unsupported file from AppIntent: \(url.lastPathComponent)")
+                    continue
+                }
 
-                await MainActor.run {
-                    if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
-                        self.droppedFiles[index].apply(details: details)
-                        self.droppedFiles[index].detailsLoaded = true
-                        self.droppedFiles[index].metadata = metadata
+                droppedFiles.append(placeholder)
+                let placeholderID = placeholder.id
 
-                        let effectiveDuration = self.droppedFiles[index].durationSeconds
-                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                        if durationForPrefetch > 0 {
-                            VideoFileUtils.prefetchPreviewAssets(
-                                for: url,
-                                durationSeconds: durationForPrefetch
-                            )
+                // Load details asynchronously in background
+                Task(priority: .utility) {
+                    let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
+                    let durationSeconds = details.durationSeconds
+                    let metadata = await VideoFileUtils.fetchMetadata(for: url)
+
+                    await MainActor.run {
+                        if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
+                            self.droppedFiles[index].apply(details: details)
+                            self.droppedFiles[index].detailsLoaded = true
+                            self.droppedFiles[index].metadata = metadata
+
+                            let effectiveDuration = self.droppedFiles[index].durationSeconds
+                            let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
+                            if durationForPrefetch > 0 {
+                                VideoFileUtils.prefetchPreviewAssets(
+                                    for: url,
+                                    durationSeconds: durationForPrefetch
+                                )
+                            }
                         }
                     }
                 }
@@ -275,8 +292,17 @@ struct ContentView: View {
         // Handle ConvertImmediatelyIntent
         .onReceive(NotificationCenter.default.publisher(for: .convertImmediately)) { notification in
             guard let info = notification.userInfo,
-                  let fileURL = info["fileURL"] as? URL,
                   let folderURL = info["outputFolderURL"] as? URL else { return }
+
+            // Support both single URL and array of URLs
+            let fileURLs: [URL]
+            if let singleURL = info["fileURL"] as? URL {
+                fileURLs = [singleURL]
+            } else if let multipleURLs = info["fileURLs"] as? [URL] {
+                fileURLs = multipleURLs
+            } else {
+                return
+            }
 
             Task {
                 // Update output folder to match source directory
@@ -285,18 +311,20 @@ struct ContentView: View {
                     outputFolder = folderURL.path
                 }
 
-                if let videoItem = await VideoFileUtils.createVideoItem(
-                    from: fileURL,
-                    outputFolder: folderURL.path,
-                    preset: selectedPreset
-                ) {
-                    await MainActor.run {
-                        if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
-                            droppedFiles.append(videoItem)
+                for fileURL in fileURLs {
+                    if let videoItem = await VideoFileUtils.createVideoItem(
+                        from: fileURL,
+                        outputFolder: folderURL.path,
+                        preset: selectedPreset
+                    ) {
+                        await MainActor.run {
+                            if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
+                                droppedFiles.append(videoItem)
+                            }
                         }
                     }
-                    await startConversion()
                 }
+                await startConversion()
             }
         }
     }
@@ -663,8 +691,12 @@ struct ContentView: View {
         dockProgressUpdater.reset()
     }
 
-    private func resetAllFiles() {
+    private func resetAllFiles(optionKeyPressed: Bool = false) {
         guard !isConverting else { return }
+
+        // Determine whether to clear settings based on preference and Option key
+        let resetClearsSettings = UserDefaults.standard.bool(forKey: AppConstants.resetClearsSettingsKey)
+        let shouldClearSettings = optionKeyPressed ? !resetClearsSettings : resetClearsSettings
 
         var didReset = false
         for index in droppedFiles.indices where droppedFiles[index].status != .waiting {
@@ -672,6 +704,16 @@ struct ContentView: View {
             droppedFiles[index].progress = 0.0
             droppedFiles[index].eta = nil
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
+
+            // Reset configurations if needed
+            if shouldClearSettings {
+                droppedFiles[index].audioRoutingConfig = nil
+                droppedFiles[index].cropConfig = nil
+                droppedFiles[index].timecodeConfig = nil
+                droppedFiles[index].trimStart = nil
+                droppedFiles[index].trimEnd = nil
+            }
+
             didReset = true
         }
 

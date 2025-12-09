@@ -17,7 +17,7 @@ struct VideoFileRowView: View {
     let preset: ExportPreset
     let onCancel: () -> Void
     let onDelete: () -> Void
-    let onReset: () -> Void
+    let onReset: (_ optionKeyPressed: Bool) -> Void
     /// Indicates if this row is selected in the list
     var isSelected: Bool = false
     var onCommentFocusChange: (UUID, Bool) -> Void = { _, _ in }
@@ -197,13 +197,10 @@ struct VideoFileRowView: View {
                                 .help("Remove from list")
                                 
                                 if file.status != .waiting {
-                                    Button(action: onReset) {
-                                        Image(systemName: "arrow.counterclockwise")
-                                            .foregroundStyle(file.status == .converting || file.status == .waiting ? .gray : .blue)
-                                    }
-                                    .buttonStyle(BorderlessButtonStyle())
-                                    .help("Reset conversion")
-                                    .disabled(file.status == .converting || file.status == .waiting)
+                                    FileResetButton(
+                                        isEnabled: file.status != .converting && file.status != .waiting,
+                                        onReset: onReset
+                                    )
                                 }
                             }
                         }
@@ -740,15 +737,83 @@ struct VideoFileRowView_Previews: PreviewProvider {
                 preset: .videoLoop,
                 onCancel: {},
                 onDelete: {},
-                onReset: {}
+                onReset: { _ in }
             )
             .frame(width: 800, height: 150)
             .padding()
         }
     }
-    
+
     static var previews: some View {
         Preview()
+    }
+}
+
+// MARK: - File Reset Button with Option Key Support
+
+private struct FileResetButton: View {
+    let isEnabled: Bool
+    let onReset: (_ optionKeyPressed: Bool) -> Void
+
+    var body: some View {
+        FileResetButtonNSViewWrapper(
+            isEnabled: isEnabled,
+            onReset: onReset
+        )
+    }
+}
+
+private struct FileResetButtonNSViewWrapper: NSViewRepresentable {
+    let isEnabled: Bool
+    let onReset: (_ optionKeyPressed: Bool) -> Void
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.bezelStyle = .regularSquare
+        button.isBordered = false
+        button.image = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: "Reset")
+        button.imagePosition = .imageOnly
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.buttonClicked(_:))
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        nsView.isEnabled = isEnabled
+
+        // Update appearance
+        if isEnabled {
+            nsView.contentTintColor = .systemBlue
+        } else {
+            nsView.contentTintColor = .systemGray
+        }
+
+        // Update tooltip based on settings
+        let resetClearsSettings = UserDefaults.standard.bool(forKey: AppConstants.resetClearsSettingsKey)
+        if resetClearsSettings {
+            nsView.toolTip = "Reset item (clears trim, crop, audio routing). Hold Option to only reset status."
+        } else {
+            nsView.toolTip = "Reset item to waiting status. Hold Option to also clear trim, crop, and audio routing."
+        }
+
+        context.coordinator.onReset = onReset
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onReset: onReset)
+    }
+
+    class Coordinator: NSObject {
+        var onReset: (_ optionKeyPressed: Bool) -> Void
+
+        init(onReset: @escaping (_ optionKeyPressed: Bool) -> Void) {
+            self.onReset = onReset
+        }
+
+        @objc func buttonClicked(_ sender: NSButton) {
+            let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+            onReset(optionKeyPressed)
+        }
     }
 }
 
@@ -775,14 +840,15 @@ struct VideoFileRowView_Previews2: PreviewProvider {
                 preset: .videoLoop,
                 onCancel: {},
                 onDelete: {},
-                onReset: {}
+                onReset: { _ in }
             )
             .frame(width: 800, height: 150)
             .padding()
         }
     }
-    
+
     static var previews: some View {
         Preview()
     }
 }
+

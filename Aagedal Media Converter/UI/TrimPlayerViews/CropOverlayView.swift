@@ -22,6 +22,7 @@ struct CropOverlayView: View {
     @State private var isDragging = false
     @State private var dragMode: DragMode = .none
     @State private var dragStartRect: CropRect?
+    @State private var shiftPressedAspectRatio: Double? = nil
     @State private var isOptionKeyPressed = false
     @State private var isShiftKeyPressed = false
 
@@ -59,12 +60,33 @@ struct CropOverlayView: View {
                     CursorTrackingView(screenRect: screenRect, videoFrame: videoFrame)
                         .allowsHitTesting(false)
 
+                    // Center crosshair when Option key is pressed (center scaling mode)
+                    if isOptionKeyPressed && isDragging {
+                        centerCrosshairView(screenRect: screenRect)
+                            .allowsHitTesting(false)
+                    }
+
                     // Modifier key tracker
                     ModifierKeyTrackerView(
                         isOptionPressed: $isOptionKeyPressed,
                         isShiftPressed: $isShiftKeyPressed
                     )
                     .allowsHitTesting(false)
+                    .onChange(of: isShiftKeyPressed) { _, newValue in
+                        if isDragging && newValue {
+                            // Shift just pressed during drag - capture current aspect ratio in DISPLAY space
+                            let currentRect = cropConfig.normalizedRect
+                            // Convert from normalized space to display space
+                            // normalized ratio is in fractions of source dimensions
+                            // display ratio accounts for video aspect ratio (including PAR)
+                            let normalizedRatio = currentRect.width / currentRect.height
+                            let displayRatio = normalizedRatio * videoAspectRatio
+                            shiftPressedAspectRatio = displayRatio
+                        } else if !newValue {
+                            // Shift released - clear captured ratio
+                            shiftPressedAspectRatio = nil
+                        }
+                    }
                 }
             }
         }
@@ -135,6 +157,36 @@ struct CropOverlayView: View {
         }
     }
 
+    private func centerCrosshairView(screenRect: CGRect) -> some View {
+        let center = CGPoint(x: screenRect.midX, y: screenRect.midY)
+        let crosshairSize: CGFloat = 20
+
+        return ZStack {
+            // Horizontal line
+            Path { path in
+                path.move(to: CGPoint(x: center.x - crosshairSize, y: center.y))
+                path.addLine(to: CGPoint(x: center.x + crosshairSize, y: center.y))
+            }
+            .stroke(Color.white, lineWidth: 1.5)
+            .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 0)
+
+            // Vertical line
+            Path { path in
+                path.move(to: CGPoint(x: center.x, y: center.y - crosshairSize))
+                path.addLine(to: CGPoint(x: center.x, y: center.y + crosshairSize))
+            }
+            .stroke(Color.white, lineWidth: 1.5)
+            .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 0)
+
+            // Center dot
+            Circle()
+                .fill(Color.white)
+                .frame(width: 4, height: 4)
+                .position(center)
+                .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 0)
+        }
+    }
+
     private func resizeHandles(rect: CGRect) -> some View {
         let handleSize: CGFloat = 16
 
@@ -183,6 +235,12 @@ struct CropOverlayView: View {
 
         guard let startRect = dragStartRect else { return }
 
+        // Store original center point for Option key (center scaling) mode
+        let originalCenter = CGPoint(
+            x: startRect.x + startRect.width / 2,
+            y: startRect.y + startRect.height / 2
+        )
+
         let screenDelta = value.translation
         let normalizedDelta = screenToNormalizedDelta(screenDelta, videoFrame: videoFrame)
 
@@ -213,10 +271,10 @@ struct CropOverlayView: View {
         }
 
         // Apply aspect ratio constraint
-        // Shift key: lock to current aspect ratio
+        // Shift key: lock to aspect ratio when shift was first pressed during this drag
         // Config lock: use configured aspect ratio
         let aspectRatioToUse: Double? = if isShiftKeyPressed {
-            startRect.width / startRect.height
+            shiftPressedAspectRatio
         } else {
             cropConfig.aspectRatioLock?.numericRatio
         }
@@ -225,8 +283,9 @@ struct CropOverlayView: View {
             newRect = constrainToAspectRatio(newRect, ratio: aspectRatio, dragMode: dragMode)
         }
 
-        // Clamp to valid bounds (0-1)
-        newRect = clampRect(newRect)
+        // Clamp to valid bounds (0-1), preserving aspect ratio if locked
+        // When scaling from center (Option key), preserve the center point
+        newRect = clampRect(newRect, aspectRatio: aspectRatioToUse, preserveCenter: isOptionKeyPressed ? originalCenter : nil)
 
         cropConfig.normalizedRect = newRect
     }
@@ -235,6 +294,7 @@ struct CropOverlayView: View {
         isDragging = false
         dragMode = .none
         dragStartRect = nil
+        shiftPressedAspectRatio = nil
     }
 
     // MARK: - Coordinate Mapping
@@ -262,25 +322,56 @@ struct CropOverlayView: View {
     }
 
     /// Converts normalized crop rect (0-1 in source pixel space) to screen coordinates within video frame
+    ///
+    /// The normalized rect is stored as fractions of SOURCE PIXEL dimensions (for correct FFMPEG output).
+    /// The crop box shows WHERE on the displayed video the crop will be taken from.
+    ///
+    /// For non-square PAR sources (e.g., 1440×1080 displayed as 1920×1080):
+    /// - The preview displays the source stretched to 16:9
+    /// - The crop box covers the same RELATIVE area of the displayed video as the pixel crop
+    /// - A 1:1 PIXEL crop will appear as 4:3 on the stretched preview (covering 75% width, 100% height)
+    /// - But the OUTPUT will be 1:1 because it uses setsar=1:1
+    ///
+    /// Note: The box shows the COVERAGE (which pixels are included), not the OUTPUT shape.
+    /// Users rely on the aspect ratio preset label to know what the output will look like.
     private func normalizedToScreen(_ rect: CropRect, videoFrame: CGRect) -> CGRect {
-        // Scale factors from source pixel space to display space
-        let scaleX = videoFrame.width / Double(sourceWidth)
-        let scaleY = videoFrame.height / Double(sourceHeight)
+        // Direct mapping: normalized fractions map to video frame fractions
+        // This ensures box edges align with the corresponding pixel positions on the displayed video
+        CGRect(
+            x: videoFrame.origin.x + rect.x * videoFrame.width,
+            y: videoFrame.origin.y + rect.y * videoFrame.height,
+            width: rect.width * videoFrame.width,
+            height: rect.height * videoFrame.height
+        )
+    }
 
-        return CGRect(
-            x: videoFrame.origin.x + rect.x * Double(sourceWidth) * scaleX,
-            y: videoFrame.origin.y + rect.y * Double(sourceHeight) * scaleY,
-            width: rect.width * Double(sourceWidth) * scaleX,
-            height: rect.height * Double(sourceHeight) * scaleY
+    /// Converts a screen point to normalized coordinates
+    ///
+    /// Screen position maps 1:1 with normalized position (center of screen = center of normalized space)
+    /// This is because PAR stretching is uniform across the frame.
+    private func screenToNormalized(_ point: CGPoint, videoFrame: CGRect) -> CGPoint {
+        return CGPoint(
+            x: (point.x - videoFrame.origin.x) / videoFrame.width,
+            y: (point.y - videoFrame.origin.y) / videoFrame.height
         )
     }
 
     /// Converts screen delta to normalized delta
+    ///
+    /// For position changes, this maps 1:1 (no PAR correction needed).
+    /// For width changes during resize, PAR correction is needed but that's handled
+    /// by computing from absolute positions rather than deltas.
     private func screenToNormalizedDelta(_ delta: CGSize, videoFrame: CGRect) -> CGSize {
-        CGSize(
+        return CGSize(
             width: Double(delta.width) / Double(videoFrame.width),
             height: Double(delta.height) / Double(videoFrame.height)
         )
+    }
+
+    /// PAR value for coordinate conversions
+    private var par: Double {
+        let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
+        return videoAspectRatio / sourceAspect
     }
 
     // MARK: - Drag Mode Detection
@@ -492,9 +583,10 @@ struct CropOverlayView: View {
     // MARK: - Aspect Ratio Constraints
 
     private func constrainToAspectRatio(_ rect: CropRect, ratio: Double, dragMode: DragMode) -> CropRect {
-        // Convert target aspect ratio from pixel space to normalized space
-        // Normalized coords are fractions of source dimensions
-        // To maintain pixel aspect ratio, we must account for source aspect
+        // Convert target aspect ratio from OUTPUT space to normalized (pixel) space
+        // The target ratio specifies the desired OUTPUT aspect ratio (with setsar=1:1).
+        // We use sourceAspect (pixel dimensions) so FFMPEG gets correct pixel crop.
+        // The preview compensates visually by stretching the crop box by PAR.
         let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
         let normalizedTargetRatio = ratio / sourceAspect
 
@@ -534,21 +626,119 @@ struct CropOverlayView: View {
         }
     }
 
-    private func clampRect(_ rect: CropRect) -> CropRect {
+    private func clampRect(_ rect: CropRect, aspectRatio: Double? = nil, preserveCenter: CGPoint? = nil) -> CropRect {
         var clamped = rect
 
-        // Ensure minimum size (2% of frame)
-        let minSize = 0.02
-        clamped.width = max(minSize, clamped.width)
-        clamped.height = max(minSize, clamped.height)
+        // If aspect ratio is locked, we need to maintain it while clamping
+        if let targetRatio = aspectRatio {
+            // Convert target aspect ratio from OUTPUT space to normalized (pixel) space
+            // Use sourceAspect so FFMPEG gets correct pixel crop
+            let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
+            let normalizedTargetRatio = targetRatio / sourceAspect
 
-        // Clamp position to bounds
-        clamped.x = max(0, min(1 - clamped.width, clamped.x))
-        clamped.y = max(0, min(1 - clamped.height, clamped.y))
+            // Calculate the maximum rect that fits within bounds with the target aspect ratio
+            // Try both width-constrained and height-constrained and pick the smaller one
 
-        // Clamp size to not exceed bounds
-        clamped.width = min(1 - clamped.x, clamped.width)
-        clamped.height = min(1 - clamped.y, clamped.height)
+            // Width-constrained: fit to width = 1.0
+            let widthConstrainedWidth = 1.0
+            let widthConstrainedHeight = widthConstrainedWidth / normalizedTargetRatio
+
+            // Height-constrained: fit to height = 1.0
+            let heightConstrainedHeight = 1.0
+            let heightConstrainedWidth = heightConstrainedHeight * normalizedTargetRatio
+
+            // Pick the constraint that fits
+            let maxWidth: Double
+            let maxHeight: Double
+            if widthConstrainedHeight <= 1.0 {
+                // Width-constrained fits
+                maxWidth = widthConstrainedWidth
+                maxHeight = widthConstrainedHeight
+            } else {
+                // Must use height-constrained
+                maxWidth = heightConstrainedWidth
+                maxHeight = heightConstrainedHeight
+            }
+
+            // Ensure minimum size (2% of frame for the smaller dimension)
+            let minSize = 0.02
+            let currentSize = min(clamped.width, clamped.height)
+
+            if currentSize < minSize {
+                // Scale up to minimum size while maintaining aspect ratio
+                if clamped.width < clamped.height {
+                    clamped.width = minSize
+                    clamped.height = minSize / normalizedTargetRatio
+                } else {
+                    clamped.height = minSize
+                    clamped.width = minSize * normalizedTargetRatio
+                }
+            }
+
+            // Clamp to maximum size while maintaining aspect ratio
+            if clamped.width > maxWidth || clamped.height > maxHeight {
+                clamped.width = maxWidth
+                clamped.height = maxHeight
+            }
+
+            // Clamp position to ensure rect stays within bounds
+            if let center = preserveCenter {
+                // Center-locked mode: position based on center point
+                clamped.x = center.x - clamped.width / 2
+                clamped.y = center.y - clamped.height / 2
+
+                // If centered rect goes out of bounds, clamp it
+                clamped.x = max(0, min(1 - clamped.width, clamped.x))
+                clamped.y = max(0, min(1 - clamped.height, clamped.y))
+            } else {
+                clamped.x = max(0, min(1 - clamped.width, clamped.x))
+                clamped.y = max(0, min(1 - clamped.height, clamped.y))
+            }
+
+        } else {
+            // No aspect ratio lock - clamp freely
+
+            // Ensure minimum size (2% of frame)
+            let minSize = 0.02
+            clamped.width = max(minSize, clamped.width)
+            clamped.height = max(minSize, clamped.height)
+
+            if let center = preserveCenter {
+                // Center-locked mode: position based on center point
+                clamped.x = center.x - clamped.width / 2
+                clamped.y = center.y - clamped.height / 2
+
+                // If centered rect goes out of bounds, adjust size to fit
+                if clamped.x < 0 {
+                    clamped.width = min(clamped.width, center.x * 2)
+                    clamped.x = center.x - clamped.width / 2
+                }
+                if clamped.y < 0 {
+                    clamped.height = min(clamped.height, center.y * 2)
+                    clamped.y = center.y - clamped.height / 2
+                }
+                if clamped.x + clamped.width > 1 {
+                    clamped.width = min(clamped.width, (1 - center.x) * 2)
+                    clamped.x = center.x - clamped.width / 2
+                }
+                if clamped.y + clamped.height > 1 {
+                    clamped.height = min(clamped.height, (1 - center.y) * 2)
+                    clamped.y = center.y - clamped.height / 2
+                }
+
+                // Final safety clamp
+                clamped.x = max(0, min(1 - clamped.width, clamped.x))
+                clamped.y = max(0, min(1 - clamped.height, clamped.y))
+            } else {
+                // Clamp position to bounds
+                clamped.x = max(0, min(1 - clamped.width, clamped.x))
+                clamped.y = max(0, min(1 - clamped.height, clamped.y))
+
+                // Clamp size to not exceed bounds
+                clamped.width = min(1 - clamped.x, clamped.width)
+                clamped.height = min(1 - clamped.y, clamped.height)
+            }
+        }
 
         return clamped
     }
@@ -626,44 +816,71 @@ private struct CursorTrackingView: NSViewRepresentable {
         private func cursorForLocation(_ location: CGPoint) -> NSCursor {
             let hitSize: CGFloat = 20
 
-            // Check corners first (use system resize cursors from private API or fall back to crosshair)
-            if location.distance(to: CGPoint(x: screenRect.minX, y: screenRect.minY)) < hitSize {
-                return NSCursor(image: NSImage(systemSymbolName: "arrow.up.right.and.arrow.down.left", accessibilityDescription: nil) ?? NSImage(),
-                               hotSpot: NSPoint(x: 8, y: 8))  // Top-left
-            }
-            if location.distance(to: CGPoint(x: screenRect.maxX, y: screenRect.minY)) < hitSize {
-                return NSCursor(image: NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: nil) ?? NSImage(),
-                               hotSpot: NSPoint(x: 8, y: 8))  // Top-right
-            }
-            if location.distance(to: CGPoint(x: screenRect.minX, y: screenRect.maxY)) < hitSize {
-                return NSCursor(image: NSImage(systemSymbolName: "arrow.up.left.and.arrow.down.right", accessibilityDescription: nil) ?? NSImage(),
-                               hotSpot: NSPoint(x: 8, y: 8))  // Bottom-left
-            }
-            if location.distance(to: CGPoint(x: screenRect.maxX, y: screenRect.maxY)) < hitSize {
-                return NSCursor(image: NSImage(systemSymbolName: "arrow.up.right.and.arrow.down.left", accessibilityDescription: nil) ?? NSImage(),
-                               hotSpot: NSPoint(x: 8, y: 8))  // Bottom-right
+            // Helper to create cursor from SF Symbol or fall back to system cursor
+            func diagonalCursor(systemName: String, fallback: NSCursor) -> NSCursor {
+                if let image = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) {
+                    let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+                    let configuredImage = image.withSymbolConfiguration(config) ?? image
+                    return NSCursor(image: configuredImage, hotSpot: NSPoint(x: 8, y: 8))
+                }
+                return fallback
             }
 
-            // Check edges
+            // Check corners first (higher priority than edges)
+            // Note: In NSView coordinates, minY is TOP and maxY is BOTTOM
+            // Top-left corner - visually this is NW, should resize diagonally to SE
+            if location.distance(to: CGPoint(x: screenRect.minX, y: screenRect.minY)) < hitSize {
+                if #available(macOS 10.13, *) {
+                    return diagonalCursor(systemName: "arrow.up.right.and.arrow.down.left", fallback: .crosshair)
+                }
+                return .crosshair
+            }
+            // Top-right corner - visually this is NE, should resize diagonally to SW
+            if location.distance(to: CGPoint(x: screenRect.maxX, y: screenRect.minY)) < hitSize {
+                if #available(macOS 10.13, *) {
+                    return diagonalCursor(systemName: "arrow.up.left.and.arrow.down.right", fallback: .crosshair)
+                }
+                return .crosshair
+            }
+            // Bottom-left corner - visually this is SW, should resize diagonally to NE
+            if location.distance(to: CGPoint(x: screenRect.minX, y: screenRect.maxY)) < hitSize {
+                if #available(macOS 10.13, *) {
+                    return diagonalCursor(systemName: "arrow.up.left.and.arrow.down.right", fallback: .crosshair)
+                }
+                return .crosshair
+            }
+            // Bottom-right corner - visually this is SE, should resize diagonally to NW
+            if location.distance(to: CGPoint(x: screenRect.maxX, y: screenRect.maxY)) < hitSize {
+                if #available(macOS 10.13, *) {
+                    return diagonalCursor(systemName: "arrow.up.right.and.arrow.down.left", fallback: .crosshair)
+                }
+                return .crosshair
+            }
+
+            // Check edges (only if not near corners)
+            // Top edge
             if abs(location.y - screenRect.minY) < hitSize &&
-               location.x > screenRect.minX + hitSize &&
-               location.x < screenRect.maxX - hitSize {
-                return .resizeUpDown  // Top edge
+               location.x >= screenRect.minX + hitSize &&
+               location.x <= screenRect.maxX - hitSize {
+                return .resizeUpDown
             }
+            // Bottom edge
             if abs(location.y - screenRect.maxY) < hitSize &&
-               location.x > screenRect.minX + hitSize &&
-               location.x < screenRect.maxX - hitSize {
-                return .resizeUpDown  // Bottom edge
+               location.x >= screenRect.minX + hitSize &&
+               location.x <= screenRect.maxX - hitSize {
+                return .resizeUpDown
             }
+            // Left edge
             if abs(location.x - screenRect.minX) < hitSize &&
-               location.y > screenRect.minY + hitSize &&
-               location.y < screenRect.maxY - hitSize {
-                return .resizeLeftRight  // Left edge
+               location.y >= screenRect.minY + hitSize &&
+               location.y <= screenRect.maxY - hitSize {
+                return .resizeLeftRight
             }
+            // Right edge
             if abs(location.x - screenRect.maxX) < hitSize &&
-               location.y > screenRect.minY + hitSize &&
-               location.y < screenRect.maxY - hitSize {
-                return .resizeLeftRight  // Right edge
+               location.y >= screenRect.minY + hitSize &&
+               location.y <= screenRect.maxY - hitSize {
+                return .resizeLeftRight
             }
 
             // Check if inside rectangle (move mode)

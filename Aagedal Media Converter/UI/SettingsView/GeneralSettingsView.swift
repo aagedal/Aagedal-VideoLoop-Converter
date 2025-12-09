@@ -17,6 +17,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppConstants.screenshot10BitFormatKey) private var screenshot10BitFormat = AppConstants.defaultScreenshotFormat
     @AppStorage(AppConstants.screenshotHighBitFormatKey) private var screenshotHighBitFormat = AppConstants.defaultScreenshotFormat
     @AppStorage(AppConstants.screenshotAlphaHandlingKey) private var screenshotAlphaHandling = AppConstants.defaultScreenshotAlphaHandling
+    @AppStorage(AppConstants.resetClearsSettingsKey) private var resetClearsSettings = AppConstants.defaultResetClearsSettings
 
     @State private var isClearingPreviewCache = false
     @State private var previewCacheSizeBytes: Int64 = 0
@@ -25,6 +26,7 @@ struct GeneralSettingsView: View {
         Form {
             outputFolderSection
             fileNameSection
+            resetBehaviorSection
             screenshotSection
             previewCacheSection
             linksSection
@@ -91,6 +93,23 @@ struct GeneralSettingsView: View {
                     .toggleStyle(SwitchToggleStyle())
                     .help("When enabled, spaces and special characters in filenames are sanitized")
                 Text("When enabled, output filenames will be processed to replace spaces with underscores, convert Scandinavian characters (æ, ø, å) to ASCII equivalents, and remove special characters. When disabled, original filenames are preserved as-is.")
+                    .font(Font.caption.italic())
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(8)
+        }
+    }
+
+    private var resetBehaviorSection: some View {
+        Section(header: Text("Reset Behavior")) {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Reset also clears trim, crop, and audio routing", isOn: $resetClearsSettings)
+                    .toggleStyle(SwitchToggleStyle())
+                    .help("Controls what the Reset button does by default")
+                Text(resetClearsSettings
+                    ? "When enabled, resetting an item will clear all settings (trim points, crop, audio routing, timecode). Hold Option to only reset the encoding status."
+                    : "When disabled, resetting only changes the item back to waiting status, preserving trim, crop, and audio routing settings. Hold Option to also clear all settings.")
                     .font(Font.caption.italic())
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

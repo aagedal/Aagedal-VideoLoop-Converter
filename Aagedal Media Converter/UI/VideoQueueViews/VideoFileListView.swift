@@ -18,7 +18,7 @@ struct VideoFileListView: View {
     var onFileImport: () -> Void
     var onDoubleClick: () -> Void
     var onDelete: (IndexSet) -> Void
-    var onReset: (Int) -> Void
+    var onReset: (Int, Bool) -> Void
     var preset: ExportPreset
     var mergeClipsEnabled: Bool
     var mergeClipsAvailable: Bool
@@ -344,8 +344,8 @@ struct VideoFileListView: View {
             onDelete: {
                 onDelete(IndexSet(integer: index))
             },
-            onReset: {
-                onReset(index)
+            onReset: { optionKeyPressed in
+                onReset(index, optionKeyPressed)
             },
             isSelected: selection.contains(index),
             onCommentFocusChange: { id, isFocused in
@@ -406,7 +406,7 @@ struct VideoFileListView_Previews: PreviewProvider {
             onFileImport: {},
             onDoubleClick: {},
             onDelete: { _ in },
-            onReset: { _ in },
+            onReset: { _, _ in },
             preset: .videoLoop,
             mergeClipsEnabled: true,
             mergeClipsAvailable: true
