@@ -85,12 +85,11 @@ struct CropControlsView: View {
                              let centerX = rect.x + rect.width / 2
                              let centerY = rect.y + rect.height / 2
 
-                             // Convert target aspect ratio from OUTPUT space to normalized (pixel) space
-                             // The target ratio (e.g., 1:1) specifies the desired OUTPUT aspect ratio.
-                             // Since output uses setsar=1:1 (square pixels), we work in pixel space.
-                             // The preview will compensate visually by stretching the crop box by PAR.
-                             let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
-                             let normalizedTargetRatio = targetRatio / sourceAspect
+                             // Convert target aspect ratio from VISUAL space to normalized (source-pixel) space.
+                             // The target ratio (e.g. 1:1) specifies the desired displayed/output shape.
+                             // For anamorphic sources, normalizedRect is stored in source pixel coordinates,
+                             // so we must use the *display* aspect ratio (DAR) to derive the pixel-space ratio.
+                             let normalizedTargetRatio = targetRatio / videoDisplayAspectRatio
 
                              // Calculate maximum rectangle that fits aspect ratio within bounds
                              // Start with current area, but ensure it fits within 1.0 x 1.0 bounds

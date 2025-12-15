@@ -583,12 +583,11 @@ struct CropOverlayView: View {
     // MARK: - Aspect Ratio Constraints
 
     private func constrainToAspectRatio(_ rect: CropRect, ratio: Double, dragMode: DragMode) -> CropRect {
-        // Convert target aspect ratio from OUTPUT space to normalized (pixel) space
-        // The target ratio specifies the desired OUTPUT aspect ratio (with setsar=1:1).
-        // We use sourceAspect (pixel dimensions) so FFMPEG gets correct pixel crop.
-        // The preview compensates visually by stretching the crop box by PAR.
-        let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
-        let normalizedTargetRatio = ratio / sourceAspect
+        // Convert target aspect ratio from VISUAL space to normalized (source-pixel) space.
+        // `ratio` is the desired displayed/output shape.
+        // Normalized coordinates are stored in source pixel space, while the preview is shown in display space,
+        // so we derive the normalized ratio using the display aspect ratio.
+        let normalizedTargetRatio = ratio / videoAspectRatio
 
         let currentRatio = rect.width / rect.height
 
@@ -631,10 +630,8 @@ struct CropOverlayView: View {
 
         // If aspect ratio is locked, we need to maintain it while clamping
         if let targetRatio = aspectRatio {
-            // Convert target aspect ratio from OUTPUT space to normalized (pixel) space
-            // Use sourceAspect so FFMPEG gets correct pixel crop
-            let sourceAspect = Double(sourceWidth) / Double(sourceHeight)
-            let normalizedTargetRatio = targetRatio / sourceAspect
+            // Convert target aspect ratio from VISUAL space to normalized (source-pixel) space
+            let normalizedTargetRatio = targetRatio / videoAspectRatio
 
             // Calculate the maximum rect that fits within bounds with the target aspect ratio
             // Try both width-constrained and height-constrained and pick the smaller one
