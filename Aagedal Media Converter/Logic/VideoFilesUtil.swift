@@ -533,6 +533,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var audioRoutingConfig: AudioRoutingConfig? = nil
     var cropConfig: CropConfig? = nil
     var timecodeConfig: TimecodeConfig? = nil
+    /// Stored output file size in bytes, set when conversion completes
+    var outputFileSizeBytes: Int64? = nil
 
     mutating func apply(details: VideoFileUtils.VideoItemDetails) {
         size = details.size
@@ -591,7 +593,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
 
     /// Human-readable output file size string
     var formattedOutputSize: String? {
-        guard let bytes = outputFileSize else { return nil }
+        // Prefer stored size (set on conversion complete), fall back to computed
+        guard let bytes = outputFileSizeBytes ?? outputFileSize else { return nil }
         let kb = 1024.0
         let mb = kb * 1024
         let gb = mb * 1024

@@ -508,6 +508,21 @@ actor ConversionManager: Sendable {
         let referenceURL = plan.segments.first?.originalURL
         let finalURL = plan.outputBaseURL.appendingPathExtension(plan.preset.outputExtension(for: referenceURL))
 
+        // Capture file size - try with security-scoped access
+        var outputFileSizeBytes: Int64?
+        if success {
+            let outputFolderURL = finalURL.deletingLastPathComponent()
+            let hasAccess = outputFolderURL.startAccessingSecurityScopedResource() ||
+                SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: outputFolderURL)
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: finalURL.path),
+               let fileSize = attrs[.size] as? Int64 {
+                outputFileSizeBytes = fileSize
+            }
+            if hasAccess {
+                outputFolderURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
         await MainActor.run {
             for index in indices {
                 guard droppedFiles.wrappedValue.indices.contains(index) else { continue }
@@ -515,6 +530,7 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[index].status = success ? .done : .failed
                     droppedFiles.wrappedValue[index].progress = success ? 1.0 : 0.0
                     droppedFiles.wrappedValue[index].outputURL = success ? finalURL : nil
+                    droppedFiles.wrappedValue[index].outputFileSizeBytes = outputFileSizeBytes
                 }
             }
         }
@@ -874,17 +890,79 @@ actor ConversionManager: Sendable {
         ) { success in
             Task { @MainActor in
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
-                    // If user previously cancelled this item, keep it as .cancelled
-                    if droppedFiles.wrappedValue[idx].status != .cancelled {
-                        droppedFiles.wrappedValue[idx].status = success ? .done : .failed
-                        droppedFiles.wrappedValue[idx].progress = success ? 1.0 : 0
-                    }
-                    
-                    // Update the output URL in the video item
+                    // Capture file size FIRST (before setting status to .done)
+                    // This ensures all data is ready before SwiftUI re-renders
+                    var capturedSize: Int64?
+                    var outputFileURL: URL?
+
                     if success {
-                        let outputFileURL = outputURL.appendingPathExtension(preset.outputExtension(for: inputURL))
-                        droppedFiles.wrappedValue[idx].outputURL = outputFileURL
+                        outputFileURL = outputURL.appendingPathExtension(preset.outputExtension(for: inputURL))
+
+                        // Capture file size - try multiple approaches
+                        if let url = outputFileURL {
+                            // First try: direct file access (may work if app created the file)
+                            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                               let fileSize = attrs[.size] as? Int64 {
+                                capturedSize = fileSize
+                                print("📊 Captured file size (direct): \(fileSize) bytes")
+                            }
+
+                            // Second try: with security-scoped access on file
+                            if capturedSize == nil {
+                                let hasFileAccess = url.startAccessingSecurityScopedResource()
+                                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                                   let fileSize = attrs[.size] as? Int64 {
+                                    capturedSize = fileSize
+                                    print("📊 Captured file size (file scope): \(fileSize) bytes")
+                                }
+                                if hasFileAccess {
+                                    url.stopAccessingSecurityScopedResource()
+                                }
+                            }
+
+                            // Third try: with security-scoped access on folder via bookmark
+                            if capturedSize == nil {
+                                let outputFolderURL = url.deletingLastPathComponent()
+                                let hasFolderAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: outputFolderURL)
+                                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                                   let fileSize = attrs[.size] as? Int64 {
+                                    capturedSize = fileSize
+                                    print("📊 Captured file size (folder bookmark): \(fileSize) bytes")
+                                }
+                                if hasFolderAccess {
+                                    SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: outputFolderURL)
+                                }
+                            }
+
+                            if capturedSize == nil {
+                                print("⚠️ Failed to capture file size for: \(url.path)")
+                                print("   File exists: \(FileManager.default.fileExists(atPath: url.path))")
+                            }
+                        }
                     }
+
+                    // Update all properties by replacing the entire item
+                    // This ensures SwiftUI detects the change
+                    var updatedItem = droppedFiles.wrappedValue[idx]
+
+                    if success, let url = outputFileURL {
+                        updatedItem.outputURL = url
+                        updatedItem.outputFileSizeBytes = capturedSize
+                    }
+
+                    // If user previously cancelled this item, keep it as .cancelled
+                    if updatedItem.status != .cancelled {
+                        updatedItem.status = success ? .done : .failed
+                        updatedItem.progress = success ? 1.0 : 0
+                    }
+
+                    // Replace the entire item to ensure SwiftUI detects the change
+                    droppedFiles.wrappedValue[idx] = updatedItem
+
+                    // Debug: verify the values
+                    print("📊 Final state - outputFileSizeBytes: \(droppedFiles.wrappedValue[idx].outputFileSizeBytes ?? -1)")
+                    print("📊 Final state - formattedOutputSize: \(droppedFiles.wrappedValue[idx].formattedOutputSize ?? "nil")")
+                    print("📊 Final state - status: \(droppedFiles.wrappedValue[idx].status)")
                 }
                 
                 // Only continue if conversion has not been cancelled

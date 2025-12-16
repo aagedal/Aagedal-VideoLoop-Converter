@@ -149,10 +149,10 @@ struct VideoFileRowView: View {
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
 
-                            if file.status == .done, let exportSize = file.formattedOutputSize {
+                            if file.status == .done {
                                 Text("•")
                                     .foregroundColor(.gray)
-                                Text("Export Size: \(exportSize)")
+                                Text("Export Size: \(file.formattedOutputSize ?? "—")")
                                     .font(.subheadline)
                                     .foregroundColor(.gray)
                             }
@@ -164,44 +164,49 @@ struct VideoFileRowView: View {
                                     .font(.subheadline)
                                     .foregroundColor(.orange)
                             }
-                            
-                            Spacer()
-                            
-                            // Status
-                            Text(progressText)
-                                .font(.subheadline)
-                                .foregroundColor(statusColor)
-                            
-                            // Action buttons
-                            if file.status == .converting {
-                                Button(action: onCancel) {
-                                    Image(systemName: "xmark.circle")
-                                        .foregroundColor(.red)
-                                }
-                                .buttonStyle(BorderlessButtonStyle())
-                                .help("Cancel conversion")
-                            } else {
-                                Button(action: {
-                                    // Set deletion flag and clear focus BEFORE deleting
-                                    isBeingDeleted = true
-                                    if isCommentFieldFocused || focusedCommentID == file.id {
-                                        isCommentFieldFocused = false
-                                        focusedCommentID = nil
+
+                            Spacer(minLength: 16)
+
+                            // Status and action buttons - fixed width containers for consistent alignment
+                            HStack(spacing: 8) {
+                                // Status text with fixed width to prevent layout shifts
+                                Text(progressText)
+                                    .font(.subheadline)
+                                    .foregroundColor(statusColor)
+                                    .frame(width: 240, alignment: .trailing)
+
+                                // Action buttons container with fixed width
+                                HStack(spacing: 4) {
+                                    if file.status == .converting {
+                                        Button(action: onCancel) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.red)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel conversion")
+                                    } else {
+                                        Button(action: {
+                                            // Set deletion flag and clear focus BEFORE deleting
+                                            isBeingDeleted = true
+                                            if isCommentFieldFocused || focusedCommentID == file.id {
+                                                isCommentFieldFocused = false
+                                                focusedCommentID = nil
+                                            }
+                                            onDelete()
+                                        }) {
+                                            Image(systemName: "clear")
+                                                .foregroundColor(.red)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Remove from list")
+
+                                        FileResetButton(
+                                            isEnabled: file.status != .converting && file.status != .waiting,
+                                            onReset: onReset
+                                        )
                                     }
-                                    onDelete()
-                                }) {
-                                    Image(systemName: "clear")
-                                        .foregroundColor(.red)
                                 }
-                                .buttonStyle(BorderlessButtonStyle())
-                                .help("Remove from list")
-                                
-                                if file.status != .waiting {
-                                    FileResetButton(
-                                        isEnabled: file.status != .converting && file.status != .waiting,
-                                        onReset: onReset
-                                    )
-                                }
+                                .frame(width: 44, alignment: .trailing)
                             }
                         }
                         commentSection
