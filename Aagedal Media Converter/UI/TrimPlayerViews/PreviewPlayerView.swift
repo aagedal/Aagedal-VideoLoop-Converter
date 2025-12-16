@@ -84,6 +84,8 @@ struct PreviewPlayerView: View {
             // Set initial crop expanded state if requested
             if initialCropExpanded {
                 isCropControlsExpanded = true
+                // Sync crop overlay with controls state
+                controller.isCropEnabled = true
             }
             // Ensure metadata is loaded before preparing preview
             Task {
