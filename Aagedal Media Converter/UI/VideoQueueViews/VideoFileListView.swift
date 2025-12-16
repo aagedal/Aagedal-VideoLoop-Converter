@@ -23,12 +23,12 @@ struct VideoFileListView: View {
     var mergeClipsEnabled: Bool
     var mergeClipsAvailable: Bool
     
-    // Callbacks for single-item actions
-    var onOpenTrim: ((Int) -> Void)?
-    var onOpenTrimWithCrop: ((Int) -> Void)?
-    var onOpenTimecode: ((Int) -> Void)?
-    var onOpenAudioConfig: ((Int) -> Void)?
-    var onOpenMetadata: ((Int) -> Void)?
+    // Callbacks for single-item actions - using UUID for stable reference
+    var onOpenTrim: ((UUID) -> Void)?
+    var onOpenTrimWithCrop: ((UUID) -> Void)?
+    var onOpenTimecode: ((UUID) -> Void)?
+    var onOpenAudioConfig: ((UUID) -> Void)?
+    var onOpenMetadata: ((UUID) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
     
     @State private var isTargeted = false
@@ -102,7 +102,8 @@ struct VideoFileListView: View {
                     onToggleDateTag: handleToggleDateTagShortcut,
                     onMoveUp: { handleMoveSelection(direction: .up) },
                     onMoveDown: { handleMoveSelection(direction: .down) },
-                    onResetSelected: handleResetSelectedShortcut
+                    onResetSelected: handleResetSelectedShortcut,
+                    onDeselectAll: { selection.removeAll() }
                 )
 
                 Button(action: deleteSelectedItems) {
@@ -356,39 +357,51 @@ struct VideoFileListView: View {
     
     // MARK: - Keyboard Shortcut Handlers
     
+    /// Returns the UUID of the single selected item, or nil if zero or multiple items are selected
+    private var singleSelectedID: UUID? {
+        guard selection.count == 1,
+              let selectedID = selection.first else {
+            return nil
+        }
+        // Verify the ID exists in droppedFiles
+        guard droppedFiles.contains(where: { $0.id == selectedID }) else {
+            return nil
+        }
+        return selectedID
+    }
+    
     /// Returns the index of the single selected item, or nil if zero or multiple items are selected
     private var singleSelectedIndex: Int? {
-        guard selection.count == 1,
-              let selectedID = selection.first,
-              let index = droppedFiles.firstIndex(where: { $0.id == selectedID }) else {
+        guard let id = singleSelectedID,
+              let index = droppedFiles.firstIndex(where: { $0.id == id }) else {
             return nil
         }
         return index
     }
     
     private func handleTrimShortcut() {
-        guard let index = singleSelectedIndex else { return }
-        onOpenTrim?(index)
+        guard let id = singleSelectedID else { return }
+        onOpenTrim?(id)
     }
     
     private func handleCropShortcut() {
-        guard let index = singleSelectedIndex else { return }
-        onOpenTrimWithCrop?(index)
+        guard let id = singleSelectedID else { return }
+        onOpenTrimWithCrop?(id)
     }
     
     private func handleTimecodeShortcut() {
-        guard let index = singleSelectedIndex else { return }
-        onOpenTimecode?(index)
+        guard let id = singleSelectedID else { return }
+        onOpenTimecode?(id)
     }
     
     private func handleAudioConfigShortcut() {
-        guard let index = singleSelectedIndex else { return }
-        onOpenAudioConfig?(index)
+        guard let id = singleSelectedID else { return }
+        onOpenAudioConfig?(id)
     }
     
     private func handleMetadataShortcut() {
-        guard let index = singleSelectedIndex else { return }
-        onOpenMetadata?(index)
+        guard let id = singleSelectedID else { return }
+        onOpenMetadata?(id)
     }
     
     private func handleToggleDateTagShortcut() {
@@ -559,6 +572,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onMoveDown: () -> Void
     // Multi-selection shortcuts
     var onResetSelected: () -> Void
+    var onDeselectAll: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -572,7 +586,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onToggleDateTag: onToggleDateTag,
             onMoveUp: onMoveUp,
             onMoveDown: onMoveDown,
-            onResetSelected: onResetSelected
+            onResetSelected: onResetSelected,
+            onDeselectAll: onDeselectAll
         )
     }
 
@@ -595,6 +610,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onMoveUp = onMoveUp
         context.coordinator.onMoveDown = onMoveDown
         context.coordinator.onResetSelected = onResetSelected
+        context.coordinator.onDeselectAll = onDeselectAll
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -613,6 +629,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onMoveUp: () -> Void
         var onMoveDown: () -> Void
         var onResetSelected: () -> Void
+        var onDeselectAll: () -> Void
         private var monitor: Any?
 
         init(
@@ -626,7 +643,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onToggleDateTag: @escaping () -> Void,
             onMoveUp: @escaping () -> Void,
             onMoveDown: @escaping () -> Void,
-            onResetSelected: @escaping () -> Void
+            onResetSelected: @escaping () -> Void,
+            onDeselectAll: @escaping () -> Void
         ) {
             self.onForward = onForward
             self.onBackward = onBackward
@@ -639,6 +657,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onMoveUp = onMoveUp
             self.onMoveDown = onMoveDown
             self.onResetSelected = onResetSelected
+            self.onDeselectAll = onDeselectAll
         }
 
         func install() {
@@ -699,6 +718,12 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // CMD+D: Toggle Date Tag
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_D {
                     self.onToggleDateTag()
+                    return nil
+                }
+                
+                // Option+D: Deselect all items
+                if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_D {
+                    self.onDeselectAll()
                     return nil
                 }
                 

@@ -20,6 +20,7 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Cmd + O", description: "Select output folder"),
                     ShortcutItem(keys: "Cmd + Backspace", description: "Delete selected items"),
                     ShortcutItem(keys: "Cmd + R", description: "Reset selected items"),
+                    ShortcutItem(keys: "Option + D", description: "Deselect all items"),
                     ShortcutItem(keys: "Cmd + Up Arrow", description: "Move selection up in queue"),
                     ShortcutItem(keys: "Cmd + Down Arrow", description: "Move selection down in queue"),
                     ShortcutItem(keys: "Tab", description: "Focus next comment field"),
