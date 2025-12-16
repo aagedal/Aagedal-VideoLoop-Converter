@@ -20,6 +20,7 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Cmd + O", description: "Select output folder"),
                     ShortcutItem(keys: "Cmd + Backspace", description: "Delete selected items"),
                     ShortcutItem(keys: "Cmd + R", description: "Reset selected items"),
+                    ShortcutItem(keys: "Cmd + Shift + R", description: "Reset all items"),
                     ShortcutItem(keys: "Option + D", description: "Deselect all items"),
                     ShortcutItem(keys: "Cmd + Up Arrow", description: "Move selection up in queue"),
                     ShortcutItem(keys: "Cmd + Down Arrow", description: "Move selection down in queue"),
@@ -35,6 +36,7 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Option + T", description: "Open Timecode configuration"),
                     ShortcutItem(keys: "Option + A", description: "Open Audio Routing configuration"),
                     ShortcutItem(keys: "Cmd + D", description: "Toggle date tag"),
+                    ShortcutItem(keys: "F", description: "Open fullscreen player"),
                 ])
                 
                 // Global Shortcuts
@@ -74,7 +76,7 @@ struct ShortcutsSettingsView: View {
                 
                 // Sub-view Shortcuts
                 ShortcutSection(title: "Dialog Views", shortcuts: [
-                    ShortcutItem(keys: "Escape", description: "Close Timecode/Audio Routing/Metadata view"),
+                    ShortcutItem(keys: "Escape", description: "Close Timecode/Audio Routing/Metadata view/Full screen player"),
                 ])
             }
             .padding()
