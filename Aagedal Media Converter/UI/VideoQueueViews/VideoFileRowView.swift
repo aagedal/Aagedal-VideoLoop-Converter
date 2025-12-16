@@ -51,6 +51,7 @@ struct VideoFileRowView: View {
     @State private var cachedThumbnail: NSImage?
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
+    @State private var showCommentPreviewPopover = false
 
     var body: some View {
         ZStack {
@@ -131,11 +132,12 @@ struct VideoFileRowView: View {
                                 .progressViewStyle(LinearProgressViewStyle())
                         }
                         
-                        // Metadata
+                        // Input info line: duration and size (no labels)
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("Duration: \(TimecodeFormatter.formatTimeForDisplay(seconds: file.durationSeconds, item: file, isDuration: true))")
+                            Text(TimecodeFormatter.formatTimeForDisplay(seconds: file.durationSeconds, item: file, isDuration: true))
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
+                                .help("Input duration")
                             if showDurationWarning {
                                 Image(systemName: "exclamationmark.triangle.fill").font(.subheadline)
                                     .foregroundColor(.yellow)
@@ -145,69 +147,68 @@ struct VideoFileRowView: View {
                             Text("•")
                                 .foregroundColor(.gray)
 
-                            Text("Input Size: \(file.formattedSize)")
+                            Text(file.formattedSize)
                                 .font(.subheadline)
                                 .foregroundColor(.gray)
+                                .help("Input file size")
 
-                            if file.status == .done {
-                                Text("•")
-                                    .foregroundColor(.gray)
-                                Text("Export Size: \(file.formattedOutputSize ?? "—")")
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
+                            Spacer()
+
+                            // Action buttons container with fixed width
+                            HStack(spacing: 4) {
+                                if file.status == .converting {
+                                    Button(action: onCancel) {
+                                        Image(systemName: "xmark.circle")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(BorderlessButtonStyle())
+                                    .help("Cancel conversion")
+                                } else {
+                                    Button(action: {
+                                        // Set deletion flag and clear focus BEFORE deleting
+                                        isBeingDeleted = true
+                                        if isCommentFieldFocused || focusedCommentID == file.id {
+                                            isCommentFieldFocused = false
+                                            focusedCommentID = nil
+                                        }
+                                        onDelete()
+                                    }) {
+                                        Image(systemName: "clear")
+                                            .foregroundColor(.red)
+                                    }
+                                    .buttonStyle(BorderlessButtonStyle())
+                                    .help("Remove from list")
+
+                                    FileResetButton(
+                                        isEnabled: file.status != .converting && file.status != .waiting,
+                                        onReset: onReset
+                                    )
+                                }
                             }
-
+                            .frame(width: 44, alignment: .trailing)
+                        }
+                        
+                        // Second line: status, overwrite warning, and export size
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
                             if file.status == .waiting && file.outputFileExists {
-                                Text("•")
-                                    .foregroundColor(.gray)
                                 Text("Existing file will be overwritten")
                                     .font(.subheadline)
                                     .foregroundColor(.orange)
                             }
-
-                            Spacer(minLength: 16)
-
-                            // Status and action buttons - fixed width containers for consistent alignment
-                            HStack(spacing: 8) {
-                                // Status text with fixed width to prevent layout shifts
-                                Text(progressText)
+                            
+                            if file.status == .done {
+                                Text("Export: \(file.formattedOutputSize ?? "—")")
                                     .font(.subheadline)
-                                    .foregroundColor(statusColor)
-                                    .frame(width: 240, alignment: .trailing)
-
-                                // Action buttons container with fixed width
-                                HStack(spacing: 4) {
-                                    if file.status == .converting {
-                                        Button(action: onCancel) {
-                                            Image(systemName: "xmark.circle")
-                                                .foregroundColor(.red)
-                                        }
-                                        .buttonStyle(BorderlessButtonStyle())
-                                        .help("Cancel conversion")
-                                    } else {
-                                        Button(action: {
-                                            // Set deletion flag and clear focus BEFORE deleting
-                                            isBeingDeleted = true
-                                            if isCommentFieldFocused || focusedCommentID == file.id {
-                                                isCommentFieldFocused = false
-                                                focusedCommentID = nil
-                                            }
-                                            onDelete()
-                                        }) {
-                                            Image(systemName: "clear")
-                                                .foregroundColor(.red)
-                                        }
-                                        .buttonStyle(BorderlessButtonStyle())
-                                        .help("Remove from list")
-
-                                        FileResetButton(
-                                            isEnabled: file.status != .converting && file.status != .waiting,
-                                            onReset: onReset
-                                        )
-                                    }
-                                }
-                                .frame(width: 44, alignment: .trailing)
+                                    .foregroundColor(.gray)
+                                    .help("Exported file size")
                             }
+                            
+                            Spacer()
+                            
+                            // Status text aligned to the right
+                            Text(progressText)
+                                .font(.subheadline)
+                                .foregroundColor(statusColor)
                         }
                         commentSection
                     }
@@ -446,6 +447,7 @@ struct VideoFileRowView: View {
     private var commentSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
+                commentInfoButton
                 commentEditor
                 waveformControlSlot
                 dateTagControl
@@ -453,6 +455,24 @@ struct VideoFileRowView: View {
             .padding(.bottom, 6)
         }
         .padding(.top, 12)
+    }
+    
+    private var commentInfoButton: some View {
+        Button {
+            showCommentPreviewPopover.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+        }
+        .buttonStyle(.borderless)
+        .popover(isPresented: $showCommentPreviewPopover, arrowEdge: .bottom) {
+            CommentPreviewPopoverView(
+                comment: file.comment,
+                includeDateTag: file.includeDateTag
+            )
+        }
+        .help("Preview full metadata comment")
     }
 
     private var commentEditor: some View {
@@ -857,3 +877,137 @@ struct VideoFileRowView_Previews2: PreviewProvider {
     }
 }
 
+// MARK: - Comment Preview Popover for Row
+
+private struct CommentPreviewPopoverView: View {
+    let comment: String
+    let includeDateTag: Bool
+    
+    private var commentPrefix: String {
+        UserDefaults.standard.string(forKey: AppConstants.commentPrefixKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+    
+    private var commentSuffix: String {
+        UserDefaults.standard.string(forKey: AppConstants.commentSuffixKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+    
+    private var commentSeparator: String {
+        UserDefaults.standard.string(forKey: AppConstants.commentSeparatorKey) ?? AppConstants.defaultCommentSeparator
+    }
+    
+    private var commentDateFormat: String {
+        UserDefaults.standard.string(forKey: AppConstants.commentDateFormatKey) ?? AppConstants.defaultCommentDateFormat
+    }
+    
+    private var dateTagPrefix: String {
+        let prefix = UserDefaults.standard.string(forKey: AppConstants.dateTagPrefixKey) ?? AppConstants.defaultDateTagPrefix
+        return prefix.isEmpty ? AppConstants.defaultDateTagPrefix : prefix
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Metadata Comment Preview")
+                .font(.headline)
+            
+            Text("This comment will be embedded in the exported file's metadata.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            
+            Divider()
+            
+            VStack(alignment: .leading, spacing: 4) {
+                if includeDateTag {
+                    componentRow(label: "Date tag:", value: dateTagValue, color: .primary)
+                }
+                if !commentPrefix.isEmpty {
+                    componentRow(label: "Prefix:", value: commentPrefix, color: .primary)
+                }
+                componentRow(label: "Comment:", value: comment.isEmpty ? "(empty)" : comment, color: comment.isEmpty ? .secondary : .primary)
+                if !commentSuffix.isEmpty {
+                    componentRow(label: "Suffix:", value: commentSuffix, color: .primary)
+                }
+            }
+            
+            Divider()
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Full output:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Text(buildFullComment())
+                    .font(.system(size: 11, design: .monospaced))
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(NSColor.textBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+            }
+            
+            Divider()
+            
+            HStack(spacing: 4) {
+                Image(systemName: "gearshape")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text("Change prefix, suffix, separator, and date format in Settings > General.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .frame(width: 420)
+    }
+    
+    private var dateTagValue: String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = commentDateFormat
+        return "\(dateTagPrefix): \(dateFormatter.string(from: Date()))"
+    }
+    
+    private func componentRow(label: String, value: String, color: Color) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: 80, alignment: .trailing)
+            Text(value)
+                .font(.caption)
+                .foregroundColor(color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    
+    private func buildFullComment() -> String {
+        var parts: [String] = []
+        
+        if includeDateTag {
+            parts.append(dateTagValue)
+        }
+        
+        if !commentPrefix.isEmpty {
+            parts.append(commentPrefix)
+        }
+        
+        let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedComment.isEmpty {
+            parts.append(trimmedComment)
+        }
+        
+        if !commentSuffix.isEmpty {
+            parts.append(commentSuffix)
+        }
+        
+        if parts.isEmpty {
+            return "(no comment will be added)"
+        }
+        
+        return parts.joined(separator: commentSeparator)
+    }
+}

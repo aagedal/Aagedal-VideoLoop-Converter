@@ -107,13 +107,15 @@ enum FFMPEGCommandBuilder {
             if !includeAudioOutput {
                 removeArgumentPair("-map", value: "[audout]", from: &arguments)
             }
+            arguments.append(contentsOf: ffmpegArgs)
+            
+            // Apply comment metadata AFTER all other arguments to ensure it's not stripped by -map_metadata -1
             applyCommentMetadata(
-                to: &ffmpegArgs,
+                to: &arguments,
                 comment: comment,
                 includeDateTag: includeDateTag
             )
-
-            arguments.append(contentsOf: ffmpegArgs)
+            
             if let additionalOutputArguments {
                 arguments.append(contentsOf: additionalOutputArguments)
             }
@@ -148,14 +150,16 @@ enum FFMPEGCommandBuilder {
             if let audioRoutingConfig, preset.outputsAudioTrack, preset.appliesAudioRouting {
                 applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
             }
+
+            arguments.append(contentsOf: ffmpegArgs)
             
+            // Apply comment metadata AFTER all other arguments to ensure it's not stripped by -map_metadata -1
             applyCommentMetadata(
-                to: &ffmpegArgs,
+                to: &arguments,
                 comment: comment,
                 includeDateTag: includeDateTag
             )
-
-            arguments.append(contentsOf: ffmpegArgs)
+            
             if let additionalOutputArguments {
                 arguments.append(contentsOf: additionalOutputArguments)
             }
@@ -236,12 +240,6 @@ enum FFMPEGCommandBuilder {
             applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
         }
 
-        applyCommentMetadata(
-            to: &ffmpegArgs,
-            comment: comment,
-            includeDateTag: includeDateTag
-        )
-
         // Apply timecode configuration if preset outputs video
         if preset.outputsVideoTrack {
             // Use provided config, or default from settings
@@ -292,6 +290,13 @@ enum FFMPEGCommandBuilder {
                 arguments.append(contentsOf: ["-movflags", "use_metadata_tags"])
             }
         }
+
+        // Apply comment metadata AFTER all other arguments to ensure it's not stripped by -map_metadata -1
+        applyCommentMetadata(
+            to: &arguments,
+            comment: comment,
+            includeDateTag: includeDateTag
+        )
 
         if let additionalOutputArguments {
             arguments.append(contentsOf: additionalOutputArguments)
@@ -527,19 +532,22 @@ extension FFMPEGCommandBuilder {
     static func applyCommentMetadata(to ffmpegArgs: inout [String], comment: String, includeDateTag: Bool) {
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Get prefix, suffix, and separator from UserDefaults
+        // Get prefix, suffix, separator, and date format from UserDefaults
         let commentPrefix = UserDefaults.standard.string(forKey: AppConstants.commentPrefixKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let commentSuffixSetting = UserDefaults.standard.string(forKey: AppConstants.commentSuffixKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let commentSeparator = UserDefaults.standard.string(forKey: AppConstants.commentSeparatorKey) ?? AppConstants.defaultCommentSeparator
+        let commentDateFormat = UserDefaults.standard.string(forKey: AppConstants.commentDateFormatKey) ?? AppConstants.defaultCommentDateFormat
+        let dateTagPrefixSetting = UserDefaults.standard.string(forKey: AppConstants.dateTagPrefixKey) ?? AppConstants.defaultDateTagPrefix
+        let effectiveDateTagPrefix = dateTagPrefixSetting.isEmpty ? AppConstants.defaultDateTagPrefix : dateTagPrefixSetting
         
-        let commentMetadataValue: String? = {
+        let commentText: String? = {
             var parts: [String] = []
             
             if includeDateTag {
                 let dateFormatter = DateFormatter()
-                dateFormatter.dateFormat = "yyyyMMdd"
+                dateFormatter.dateFormat = commentDateFormat
                 let currentDateString = dateFormatter.string(from: Date())
-                parts.append("Date generated: \(currentDateString)")
+                parts.append("\(effectiveDateTagPrefix): \(currentDateString)")
             }
             
             if !commentPrefix.isEmpty {
@@ -555,35 +563,24 @@ extension FFMPEGCommandBuilder {
             }
             
             guard !parts.isEmpty else { return nil }
-            return "comment=\(parts.joined(separator: commentSeparator))"
+            return parts.joined(separator: commentSeparator)
         }()
 
-        if let metadataValueIndex = ffmpegArgs.firstIndex(where: { $0.contains("comment=Date generated:") }) {
-            if let commentMetadataValue {
-                ffmpegArgs[metadataValueIndex] = commentMetadataValue
-            } else {
-                let metadataKeyIndex = metadataValueIndex - 1
-                ffmpegArgs.remove(at: metadataValueIndex)
-                if metadataKeyIndex >= 0,
-                   metadataKeyIndex < ffmpegArgs.count,
-                   ffmpegArgs[metadataKeyIndex] == "-metadata" {
-                    ffmpegArgs.remove(at: metadataKeyIndex)
-                }
+        // First, remove any existing comment metadata from the arguments
+        var index = 0
+        while index < ffmpegArgs.count - 1 {
+            if ffmpegArgs[index] == "-metadata" && ffmpegArgs[index + 1].hasPrefix("comment=") {
+                ffmpegArgs.remove(at: index + 1)
+                ffmpegArgs.remove(at: index)
+                // Don't increment index since we removed elements
+                continue
             }
-        } else if let commentMetadataValue {
-            var hasCommentMetadata = false
-            var metadataScanIndex = 0
-            while metadataScanIndex < ffmpegArgs.count - 1 {
-                if ffmpegArgs[metadataScanIndex] == "-metadata",
-                   ffmpegArgs[metadataScanIndex + 1].hasPrefix("comment=") {
-                    hasCommentMetadata = true
-                    break
-                }
-                metadataScanIndex += 1
-            }
-            if !hasCommentMetadata {
-                ffmpegArgs.append(contentsOf: ["-metadata", commentMetadataValue])
-            }
+            index += 1
+        }
+        
+        // Add the new comment metadata if we have content
+        if let commentText {
+            ffmpegArgs.append(contentsOf: ["-metadata", "comment=\(commentText)"])
         }
     }
 

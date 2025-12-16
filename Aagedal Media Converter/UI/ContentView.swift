@@ -238,6 +238,9 @@ struct ContentView: View {
                     if mergeClipsAvailable {
                         mergeClipsEnabled.toggle()
                     }
+                },
+                onResetAll: {
+                    resetAllFiles()
                 }
             )
         )
@@ -840,12 +843,14 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
     var onToggleWatchFolder: () -> Void
     var onSelectOutputFolder: () -> Void
     var onToggleMerge: () -> Void
+    var onResetAll: () -> Void
     
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onToggleWatchFolder: onToggleWatchFolder,
             onSelectOutputFolder: onSelectOutputFolder,
-            onToggleMerge: onToggleMerge
+            onToggleMerge: onToggleMerge,
+            onResetAll: onResetAll
         )
     }
     
@@ -860,6 +865,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         context.coordinator.onToggleWatchFolder = onToggleWatchFolder
         context.coordinator.onSelectOutputFolder = onSelectOutputFolder
         context.coordinator.onToggleMerge = onToggleMerge
+        context.coordinator.onResetAll = onResetAll
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -870,16 +876,19 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         var onToggleWatchFolder: () -> Void
         var onSelectOutputFolder: () -> Void
         var onToggleMerge: () -> Void
+        var onResetAll: () -> Void
         private var monitor: Any?
         
         init(
             onToggleWatchFolder: @escaping () -> Void,
             onSelectOutputFolder: @escaping () -> Void,
-            onToggleMerge: @escaping () -> Void
+            onToggleMerge: @escaping () -> Void,
+            onResetAll: @escaping () -> Void
         ) {
             self.onToggleWatchFolder = onToggleWatchFolder
             self.onSelectOutputFolder = onSelectOutputFolder
             self.onToggleMerge = onToggleMerge
+            self.onResetAll = onResetAll
         }
         
         func install() {
@@ -907,6 +916,12 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
                 // Option+M: Toggle Merge
                 if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_M {
                     self.onToggleMerge()
+                    return nil
+                }
+                
+                // Cmd+Shift+R: Reset All
+                if hasCommand && hasShift && !hasOption && !hasControl && event.keyCode == kVK_ANSI_R {
+                    self.onResetAll()
                     return nil
                 }
                 
