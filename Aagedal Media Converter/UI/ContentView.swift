@@ -115,6 +115,11 @@ struct ContentView: View {
             },
             onToggleDateTag: { index in
                 droppedFiles[index].includeDateTag.toggle()
+            },
+            onPlayFullscreen: { id in
+                if let index = droppedFiles.firstIndex(where: { $0.id == id }) {
+                    FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: droppedFiles[index])
+                }
             }
         )
     }
