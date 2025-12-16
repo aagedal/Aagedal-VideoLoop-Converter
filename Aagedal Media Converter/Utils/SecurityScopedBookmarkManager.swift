@@ -41,46 +41,39 @@ final class SecurityScopedBookmarkManager: @unchecked Sendable {
     }
     
     func resolveBookmark(for url: URL) -> URL? {
-        // First try to access directly
-        if url.startAccessingSecurityScopedResource() {
-            return url
-        }
-        
-        // If direct access fails, try to resolve from saved bookmarks
         guard let bookmarks = userDefaults.dictionary(forKey: bookmarksKey) as? [String: Data],
               let bookmarkData = bookmarks[url.absoluteString] else {
             return nil
         }
-        
+
         var isStale = false
         do {
             let resolvedURL = try URL(
                 resolvingBookmarkData: bookmarkData,
-                options: .withSecurityScope,
+                options: [.withSecurityScope],
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale
             )
-            
+
             if isStale {
                 // Update the bookmark if it's stale
                 _ = saveBookmark(for: resolvedURL)
             }
-            
+
             return resolvedURL
         } catch {
             print("Failed to resolve bookmark: \(error)")
             return nil
         }
     }
-    
+
     func startAccessingSecurityScopedResource(for url: URL) -> Bool {
-        if let resolvedURL = resolveBookmark(for: url) {
-            return resolvedURL.startAccessingSecurityScopedResource()
-        }
-        return false
+        guard let resolvedURL = resolveBookmark(for: url) else { return false }
+        return resolvedURL.startAccessingSecurityScopedResource()
     }
-    
+
     func stopAccessingSecurityScopedResource(for url: URL) {
-        _ = resolveBookmark(for: url)?.stopAccessingSecurityScopedResource()
+        guard let resolvedURL = resolveBookmark(for: url) else { return }
+        resolvedURL.stopAccessingSecurityScopedResource()
     }
 }

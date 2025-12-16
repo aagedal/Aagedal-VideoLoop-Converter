@@ -30,6 +30,7 @@ struct VideoFileListView: View {
     var onOpenAudioConfig: ((UUID) -> Void)?
     var onOpenMetadata: ((UUID) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
+    var onPlayFullscreen: ((UUID) -> Void)?
     
     @State private var isTargeted = false
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
@@ -100,6 +101,7 @@ struct VideoFileListView: View {
                     onAudioConfig: handleAudioConfigShortcut,
                     onMetadata: handleMetadataShortcut,
                     onToggleDateTag: handleToggleDateTagShortcut,
+                    onPlayFullscreen: handlePlayFullscreenShortcut,
                     onMoveUp: { handleMoveSelection(direction: .up) },
                     onMoveDown: { handleMoveSelection(direction: .down) },
                     onResetSelected: handleResetSelectedShortcut,
@@ -409,6 +411,15 @@ struct VideoFileListView: View {
         onToggleDateTag?(index)
     }
     
+    private func handlePlayFullscreenShortcut() {
+        guard let id = singleSelectedID else { return }
+        // Check if the item has a video stream
+        if let index = droppedFiles.firstIndex(where: { $0.id == id }),
+           droppedFiles[index].hasVideoStream {
+            onPlayFullscreen?(id)
+        }
+    }
+    
     private func handleResetSelectedShortcut() {
         // Works with single or multi-selection
         let selectedIndices = selection.compactMap { selectedID in
@@ -568,6 +579,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onAudioConfig: () -> Void
     var onMetadata: () -> Void
     var onToggleDateTag: () -> Void
+    var onPlayFullscreen: () -> Void
     var onMoveUp: () -> Void
     var onMoveDown: () -> Void
     // Multi-selection shortcuts
@@ -584,6 +596,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onAudioConfig: onAudioConfig,
             onMetadata: onMetadata,
             onToggleDateTag: onToggleDateTag,
+            onPlayFullscreen: onPlayFullscreen,
             onMoveUp: onMoveUp,
             onMoveDown: onMoveDown,
             onResetSelected: onResetSelected,
@@ -607,6 +620,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onAudioConfig = onAudioConfig
         context.coordinator.onMetadata = onMetadata
         context.coordinator.onToggleDateTag = onToggleDateTag
+        context.coordinator.onPlayFullscreen = onPlayFullscreen
         context.coordinator.onMoveUp = onMoveUp
         context.coordinator.onMoveDown = onMoveDown
         context.coordinator.onResetSelected = onResetSelected
@@ -626,6 +640,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onAudioConfig: () -> Void
         var onMetadata: () -> Void
         var onToggleDateTag: () -> Void
+        var onPlayFullscreen: () -> Void
         var onMoveUp: () -> Void
         var onMoveDown: () -> Void
         var onResetSelected: () -> Void
@@ -641,6 +656,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onAudioConfig: @escaping () -> Void,
             onMetadata: @escaping () -> Void,
             onToggleDateTag: @escaping () -> Void,
+            onPlayFullscreen: @escaping () -> Void,
             onMoveUp: @escaping () -> Void,
             onMoveDown: @escaping () -> Void,
             onResetSelected: @escaping () -> Void,
@@ -654,6 +670,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onAudioConfig = onAudioConfig
             self.onMetadata = onMetadata
             self.onToggleDateTag = onToggleDateTag
+            self.onPlayFullscreen = onPlayFullscreen
             self.onMoveUp = onMoveUp
             self.onMoveDown = onMoveDown
             self.onResetSelected = onResetSelected
@@ -718,6 +735,12 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // CMD+D: Toggle Date Tag
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_D {
                     self.onToggleDateTag()
+                    return nil
+                }
+                
+                // F: Play Fullscreen (no modifiers)
+                if !hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_F {
+                    self.onPlayFullscreen()
                     return nil
                 }
                 

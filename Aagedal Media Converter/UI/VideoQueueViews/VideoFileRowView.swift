@@ -273,6 +273,13 @@ struct VideoFileRowView: View {
                     isThumbnailHovered = hovering
                 }
             }
+            .highPriorityGesture(
+                TapGesture(count: 2)
+                    .onEnded {
+                        guard file.hasVideoStream else { return }
+                        FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: file)
+                    }
+            )
             .onTapGesture { showPreview = true }
             .help("Click to preview and trim video")
     }
@@ -407,6 +414,22 @@ struct VideoFileRowView: View {
                 }
                 .padding(10)
 
+                Spacer()
+                
+                // Center: Fullscreen play button (only for video files)
+                if file.hasVideoStream {
+                    Button {
+                        FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: file)
+                    } label: {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 44, weight: .medium))
+                            .foregroundColor(.white)
+                            .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Play fullscreen (double-click or press F)")
+                }
+                
                 Spacer()
 
                 // Bottom row: Preview (left), Info (right)
