@@ -24,8 +24,8 @@ struct VideoFileListView: View {
     var mergeClipsAvailable: Bool
     
     @State private var isTargeted = false
-    /// Selected row indices for built-in multi-selection
-    @State private var selection = Set<Int>()
+    /// Selected row IDs (VideoItem.id) for built-in multi-selection
+    @State private var selection = Set<UUID>()
     @State private var focusedCommentID: UUID?
 
     var body: some View {
@@ -54,7 +54,7 @@ struct VideoFileListView: View {
                 // File list
                 // Enable multi-selection of rows by index
                 List(selection: $selection) {
-                    ForEach(Array(droppedFiles.indices), id: \.self) { index in
+                    ForEach(Array(droppedFiles.enumerated()), id: \.element.id) { index, _ in
                         cardRow(for: index)
                     }
                     .onDelete(perform: onDelete)
@@ -286,14 +286,17 @@ struct VideoFileListView: View {
     private func focusComment(forward: Bool, currentFocused: UUID?) {
         guard !droppedFiles.isEmpty else { return }
 
-        let sortedSelection = selection.sorted()
+        let sortedSelectionIndices = selection
+            .compactMap { selectedID in droppedFiles.firstIndex(where: { $0.id == selectedID }) }
+            .sorted()
 
-        if let currentIndex = sortedSelection.first {
+        if let currentIndex = sortedSelectionIndices.first {
             let currentID = droppedFiles[currentIndex].id
             if currentFocused == currentID,
                let nextIndex = nextIndex(from: currentIndex, forward: forward) {
-                selection = [nextIndex]
-                focusedCommentID = droppedFiles[nextIndex].id
+                let nextID = droppedFiles[nextIndex].id
+                selection = [nextID]
+                focusedCommentID = nextID
             } else {
                 focusedCommentID = currentID
             }
@@ -303,15 +306,17 @@ struct VideoFileListView: View {
         if let currentFocused,
            let currentIndex = droppedFiles.firstIndex(where: { $0.id == currentFocused }) {
             if let nextIndex = nextIndex(from: currentIndex, forward: forward) {
-                selection = [nextIndex]
-                focusedCommentID = droppedFiles[nextIndex].id
+                let nextID = droppedFiles[nextIndex].id
+                selection = [nextID]
+                focusedCommentID = nextID
             }
             return
         }
 
         let startIndex = forward ? 0 : max(droppedFiles.count - 1, 0)
-        selection = [startIndex]
-        focusedCommentID = droppedFiles[startIndex].id
+        let startID = droppedFiles[startIndex].id
+        selection = [startID]
+        focusedCommentID = startID
     }
 
     private func nextIndex(from currentIndex: Int, forward: Bool) -> Int? {
@@ -322,7 +327,10 @@ struct VideoFileListView: View {
     }
 
     private func deleteSelectedItems() {
-        let indices = IndexSet(selection)
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }
+        let indices = IndexSet(selectedIndices)
         guard !indices.isEmpty else { return }
         onDelete(indices)
         selection.removeAll()
@@ -347,11 +355,11 @@ struct VideoFileListView: View {
             onReset: { optionKeyPressed in
                 onReset(index, optionKeyPressed)
             },
-            isSelected: selection.contains(index),
+            isSelected: selection.contains(file.wrappedValue.id),
             onCommentFocusChange: { id, isFocused in
                 guard droppedFiles[index].id == id else { return }
                 if isFocused {
-                    selection = [index]
+                    selection = [id]
                     focusedCommentID = id
                 } else if focusedCommentID == id {
                     focusedCommentID = nil
@@ -363,6 +371,7 @@ struct VideoFileListView: View {
         .padding([.vertical], 4)
         .listRowSeparator(.hidden)
         .listRowInsets(EdgeInsets())
+        .tag(file.wrappedValue.id)
     }
 }
 

@@ -106,6 +106,7 @@ struct ContentView: View {
             droppedFiles[index].progress = 0.0
             droppedFiles[index].eta = nil
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
+            droppedFiles[index].outputFileSizeBytes = nil
 
             // Determine whether to clear settings based on preference and Option key
             let resetClearsSettings = UserDefaults.standard.bool(forKey: AppConstants.resetClearsSettingsKey)
@@ -704,6 +705,7 @@ struct ContentView: View {
             droppedFiles[index].progress = 0.0
             droppedFiles[index].eta = nil
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
+            droppedFiles[index].outputFileSizeBytes = nil
 
             // Reset configurations if needed
             if shouldClearSettings {

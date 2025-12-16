@@ -168,6 +168,9 @@ private struct ResetButtonNSViewWrapper: NSViewRepresentable {
         let isEnabled = hasResettableItems && !isConverting
         nsView.isEnabled = isEnabled
 
+        // Update appearance
+        nsView.contentTintColor = isEnabled ? .systemBlue : .systemGray
+
         // Update tooltip based on settings
         let resetClearsSettings = UserDefaults.standard.bool(forKey: AppConstants.resetClearsSettingsKey)
         if resetClearsSettings {
