@@ -281,7 +281,6 @@ struct VideoFileRowView: View {
                     }
             )
             .onTapGesture { showPreview = true }
-            .help("Click to preview and trim video")
     }
 
     @ViewBuilder
@@ -427,7 +426,7 @@ struct VideoFileRowView: View {
                             .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
                     }
                     .buttonStyle(.plain)
-                    .help("Play fullscreen (double-click or press F)")
+                    .help("Play fullscreen")
                 }
                 
                 Spacer()
