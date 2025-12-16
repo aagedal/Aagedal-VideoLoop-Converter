@@ -189,6 +189,22 @@ struct FullscreenPlayerView: View {
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .truncationMode(.middle)
+
+            if isLowQualityPreview {
+                Text("Low quality preview")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(Color.black.opacity(0.35))
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+                            )
+                    )
+            }
             
             Spacer()
             
@@ -301,14 +317,36 @@ struct FullscreenPlayerView: View {
             ZStack(alignment: .leading) {
                 // Track background
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.3))
+                    .fill(Color.white.opacity(0.28))
                     .frame(height: 4)
-                
+
+                // Chunk availability overlay (orange = not yet rendered)
+                if controller.fallbackPreviewRange != nil, duration > 0 {
+                    let chunkDuration = controller.chunkDuration
+                    let totalChunks = Int(ceil(duration / chunkDuration))
+
+                    ForEach(0..<totalChunks, id: \.self) { chunkIndex in
+                        if !controller.loadedChunks.contains(chunkIndex) {
+                            let chunkStart = Double(chunkIndex) * chunkDuration
+                            let chunkEnd = min(Double(chunkIndex + 1) * chunkDuration, duration)
+
+                            let startX = CGFloat(chunkStart / duration) * geo.size.width
+                            let endX = CGFloat(chunkEnd / duration) * geo.size.width
+                            let width = max(0, endX - startX)
+
+                            Rectangle()
+                                .fill(Color.orange.opacity(0.35))
+                                .frame(width: width, height: 4)
+                                .offset(x: startX)
+                        }
+                    }
+                }
+
                 // Progress
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white)
                     .frame(width: geo.size.width * CGFloat(progress), height: 4)
-                
+
                 // Scrubber handle
                 Circle()
                     .fill(Color.white)
@@ -382,6 +420,13 @@ struct FullscreenPlayerView: View {
         if controller.isReverseSimulating { return true }
         if controller.useVLC { return controller.vlcPlayer?.isPlaying ?? false }
         return (controller.player?.rate ?? 0) != 0
+    }
+
+    private var isLowQualityPreview: Bool {
+        controller.fallbackPreviewRange != nil
+            || controller.isGeneratingFallbackPreview
+            || controller.isGeneratingFallbackStill
+            || controller.isLoadingChunk
     }
 
     private var audioTrackSelector: some View {
