@@ -2,9 +2,9 @@
 
 A lightweight minimal-ish macOS application for simple batch encoding of video files. Powered by FFMPEG, FFPROBE and VLCKit under the hood and written entirely in Swift / SwiftUI.
 
-Removes almost all metdata by default. Fully private local only processing.
+Fully private and local. Completely free and open source. No subscriptions or paid add-ons.
 
-Completely free and open source. No subscriptions, no paid add-ons.
+A passion project; I made this for myself, I just wanted to share.
 
 Note that most of this app is vibe-coded.
 
@@ -23,7 +23,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 ```
 
 ### Manual download
-[Latest version (2.9.2)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.2.9.2/Aagedal-Media-Converter_2-9-2.zip)
+[Latest version (3.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.0/Aagedal-Media-Converter_3-0.zip)
 
 
 ---
@@ -184,15 +184,10 @@ Not tested with macOS 26 Tahoe, but in macOS 15 you have two available App Short
 ---
 
 ## Known issues
-– Lagging scrolling when many items are queued.
+– Lagging scrolling when many items are queued. Seems to maybe be an issue with SwiftUI
+- Sometimes when using Keyboard shortcuts to open crop, timecode or audio settings for the first item after launch you get a small gray box. (Can be closed with Esc.)
 
 ---
-## Work in progress
-1. Preview and trim files. Status: Currently Apple native formats are working, but I want to implement support for all FFMPEG-supported formats before releasing.
-2. Grab screenshots at source resolution. (JPEG for SDR, AVIF for HDR, 16-bit PNG for ProRes RAW.) Status: Working, though capture seems a bit slow.
-3. Metadata info view. Status: Done, but I may need to add more metadata-fields in the future.
-4. Fixed import of webm, and other file extensions that I forgot ti add to the supported file extensions list. Status: done.
-5. Optimizing list scrolling performance when many files are queued.
 
 ## Future ideas
 1. Per item preset adjustment.
@@ -209,7 +204,6 @@ Note that this is a sparetime project. I this is a passion project I don't get p
 This project is distributed under the **GNU General Public License, version 3.0**. See the [LICENSE](LICENSE) file for the complete text.
 
 The bundled FFmpeg binary is compiled with `--enable-gpl` and is therefore also licensed under **GPL v2 or later**. This project chooses GPL v3 for all code, satisfying that requirement. See the original FFmpeg license in [Licenses/ffmpeg-LICENSE.txt](Licenses/ffmpeg-LICENSE.txt).
-
 
 ---
 
