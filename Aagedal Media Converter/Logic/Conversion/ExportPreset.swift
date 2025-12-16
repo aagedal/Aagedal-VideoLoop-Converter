@@ -410,8 +410,9 @@ extension ExportPreset {
     static func applyMetadataStrategy(to args: inout [String], preserveMetadata: Bool, defaultMap: String = "-1") {
         removeArgumentPair("-map_metadata", from: &args)
         removeArgumentPair("-map_chapters", from: &args)
-        removeArgumentPair("-metadata", value: "encoder=' '", from: &args)
-        removeArgumentPair("-metadata:s:v:0", value: "encoder=' '", from: &args)
+        removeFflagsArgument("+bitexact", from: &args)
+        removeArgumentPair("-metadata:s:v:0", value: "encoder=", from: &args)
+        removeArgumentPair("-metadata:s:a:0", value: "encoder=", from: &args)
         
         if preserveMetadata {
             if defaultMap != "-1" {
@@ -421,9 +422,58 @@ extension ExportPreset {
         } else {
             appendArgumentPair("-map_metadata", value: "-1", to: &args)
             appendArgumentPair("-map_chapters", value: "-1", to: &args)
-            appendArgumentPair("-metadata", value: "encoder=' '", to: &args)
-            appendArgumentPair("-metadata:s:v:0", value: "encoder=' '", to: &args)
+            // Use -fflags +bitexact to prevent muxer from writing encoder/writing_application metadata
+            appendFflagsArgument("+bitexact", to: &args)
+            // Clear stream-level encoder tags (writing_library) for video and audio streams
+            appendArgumentPair("-metadata:s:v:0", value: "encoder=", to: &args)
+            appendArgumentPair("-metadata:s:a:0", value: "encoder=", to: &args)
         }
+    }
+    
+    /// Removes a specific flag from an existing -fflags argument, or removes the entire -fflags argument if it only contains that flag.
+    private static func removeFflagsArgument(_ flag: String, from args: inout [String]) {
+        var index = 0
+        while index < args.count {
+            if args[index] == "-fflags" && index + 1 < args.count {
+                var value = args[index + 1]
+                if value == flag {
+                    // Remove both -fflags and its value
+                    args.remove(at: index)
+                    args.remove(at: index)
+                    continue
+                } else if value.contains(flag) {
+                    // Remove the specific flag from the value
+                    value = value.replacingOccurrences(of: flag, with: "")
+                    if value.isEmpty || value == "+" {
+                        args.remove(at: index)
+                        args.remove(at: index)
+                    } else {
+                        args[index + 1] = value
+                        index += 2
+                    }
+                    continue
+                }
+            }
+            index += 1
+        }
+    }
+    
+    /// Appends a flag to an existing -fflags argument, or adds a new -fflags argument if none exists.
+    private static func appendFflagsArgument(_ flag: String, to args: inout [String]) {
+        // Check if -fflags already exists
+        for i in 0..<args.count {
+            if args[i] == "-fflags" && i + 1 < args.count {
+                // Check if the flag is already present
+                if args[i + 1].contains(flag) {
+                    return
+                }
+                // Append to existing fflags
+                args[i + 1] = args[i + 1] + flag
+                return
+            }
+        }
+        // No -fflags found, add new one
+        args.append(contentsOf: ["-fflags", flag])
     }
     
     private static func removeArgumentPair(_ key: String, value: String? = nil, from args: inout [String]) {

@@ -1,6 +1,4 @@
 // Aagedal Media Converter
-// Copyright © 2025 Truls Aaged
-// Aagedal Media Converter
 // Copyright © 2025 Truls Aagedal
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -8,8 +6,6 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path
-    @AppStorage(AppConstants.includeDateTagPreferenceKey) private var includeDateTagByDefault = false
-    @AppStorage(AppConstants.preserveMetadataPreferenceKey) private var preserveMetadataByDefault = false
     @AppStorage(AppConstants.enableFileNameProcessingKey) private var enableFileNameProcessing = true
     @AppStorage(AppConstants.screenshotDirectoryKey) private var screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
     @AppStorage(AppConstants.previewCacheCleanupPolicyKey) private var previewCacheCleanupPolicyRaw = AppConstants.defaultPreviewCacheCleanupPolicyRaw
@@ -18,19 +14,14 @@ struct GeneralSettingsView: View {
     @AppStorage(AppConstants.screenshotHighBitFormatKey) private var screenshotHighBitFormat = AppConstants.defaultScreenshotFormat
     @AppStorage(AppConstants.screenshotAlphaHandlingKey) private var screenshotAlphaHandling = AppConstants.defaultScreenshotAlphaHandling
     @AppStorage(AppConstants.resetClearsSettingsKey) private var resetClearsSettings = AppConstants.defaultResetClearsSettings
-    @AppStorage(AppConstants.commentPrefixKey) private var commentPrefix = ""
-    @AppStorage(AppConstants.commentSuffixKey) private var commentSuffix = ""
-    @AppStorage(AppConstants.commentSeparatorKey) private var commentSeparator = AppConstants.defaultCommentSeparator
 
     @State private var isClearingPreviewCache = false
     @State private var previewCacheSizeBytes: Int64 = 0
-    @State private var showCommentInfoPopover = false
 
     var body: some View {
         Form {
             outputFolderSection
             fileNameSection
-            commentSection
             resetBehaviorSection
             screenshotSection
             previewCacheSection
@@ -104,109 +95,6 @@ struct GeneralSettingsView: View {
             }
             .padding(8)
         }
-    }
-
-    private var commentSection: some View {
-        Section(header: Text("Metadata Comment")) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Configure optional prefix and suffix that will be added to all metadata comments.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                HStack(spacing: 8) {
-                    Text("Prefix:")
-                        .frame(width: 70, alignment: .trailing)
-                    TextField("Optional prefix", text: $commentPrefix)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 200)
-                }
-                
-                HStack(spacing: 8) {
-                    Text("Suffix:")
-                        .frame(width: 70, alignment: .trailing)
-                    TextField("Optional suffix", text: $commentSuffix)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 200)
-                }
-                
-                HStack(spacing: 8) {
-                    Text("Separator:")
-                        .frame(width: 70, alignment: .trailing)
-                    Picker("", selection: $commentSeparator) {
-                        Text("Pipe ( | )").tag(" | ")
-                        Text("Dash ( - )").tag(" - ")
-                        Text("Colon ( : )").tag(": ")
-                        Text("Comma ( , )").tag(", ")
-                        Text("Space").tag(" ")
-                        Text("None").tag("")
-                    }
-                    .pickerStyle(.menu)
-                    .frame(width: 140)
-                }
-                
-                Divider()
-                    .padding(.vertical, 4)
-                
-                HStack(alignment: .top, spacing: 8) {
-                    Button {
-                        showCommentInfoPopover.toggle()
-                    } label: {
-                        Image(systemName: "info.circle")
-                            .foregroundColor(.accentColor)
-                    }
-                    .buttonStyle(.borderless)
-                    .popover(isPresented: $showCommentInfoPopover, arrowEdge: .trailing) {
-                        CommentPreviewPopover(
-                            prefix: commentPrefix,
-                            suffix: commentSuffix,
-                            separator: commentSeparator,
-                            includeDateTag: includeDateTagByDefault
-                        )
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Preview with sample comment:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(buildCommentPreview(sampleComment: "My comment"))
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.primary)
-                            .padding(6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(Color(NSColor.textBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                            )
-                    }
-                }
-            }
-            .padding(8)
-        }
-    }
-    
-    private func buildCommentPreview(sampleComment: String) -> String {
-        var parts: [String] = []
-        
-        if includeDateTagByDefault {
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyyMMdd"
-            parts.append("Date generated: \(dateFormatter.string(from: Date()))")
-        }
-        
-        if !commentPrefix.isEmpty {
-            parts.append(commentPrefix)
-        }
-        
-        parts.append(sampleComment)
-        
-        if !commentSuffix.isEmpty {
-            parts.append(commentSuffix)
-        }
-        
-        return parts.joined(separator: commentSeparator)
     }
 
     private var resetBehaviorSection: some View {
@@ -460,104 +348,6 @@ struct GeneralSettingsView: View {
         }
     }
 
-}
-
-// MARK: - Comment Preview Popover
-
-private struct CommentPreviewPopover: View {
-    let prefix: String
-    let suffix: String
-    let separator: String
-    let includeDateTag: Bool
-    
-    private var separatorDisplayName: String {
-        switch separator {
-        case " | ": return "Pipe ( | )"
-        case " - ": return "Dash ( - )"
-        case ": ": return "Colon ( : )"
-        case ", ": return "Comma ( , )"
-        case " ": return "Space"
-        case "": return "None"
-        default: return "\"\(separator)\""
-        }
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Metadata Comment")
-                .font(.headline)
-            
-            Text("The metadata comment is embedded in the exported file and can be viewed in video players or file inspectors. It's composed of:")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            
-            VStack(alignment: .leading, spacing: 6) {
-                commentComponentRow(label: "Date tag", value: includeDateTag ? "Enabled" : "Disabled", color: includeDateTag ? .green : .secondary)
-                commentComponentRow(label: "Prefix", value: prefix.isEmpty ? "(none)" : "\"\(prefix)\"", color: prefix.isEmpty ? .secondary : .primary)
-                commentComponentRow(label: "Your comment", value: "Per-file comment", color: .primary)
-                commentComponentRow(label: "Suffix", value: suffix.isEmpty ? "(none)" : "\"\(suffix)\"", color: suffix.isEmpty ? .secondary : .primary)
-                commentComponentRow(label: "Separator", value: separatorDisplayName, color: .primary)
-            }
-            
-            Divider()
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Full comment preview:")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Text(buildFullPreview())
-                    .font(.system(size: 11, design: .monospaced))
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color(NSColor.textBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                    )
-            }
-        }
-        .padding()
-        .frame(width: 320)
-    }
-    
-    private func commentComponentRow(label: String, value: String, color: Color) -> some View {
-        HStack {
-            Text(label + ":")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .frame(width: 80, alignment: .trailing)
-            Text(value)
-                .font(.caption)
-                .foregroundColor(color)
-        }
-    }
-    
-    private func buildFullPreview() -> String {
-        var parts: [String] = []
-        
-        if includeDateTag {
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyyMMdd"
-            parts.append("Date generated: \(dateFormatter.string(from: Date()))")
-        }
-        
-        if !prefix.isEmpty {
-            parts.append(prefix)
-        }
-        
-        parts.append("Sample comment text")
-        
-        if !suffix.isEmpty {
-            parts.append(suffix)
-        }
-        
-        return parts.joined(separator: separator)
-    }
 }
 
 #Preview {
