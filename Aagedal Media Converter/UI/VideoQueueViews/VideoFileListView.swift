@@ -23,6 +23,14 @@ struct VideoFileListView: View {
     var mergeClipsEnabled: Bool
     var mergeClipsAvailable: Bool
     
+    // Callbacks for single-item actions
+    var onOpenTrim: ((Int) -> Void)?
+    var onOpenTrimWithCrop: ((Int) -> Void)?
+    var onOpenTimecode: ((Int) -> Void)?
+    var onOpenAudioConfig: ((Int) -> Void)?
+    var onOpenMetadata: ((Int) -> Void)?
+    var onToggleDateTag: ((Int) -> Void)?
+    
     @State private var isTargeted = false
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
     @State private var selection = Set<UUID>()
@@ -85,7 +93,16 @@ struct VideoFileListView: View {
             ZStack {
                 KeyEventHandlingView(
                     onTabForward: { handleTabPress(forward: true) },
-                    onTabBackward: { handleTabPress(forward: false) }
+                    onTabBackward: { handleTabPress(forward: false) },
+                    onTrim: handleTrimShortcut,
+                    onCrop: handleCropShortcut,
+                    onTimecode: handleTimecodeShortcut,
+                    onAudioConfig: handleAudioConfigShortcut,
+                    onMetadata: handleMetadataShortcut,
+                    onToggleDateTag: handleToggleDateTagShortcut,
+                    onMoveUp: { handleMoveSelection(direction: .up) },
+                    onMoveDown: { handleMoveSelection(direction: .down) },
+                    onResetSelected: handleResetSelectedShortcut
                 )
 
                 Button(action: deleteSelectedItems) {
@@ -337,6 +354,107 @@ struct VideoFileListView: View {
         focusedCommentID = nil
     }
     
+    // MARK: - Keyboard Shortcut Handlers
+    
+    /// Returns the index of the single selected item, or nil if zero or multiple items are selected
+    private var singleSelectedIndex: Int? {
+        guard selection.count == 1,
+              let selectedID = selection.first,
+              let index = droppedFiles.firstIndex(where: { $0.id == selectedID }) else {
+            return nil
+        }
+        return index
+    }
+    
+    private func handleTrimShortcut() {
+        guard let index = singleSelectedIndex else { return }
+        onOpenTrim?(index)
+    }
+    
+    private func handleCropShortcut() {
+        guard let index = singleSelectedIndex else { return }
+        onOpenTrimWithCrop?(index)
+    }
+    
+    private func handleTimecodeShortcut() {
+        guard let index = singleSelectedIndex else { return }
+        onOpenTimecode?(index)
+    }
+    
+    private func handleAudioConfigShortcut() {
+        guard let index = singleSelectedIndex else { return }
+        onOpenAudioConfig?(index)
+    }
+    
+    private func handleMetadataShortcut() {
+        guard let index = singleSelectedIndex else { return }
+        onOpenMetadata?(index)
+    }
+    
+    private func handleToggleDateTagShortcut() {
+        guard let index = singleSelectedIndex else { return }
+        onToggleDateTag?(index)
+    }
+    
+    private func handleResetSelectedShortcut() {
+        // Works with single or multi-selection
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+        
+        guard !selectedIndices.isEmpty else { return }
+        
+        // Check if Option key is pressed
+        let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+        
+        for index in selectedIndices {
+            onReset(index, optionKeyPressed)
+        }
+    }
+    
+    private enum MoveDirection {
+        case up, down
+    }
+    
+    private func handleMoveSelection(direction: MoveDirection) {
+        // Get sorted indices of selected items
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+        
+        guard !selectedIndices.isEmpty else { return }
+        
+        switch direction {
+        case .up:
+            // Can't move up if first item is selected and at index 0
+            guard selectedIndices.first != 0 else { return }
+            
+            // Move items up one by one from top to bottom
+            for index in selectedIndices {
+                let newIndex = index - 1
+                droppedFiles.swapAt(index, newIndex)
+            }
+            
+            // Update selection to new positions
+            let newSelection = Set(selectedIndices.map { droppedFiles[$0 - 1].id })
+            selection = newSelection
+            
+        case .down:
+            // Can't move down if last item is selected and at last index
+            guard selectedIndices.last != droppedFiles.count - 1 else { return }
+            
+            // Move items down one by one from bottom to top
+            for index in selectedIndices.reversed() {
+                let newIndex = index + 1
+                droppedFiles.swapAt(index, newIndex)
+            }
+            
+            // Update selection to new positions
+            let newSelection = Set(selectedIndices.map { droppedFiles[$0 + 1].id })
+            selection = newSelection
+        }
+    }
+    
     // MARK: - Row Builder
     @ViewBuilder
     private func cardRow(for index: Int) -> some View {
@@ -359,7 +477,11 @@ struct VideoFileListView: View {
             onCommentFocusChange: { id, isFocused in
                 guard droppedFiles[index].id == id else { return }
                 if isFocused {
-                    selection = [id]
+                    // Don't override multi-selection when comment field is focused
+                    // Only update focusedCommentID for Tab navigation
+                    if !selection.contains(id) {
+                        selection = [id]
+                    }
                     focusedCommentID = id
                 } else if focusedCommentID == id {
                     focusedCommentID = nil
@@ -426,9 +548,32 @@ struct VideoFileListView_Previews: PreviewProvider {
 private struct KeyEventHandlingView: NSViewRepresentable {
     var onTabForward: () -> Void
     var onTabBackward: () -> Void
+    // Single-selection shortcuts
+    var onTrim: () -> Void
+    var onCrop: () -> Void
+    var onTimecode: () -> Void
+    var onAudioConfig: () -> Void
+    var onMetadata: () -> Void
+    var onToggleDateTag: () -> Void
+    var onMoveUp: () -> Void
+    var onMoveDown: () -> Void
+    // Multi-selection shortcuts
+    var onResetSelected: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onForward: onTabForward, onBackward: onTabBackward)
+        Coordinator(
+            onForward: onTabForward,
+            onBackward: onTabBackward,
+            onTrim: onTrim,
+            onCrop: onCrop,
+            onTimecode: onTimecode,
+            onAudioConfig: onAudioConfig,
+            onMetadata: onMetadata,
+            onToggleDateTag: onToggleDateTag,
+            onMoveUp: onMoveUp,
+            onMoveDown: onMoveDown,
+            onResetSelected: onResetSelected
+        )
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -441,6 +586,15 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.onForward = onTabForward
         context.coordinator.onBackward = onTabBackward
+        context.coordinator.onTrim = onTrim
+        context.coordinator.onCrop = onCrop
+        context.coordinator.onTimecode = onTimecode
+        context.coordinator.onAudioConfig = onAudioConfig
+        context.coordinator.onMetadata = onMetadata
+        context.coordinator.onToggleDateTag = onToggleDateTag
+        context.coordinator.onMoveUp = onMoveUp
+        context.coordinator.onMoveDown = onMoveDown
+        context.coordinator.onResetSelected = onResetSelected
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -450,31 +604,123 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     final class Coordinator {
         var onForward: () -> Void
         var onBackward: () -> Void
+        var onTrim: () -> Void
+        var onCrop: () -> Void
+        var onTimecode: () -> Void
+        var onAudioConfig: () -> Void
+        var onMetadata: () -> Void
+        var onToggleDateTag: () -> Void
+        var onMoveUp: () -> Void
+        var onMoveDown: () -> Void
+        var onResetSelected: () -> Void
         private var monitor: Any?
 
-        init(onForward: @escaping () -> Void, onBackward: @escaping () -> Void) {
+        init(
+            onForward: @escaping () -> Void,
+            onBackward: @escaping () -> Void,
+            onTrim: @escaping () -> Void,
+            onCrop: @escaping () -> Void,
+            onTimecode: @escaping () -> Void,
+            onAudioConfig: @escaping () -> Void,
+            onMetadata: @escaping () -> Void,
+            onToggleDateTag: @escaping () -> Void,
+            onMoveUp: @escaping () -> Void,
+            onMoveDown: @escaping () -> Void,
+            onResetSelected: @escaping () -> Void
+        ) {
             self.onForward = onForward
             self.onBackward = onBackward
+            self.onTrim = onTrim
+            self.onCrop = onCrop
+            self.onTimecode = onTimecode
+            self.onAudioConfig = onAudioConfig
+            self.onMetadata = onMetadata
+            self.onToggleDateTag = onToggleDateTag
+            self.onMoveUp = onMoveUp
+            self.onMoveDown = onMoveDown
+            self.onResetSelected = onResetSelected
         }
 
         func install() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self else { return event }
-                guard event.keyCode == kVK_Tab else { return event }
-
-                let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control]
-                if !event.modifierFlags.intersection(disallowedModifiers).isEmpty {
-                    return event
+                
+                let hasCommand = event.modifierFlags.contains(.command)
+                let hasOption = event.modifierFlags.contains(.option)
+                let hasShift = event.modifierFlags.contains(.shift)
+                let hasControl = event.modifierFlags.contains(.control)
+                
+                // Tab handling (no command/option/control)
+                if event.keyCode == kVK_Tab {
+                    let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control]
+                    if !event.modifierFlags.intersection(disallowedModifiers).isEmpty {
+                        return event
+                    }
+                    if hasShift {
+                        self.onBackward()
+                    } else {
+                        self.onForward()
+                    }
+                    return nil
                 }
-
-                // Always handle Tab for comment field cycling
-                if event.modifierFlags.contains(.shift) {
-                    self.onBackward()
-                } else {
-                    self.onForward()
+                
+                // CMD+T: Open Trim (single selection)
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_T {
+                    self.onTrim()
+                    return nil
                 }
-                return nil
+                
+                // Option+C: Open Crop mode (opens trim editor with crop enabled)
+                if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_C {
+                    self.onCrop()
+                    return nil
+                }
+                
+                // Option+T: Open Timecode
+                if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_T {
+                    self.onTimecode()
+                    return nil
+                }
+                
+                // Option+A: Open Audio Config
+                if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_A {
+                    self.onAudioConfig()
+                    return nil
+                }
+                
+                // Option+I: Open Metadata Info (single selection)
+                // Note: CMD+I is used for Import, so we use Option+I instead
+                if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_I {
+                    self.onMetadata()
+                    return nil
+                }
+                
+                // CMD+D: Toggle Date Tag
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_D {
+                    self.onToggleDateTag()
+                    return nil
+                }
+                
+                // CMD+R: Reset selected items
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_R {
+                    self.onResetSelected()
+                    return nil
+                }
+                
+                // CMD+Up Arrow: Move selection up in queue
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_UpArrow {
+                    self.onMoveUp()
+                    return nil
+                }
+                
+                // CMD+Down Arrow: Move selection down in queue
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_DownArrow {
+                    self.onMoveDown()
+                    return nil
+                }
+                
+                return event
             }
         }
 

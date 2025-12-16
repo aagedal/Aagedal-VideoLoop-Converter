@@ -21,10 +21,13 @@ struct PreviewPlayerView: View {
     @State private var isCropControlsExpanded: Bool = false
     @State private var timecodeActivationTrigger: String?
     @State private var isEditingTimecode: Bool = false
+    
+    private let initialCropExpanded: Bool
 
-    init(item: Binding<VideoItem>) {
+    init(item: Binding<VideoItem>, initialCropExpanded: Bool = false) {
         self._item = item
         self._controller = StateObject(wrappedValue: PreviewPlayerController(videoItem: item.wrappedValue))
+        self.initialCropExpanded = initialCropExpanded
     }
 
     var body: some View {
@@ -78,6 +81,10 @@ struct PreviewPlayerView: View {
             controller.isAudioMeterEnabled.toggle()
         }))
         .onAppear {
+            // Set initial crop expanded state if requested
+            if initialCropExpanded {
+                isCropControlsExpanded = true
+            }
             // Ensure metadata is loaded before preparing preview
             Task {
                 if item.metadata == nil {
