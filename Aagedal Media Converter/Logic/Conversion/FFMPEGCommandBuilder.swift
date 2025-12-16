@@ -526,18 +526,36 @@ extension FFMPEGCommandBuilder {
 
     static func applyCommentMetadata(to ffmpegArgs: inout [String], comment: String, includeDateTag: Bool) {
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Get prefix, suffix, and separator from UserDefaults
+        let commentPrefix = UserDefaults.standard.string(forKey: AppConstants.commentPrefixKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let commentSuffixSetting = UserDefaults.standard.string(forKey: AppConstants.commentSuffixKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let commentSeparator = UserDefaults.standard.string(forKey: AppConstants.commentSeparatorKey) ?? AppConstants.defaultCommentSeparator
+        
         let commentMetadataValue: String? = {
+            var parts: [String] = []
+            
             if includeDateTag {
                 let dateFormatter = DateFormatter()
                 dateFormatter.dateFormat = "yyyyMMdd"
                 let currentDateString = dateFormatter.string(from: Date())
-                let commentSuffix = trimmedComment.isEmpty ? "" : " | \(trimmedComment)"
-                return "comment=Date generated: \(currentDateString)\(commentSuffix)"
-            } else if !trimmedComment.isEmpty {
-                return "comment=\(trimmedComment)"
-            } else {
-                return nil
+                parts.append("Date generated: \(currentDateString)")
             }
+            
+            if !commentPrefix.isEmpty {
+                parts.append(commentPrefix)
+            }
+            
+            if !trimmedComment.isEmpty {
+                parts.append(trimmedComment)
+            }
+            
+            if !commentSuffixSetting.isEmpty {
+                parts.append(commentSuffixSetting)
+            }
+            
+            guard !parts.isEmpty else { return nil }
+            return "comment=\(parts.joined(separator: commentSeparator))"
         }()
 
         if let metadataValueIndex = ffmpegArgs.firstIndex(where: { $0.contains("comment=Date generated:") }) {

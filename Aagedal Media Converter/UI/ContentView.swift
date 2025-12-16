@@ -10,6 +10,7 @@
 import SwiftUI
 import AVFoundation
 import AppKit
+import Carbon.HIToolbox
 
 // Custom notification to trigger file importer from menu command
 #if !os(iOS)
@@ -59,6 +60,14 @@ struct ContentView: View {
     @State private var showUpdateNotification = false
     @State private var updateNotificationTask: Task<Void, Never>?
     
+    // Keyboard shortcut sheet states
+    @State private var selectedItemIndexForSheet: Int?
+    @State private var showTrimSheet = false
+    @State private var showTrimSheetWithCrop = false
+    @State private var showTimecodeSheet = false
+    @State private var showAudioConfigSheet = false
+    @State private var showMetadataSheet = false
+    
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
         AppConstants.supportedVideoTypes.compactMap { UTType($0) }
@@ -83,7 +92,30 @@ struct ContentView: View {
             onReset: handleFileReset,
             preset: selectedPreset,
             mergeClipsEnabled: mergeClipsEnabled,
-            mergeClipsAvailable: mergeClipsAvailable
+            mergeClipsAvailable: mergeClipsAvailable,
+            onOpenTrim: { index in
+                selectedItemIndexForSheet = index
+                showTrimSheet = true
+            },
+            onOpenTrimWithCrop: { index in
+                selectedItemIndexForSheet = index
+                showTrimSheetWithCrop = true
+            },
+            onOpenTimecode: { index in
+                selectedItemIndexForSheet = index
+                showTimecodeSheet = true
+            },
+            onOpenAudioConfig: { index in
+                selectedItemIndexForSheet = index
+                showAudioConfigSheet = true
+            },
+            onOpenMetadata: { index in
+                selectedItemIndexForSheet = index
+                showMetadataSheet = true
+            },
+            onToggleDateTag: { index in
+                droppedFiles[index].includeDateTag.toggle()
+            }
         )
     }
 
@@ -166,6 +198,49 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 760)
+        // Sheets for keyboard shortcuts
+        .sheet(isPresented: $showTrimSheet) {
+            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+                PreviewPlayerView(item: $droppedFiles[index])
+            }
+        }
+        .sheet(isPresented: $showTrimSheetWithCrop) {
+            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+                PreviewPlayerView(item: $droppedFiles[index], initialCropExpanded: true)
+            }
+        }
+        .sheet(isPresented: $showTimecodeSheet) {
+            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+                TimecodeView(item: $droppedFiles[index])
+            }
+        }
+        .sheet(isPresented: $showAudioConfigSheet) {
+            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+                AudioRoutingView(item: $droppedFiles[index], preset: selectedPreset)
+            }
+        }
+        .sheet(isPresented: $showMetadataSheet) {
+            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+                VideoMetadataView(item: $droppedFiles[index])
+            }
+        }
+        .background(
+            GlobalKeyboardShortcutHandler(
+                onToggleWatchFolder: { watchFolderModeEnabled.toggle() },
+                onSelectOutputFolder: {
+                    Task {
+                        if let folder = await selectOutputFolder() {
+                            currentOutputFolder = folder
+                        }
+                    }
+                },
+                onToggleMerge: {
+                    if mergeClipsAvailable {
+                        mergeClipsEnabled.toggle()
+                    }
+                }
+            )
+        )
         .onAppear {
             if !hasInitializedPreset {
                 selectedPreset = ExportPreset(rawValue: storedDefaultPresetRawValue) ?? .videoLoop
@@ -756,5 +831,94 @@ struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
             .frame(minWidth: 800, minHeight: 400)
+    }
+}
+
+// MARK: - Global Keyboard Shortcut Handler
+
+private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
+    var onToggleWatchFolder: () -> Void
+    var onSelectOutputFolder: () -> Void
+    var onToggleMerge: () -> Void
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            onToggleWatchFolder: onToggleWatchFolder,
+            onSelectOutputFolder: onSelectOutputFolder,
+            onToggleMerge: onToggleMerge
+        )
+    }
+    
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.install()
+        let view = NSView(frame: .zero)
+        view.isHidden = true
+        return view
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onToggleWatchFolder = onToggleWatchFolder
+        context.coordinator.onSelectOutputFolder = onSelectOutputFolder
+        context.coordinator.onToggleMerge = onToggleMerge
+    }
+    
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.teardown()
+    }
+    
+    final class Coordinator {
+        var onToggleWatchFolder: () -> Void
+        var onSelectOutputFolder: () -> Void
+        var onToggleMerge: () -> Void
+        private var monitor: Any?
+        
+        init(
+            onToggleWatchFolder: @escaping () -> Void,
+            onSelectOutputFolder: @escaping () -> Void,
+            onToggleMerge: @escaping () -> Void
+        ) {
+            self.onToggleWatchFolder = onToggleWatchFolder
+            self.onSelectOutputFolder = onSelectOutputFolder
+            self.onToggleMerge = onToggleMerge
+        }
+        
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                
+                let hasCommand = event.modifierFlags.contains(.command)
+                let hasOption = event.modifierFlags.contains(.option)
+                let hasShift = event.modifierFlags.contains(.shift)
+                let hasControl = event.modifierFlags.contains(.control)
+                
+                // Option+W: Toggle Watch Folder
+                if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_W {
+                    self.onToggleWatchFolder()
+                    return nil
+                }
+                
+                // Option+F: Select Output Folder
+                if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_F {
+                    self.onSelectOutputFolder()
+                    return nil
+                }
+                
+                // Option+M: Toggle Merge
+                if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_M {
+                    self.onToggleMerge()
+                    return nil
+                }
+                
+                return event
+            }
+        }
+        
+        func teardown() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
     }
 }

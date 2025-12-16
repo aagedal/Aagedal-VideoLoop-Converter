@@ -14,6 +14,7 @@ struct SettingsView: View {
         case waveform
         case watchFolder
         case updates
+        case shortcuts
     }
 
     var body: some View {
@@ -41,6 +42,10 @@ struct SettingsView: View {
             UpdateSettingsView()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(SettingsTab.updates)
+            
+            ShortcutsSettingsView()
+                .tabItem { Label("Shortcuts", systemImage: "command") }
+                .tag(SettingsTab.shortcuts)
         }
         .frame(width: 600, height: 560)
         .navigationTitle("Settings – Aagedal Media Converter")

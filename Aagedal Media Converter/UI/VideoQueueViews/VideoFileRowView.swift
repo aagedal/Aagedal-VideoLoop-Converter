@@ -549,12 +549,12 @@ struct VideoFileRowView: View {
                 }
                 return
             }
-            if selected && !isCommentFieldFocused {
-                // When row is selected, focus the comment field
-                print("  ➡️ Auto-focusing comment field because row was selected")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    focusedCommentID = file.id
-                    isCommentFieldFocused = true
+            // Clear focus when row is deselected, but do NOT auto-focus on selection
+            // to preserve multi-selection behavior
+            if !selected && isCommentFieldFocused {
+                isCommentFieldFocused = false
+                if focusedCommentID == file.id {
+                    focusedCommentID = nil
                 }
             }
         }
