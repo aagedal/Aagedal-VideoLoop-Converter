@@ -11,14 +11,23 @@ import Carbon.HIToolbox
 struct FullscreenPlayerView: View {
     let item: VideoItem
     let onClose: () -> Void
-    
-    @StateObject private var controller: FullscreenPlayerController
+
+    @StateObject private var controller: PreviewPlayerController
+    @State private var itemState: VideoItem
+
+    @State private var showOverlay = true
+    @State private var isMouseIdle = false
     @State private var isHoveringControls = false
-    
+    @State private var overlayHideTask: Task<Void, Never>?
+    @State private var lastMouseLocation: CGPoint?
+
+    private let rightEdgeHideThreshold: CGFloat = 50
+
     init(item: VideoItem, onClose: @escaping () -> Void) {
         self.item = item
         self.onClose = onClose
-        self._controller = StateObject(wrappedValue: FullscreenPlayerController(item: item))
+        self._itemState = State(initialValue: item)
+        self._controller = StateObject(wrappedValue: PreviewPlayerController(videoItem: item))
     }
     
     private var aspectRatio: CGFloat {
@@ -40,7 +49,7 @@ struct FullscreenPlayerView: View {
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if controller.showControls || isHoveringControls {
+                if showOverlay || isHoveringControls {
                     // Speed indicator (matches trim player)
                     VStack {
                         HStack {
@@ -61,7 +70,7 @@ struct FullscreenPlayerView: View {
                 }
                 
                 // Loading indicator
-                if controller.isPreparing {
+                if controller.isPreparing || controller.isGeneratingFallbackPreview || controller.isLoadingChunk || controller.isGeneratingFallbackStill {
                     loadingOverlay
                 }
                 
@@ -71,14 +80,15 @@ struct FullscreenPlayerView: View {
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let location):
-                    controller.mouseMoved(x: location.x, viewWidth: geometry.size.width)
-                case .ended:
-                    break
-                }
-            }
+             .onContinuousHover { phase in
+                 switch phase {
+                 case .active(let location):
+                     handleMouseHover(location: location, in: geometry.size)
+                 case .ended:
+                     break
+                 }
+             }
+
         }
         .background(
             FullscreenKeyboardHandler(
@@ -87,10 +97,30 @@ struct FullscreenPlayerView: View {
             )
         )
         .onAppear {
-            controller.prepare()
+            scheduleOverlayHide()
+
+            Task {
+                if itemState.metadata == nil {
+                    if let metadata = await VideoFileUtils.fetchMetadata(for: itemState.url) {
+                        await MainActor.run {
+                            itemState.metadata = metadata
+                        }
+                    }
+                }
+
+                await MainActor.run {
+                    controller.updateVideoItem(itemState)
+                    controller.preparePreview(startTime: itemState.effectiveTrimStart)
+                }
+            }
         }
         .onDisappear {
-            controller.cleanup()
+            overlayHideTask?.cancel()
+            overlayHideTask = nil
+
+            Task { @MainActor in
+                controller.teardown()
+            }
         }
 
         .gesture(
@@ -105,14 +135,19 @@ struct FullscreenPlayerView: View {
                     controller.togglePlayback()
                 }
         )
-        .cursor(controller.isMouseIdle ? .hidden : .arrow)
+        .cursor(isMouseIdle ? .hidden : .arrow)
     }
     
     // MARK: - Video Content
     
     @ViewBuilder
     private var videoContent: some View {
-        if let player = controller.player {
+        if let still = controller.fallbackStillImage {
+            Image(nsImage: still)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let player = controller.player {
             FullscreenAVPlayerView(player: player)
         } else if controller.useVLC, let vlcPlayer = controller.vlcPlayer {
             FullscreenVLCView(player: vlcPlayer)
@@ -136,7 +171,13 @@ struct FullscreenPlayerView: View {
         .padding()
         .onHover { hovering in
             isHoveringControls = hovering
-            controller.setControlsHovering(hovering)
+            if hovering {
+                showOverlay = true
+                isMouseIdle = false
+                overlayHideTask?.cancel()
+            } else {
+                scheduleOverlayHide()
+            }
         }
     }
     
@@ -180,40 +221,47 @@ struct FullscreenPlayerView: View {
             
             // Playback controls
             HStack(spacing: 24) {
+                let currentTime = controller.currentPlaybackTime
+                let duration = max(itemState.durationSeconds, 0)
+
                 // Time display
-                Text(formatTime(controller.currentTime))
+                Text(formatTime(currentTime))
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.9))
                     .frame(width: 70, alignment: .leading)
-                
+
                 Spacer()
-                
+
                 // Skip backward
-                Button(action: { controller.skipBackward() }) {
+                Button(action: { controller.seek(by: -10) }) {
                     Image(systemName: "gobackward.10")
                         .font(.system(size: 20))
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
-                
+
                 // Play/Pause
                 Button(action: { controller.togglePlayback() }) {
-                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: isPlaybackActive ? "pause.fill" : "play.fill")
                         .font(.system(size: 32))
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
-                
+
                 // Skip forward
-                Button(action: { controller.skipForward() }) {
+                Button(action: { controller.seek(by: 10) }) {
                     Image(systemName: "goforward.10")
                         .font(.system(size: 20))
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
-                
+
                 Spacer()
-                
+
+                if controller.audioTrackOptions.count > 1 {
+                    audioTrackSelector
+                }
+
                 // Speed indicator
                 if controller.currentPlaybackSpeed != 1.0 || controller.isReverseSimulating {
                     Text("\(String(format: "%.1fx", controller.currentPlaybackSpeed))")
@@ -224,9 +272,9 @@ struct FullscreenPlayerView: View {
                     Spacer()
                         .frame(width: 50)
                 }
-                
+
                 // Duration display
-                Text(formatTime(controller.duration))
+                Text(formatTime(duration))
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.9))
                     .frame(width: 70, alignment: .trailing)
@@ -247,7 +295,8 @@ struct FullscreenPlayerView: View {
     
     private var timelineSlider: some View {
         GeometryReader { geo in
-            let progress = controller.duration > 0 ? controller.currentTime / controller.duration : 0
+            let duration = max(itemState.durationSeconds, 0)
+            let progress = duration > 0 ? controller.currentPlaybackTime / duration : 0
             
             ZStack(alignment: .leading) {
                 // Track background
@@ -269,11 +318,12 @@ struct FullscreenPlayerView: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let fraction = max(0, min(1, value.location.x / geo.size.width))
-                        let targetTime = Double(fraction) * controller.duration
-                        controller.seek(to: targetTime)
-                    }
+                     .onChanged { value in
+                         let fraction = max(0, min(1, value.location.x / geo.size.width))
+                         let targetTime = Double(fraction) * duration
+                         controller.seekTo(targetTime)
+                     }
+
             )
         }
         .frame(height: 14)
@@ -327,7 +377,138 @@ struct FullscreenPlayerView: View {
     }
     
     // MARK: - Helpers
-    
+
+    private var isPlaybackActive: Bool {
+        if controller.isReverseSimulating { return true }
+        if controller.useVLC { return controller.vlcPlayer?.isPlaying ?? false }
+        return (controller.player?.rate ?? 0) != 0
+    }
+
+    private var audioTrackSelector: some View {
+        Menu {
+            if controller.audioTrackOptions.isEmpty {
+                Text("No alternate audio tracks")
+            } else {
+                ForEach(controller.audioTrackOptions) { option in
+                    Button {
+                        controller.selectAudioTrack(at: option.position)
+                    } label: {
+                        HStack {
+                            Text(option.title)
+                            if let subtitle = option.subtitle, !subtitle.isEmpty {
+                                Text(subtitle)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            if option.position == controller.selectedAudioTrackOrderIndex {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    .disabled(option.position == controller.selectedAudioTrackOrderIndex)
+                }
+            }
+        } label: {
+            Image(systemName: "speaker.wave.2.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.9))
+        }
+        .menuStyle(.borderlessButton)
+        .help(controller.audioTrackOptions.isEmpty ? "No alternate audio tracks" : "Select audio track")
+    }
+
+    private func handleKeyCommand(_ key: String, _ modifiersRaw: UInt, _ keyCode: UInt16) -> Bool {
+        _ = modifiersRaw
+
+        if key == " " {
+            controller.togglePlayback()
+            return true
+        }
+
+        switch key.lowercased() {
+        case "j":
+            controller.startReverseSimulation()
+            return true
+        case "k":
+            controller.togglePlayback()
+            return true
+        case "l":
+            controller.fastForward()
+            return true
+        default:
+            break
+        }
+
+        switch Int(keyCode) {
+        case kVK_LeftArrow:
+            controller.seekByFrames(-1)
+            return true
+        case kVK_RightArrow:
+            controller.seekByFrames(1)
+            return true
+        case kVK_UpArrow:
+            controller.seekByFrames(-10)
+            return true
+        case kVK_DownArrow:
+            controller.seekByFrames(10)
+            return true
+        default:
+            break
+        }
+
+        return false
+    }
+
+    private func scheduleOverlayHide() {
+        overlayHideTask?.cancel()
+
+        guard !isHoveringControls else { return }
+
+        overlayHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            guard !isHoveringControls else { return }
+
+            withAnimation(.easeOut(duration: 0.25)) {
+                showOverlay = false
+                isMouseIdle = true
+                isHoveringControls = false
+            }
+        }
+    }
+
+    private func forceHideOverlay() {
+        overlayHideTask?.cancel()
+        overlayHideTask = nil
+
+        withAnimation(.easeOut(duration: 0.2)) {
+            showOverlay = false
+            isMouseIdle = true
+            isHoveringControls = false
+        }
+    }
+
+    private func handleMouseHover(location: CGPoint, in size: CGSize) {
+        let epsilon: CGFloat = 0.5
+        if let last = lastMouseLocation {
+            let dx = abs(last.x - location.x)
+            let dy = abs(last.y - location.y)
+            if dx < epsilon, dy < epsilon {
+                return
+            }
+        }
+        lastMouseLocation = location
+
+        if location.x >= size.width - rightEdgeHideThreshold {
+            forceHideOverlay()
+            return
+        }
+
+        showOverlay = true
+        isMouseIdle = false
+        scheduleOverlayHide()
+    }
+
     private func formatTime(_ seconds: Double) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0:00" }
         
@@ -428,73 +609,47 @@ private struct FullscreenVLCView: NSViewRepresentable {
 // MARK: - Keyboard Handler
 
 private struct FullscreenKeyboardHandler: NSViewRepresentable {
-    let controller: FullscreenPlayerController
+    let controller: PreviewPlayerController
     let onClose: () -> Void
-    
+
     func makeCoordinator() -> Coordinator {
         Coordinator(controller: controller, onClose: onClose)
     }
-    
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         view.isHidden = true
         context.coordinator.install()
         return view
     }
-    
+
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.controller = controller
         context.coordinator.onClose = onClose
     }
-    
+
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.teardown()
     }
-    
+
     final class Coordinator {
-        static func consumesKey(characters: String, modifiersRaw: UInt, keyCode: UInt16) -> Bool {
-            let modifiers = NSEvent.ModifierFlags(rawValue: modifiersRaw)
-
-            if characters == " " { return true }
-
-            let lower = characters.lowercased()
-            if lower == "j" || lower == "k" || lower == "l" { return true }
-
-            switch Int(keyCode) {
-            case 53: // escape
-                return true
-            case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow:
-                return true
-            default:
-                break
-            }
-
-            // Don’t consume arbitrary modified keys
-            if !modifiers.intersection([.command, .control]).isEmpty {
-                return false
-            }
-
-            return false
-        }
-
-        var controller: FullscreenPlayerController
+        var controller: PreviewPlayerController
         var onClose: () -> Void
         private var monitor: Any?
-        
-        init(controller: FullscreenPlayerController, onClose: @escaping () -> Void) {
+
+        init(controller: PreviewPlayerController, onClose: @escaping () -> Void) {
             self.controller = controller
             self.onClose = onClose
         }
-        
+
         func install() {
             guard monitor == nil else { return }
-            
+
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] (event: NSEvent) -> NSEvent? in
                 guard let self else { return event }
                 guard let characters = event.charactersIgnoringModifiers else { return event }
 
                 let keyCode = event.keyCode
-                let modifiersRaw = event.modifierFlags.rawValue
 
                 // Escape to close
                 if keyCode == 53 {
@@ -502,18 +657,61 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
                     return nil
                 }
 
-                if Coordinator.consumesKey(characters: characters, modifiersRaw: modifiersRaw, keyCode: keyCode) {
-                    let controller = self.controller
-                    MainActor.assumeIsolated {
-                        _ = controller.handleKeyCommand(key: characters, modifiersRaw: modifiersRaw, keyCode: keyCode)
+                let lower = characters.lowercased()
+
+                // Only consume keys we actually use
+                let shouldConsume: Bool = {
+                    if characters == " " { return true }
+                    if lower == "j" || lower == "k" || lower == "l" { return true }
+                    switch Int(keyCode) {
+                    case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow:
+                        return true
+                    default:
+                        return false
                     }
-                    return nil
+                }()
+
+                guard shouldConsume else { return event }
+
+                let controller = self.controller
+                MainActor.assumeIsolated {
+                    if characters == " " {
+                        controller.togglePlayback()
+                        return
+                    }
+
+                    switch lower {
+                    case "j":
+                        controller.startReverseSimulation()
+                        return
+                    case "k":
+                        controller.togglePlayback()
+                        return
+                    case "l":
+                        controller.fastForward()
+                        return
+                    default:
+                        break
+                    }
+
+                    switch Int(keyCode) {
+                    case kVK_LeftArrow:
+                        controller.seekByFrames(-1)
+                    case kVK_RightArrow:
+                        controller.seekByFrames(1)
+                    case kVK_UpArrow:
+                        controller.seekByFrames(-10)
+                    case kVK_DownArrow:
+                        controller.seekByFrames(10)
+                    default:
+                        break
+                    }
                 }
 
-                return event
+                return nil
             }
         }
-        
+
         func teardown() {
             if let monitor = monitor {
                 NSEvent.removeMonitor(monitor)
