@@ -60,8 +60,8 @@ struct ContentView: View {
     @State private var showUpdateNotification = false
     @State private var updateNotificationTask: Task<Void, Never>?
     
-    // Keyboard shortcut sheet states
-    @State private var selectedItemIndexForSheet: Int?
+    // Keyboard shortcut sheet states - using UUID for stable reference across state changes
+    @State private var selectedItemIDForSheet: UUID?
     @State private var showTrimSheet = false
     @State private var showTrimSheetWithCrop = false
     @State private var showTimecodeSheet = false
@@ -93,24 +93,24 @@ struct ContentView: View {
             preset: selectedPreset,
             mergeClipsEnabled: mergeClipsEnabled,
             mergeClipsAvailable: mergeClipsAvailable,
-            onOpenTrim: { index in
-                selectedItemIndexForSheet = index
+            onOpenTrim: { id in
+                selectedItemIDForSheet = id
                 showTrimSheet = true
             },
-            onOpenTrimWithCrop: { index in
-                selectedItemIndexForSheet = index
+            onOpenTrimWithCrop: { id in
+                selectedItemIDForSheet = id
                 showTrimSheetWithCrop = true
             },
-            onOpenTimecode: { index in
-                selectedItemIndexForSheet = index
+            onOpenTimecode: { id in
+                selectedItemIDForSheet = id
                 showTimecodeSheet = true
             },
-            onOpenAudioConfig: { index in
-                selectedItemIndexForSheet = index
+            onOpenAudioConfig: { id in
+                selectedItemIDForSheet = id
                 showAudioConfigSheet = true
             },
-            onOpenMetadata: { index in
-                selectedItemIndexForSheet = index
+            onOpenMetadata: { id in
+                selectedItemIDForSheet = id
                 showMetadataSheet = true
             },
             onToggleDateTag: { index in
@@ -198,29 +198,34 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 760)
-        // Sheets for keyboard shortcuts
+        // Sheets for keyboard shortcuts - lookup index from UUID at presentation time for stability
         .sheet(isPresented: $showTrimSheet) {
-            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+            if let id = selectedItemIDForSheet,
+               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 PreviewPlayerView(item: $droppedFiles[index])
             }
         }
         .sheet(isPresented: $showTrimSheetWithCrop) {
-            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+            if let id = selectedItemIDForSheet,
+               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 PreviewPlayerView(item: $droppedFiles[index], initialCropExpanded: true)
             }
         }
         .sheet(isPresented: $showTimecodeSheet) {
-            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+            if let id = selectedItemIDForSheet,
+               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 TimecodeView(item: $droppedFiles[index])
             }
         }
         .sheet(isPresented: $showAudioConfigSheet) {
-            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+            if let id = selectedItemIDForSheet,
+               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 AudioRoutingView(item: $droppedFiles[index], preset: selectedPreset)
             }
         }
         .sheet(isPresented: $showMetadataSheet) {
-            if let index = selectedItemIndexForSheet, index < droppedFiles.count {
+            if let id = selectedItemIDForSheet,
+               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 VideoMetadataView(item: $droppedFiles[index])
             }
         }
