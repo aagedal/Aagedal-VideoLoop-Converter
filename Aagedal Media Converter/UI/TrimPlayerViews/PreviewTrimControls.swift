@@ -110,7 +110,7 @@ struct PreviewTrimControls: View {
                 .onTapGesture(count: 2) {
                     startTimecodeEdit()
                 }
-                .help("Double-click to enter timecode. Click mode label or Option+T to toggle mode.")
+                .help("Double-click to enter timecode. Click mode label or press T to toggle mode.")
             }
 
             Button(action: { controller.seekTo(item.effectiveTrimEnd) }) {
@@ -310,19 +310,20 @@ struct PreviewTrimControls: View {
         let frameRate = TimecodeFormatter.effectiveFrameRate(for: item)
         let fps = Int(frameRate.rounded())
         
-        // In frames mode, try parsing as a plain frame number first
+        // Frames mode:
+        // - "+/-N" moves relatively by N frames
+        // - "N" jumps to absolute frame N
         if timecodeDisplayMode == .frames {
-            // Check if it's a plain number (frame count)
-            if let frameNumber = Int(trimmed), frameNumber >= 0 {
-                return Double(frameNumber) / frameRate
-            }
-            // Also support relative frame input (+/- number)
             if trimmed.hasPrefix("+") || trimmed.hasPrefix("-") {
                 let isPositive = trimmed.hasPrefix("+")
-                if let frameOffset = Int(String(trimmed.dropFirst())) {
+                if let frameOffset = Int(String(trimmed.dropFirst())), frameOffset >= 0 {
                     let offsetSeconds = Double(frameOffset) / frameRate
                     return isPositive ? currentPlaybackTime + offsetSeconds : currentPlaybackTime - offsetSeconds
                 }
+            }
+
+            if let frameNumber = Int(trimmed), frameNumber >= 0 {
+                return Double(frameNumber) / frameRate
             }
         }
 
@@ -392,7 +393,7 @@ struct PreviewTrimControls: View {
 
         switch components.count {
         case 1:
-            // Just seconds (or frames if < 1)
+            // Just seconds
             guard let value = Int(components[0]) else { return nil }
             seconds = value
         case 2:
@@ -568,6 +569,6 @@ struct PreviewTrimControls: View {
             )
             .contentShape(Rectangle())
             .onTapGesture { timecodeDisplayMode.toggle() }
-            .help("Click to cycle: REL TC → SRC TC → FRM")
+            .help("Click or press T to cycle: REL TC → SRC TC → FRM")
     }
 }

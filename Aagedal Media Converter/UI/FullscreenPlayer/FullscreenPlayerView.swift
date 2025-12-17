@@ -25,6 +25,8 @@ struct FullscreenPlayerView: View {
     @State private var timecodeDisplayMode: TimecodeDisplayMode = .relative
     @State private var isEditingTimecode = false
     @State private var timecodeInput = ""
+    @State private var timecodeJustActivated = false
+    @State private var pendingTimecodeCharacter: String?
     @FocusState private var isTimecodeFocused: Bool
 
     private let rightEdgeHideThreshold: CGFloat = 50
@@ -46,14 +48,40 @@ struct FullscreenPlayerView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Background
+                // Background - tap gestures applied here
                 Color.black
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .gesture(
+                        TapGesture(count: 2)
+                            .onEnded { _ in
+                                onClose()
+                            }
+                    )
+                    .simultaneousGesture(
+                        TapGesture(count: 1)
+                            .onEnded { _ in
+                                controller.togglePlayback()
+                            }
+                    )
                 
-                // Video content
+                // Video content - tap gestures also here
                 videoContent
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        TapGesture(count: 2)
+                            .onEnded { _ in
+                                onClose()
+                            }
+                    )
+                    .simultaneousGesture(
+                        TapGesture(count: 1)
+                            .onEnded { _ in
+                                controller.togglePlayback()
+                            }
+                    )
 
                 if showOverlay || isHoveringControls {
                     // Speed indicator (matches trim player)
@@ -70,7 +98,7 @@ struct FullscreenPlayerView: View {
                     .padding(16)
                     .allowsHitTesting(false)
 
-                    // Overlay controls
+                    // Overlay controls - no tap gestures, blocks clicks from reaching background
                     controlsOverlay
                         .transition(.opacity)
                 }
@@ -143,19 +171,6 @@ struct FullscreenPlayerView: View {
                 controller.teardown()
             }
         }
-
-        .gesture(
-            TapGesture(count: 2)
-                .onEnded { _ in
-                    onClose()
-                }
-        )
-        .simultaneousGesture(
-            TapGesture(count: 1)
-                .onEnded { _ in
-                    controller.togglePlayback()
-                }
-        )
         .cursor(isMouseIdle ? .hidden : .arrow)
     }
     
@@ -370,7 +385,7 @@ struct FullscreenPlayerView: View {
             }
             .frame(minWidth: 160, alignment: .leading)
             .onTapGesture(count: 2) { startTimecodeEdit() }
-            .help("Double-click to enter timecode. Click mode label or Option+T to toggle mode.")
+            .help("Double-click to enter timecode. Click mode label or press T to toggle mode.")
         }
     }
     
@@ -386,7 +401,7 @@ struct FullscreenPlayerView: View {
             )
             .contentShape(Rectangle())
             .onTapGesture { toggleTimecodeMode() }
-            .help("Click to cycle: REL TC → SRC TC → FRM")
+            .help("Click or press T to cycle: REL TC → SRC TC → FRM")
     }
     
     private var timelineSlider: some View {
@@ -652,6 +667,8 @@ struct FullscreenPlayerView: View {
     // MARK: - Timecode Editing
     
     private func startTimecodeEdit() {
+        pendingTimecodeCharacter = nil
+        timecodeJustActivated = false
         timecodeInput = TimecodeFormatter.formatTimeForDisplayWithMode(
             seconds: controller.currentPlaybackTime,
             item: itemState,
@@ -666,12 +683,27 @@ struct FullscreenPlayerView: View {
     }
     
     private func startTimecodeEditWithChar(_ char: String) {
-        timecodeInput = char
+        // Use the same focus-then-append approach as the trim view.
+        // This avoids the first character getting overwritten due to TextField auto-selection.
+        timecodeInput = ""
+        pendingTimecodeCharacter = char
+        timecodeJustActivated = true
+
         withAnimation(.easeInOut(duration: 0.15)) {
             isEditingTimecode = true
         }
+
+        // Focus first, then append initial character after focus is established.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             isTimecodeFocused = true
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                if let initialChar = pendingTimecodeCharacter {
+                    timecodeInput = initialChar
+                    pendingTimecodeCharacter = nil
+                }
+                timecodeJustActivated = false
+            }
         }
     }
     
@@ -681,6 +713,8 @@ struct FullscreenPlayerView: View {
         }
         isTimecodeFocused = false
         timecodeInput = ""
+        pendingTimecodeCharacter = nil
+        timecodeJustActivated = false
     }
     
     private func seekToTimecode() {
@@ -707,19 +741,20 @@ struct FullscreenPlayerView: View {
         let frameRate = TimecodeFormatter.effectiveFrameRate(for: itemState)
         let fps = Int(frameRate.rounded())
         
-        // In frames mode, try parsing as a plain frame number first
+        // Frames mode:
+        // - "+/-N" moves relatively by N frames
+        // - "N" jumps to absolute frame N
         if timecodeDisplayMode == .frames {
-            // Check if it's a plain number (frame count)
-            if let frameNumber = Int(trimmed), frameNumber >= 0 {
-                return Double(frameNumber) / frameRate
-            }
-            // Also support relative frame input (+/- number)
             if trimmed.hasPrefix("+") || trimmed.hasPrefix("-") {
                 let isPositive = trimmed.hasPrefix("+")
-                if let frameOffset = Int(String(trimmed.dropFirst())) {
+                if let frameOffset = Int(String(trimmed.dropFirst())), frameOffset >= 0 {
                     let offsetSeconds = Double(frameOffset) / frameRate
                     return isPositive ? controller.currentPlaybackTime + offsetSeconds : controller.currentPlaybackTime - offsetSeconds
                 }
+            }
+
+            if let frameNumber = Int(trimmed), frameNumber >= 0 {
+                return Double(frameNumber) / frameRate
             }
         }
         
@@ -993,8 +1028,8 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
 
                 let lower = characters.lowercased()
                 
-                // Option+T: Toggle timecode mode
-                if hasOption && !hasCommand && !hasShift && !hasControl && lower == "t" {
+                // T (no modifiers): Toggle timecode mode
+                if noModifiers && !self.isEditingTimecode && lower == "t" {
                     DispatchQueue.main.async { [weak self] in
                         self?.onToggleTimecodeMode()
                     }
@@ -1002,6 +1037,7 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
                 }
                 
                 // Number keys and timecode characters to activate timecode input (when not already editing)
+                // Exclude 't' since it's used for timecode mode toggle
                 if noModifiers && !self.isEditingTimecode {
                     let timecodeChars = CharacterSet(charactersIn: "0123456789+-.:;")
                     if characters.rangeOfCharacter(from: timecodeChars) != nil {
