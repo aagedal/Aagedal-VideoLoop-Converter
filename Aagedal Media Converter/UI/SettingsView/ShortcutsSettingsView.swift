@@ -68,7 +68,6 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "L", description: "Fast forward"),
                     ShortcutItem(keys: "C", description: "Toggle crop controls"),
                     ShortcutItem(keys: "Cmd + L", description: "Toggle loop playback"),
-                    ShortcutItem(keys: "Cmd + F", description: "Toggle fullscreen"),
                     ShortcutItem(keys: "Cmd + A", description: "Toggle audio meter"),
                     ShortcutItem(keys: "0-9, +, -, ., :, ;", description: "Activate timecode input"),
                     ShortcutItem(keys: "Escape", description: "Close editor"),

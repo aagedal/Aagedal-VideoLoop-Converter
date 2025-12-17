@@ -21,6 +21,7 @@ struct PreviewPlayerView: View {
     @State private var isCropControlsExpanded: Bool = false
     @State private var timecodeActivationTrigger: String?
     @State private var isEditingTimecode: Bool = false
+    @State private var timecodeDisplayMode: TimecodeDisplayMode = .relative
     
     private let initialCropExpanded: Bool
 
@@ -61,7 +62,8 @@ struct PreviewPlayerView: View {
                 onTrimEditingChanged: handleTrimEditingChanged,
                 loopBinding: loopBinding,
                 timecodeActivationTrigger: $timecodeActivationTrigger,
-                isEditingTimecode: $isEditingTimecode
+                isEditingTimecode: $isEditingTimecode,
+                timecodeDisplayMode: $timecodeDisplayMode
             )
             .transition(.opacity)
 
@@ -285,6 +287,10 @@ struct PreviewPlayerView: View {
                 return true
             case "o":
                 handleTrimOutPoint(clearToEnd: true)
+                return true
+            case "t":
+                // Option+T: Toggle timecode display mode
+                timecodeDisplayMode.toggle()
                 return true
             default:
                 return false

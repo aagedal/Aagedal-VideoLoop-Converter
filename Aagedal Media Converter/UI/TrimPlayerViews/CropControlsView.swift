@@ -72,7 +72,7 @@ struct CropControlsView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .frame(width: 100)
+                    .frame(width: 200)
                     .onChange(of: selectedAspectRatio) { _, newRatio in
                         var config = configBinding.wrappedValue
                         config.aspectRatioLock = newRatio == .free ? nil : newRatio

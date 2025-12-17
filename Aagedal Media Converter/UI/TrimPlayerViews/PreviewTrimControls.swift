@@ -20,6 +20,7 @@ struct PreviewTrimControls: View {
     let loopBinding: Binding<Bool>
     @Binding var timecodeActivationTrigger: String?
     @Binding var isEditingTimecode: Bool
+    @Binding var timecodeDisplayMode: TimecodeDisplayMode
 
     @State private var timecodeInput = ""
     @State private var justActivated = false
@@ -74,7 +75,7 @@ struct PreviewTrimControls: View {
     private var controlButtons: some View {
         HStack(spacing: 12) {
             Button(action: { controller.seekTo(item.effectiveTrimStart) }) {
-                Label("\(TimecodeFormatter.formatTimeForDisplay(seconds: item.effectiveTrimStart, item: item))", systemImage: "arrow.left.to.line")
+                Label("\(formatTimecodeWithMode(seconds: item.effectiveTrimStart))", systemImage: "arrow.left.to.line")
             }
             .buttonStyle(.plain)
             .font(.system(.subheadline, design: .monospaced))
@@ -84,8 +85,7 @@ struct PreviewTrimControls: View {
             // Current playback time - editable on double click
             if isEditingTimecode {
                 HStack(spacing: 4) {
-                    Image(systemName: "arrowtriangle.left.and.line.vertical.and.arrowtriangle.right")
-                        .font(.system(.subheadline, design: .monospaced))
+                    timecodeModePrefix
                     TextField("5.1, +10, or ..15", text: $timecodeInput)
                         .textFieldStyle(.plain)
                         .font(.system(.subheadline, design: .monospaced))
@@ -100,8 +100,9 @@ struct PreviewTrimControls: View {
                 }
                 .padding(.horizontal, 30)
             } else {
-                HStack {
-                    Label("\(TimecodeFormatter.formatTimeForDisplay(seconds: currentPlaybackTime, item: item))", systemImage: "arrowtriangle.left.and.line.vertical.and.arrowtriangle.right")
+                HStack(spacing: 4) {
+                    timecodeModePrefix
+                    Label("\(formatTimecodeWithMode(seconds: currentPlaybackTime))", systemImage: "arrowtriangle.left.and.line.vertical.and.arrowtriangle.right")
                         .font(.system(.subheadline, design: .monospaced))
                         .padding(0)
                 }
@@ -109,11 +110,11 @@ struct PreviewTrimControls: View {
                 .onTapGesture(count: 2) {
                     startTimecodeEdit()
                 }
-                .help("Double-click to enter timecode")
+                .help("Double-click to enter timecode. Click mode label or Option+T to toggle mode.")
             }
 
             Button(action: { controller.seekTo(item.effectiveTrimEnd) }) {
-                Label("\(TimecodeFormatter.formatTimeForDisplay(seconds: item.effectiveTrimEnd, item: item))", systemImage: "arrow.right.to.line")
+                Label("\(formatTimecodeWithMode(seconds: item.effectiveTrimEnd))", systemImage: "arrow.right.to.line")
                     .labelStyle(.trailingIcon)
             }
             .buttonStyle(.plain)
@@ -238,7 +239,7 @@ struct PreviewTrimControls: View {
     // MARK: - Timecode Input Helpers
 
     private func startTimecodeEdit() {
-        timecodeInput = TimecodeFormatter.formatTimeForDisplay(seconds: currentPlaybackTime, item: item)
+        timecodeInput = formatTimecodeWithMode(seconds: currentPlaybackTime)
         withAnimation(.easeInOut(duration: 0.15)) {
             isEditingTimecode = true
         }
@@ -308,6 +309,22 @@ struct PreviewTrimControls: View {
 
         let frameRate = TimecodeFormatter.effectiveFrameRate(for: item)
         let fps = Int(frameRate.rounded())
+        
+        // In frames mode, try parsing as a plain frame number first
+        if timecodeDisplayMode == .frames {
+            // Check if it's a plain number (frame count)
+            if let frameNumber = Int(trimmed), frameNumber >= 0 {
+                return Double(frameNumber) / frameRate
+            }
+            // Also support relative frame input (+/- number)
+            if trimmed.hasPrefix("+") || trimmed.hasPrefix("-") {
+                let isPositive = trimmed.hasPrefix("+")
+                if let frameOffset = Int(String(trimmed.dropFirst())) {
+                    let offsetSeconds = Double(frameOffset) / frameRate
+                    return isPositive ? currentPlaybackTime + offsetSeconds : currentPlaybackTime - offsetSeconds
+                }
+            }
+        }
 
         // Check for frame-only navigation (..<number>)
         if trimmed.hasPrefix("..") {
@@ -472,10 +489,11 @@ struct PreviewTrimControls: View {
             return nil
         }
 
-        // Get the starting timecode to calculate offset
-        let startTC = TimecodeFormatter.effectiveStartTimecode(for: item)
+        // Get the starting timecode based on current display mode
+        // In source mode, use the source timecode; in relative mode, treat as absolute from 00:00:00:00
+        let startTC: String? = (timecodeDisplayMode == .source) ? TimecodeFormatter.effectiveStartTimecode(for: item) : nil
 
-        // If we have a start timecode, we need to convert the input timecode to a position relative to it
+        // If we have a start timecode (source mode with valid TC), we need to convert the input timecode to a position relative to it
         if let startTC = startTC {
             // Parse start timecode
             let startComponents = startTC.split(whereSeparator: { $0 == ":" || $0 == ";" })
@@ -524,5 +542,32 @@ struct PreviewTrimControls: View {
         } else {
             return "Loop playback (⌘L)"
         }
+    }
+    
+    // MARK: - Timecode Formatting with Mode
+    
+    private func formatTimecodeWithMode(seconds: Double, isOutPoint: Bool = false, isDuration: Bool = false) -> String {
+        return TimecodeFormatter.formatTimeForDisplayWithMode(
+            seconds: seconds,
+            item: item,
+            mode: timecodeDisplayMode,
+            isOutPoint: isOutPoint,
+            isDuration: isDuration
+        )
+    }
+    
+    private var timecodeModePrefix: some View {
+        Text(timecodeDisplayMode.prefix)
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 3)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.secondary.opacity(0.15))
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { timecodeDisplayMode.toggle() }
+            .help("Click to cycle: REL TC → SRC TC → FRM")
     }
 }
