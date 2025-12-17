@@ -6,6 +6,33 @@
 
 import Foundation
 
+/// Represents how timecode should be displayed
+enum TimecodeDisplayMode: CaseIterable {
+    /// Relative timecode starting from 00:00:00:00
+    case relative
+    /// Source timecode from the file's embedded metadata
+    case source
+    /// Frame count from 0 to total frames
+    case frames
+    
+    var prefix: String {
+        switch self {
+        case .relative: return "REL TC"
+        case .source: return "SRC TC"
+        case .frames: return "FRM"
+        }
+    }
+    
+    /// Cycles to the next display mode (relative -> source -> frames -> relative)
+    mutating func toggle() {
+        switch self {
+        case .relative: self = .source
+        case .source: self = .frames
+        case .frames: self = .relative
+        }
+    }
+}
+
 struct TimecodeFormatter {
     /// Convert seconds to timecode string (HH:MM:SS:FF or HH:MM:SS;FF)
     /// - Parameters:
@@ -166,5 +193,60 @@ struct TimecodeFormatter {
         } else {
             return String(format: "%02d:%02d", minutes, secs)
         }
+    }
+    
+    /// Format time for display with explicit mode selection
+    /// - Parameters:
+    ///   - seconds: Time in seconds
+    ///   - item: Video item to get timecode configuration from
+    ///   - mode: Whether to display relative, source timecode, or frame count
+    ///   - isOutPoint: If true, adds one frame to make the display inclusive
+    ///   - isDuration: If true, displays as duration (length) without start timecode offset
+    ///   - includePrefix: If true, includes the mode prefix (SRC TC / REL TC / FRM)
+    /// - Returns: Formatted time string in timecode format or frame count
+    static func formatTimeForDisplayWithMode(
+        seconds: Double,
+        item: VideoItem,
+        mode: TimecodeDisplayMode,
+        isOutPoint: Bool = false,
+        isDuration: Bool = false,
+        includePrefix: Bool = false
+    ) -> String {
+        let frameRate = effectiveFrameRate(for: item)
+        
+        // For out-points, add one frame to make the display inclusive of the frame at that position
+        let adjustedSeconds = isOutPoint ? seconds + (1.0 / frameRate) : seconds
+        
+        let displayString: String
+        
+        switch mode {
+        case .relative:
+            // Always start from 00:00:00:00
+            displayString = timecode(
+                from: adjustedSeconds,
+                frameRate: frameRate,
+                startTimecode: nil,
+                useDropFrame: false
+            )
+        case .source:
+            // Use source timecode if available and not showing duration
+            let startTC = isDuration ? nil : effectiveStartTimecode(for: item)
+            let useDropFrame = startTC?.contains(";") ?? false
+            displayString = timecode(
+                from: adjustedSeconds,
+                frameRate: frameRate,
+                startTimecode: startTC,
+                useDropFrame: useDropFrame
+            )
+        case .frames:
+            // Display as frame count from 0
+            let frameNumber = Int((adjustedSeconds * frameRate).rounded())
+            displayString = String(frameNumber)
+        }
+        
+        if includePrefix {
+            return "\(mode.prefix) \(displayString)"
+        }
+        return displayString
     }
 }
