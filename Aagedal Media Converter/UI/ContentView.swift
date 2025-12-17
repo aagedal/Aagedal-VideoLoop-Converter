@@ -60,13 +60,13 @@ struct ContentView: View {
     @State private var showUpdateNotification = false
     @State private var updateNotificationTask: Task<Void, Never>?
     
-    // Keyboard shortcut sheet states - using UUID for stable reference across state changes
-    @State private var selectedItemIDForSheet: UUID?
-    @State private var showTrimSheet = false
-    @State private var showTrimSheetWithCrop = false
-    @State private var showTimecodeSheet = false
-    @State private var showAudioConfigSheet = false
-    @State private var showMetadataSheet = false
+    // Keyboard shortcut sheet states - using optional UUID directly for item-based sheet presentation
+    // When non-nil, the corresponding sheet is presented. Set to nil to dismiss.
+    @State private var trimSheetItemID: UUID?
+    @State private var trimWithCropSheetItemID: UUID?
+    @State private var timecodeSheetItemID: UUID?
+    @State private var audioConfigSheetItemID: UUID?
+    @State private var metadataSheetItemID: UUID?
     
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
@@ -94,24 +94,25 @@ struct ContentView: View {
             mergeClipsEnabled: mergeClipsEnabled,
             mergeClipsAvailable: mergeClipsAvailable,
             onOpenTrim: { id in
-                selectedItemIDForSheet = id
-                showTrimSheet = true
+                // Verify the item exists before presenting the sheet
+                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+                trimSheetItemID = id
             },
             onOpenTrimWithCrop: { id in
-                selectedItemIDForSheet = id
-                showTrimSheetWithCrop = true
+                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+                trimWithCropSheetItemID = id
             },
             onOpenTimecode: { id in
-                selectedItemIDForSheet = id
-                showTimecodeSheet = true
+                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+                timecodeSheetItemID = id
             },
             onOpenAudioConfig: { id in
-                selectedItemIDForSheet = id
-                showAudioConfigSheet = true
+                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+                audioConfigSheetItemID = id
             },
             onOpenMetadata: { id in
-                selectedItemIDForSheet = id
-                showMetadataSheet = true
+                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+                metadataSheetItemID = id
             },
             onToggleDateTag: { index in
                 droppedFiles[index].includeDateTag.toggle()
@@ -203,33 +204,33 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 760)
-        // Sheets for keyboard shortcuts - lookup index from UUID at presentation time for stability
-        .sheet(isPresented: $showTrimSheet) {
-            if let id = selectedItemIDForSheet,
+        // Sheets for keyboard shortcuts - using item-based presentation to ensure content is always valid
+        .sheet(isPresented: sheetBinding(for: $trimSheetItemID)) {
+            if let id = trimSheetItemID,
                let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 PreviewPlayerView(item: $droppedFiles[index])
             }
         }
-        .sheet(isPresented: $showTrimSheetWithCrop) {
-            if let id = selectedItemIDForSheet,
+        .sheet(isPresented: sheetBinding(for: $trimWithCropSheetItemID)) {
+            if let id = trimWithCropSheetItemID,
                let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 PreviewPlayerView(item: $droppedFiles[index], initialCropExpanded: true)
             }
         }
-        .sheet(isPresented: $showTimecodeSheet) {
-            if let id = selectedItemIDForSheet,
+        .sheet(isPresented: sheetBinding(for: $timecodeSheetItemID)) {
+            if let id = timecodeSheetItemID,
                let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 TimecodeView(item: $droppedFiles[index])
             }
         }
-        .sheet(isPresented: $showAudioConfigSheet) {
-            if let id = selectedItemIDForSheet,
+        .sheet(isPresented: sheetBinding(for: $audioConfigSheetItemID)) {
+            if let id = audioConfigSheetItemID,
                let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 AudioRoutingView(item: $droppedFiles[index], preset: selectedPreset)
             }
         }
-        .sheet(isPresented: $showMetadataSheet) {
-            if let id = selectedItemIDForSheet,
+        .sheet(isPresented: sheetBinding(for: $metadataSheetItemID)) {
+            if let id = metadataSheetItemID,
                let index = droppedFiles.firstIndex(where: { $0.id == id }) {
                 VideoMetadataView(item: $droppedFiles[index])
             }
@@ -575,6 +576,19 @@ struct ContentView: View {
             return remainder.isEmpty ? fallback : remainder
         }
         return trimmed
+    }
+
+    /// Creates a Binding<Bool> from a Binding<UUID?> for sheet presentation.
+    /// The sheet is presented when the UUID is non-nil, and dismissing sets it to nil.
+    private func sheetBinding(for itemID: Binding<UUID?>) -> Binding<Bool> {
+        Binding(
+            get: { itemID.wrappedValue != nil },
+            set: { isPresented in
+                if !isPresented {
+                    itemID.wrappedValue = nil
+                }
+            }
+        )
     }
 
     private func expectedOutputURL(for item: VideoItem, preset: ExportPreset) -> URL? {
