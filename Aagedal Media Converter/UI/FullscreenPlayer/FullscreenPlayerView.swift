@@ -846,8 +846,8 @@ struct FullscreenPlayerView: View {
                 return nil
             }
             
-            var inputTotalFrames = hours * 3600 * fps + minutes * 60 * fps + seconds * fps + frames
-            var startTotalFrames = startHours * 3600 * fps + startMinutes * 60 * fps + startSeconds * fps + startFrames
+            let inputTotalFrames = hours * 3600 * fps + minutes * 60 * fps + seconds * fps + frames
+            let startTotalFrames = startHours * 3600 * fps + startMinutes * 60 * fps + startSeconds * fps + startFrames
             
             let frameOffset = inputTotalFrames - startTotalFrames
             return Double(frameOffset) / frameRate
