@@ -8,8 +8,7 @@ A passion project; I made this for myself, I just wanted to share.
 
 Note that most of this app is vibe-coded.
 
-
-<img width="1161" height="990" alt="SCR-20251110-buqk" src="https://github.com/user-attachments/assets/60eb33ed-786a-4f57-b26c-81d9dc0db51a" />
+<img width="1062" height="575" alt="SCR-20251217-npcv-2" src="https://github.com/user-attachments/assets/1ae1a20d-ed3b-4e86-8b64-9b02ba79344c" />
 
 
 
@@ -131,9 +130,34 @@ If you don't like my presets you can make your own and give them a name. There i
   
 
 
-![SCR-20251110-bulz](https://github.com/user-attachments/assets/b1aba332-0058-480a-8f29-5f7ce5da07c0)
-<img width="642" height="594" alt="SCR-20251110-bvdx" src="https://github.com/user-attachments/assets/58504f3c-0e28-41d1-af37-4f109aff96af" />
-<img width="642" height="594" alt="SCR-20251110-bvgm" src="https://github.com/user-attachments/assets/209d09ab-ff89-4436-957f-72c01763c0c0" />
+## Screenshots
+
+#### Main window
+<img width="1124" height="1037" alt="SCR-20251217-novq" src="https://github.com/user-attachments/assets/14a6506b-528b-4573-ba3e-14d64c240b70" />
+
+#### Trim View
+![SCR-20251217-npls](https://github.com/user-attachments/assets/fb6bf721-66d9-445d-97eb-ffd1334deadc)
+
+#### Crop view
+![SCR-20251217-nptb](https://github.com/user-attachments/assets/97745a95-7bda-43bf-873a-bd865e886690)
+
+#### Audio rerouting
+<img width="702" height="535" alt="SCR-20251217-nqcb" src="https://github.com/user-attachments/assets/b7f0ab61-a6f1-4f90-8ec6-2f90b05c6022" />
+
+
+#### Metadata view
+<img width="522" height="522" alt="SCR-20251217-nqgb" src="https://github.com/user-attachments/assets/bb8bfbba-0cf2-4387-a750-53367951ec8c" />
+
+
+#### Timecode override view
+<img width="522" height="402" alt="SCR-20251217-nqlo" src="https://github.com/user-attachments/assets/7c3d951d-9bbb-402c-9984-2fe46fa7d713" />
+
+
+#### Settings view
+<img width="642" height="650" alt="SCR-20251217-nokk" src="https://github.com/user-attachments/assets/e5dd5a16-a052-45a5-8a12-8b529ecbe1b5" />
+
+#### Full screen player
+![SCR-20251217-nrlx](https://github.com/user-attachments/assets/832317e5-17ad-4063-9a36-dc1b5c510b22)
 
 
 
@@ -189,10 +213,11 @@ Not tested with macOS 26 Tahoe, but in macOS 15 you have two available App Short
 
 ---
 
-## Future ideas
-1. Per item preset adjustment.
-2. Add more / improve app intents.
-3. Replace current fallback player solution with libmpv or similar. Probably a target for version 3.
+## Future ideas (under consideration, no promises)
+1. Add timecode to the full screen player.
+2. yt-dlp video downloader?
+3. Per item preset adjustment?
+4. Replace VLCKit with mpv? (I already tried, but failed to make it work.)
 
 
 Note that this is a sparetime project. I this is a passion project I don't get paid for.
