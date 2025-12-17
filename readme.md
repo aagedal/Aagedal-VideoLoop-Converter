@@ -2,14 +2,13 @@
 
 A lightweight minimal-ish macOS application for simple batch encoding of video files. Powered by FFMPEG, FFPROBE and VLCKit under the hood and written entirely in Swift / SwiftUI.
 
-Removes almost all metdata by default. Fully private local only processing.
+Fully private and local. Completely free and open source. No subscriptions or paid add-ons.
 
-Completely free and open source. No subscriptions, no paid add-ons.
+A passion project; I made this for myself, I just wanted to share.
 
 Note that most of this app is vibe-coded.
 
-
-<img width="1161" height="990" alt="SCR-20251110-buqk" src="https://github.com/user-attachments/assets/60eb33ed-786a-4f57-b26c-81d9dc0db51a" />
+<img width="1062" height="575" alt="SCR-20251217-npcv-2" src="https://github.com/user-attachments/assets/1ae1a20d-ed3b-4e86-8b64-9b02ba79344c" />
 
 
 
@@ -23,7 +22,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 ```
 
 ### Manual download
-[Latest version (2.9.2)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.2.9.2/Aagedal-Media-Converter_2-9-2.zip)
+[Latest version (3.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.0/Aagedal-Media-Converter_3-0.zip)
 
 
 ---
@@ -129,17 +128,54 @@ Extract uncompressed audio from video, keeping all audio channels
 #### 3 Custom FFMPEG presets
 If you don't like my presets you can make your own and give them a name. There is a toggle to apply crop and audio routing, but -copy won't work.
   
+### 15-Second Autoplay Warning
+Web browsers often refuse to autoplay long, looping videos with sound. The app shows a yellow ⚠️ icon when the VideoLoop presets are applied to clips longer than 15 seconds, encouraging you to trim the video or pick another preset.
+
+### App Intents
+1. Add to Encode Cue
+2. Convert Video Immediately (using the default VideoLoop-preset).
 
 
-![SCR-20251110-bulz](https://github.com/user-attachments/assets/b1aba332-0058-480a-8f29-5f7ce5da07c0)
-<img width="642" height="594" alt="SCR-20251110-bvdx" src="https://github.com/user-attachments/assets/58504f3c-0e28-41d1-af37-4f109aff96af" />
-<img width="642" height="594" alt="SCR-20251110-bvgm" src="https://github.com/user-attachments/assets/209d09ab-ff89-4436-957f-72c01763c0c0" />
+
+## Screenshots
+
+#### Main window
+<img width="1124" height="1037" alt="SCR-20251217-novq" src="https://github.com/user-attachments/assets/14a6506b-528b-4573-ba3e-14d64c240b70" />
+
+#### Trim View
+![SCR-20251217-npls](https://github.com/user-attachments/assets/fb6bf721-66d9-445d-97eb-ffd1334deadc)
+
+#### Crop view
+![SCR-20251217-nptb](https://github.com/user-attachments/assets/97745a95-7bda-43bf-873a-bd865e886690)
+
+#### Audio rerouting
+<img width="702" height="535" alt="SCR-20251217-nqcb" src="https://github.com/user-attachments/assets/b7f0ab61-a6f1-4f90-8ec6-2f90b05c6022" />
+
+
+#### Metadata view
+<img width="522" height="522" alt="SCR-20251217-nqgb" src="https://github.com/user-attachments/assets/bb8bfbba-0cf2-4387-a750-53367951ec8c" />
+
+
+#### Timecode override view
+<img width="522" height="402" alt="SCR-20251217-nqlo" src="https://github.com/user-attachments/assets/7c3d951d-9bbb-402c-9984-2fe46fa7d713" />
+
+
+#### Settings view
+<img width="642" height="650" alt="SCR-20251217-nokk" src="https://github.com/user-attachments/assets/e5dd5a16-a052-45a5-8a12-8b529ecbe1b5" />
+
+#### Full screen player
+![SCR-20251217-nrlx](https://github.com/user-attachments/assets/832317e5-17ad-4063-9a36-dc1b5c510b22)
 
 
 
 ---
 
 ## Keyboard shortcuts
+
+
+#### Main Window
+Command + I to open import dialogue
+
 Command + Enter → Start Encoding
 
 Command + Backspace → Remove current clip from encoding queue
@@ -149,6 +185,62 @@ Tab → Select metadata comment text field of the first clip, or cycle to the ne
 Shift + Tab → Select metadata comment text field of the last clip, or cycle to the previous clip if a clip is already selected
 
 Command + , → Open Settings
+
+Arrow Up/Down to move between items
+
+Hold Command while pressing Up/Down to move the selected item(s) up or down in the queue
+
+Command + Backspace removes selected items from the queue
+
+Comand + R resets the conversion status of the selected items.
+
+Command + Shift + R resets conversion status of all items in the queue
+
+Option + W toggles watch folder (if no watch folder is selected you will be asked for one)
+
+Option + M toggles merging of clips (only available if all input files are in the same format)
+
+Command + , opens Settings
+
+
+#### Single item selected in main window
+CMD + T opens trim view
+
+Option + T opens Timecode override view
+
+Option + A opens Audio Rerouting view
+
+Option + I opens metadata view
+
+F opens full screen player
+
+Tab activates focus on the commend field
+
+CMD + D toggles the metadata date tag
+
+#### Trim view
+I/O to set in and out point
+
+JKL to play backwards, play/pause, play forwards (like in most NLEs)
+
+Space also toggles play/pause
+
+Arrow left/right, goes to previous/next frame
+
+Command + L toggles loop mode (only available for the native AVPlayer for technical reasons)
+
+Command + A toggles audio meter
+
+C enters crop tool
+
++ / - before a number jumps that many seconds back/forward when pressing enter, full timecode input is also possible if you want to jump a specific number of hours, minutes, seconds and frames forward, 
+
+Starting to write any number activates timecode input, press enter to jump to the entered timecode
+
+
+### Any overlay view
+Esc to close the overlay (settings are automatically saved)
+
 
 ---
 
@@ -170,34 +262,22 @@ Command + , → Open Settings
 4. Hit the green *Convert* button or press ⌘⏎.
 
 
-
-### 15-Second Autoplay Warning
-
-Web browsers often refuse to autoplay long, looping videos with sound. The app shows a yellow ⚠️ icon when the VideoLoop presets are applied to clips longer than 15 seconds, encouraging you to trim the video or pick another preset.
-
-### App Intents
-
-Not tested with macOS 26 Tahoe, but in macOS 15 you have two available App Shortcuts available in the macOS Shortcuts app:
-1. Add to Encode Cue
-2. Convert Video Immediately (using the default VideoLoop-preset).
-
 ---
 
 ## Known issues
-– Lagging scrolling when many items are queued.
+– Lagging scrolling when many items are queued. Seems to maybe be an issue with SwiftUI
+- Sometimes when using Keyboard shortcuts to open crop, timecode or audio settings for the first item after launch you get a small gray box. (Can be closed with Esc.) Seems to mostly be an issue of only one item is queued.
+- Chunk based fallback player sometimes fail to load.
 
 ---
-## Work in progress
-1. Preview and trim files. Status: Currently Apple native formats are working, but I want to implement support for all FFMPEG-supported formats before releasing.
-2. Grab screenshots at source resolution. (JPEG for SDR, AVIF for HDR, 16-bit PNG for ProRes RAW.) Status: Working, though capture seems a bit slow.
-3. Metadata info view. Status: Done, but I may need to add more metadata-fields in the future.
-4. Fixed import of webm, and other file extensions that I forgot ti add to the supported file extensions list. Status: done.
-5. Optimizing list scrolling performance when many files are queued.
 
-## Future ideas
-1. Per item preset adjustment.
-2. Add more / improve app intents.
-3. Replace current fallback player solution with libmpv or similar. Probably a target for version 3.
+## Future ideas (under consideration, no promises)
+1. Add timecode viewer and input to the full screen player (like the trim view player).
+2. Add a sorting function, to sort queued items by name or creation date.
+3. Add keyboard shortcuts for every single feature, as to make the app completely usable without a mouse?
+4. yt-dlp video downloader?
+5. Per item preset adjustment?
+6. Replace VLCKit with mpv? Or otherwise remove the need for the chunk based fallback player. (I already tried, but failed to make it work.)
 
 
 Note that this is a sparetime project. I this is a passion project I don't get paid for.
@@ -209,7 +289,6 @@ Note that this is a sparetime project. I this is a passion project I don't get p
 This project is distributed under the **GNU General Public License, version 3.0**. See the [LICENSE](LICENSE) file for the complete text.
 
 The bundled FFmpeg binary is compiled with `--enable-gpl` and is therefore also licensed under **GPL v2 or later**. This project chooses GPL v3 for all code, satisfying that requirement. See the original FFmpeg license in [Licenses/ffmpeg-LICENSE.txt](Licenses/ffmpeg-LICENSE.txt).
-
 
 ---
 
