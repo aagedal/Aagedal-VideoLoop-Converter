@@ -288,10 +288,6 @@ struct PreviewPlayerView: View {
             case "o":
                 handleTrimOutPoint(clearToEnd: true)
                 return true
-            case "t":
-                // Option+T: Toggle timecode display mode
-                timecodeDisplayMode.toggle()
-                return true
             default:
                 return false
             }
@@ -342,6 +338,13 @@ struct PreviewPlayerView: View {
             // Sync crop overlay with controls state
             controller.isCropEnabled = isCropControlsExpanded
             return true
+        case "t":
+            // T: Toggle timecode display mode (when not editing timecode)
+            if !isEditingTimecode {
+                timecodeDisplayMode.toggle()
+                return true
+            }
+            return false
         default:
             return false
         }
