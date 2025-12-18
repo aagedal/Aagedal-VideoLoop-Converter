@@ -14,12 +14,16 @@ Unlike Shutter Encoder it is also possible in Aagedal Media Converter to do merg
 
 #### Launch Times
 Shutter Encoder: 3s – 4s
+
 Aagedal Media Converter: 0,5s – 1s
+
 _Tested on M1 Max with macOS 26.2, 18. des. 2025. Shutter Encoder 19.7 and Aagedal Media Converter 3.0.1_
 
 #### Idle RAM use
 Shutter Encoder: 240MB
+
 Aagedal Media Converter: 97MB
+
 _Tested on M1 Max with macOS 26.2, 18. des. 2025. Shutter Encoder 19.7 and Aagedal Media Converter 3.0.1_
 
 
@@ -30,12 +34,16 @@ I also find that batch converting in Handbrake is less intuitive, and as far as 
 
 #### Launch Times
 Handbrake: 2s - 3s
+
 Aagedal Media Converter: 0,5s – 1s
+
 _Tested on M1 Max with macOS 26.2, 18. des. 2025. Handbrake 1.10.2 and Aagedal Media Converter 3.0.1_
 
 #### Idle RAM use
 Handbrake: 57,6MB
+
 Aagedal Media Converter: 97MB
+
 _Tested on M1 Max with macOS 26.2, 18. des. 2025. Handbrake 1.10.2 and Aagedal Media Converter 3.0.1_
 
 
@@ -47,13 +55,18 @@ I think Aagedal Media Converter is a good app to use in tandem with Resolve; for
 
 #### Launch Times
 DaVinci Resolve Studio: 6s - 12s
+
 Aagedal Media Converter: 0,5s – 1s
+
 _Tested on M1 Max with macOS 26.2, 18. des. 2025. Handbrake 1.10.2 and Aagedal Media Converter 3.0.1_
 
 #### Idle RAM use
 DaVinci Resolve Studio: 1340MB (project picker)
+
 DaVinci Resolve Studio: 1500MB (empty timeline)
+
 Aagedal Media Converter: 97MB
+
 _Tested on M1 Max with macOS 26.2, 18. des. 2025. Handbrake 1.10.2 and Aagedal Media Converter 3.0.1_
 
 
