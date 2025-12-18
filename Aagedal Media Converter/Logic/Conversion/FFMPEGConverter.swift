@@ -47,6 +47,7 @@ actor FFMPEGConverter {
         synthesizedVideoRequest: SynthesizedVideoRequest? = nil,
         customInputArguments: [String]? = nil,
         additionalOutputArguments: [String]? = nil,
+        isMuted: Bool = false,
         expectedDuration: Double? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool) -> Void
@@ -101,7 +102,8 @@ actor FFMPEGConverter {
             waveformRequest: waveformRequest,
             synthesizedVideoRequest: synthesizedVideoRequest,
             customInputArguments: customInputArguments,
-            additionalOutputArguments: additionalOutputArguments
+            additionalOutputArguments: additionalOutputArguments,
+            isMuted: isMuted
         )
 
         process.arguments = command.arguments

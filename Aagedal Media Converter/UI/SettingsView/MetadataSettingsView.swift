@@ -14,6 +14,8 @@ struct MetadataSettingsView: View {
     @AppStorage(AppConstants.commentSeparatorKey) private var commentSeparator = AppConstants.defaultCommentSeparator
     @AppStorage(AppConstants.commentDateFormatKey) private var commentDateFormat = AppConstants.defaultCommentDateFormat
     @AppStorage(AppConstants.dateTagPrefixKey) private var dateTagPrefix = AppConstants.defaultDateTagPrefix
+    @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
+    @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
 
     @State private var isValidTimecode: Bool = true
     @State private var showCommentInfoPopover = false
@@ -43,11 +45,45 @@ struct MetadataSettingsView: View {
         Form {
             metadataPreservationSection
             commentSection
+            queueRowDisplaySection
             timecodeDefaultsSection
         }
         .formStyle(.grouped)
         .onAppear {
             isValidTimecode = validateTimecode(defaultTimecodeValue)
+        }
+    }
+
+    private var queueRowDisplaySection: some View {
+        Section(header: Text("Queue Row Display")) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Control which metadata controls are shown on each video row in the queue.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle(isOn: $showCommentField) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Show comment field")
+                            .font(.subheadline.weight(.medium))
+                        Text("Display the comment text field for adding metadata comments to each file")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(SwitchToggleStyle())
+
+                Toggle(isOn: $showDateTagButton) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Show date tag button")
+                            .font(.subheadline.weight(.medium))
+                        Text("Display the button to toggle the \"Date generated\" tag for each file")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(SwitchToggleStyle())
+            }
+            .padding(8)
         }
     }
 

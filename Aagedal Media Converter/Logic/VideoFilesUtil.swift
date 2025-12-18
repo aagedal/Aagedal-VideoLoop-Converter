@@ -535,6 +535,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var timecodeConfig: TimecodeConfig? = nil
     /// Stored output file size in bytes, set when conversion completes
     var outputFileSizeBytes: Int64? = nil
+    /// Whether audio should be muted (removed) in the output
+    var isMuted: Bool = false
 
     mutating func apply(details: VideoFileUtils.VideoItemDetails) {
         size = details.size
