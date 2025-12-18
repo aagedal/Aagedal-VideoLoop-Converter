@@ -265,19 +265,26 @@ Esc to close the overlay (settings are automatically saved)
 ---
 
 ## Known issues
-– Lagging scrolling when many items are queued. Seems to maybe be an issue with SwiftUI
-- Sometimes when using Keyboard shortcuts to open crop, timecode or audio settings for the first item after launch you get a small gray box. (Can be closed with Esc.) Seems to mostly be an issue of only one item is queued.
+– Lagging scrolling when many items are queued. Seems to maybe be an issue with SwiftUI.
 - Chunk based fallback player sometimes fail to load.
 
 ---
 
 ## Future ideas (under consideration, no promises)
-1. Add timecode viewer and input to the full screen player (like the trim view player).
-2. Add a sorting function, to sort queued items by name or creation date.
+1. Add a range selector mode to the trim view, so that a single drag with the mouse will select both in and out points.
+2. Add a sorting function, to sort queued items by name or creation date. Useful for the merge feature. 
 3. Add keyboard shortcuts for every single feature, as to make the app completely usable without a mouse?
-4. yt-dlp video downloader?
-5. Per item preset adjustment?
-6. Replace VLCKit with mpv? Or otherwise remove the need for the chunk based fallback player. (I already tried, but failed to make it work.)
+4. Add/adjust presets: MXF OP1a AVC-Intra, AV1, Animated Still (with GIF/AVIF/APNG/JPEG XL preset setting)
+5. Add more preset settings: PAL/NTSC selector for the TV presets, Rewrap with setting to keep or change container
+6. yt-dlp video downloader with built in yt-dlp updater
+7. Add option to download whisper binary + model for transcribing audio to srt.
+8. Per item preset adjustment? (probably not, since its possible to open more than one window and do different presets per window
+9. Replace VLCKit with mpv? Or otherwise remove the need for the chunk based fallback player. (I already tried, but failed to make it work.)
+10. Save/export queue with settings as json
+11. Import/Export app settings as json/yaml
+12. Auto upload to server after export? RCLONE?
+13. Metadata comparison view
+
 
 
 Note that this is a sparetime project. I this is a passion project I don't get paid for.
