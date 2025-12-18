@@ -455,6 +455,7 @@ actor ConversionManager: Sendable {
             synthesizedVideoRequest: plan.synthesizedVideoRequest,
             customInputArguments: customInputs,
             additionalOutputArguments: mergeOutputArguments,
+            isMuted: primaryInput.isMuted,
             expectedDuration: plan.totalDuration,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
@@ -879,6 +880,7 @@ actor ConversionManager: Sendable {
             timecodeConfig: currentItem.timecodeConfig,
             waveformRequest: waveformRequest,
             synthesizedVideoRequest: synthesizedVideoRequest,
+            isMuted: currentItem.isMuted,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {

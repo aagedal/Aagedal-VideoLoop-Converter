@@ -98,6 +98,8 @@ enum AppConstants {
     static let defaultCommentDateFormat = "yyyyMMdd"
     static let dateTagPrefixKey = "dateTagPrefix"
     static let defaultDateTagPrefix = "Date generated"
+    static let showCommentFieldKey = "showCommentField"
+    static let showDateTagButtonKey = "showDateTagButton"
     static let enableFileNameProcessingKey = "enableFileNameProcessing"
     static let customPresetCommandKey = "customPresetFFmpegCommand"
     static let customPresetSuffixKey = "customPresetFileSuffix"
@@ -130,13 +132,27 @@ enum AppConstants {
     static let defaultWatchFolderIgnoreDurationUnitRaw = WatchFolderDurationUnit.hours.rawValue
     static let defaultWatchFolderDeleteDurationValue = 7
     static let defaultWatchFolderDeleteDurationUnitRaw = WatchFolderDurationUnit.days.rawValue
-    static let customPresetPrefixes = ["C1:", "C2:", "C3:"]
+    static let customPresetPrefixes = ["C1:", "C2:", "C3:", "C4:", "C5:", "C6:", "C7:", "C8:", "C9:", "C10:"]
     static let defaultCustomPresetDisplayNames = [
         "C1: Custom Preset",
         "C2: Custom Preset",
-        "C3: Custom Preset"
+        "C3: Custom Preset",
+        "C4: Custom Preset",
+        "C5: Custom Preset",
+        "C6: Custom Preset",
+        "C7: Custom Preset",
+        "C8: Custom Preset",
+        "C9: Custom Preset",
+        "C10: Custom Preset"
     ]
     static let defaultCustomPresetNameSuffixes = [
+        "Custom Preset",
+        "Custom Preset",
+        "Custom Preset",
+        "Custom Preset",
+        "Custom Preset",
+        "Custom Preset",
+        "Custom Preset",
         "Custom Preset",
         "Custom Preset",
         "Custom Preset"
@@ -144,11 +160,20 @@ enum AppConstants {
     static let defaultCustomPresetFullNames = [
         "C1: Custom Preset",
         "C2: Custom Preset",
-        "C3: Custom Preset"
+        "C3: Custom Preset",
+        "C4: Custom Preset",
+        "C5: Custom Preset",
+        "C6: Custom Preset",
+        "C7: Custom Preset",
+        "C8: Custom Preset",
+        "C9: Custom Preset",
+        "C10: Custom Preset"
     ]
-    static let defaultCustomPresetCommands = ["-c copy", "-c copy", "-c copy"]
-    static let defaultCustomPresetSuffixes = ["_c1", "_c2", "_c3"]
-    static let defaultCustomPresetExtensions = ["mp4", "mp4", "mp4"]
+    static let defaultCustomPresetCommands = ["-c copy", "-c copy", "-c copy", "-c copy", "-c copy", "-c copy", "-c copy", "-c copy", "-c copy", "-c copy"]
+    static let defaultCustomPresetSuffixes = ["_c1", "_c2", "_c3", "_c4", "_c5", "_c6", "_c7", "_c8", "_c9", "_c10"]
+    static let defaultCustomPresetExtensions = ["mp4", "mp4", "mp4", "mp4", "mp4", "mp4", "mp4", "mp4", "mp4", "mp4"]
+    // Default activation states: all custom presets inactive by default
+    static let defaultCustomPresetActive = [false, false, false, false, false, false, false, false, false, false]
 
     static let screenshotDirectoryKey = "screenshotDirectory"
     static let screenshot8BitFormatKey = "screenshot8BitFormat"
@@ -177,6 +202,104 @@ enum AppConstants {
     static let customPreset2ApplyAudioRoutingKey = "customPreset2ApplyAudioRouting"
     static let customPreset3ApplyCropKey = "customPreset3ApplyCrop"
     static let customPreset3ApplyAudioRoutingKey = "customPreset3ApplyAudioRouting"
+    static let customPreset4ApplyCropKey = "customPreset4ApplyCrop"
+    static let customPreset4ApplyAudioRoutingKey = "customPreset4ApplyAudioRouting"
+    static let customPreset5ApplyCropKey = "customPreset5ApplyCrop"
+    static let customPreset5ApplyAudioRoutingKey = "customPreset5ApplyAudioRouting"
+    static let customPreset6ApplyCropKey = "customPreset6ApplyCrop"
+    static let customPreset6ApplyAudioRoutingKey = "customPreset6ApplyAudioRouting"
+    static let customPreset7ApplyCropKey = "customPreset7ApplyCrop"
+    static let customPreset7ApplyAudioRoutingKey = "customPreset7ApplyAudioRouting"
+    static let customPreset8ApplyCropKey = "customPreset8ApplyCrop"
+    static let customPreset8ApplyAudioRoutingKey = "customPreset8ApplyAudioRouting"
+    static let customPreset9ApplyCropKey = "customPreset9ApplyCrop"
+    static let customPreset9ApplyAudioRoutingKey = "customPreset9ApplyAudioRouting"
+    static let customPreset10ApplyCropKey = "customPreset10ApplyCrop"
+    static let customPreset10ApplyAudioRoutingKey = "customPreset10ApplyAudioRouting"
+
+    // Custom preset 4-10 individual keys
+    static let customPreset4NameKey = "customPreset4DisplayName"
+    static let customPreset4CommandKey = "customPreset4FFmpegCommand"
+    static let customPreset4SuffixKey = "customPreset4FileSuffix"
+    static let customPreset4ExtensionKey = "customPreset4FileExtension"
+    static let customPreset4ActiveKey = "customPreset4Active"
+
+    static let customPreset5NameKey = "customPreset5DisplayName"
+    static let customPreset5CommandKey = "customPreset5FFmpegCommand"
+    static let customPreset5SuffixKey = "customPreset5FileSuffix"
+    static let customPreset5ExtensionKey = "customPreset5FileExtension"
+    static let customPreset5ActiveKey = "customPreset5Active"
+
+    static let customPreset6NameKey = "customPreset6DisplayName"
+    static let customPreset6CommandKey = "customPreset6FFmpegCommand"
+    static let customPreset6SuffixKey = "customPreset6FileSuffix"
+    static let customPreset6ExtensionKey = "customPreset6FileExtension"
+    static let customPreset6ActiveKey = "customPreset6Active"
+
+    static let customPreset7NameKey = "customPreset7DisplayName"
+    static let customPreset7CommandKey = "customPreset7FFmpegCommand"
+    static let customPreset7SuffixKey = "customPreset7FileSuffix"
+    static let customPreset7ExtensionKey = "customPreset7FileExtension"
+    static let customPreset7ActiveKey = "customPreset7Active"
+
+    static let customPreset8NameKey = "customPreset8DisplayName"
+    static let customPreset8CommandKey = "customPreset8FFmpegCommand"
+    static let customPreset8SuffixKey = "customPreset8FileSuffix"
+    static let customPreset8ExtensionKey = "customPreset8FileExtension"
+    static let customPreset8ActiveKey = "customPreset8Active"
+
+    static let customPreset9NameKey = "customPreset9DisplayName"
+    static let customPreset9CommandKey = "customPreset9FFmpegCommand"
+    static let customPreset9SuffixKey = "customPreset9FileSuffix"
+    static let customPreset9ExtensionKey = "customPreset9FileExtension"
+    static let customPreset9ActiveKey = "customPreset9Active"
+
+    static let customPreset10NameKey = "customPreset10DisplayName"
+    static let customPreset10CommandKey = "customPreset10FFmpegCommand"
+    static let customPreset10SuffixKey = "customPreset10FileSuffix"
+    static let customPreset10ExtensionKey = "customPreset10FileExtension"
+    static let customPreset10ActiveKey = "customPreset10Active"
+
+    // Custom preset activation keys
+    static let customPreset1ActiveKey = "customPreset1Active"
+    static let customPreset2ActiveKey = "customPreset2Active"
+    static let customPreset3ActiveKey = "customPreset3Active"
+
+    // Animated Still preset settings
+    static let animatedStillFormatKey = "animatedStillFormat"
+    static let defaultAnimatedStillFormat = "AVIF"
+
+    // TV preset settings
+    static let tvFramerateModeKey = "tvFramerateMode"
+    static let defaultTVFramerateMode = "50p"
+    static let tvResolutionLimitKey = "tvResolutionLimit"
+    static let defaultTVResolutionLimit = "1080p"
+
+    // AVC-Intra preset settings
+    static let avcIntraClassKey = "avcIntraClass"
+    static let defaultAVCIntraClass = "AVC-Intra 100"
+    static let avcIntraAudioChannelsKey = "avcIntraAudioChannels"
+    static let defaultAVCIntraAudioChannels = "8 Channels"
+
+    // Stream Copy container settings
+    static let streamCopyContainerKey = "streamCopyContainer"
+    static let defaultStreamCopyContainer = "Keep Current"
+
+    // VideoLoop mute settings
+    static let videoLoopDefaultMutedKey = "videoLoopDefaultMuted"
+    static let defaultVideoLoopMuted = true
+
+    // Built-in preset visibility keys (all visible by default)
+    static let videoLoopVisibleKey = "videoLoopVisible"
+    static let videoLoopWithAudioVisibleKey = "videoLoopWithAudioVisible"
+    static let tvHEVCVisibleKey = "tvHEVCVisible"
+    static let tvAVCIntraVisibleKey = "tvAVCIntraVisible"
+    static let proresVisibleKey = "proresVisible"
+    static let streamCopyVisibleKey = "streamCopyVisible"
+    static let animatedStillVisibleKey = "animatedStillVisible"
+    static let hevcProxyVisibleKey = "hevcProxyVisible"
+    static let audioWAVVisibleKey = "audioWAVVisible"
+    static let audioAACVisibleKey = "audioAACVisible"
 
     // Reset behavior
     static let resetClearsSettingsKey = "resetClearsSettings"

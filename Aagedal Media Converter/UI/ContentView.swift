@@ -48,6 +48,14 @@ struct ContentView: View {
     @AppStorage(AppConstants.customPreset1NameKey) private var customPreset1Name = AppConstants.defaultCustomPresetDisplayNames[0]
     @AppStorage(AppConstants.customPreset2NameKey) private var customPreset2Name = AppConstants.defaultCustomPresetDisplayNames[1]
     @AppStorage(AppConstants.customPreset3NameKey) private var customPreset3Name = AppConstants.defaultCustomPresetDisplayNames[2]
+    @AppStorage(AppConstants.customPreset4NameKey) private var customPreset4Name = AppConstants.defaultCustomPresetDisplayNames[3]
+    @AppStorage(AppConstants.customPreset5NameKey) private var customPreset5Name = AppConstants.defaultCustomPresetDisplayNames[4]
+    @AppStorage(AppConstants.customPreset6NameKey) private var customPreset6Name = AppConstants.defaultCustomPresetDisplayNames[5]
+    @AppStorage(AppConstants.customPreset7NameKey) private var customPreset7Name = AppConstants.defaultCustomPresetDisplayNames[6]
+    @AppStorage(AppConstants.customPreset8NameKey) private var customPreset8Name = AppConstants.defaultCustomPresetDisplayNames[7]
+    @AppStorage(AppConstants.customPreset9NameKey) private var customPreset9Name = AppConstants.defaultCustomPresetDisplayNames[8]
+    @AppStorage(AppConstants.customPreset10NameKey) private var customPreset10Name = AppConstants.defaultCustomPresetDisplayNames[9]
+    @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.watchFolderModeKey) private var watchFolderModeEnabled = false
     @AppStorage(AppConstants.watchFolderPathKey) private var watchFolderPath = ""
     @StateObject private var watchFolderCoordinator = WatchFolderCoordinator()
@@ -557,6 +565,13 @@ struct ContentView: View {
         case 0: storedSuffix = customPreset1Name
         case 1: storedSuffix = customPreset2Name
         case 2: storedSuffix = customPreset3Name
+        case 3: storedSuffix = customPreset4Name
+        case 4: storedSuffix = customPreset5Name
+        case 5: storedSuffix = customPreset6Name
+        case 6: storedSuffix = customPreset7Name
+        case 7: storedSuffix = customPreset8Name
+        case 8: storedSuffix = customPreset9Name
+        case 9: storedSuffix = customPreset10Name
         default: storedSuffix = fallbackSuffix
         }
         let sanitizedSuffix = sanitizeCustomNameSuffix(storedSuffix, prefix: prefix, fallback: fallbackSuffix)
@@ -621,6 +636,13 @@ struct ContentView: View {
                 selectedPreset = newValue
                 refreshExpectedOutputURLs(for: newValue)
                 scheduleMergeCompatibilityEvaluation()
+
+                // Auto-mute items when switching to VideoLoop preset if the setting is enabled
+                if newValue == .videoLoop && videoLoopDefaultMuted {
+                    for index in droppedFiles.indices where droppedFiles[index].status == .waiting {
+                        droppedFiles[index].isMuted = true
+                    }
+                }
             }
         )
     }

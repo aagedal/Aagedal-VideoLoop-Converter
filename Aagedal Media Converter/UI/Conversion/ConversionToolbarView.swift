@@ -107,7 +107,7 @@ struct ConversionToolbarView: ToolbarContent {
 
         ToolbarItem(placement: .automatic) {
             Picker("Preset", selection: $selectedPreset) {
-                ForEach(presets) { preset in
+                ForEach(presets.filter { $0.isVisible }) { preset in
                     Text(displayName(preset)).tag(preset)
                 }
             }

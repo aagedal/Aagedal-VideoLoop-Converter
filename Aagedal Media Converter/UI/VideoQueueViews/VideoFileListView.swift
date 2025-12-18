@@ -105,7 +105,8 @@ struct VideoFileListView: View {
                     onMoveUp: { handleMoveSelection(direction: .up) },
                     onMoveDown: { handleMoveSelection(direction: .down) },
                     onResetSelected: handleResetSelectedShortcut,
-                    onDeselectAll: { selection.removeAll() }
+                    onDeselectAll: { selection.removeAll() },
+                    onToggleMute: handleToggleMuteShortcut
                 )
 
                 Button(action: deleteSelectedItems) {
@@ -425,14 +426,27 @@ struct VideoFileListView: View {
         let selectedIndices = selection.compactMap { selectedID in
             droppedFiles.firstIndex(where: { $0.id == selectedID })
         }.sorted()
-        
+
         guard !selectedIndices.isEmpty else { return }
-        
+
         // Check if Option key is pressed
         let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
-        
+
         for index in selectedIndices {
             onReset(index, optionKeyPressed)
+        }
+    }
+
+    private func handleToggleMuteShortcut() {
+        // Works with single or multi-selection
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        for index in selectedIndices {
+            droppedFiles[index].isMuted.toggle()
         }
     }
     
@@ -585,6 +599,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     // Multi-selection shortcuts
     var onResetSelected: () -> Void
     var onDeselectAll: () -> Void
+    var onToggleMute: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -600,7 +615,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onMoveUp: onMoveUp,
             onMoveDown: onMoveDown,
             onResetSelected: onResetSelected,
-            onDeselectAll: onDeselectAll
+            onDeselectAll: onDeselectAll,
+            onToggleMute: onToggleMute
         )
     }
 
@@ -625,6 +641,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onMoveDown = onMoveDown
         context.coordinator.onResetSelected = onResetSelected
         context.coordinator.onDeselectAll = onDeselectAll
+        context.coordinator.onToggleMute = onToggleMute
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -645,6 +662,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onMoveDown: () -> Void
         var onResetSelected: () -> Void
         var onDeselectAll: () -> Void
+        var onToggleMute: () -> Void
         private var monitor: Any?
 
         init(
@@ -660,7 +678,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onMoveUp: @escaping () -> Void,
             onMoveDown: @escaping () -> Void,
             onResetSelected: @escaping () -> Void,
-            onDeselectAll: @escaping () -> Void
+            onDeselectAll: @escaping () -> Void,
+            onToggleMute: @escaping () -> Void
         ) {
             self.onForward = onForward
             self.onBackward = onBackward
@@ -675,6 +694,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onMoveDown = onMoveDown
             self.onResetSelected = onResetSelected
             self.onDeselectAll = onDeselectAll
+            self.onToggleMute = onToggleMute
         }
 
         func install() {
@@ -767,7 +787,13 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                     self.onMoveDown()
                     return nil
                 }
-                
+
+                // Ctrl+M: Toggle mute on selected items
+                if hasControl && !hasCommand && !hasOption && !hasShift && event.keyCode == kVK_ANSI_M {
+                    self.onToggleMute()
+                    return nil
+                }
+
                 return event
             }
         }

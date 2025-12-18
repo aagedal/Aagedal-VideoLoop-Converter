@@ -74,7 +74,8 @@ enum FFMPEGCommandBuilder {
         waveformRequest: WaveformVideoRequest? = nil,
         synthesizedVideoRequest: SynthesizedVideoRequest? = nil,
         customInputArguments: [String]? = nil,
-        additionalOutputArguments: [String]? = nil
+        additionalOutputArguments: [String]? = nil,
+        isMuted: Bool = false
     ) async -> FFMPEGCommand {
         var arguments = ["-y"]
 
@@ -101,7 +102,7 @@ enum FFMPEGCommandBuilder {
             arguments.append(contentsOf: waveformCommandArguments(for: waveformRequest, includeAudioOutput: includeAudioOutput, audioRoutingConfig: audioRoutingConfig))
 
             var ffmpegArgs = preset.ffmpegArguments
-            await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+            await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
             await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
             sanitizeArgumentsForCustomVideoPipeline(&ffmpegArgs)
             if !includeAudioOutput {
@@ -139,7 +140,7 @@ enum FFMPEGCommandBuilder {
             arguments.append(contentsOf: synthesizedVideoCommandArguments(for: synthesizedVideoRequest))
 
             var ffmpegArgs = preset.ffmpegArguments
-            await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+            await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
             await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
             sanitizeArgumentsForCustomVideoPipeline(&ffmpegArgs)
             if synthesizedVideoRequest.includeAudio {
@@ -177,7 +178,7 @@ enum FFMPEGCommandBuilder {
         }
 
         var ffmpegArgs = preset.ffmpegArguments
-        await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+        await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
         await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
 
         // Apply crop to video filter if configured and preset supports it
@@ -238,6 +239,11 @@ enum FFMPEGCommandBuilder {
         // Apply audio routing configuration if provided and preset supports audio and audio routing
         if let audioRoutingConfig, preset.outputsAudioTrack, preset.appliesAudioRouting {
             applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
+        }
+
+        // Apply mute if requested - removes all audio from output
+        if isMuted {
+            applyMute(to: &ffmpegArgs)
         }
 
         // Apply timecode configuration if preset outputs video
@@ -692,8 +698,18 @@ extension FFMPEGCommandBuilder {
     static func adjustArgumentsForInput(
         preset: ExportPreset,
         inputURL: URL,
-        ffmpegArgs: inout [String]
+        ffmpegArgs: inout [String],
+        trimStart: Double? = nil,
+        trimEnd: Double? = nil
     ) async {
+        // Handle AVC-Intra mono channel splitting
+        if preset == .tvAVCIntra {
+            // Calculate effective duration for silent streams
+            let effectiveDuration = await calculateEffectiveDurationForAudio(inputURL: inputURL, trimStart: trimStart, trimEnd: trimEnd)
+            await adjustAVCIntraAudio(inputURL: inputURL, ffmpegArgs: &ffmpegArgs, duration: effectiveDuration)
+            return
+        }
+
         guard preset == .audioUncompressedWAV else { return }
         guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
               audioStreams.count > 1 else {
@@ -711,6 +727,202 @@ extension FFMPEGCommandBuilder {
         if totalChannels > 0 {
             ffmpegArgs.append(contentsOf: ["-ac", "\(totalChannels)"])
         }
+    }
+
+    /// Calculate the effective duration for audio streams, considering trim points
+    private static func calculateEffectiveDurationForAudio(
+        inputURL: URL,
+        trimStart: Double?,
+        trimEnd: Double?
+    ) async -> Double? {
+        // If we have both trim points, use the difference
+        if let start = trimStart, let end = trimEnd {
+            return end - start
+        }
+
+        // Try to get the file's total duration
+        if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL),
+           let totalDuration = metadata.duration {
+            if let start = trimStart {
+                return totalDuration - start
+            } else if let end = trimEnd {
+                return end
+            } else {
+                return totalDuration
+            }
+        }
+
+        return nil
+    }
+
+    /// Adjusts audio arguments for AVC-Intra preset to create separate mono streams
+    /// Input stereo tracks are split into individual mono streams for MXF broadcast delivery
+    private static func adjustAVCIntraAudio(
+        inputURL: URL,
+        ffmpegArgs: inout [String],
+        duration: Double?
+    ) async {
+        // Get desired mono channel count from settings
+        let audioChannelsRaw = UserDefaults.standard.string(forKey: AppConstants.avcIntraAudioChannelsKey)
+            ?? AppConstants.defaultAVCIntraAudioChannels
+        let audioChannels = AVCIntraAudioChannels(rawValue: audioChannelsRaw) ?? .ch8
+        let targetChannelCount = audioChannels.count
+
+        // Format duration for anullsrc (add small buffer to ensure it's long enough)
+        let durationStr: String
+        if let dur = duration {
+            durationStr = String(format: "%.3f", dur + 1.0) // Add 1 second buffer
+        } else {
+            durationStr = "3600" // Default to 1 hour if unknown
+        }
+
+        // Fetch audio stream info from input
+        let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL) ?? []
+
+        // Remove existing audio mapping arguments
+        removeArgumentPair("-map", value: "0:a?", from: &ffmpegArgs)
+        removeArgumentPair("-ac", value: nil, from: &ffmpegArgs)
+
+        // If no audio streams, create silent mono streams
+        // Use a single aevalsrc source with asplit to minimize independent audio generators
+        // aevalsrc generates samples on-demand, which helps with MXF muxer synchronization
+        guard !audioStreams.isEmpty else {
+            var filterParts: [String] = []
+            var silentMaps: [String] = []
+
+            // Create single silent source using aevalsrc (generates silence on-demand)
+            filterParts.append("aevalsrc=0:c=mono:s=48000:d=\(durationStr)[silentsrc]")
+
+            if targetChannelCount == 1 {
+                // Just one channel needed
+                silentMaps.append(contentsOf: ["-map", "[silentsrc]"])
+            } else {
+                // Split into multiple channels
+                var splitOutputs: [String] = []
+                for i in 0..<targetChannelCount {
+                    splitOutputs.append("[silent\(i)]")
+                }
+                filterParts.append("[silentsrc]asplit=\(targetChannelCount)\(splitOutputs.joined())")
+                for i in 0..<targetChannelCount {
+                    silentMaps.append(contentsOf: ["-map", "[silent\(i)]"])
+                }
+            }
+
+            let filterGraph = filterParts.joined(separator: ";")
+            ffmpegArgs.append(contentsOf: ["-filter_complex", filterGraph])
+            ffmpegArgs.append(contentsOf: silentMaps)
+            // Add -shortest to stop when video ends
+            ffmpegArgs.append("-shortest")
+            return
+        }
+
+        // Build filter graph to split all audio streams into mono channels
+        var filterParts: [String] = []
+        var monoOutputs: [String] = []
+        var outputIndex = 0
+
+        for (streamIdx, stream) in audioStreams.enumerated() {
+            let channels = stream.channels ?? 2
+            let channelLayout = stream.channelLayout ?? (channels == 1 ? "mono" : "stereo")
+
+            if channels == 1 {
+                // Mono stream - use directly but ensure consistent format
+                let outputLabel = "mono\(outputIndex)"
+                filterParts.append("[0:a:\(streamIdx)]aformat=sample_fmts=s32:sample_rates=48000:channel_layouts=mono[\(outputLabel)]")
+                monoOutputs.append(outputLabel)
+                outputIndex += 1
+            } else {
+                // Multi-channel stream - split into individual mono channels
+                // Determine channel layout for splitting
+                let splitLayout: String
+                if channels == 2 {
+                    splitLayout = "stereo"
+                } else if channels == 6 {
+                    splitLayout = "5.1"
+                } else if channels == 8 {
+                    splitLayout = "7.1"
+                } else {
+                    // Generic layout based on channel count
+                    splitLayout = channelLayout
+                }
+
+                // Generate output labels for each channel
+                var channelLabels: [String] = []
+                for ch in 0..<channels {
+                    channelLabels.append("s\(streamIdx)c\(ch)")
+                }
+                let outputLabelsStr = channelLabels.map { "[\($0)]" }.joined()
+
+                // Add channelsplit filter
+                filterParts.append("[0:a:\(streamIdx)]channelsplit=channel_layout=\(splitLayout)\(outputLabelsStr)")
+
+                // Add format filter for each split channel to ensure consistent output
+                for label in channelLabels {
+                    let formattedLabel = "mono\(outputIndex)"
+                    filterParts.append("[\(label)]aformat=sample_fmts=s32:sample_rates=48000:channel_layouts=mono[\(formattedLabel)]")
+                    monoOutputs.append(formattedLabel)
+                    outputIndex += 1
+                }
+            }
+        }
+
+        // Determine how many channels we actually have vs need
+        let availableChannels = monoOutputs.count
+
+        // Add silent streams if we need more channels than available
+        // Instead of anullsrc (which causes buffer deadlocks with MXF),
+        // derive silent channels from existing audio using volume=0 and asplit
+        if availableChannels < targetChannelCount && availableChannels > 0 {
+            let silentChannelsNeeded = targetChannelCount - availableChannels
+
+            // Use the first mono output as the template for silent channels
+            // We need to split it first: one copy for actual output, one for silent derivation
+            let templateLabel = monoOutputs[0]
+            let templateForOutput = "\(templateLabel)_out"
+            let templateForSilent = "\(templateLabel)_silent"
+
+            // Split the template into two: one for output, one for silent channel derivation
+            filterParts.append("[\(templateLabel)]asplit=2[\(templateForOutput)][\(templateForSilent)]")
+
+            // Update monoOutputs to use the split output version
+            monoOutputs[0] = templateForOutput
+
+            // Generate labels for all silent outputs
+            var silentLabels: [String] = []
+            for i in 0..<silentChannelsNeeded {
+                silentLabels.append("silent\(availableChannels + i)")
+            }
+
+            // Create silent version and split into required number of channels
+            if silentChannelsNeeded == 1 {
+                // Just one silent channel needed - apply volume=0 directly
+                filterParts.append("[\(templateForSilent)]volume=0[\(silentLabels[0])]")
+            } else {
+                // Multiple silent channels - silence first, then split
+                let silentBaseLabel = "silentbase"
+                filterParts.append("[\(templateForSilent)]volume=0[\(silentBaseLabel)]")
+                let splitOutputs = silentLabels.map { "[\($0)]" }.joined()
+                filterParts.append("[\(silentBaseLabel)]asplit=\(silentChannelsNeeded)\(splitOutputs)")
+            }
+
+            monoOutputs.append(contentsOf: silentLabels)
+        }
+
+        // Truncate if we have more channels than needed
+        let finalOutputs = Array(monoOutputs.prefix(targetChannelCount))
+
+        // Build final filter graph
+        let filterGraph = filterParts.joined(separator: ";")
+
+        // Build map arguments for each mono output
+        var mapArgs: [String] = []
+        for output in finalOutputs {
+            mapArgs.append(contentsOf: ["-map", "[\(output)]"])
+        }
+
+        // Add to ffmpeg arguments
+        ffmpegArgs.append(contentsOf: ["-filter_complex", filterGraph])
+        ffmpegArgs.append(contentsOf: mapArgs)
     }
 
     static func removeArgumentPair(_ key: String, value: String?, from args: inout [String]) {
@@ -830,6 +1042,47 @@ extension FFMPEGCommandBuilder {
                 continue
             }
             metadataIndex += 1
+        }
+    }
+
+    /// Applies mute by removing all audio arguments and ensuring -an flag is present
+    private static func applyMute(to ffmpegArgs: inout [String]) {
+        // Remove audio codec arguments
+        removeArgumentPair("-c:a", value: nil, from: &ffmpegArgs)
+        removeArgumentPair("-b:a", value: nil, from: &ffmpegArgs)
+        removeArgumentPair("-ac", value: nil, from: &ffmpegArgs)
+
+        // Remove audio mapping
+        var index = 0
+        while index < ffmpegArgs.count {
+            if ffmpegArgs[index] == "-map",
+               index + 1 < ffmpegArgs.count,
+               (ffmpegArgs[index + 1].contains("0:a") || ffmpegArgs[index + 1] == "[aout]" || ffmpegArgs[index + 1] == "[audout]") {
+                ffmpegArgs.remove(at: index)
+                ffmpegArgs.remove(at: index)
+                continue
+            }
+            index += 1
+        }
+
+        // Remove audio filter_complex if present and audio-only
+        removeArgumentPair("-filter_complex", value: nil, from: &ffmpegArgs)
+
+        // Remove audio metadata
+        var metadataIndex = 0
+        while metadataIndex < ffmpegArgs.count {
+            if ffmpegArgs[metadataIndex] == "-metadata:s:a:0",
+               metadataIndex + 1 < ffmpegArgs.count {
+                ffmpegArgs.remove(at: metadataIndex)
+                ffmpegArgs.remove(at: metadataIndex)
+                continue
+            }
+            metadataIndex += 1
+        }
+
+        // Ensure -an flag is present
+        if !ffmpegArgs.contains("-an") {
+            ffmpegArgs.append("-an")
         }
     }
 

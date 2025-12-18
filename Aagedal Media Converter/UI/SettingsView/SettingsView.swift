@@ -38,18 +38,39 @@ struct SettingsView: View {
             WatchFolderSettingsView()
                 .tabItem { Label("Watch Folder", systemImage: "eye.fill") }
                 .tag(SettingsTab.watchFolder)
-            
+
             UpdateSettingsView()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(SettingsTab.updates)
-            
+
             ShortcutsSettingsView()
                 .tabItem { Label("Shortcuts", systemImage: "command") }
                 .tag(SettingsTab.shortcuts)
         }
-        .frame(width: 600, height: 560)
+        .frame(width: 760, height: 600)
         .navigationTitle("Settings – Aagedal Media Converter")
         .padding(.horizontal, 20)
+        .background {
+            // Keyboard shortcuts for tab switching
+            VStack(spacing: 0) {
+                Button("") { selectedTab = .general }
+                    .keyboardShortcut("1", modifiers: .command)
+                Button("") { selectedTab = .metadata }
+                    .keyboardShortcut("2", modifiers: .command)
+                Button("") { selectedTab = .presets }
+                    .keyboardShortcut("3", modifiers: .command)
+                Button("") { selectedTab = .waveform }
+                    .keyboardShortcut("4", modifiers: .command)
+                Button("") { selectedTab = .watchFolder }
+                    .keyboardShortcut("5", modifiers: .command)
+                Button("") { selectedTab = .updates }
+                    .keyboardShortcut("6", modifiers: .command)
+                Button("") { selectedTab = .shortcuts }
+                    .keyboardShortcut("7", modifiers: .command)
+            }
+            .frame(width: 0, height: 0)
+            .opacity(0)
+        }
     }
 }
 

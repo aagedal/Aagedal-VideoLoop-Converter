@@ -52,6 +52,8 @@ struct VideoFileRowView: View {
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
     @State private var showCommentPreviewPopover = false
+    @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
+    @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
 
     var body: some View {
         ZStack {
@@ -466,17 +468,27 @@ struct VideoFileRowView: View {
         .transition(.opacity)
     }
 
+    @ViewBuilder
     private var commentSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 12) {
-                commentInfoButton
-                commentEditor
-                waveformControlSlot
-                dateTagControl
+        let showWaveform = !file.hasVideoStream
+        if showCommentField || showDateTagButton || showWaveform {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .center, spacing: 12) {
+                    if showCommentField {
+                        commentInfoButton
+                        commentEditor
+                    }
+                    if showWaveform {
+                        waveformControl
+                    }
+                    if showDateTagButton {
+                        dateTagControl
+                    }
+                }
+                .padding(.bottom, 6)
             }
-            .padding(.bottom, 6)
+            .padding(.top, 12)
         }
-        .padding(.top, 12)
     }
     
     private var commentInfoButton: some View {
@@ -601,17 +613,6 @@ struct VideoFileRowView: View {
             }
         }
    }
-
-    private var waveformControlSlot: some View {
-        Group {
-            if file.hasVideoStream {
-                Color.clear
-            } else {
-                waveformControl
-            }
-        }
-        .frame(width: 28, alignment: .center)
-    }
 
     private var waveformControl: some View {
         let isActive = file.waveformVideoEnabled

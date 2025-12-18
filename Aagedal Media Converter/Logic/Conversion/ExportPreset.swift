@@ -24,9 +24,9 @@ enum ProResProfile: String, CaseIterable, Identifiable {
     case hq = "HQ"
     case fourFourFourFour = "4444"
     case fourFourFourFourXQ = "4444 XQ"
-    
+
     var id: String { rawValue }
-    
+
     var ffmpegProfileName: String {
         switch self {
         case .proxy: return "proxy"
@@ -39,20 +39,179 @@ enum ProResProfile: String, CaseIterable, Identifiable {
     }
 }
 
+/// Format options for the Animated Still preset
+enum AnimatedStillFormat: String, CaseIterable, Identifiable {
+    case avif = "AVIF"
+    case gif = "GIF"
+    case apng = "APNG"
+    case jpegXL = "JPEG XL"
+    case webp = "WebP"
+
+    var id: String { rawValue }
+
+    var fileExtension: String {
+        switch self {
+        case .avif: return "avif"
+        case .gif: return "gif"
+        case .apng: return "apng"
+        case .jpegXL: return "jxl"
+        case .webp: return "webp"
+        }
+    }
+}
+
+/// Framerate mode options for TV preset
+enum TVFramerateMode: String, CaseIterable, Identifiable {
+    case source = "Source"
+    case p25 = "25p"
+    case p50 = "50p"
+    case i50 = "50i"
+    case p2997 = "29.97p"
+    case p5994 = "59.94p"
+    case i5994 = "59.94i"
+
+    var id: String { rawValue }
+
+    var ffmpegArgs: [String] {
+        switch self {
+        case .source:
+            return []
+        case .p25:
+            return ["-r", "25"]
+        case .p50:
+            return ["-r", "50"]
+        case .i50:
+            return ["-flags", "+ilme+ildct", "-r", "50", "-vf", "tinterlace=interleave_top,fieldorder=tff"]
+        case .p2997:
+            return ["-r", "30000/1001"]
+        case .p5994:
+            return ["-r", "60000/1001"]
+        case .i5994:
+            return ["-flags", "+ilme+ildct", "-r", "60000/1001", "-vf", "tinterlace=interleave_top,fieldorder=tff"]
+        }
+    }
+
+    var isInterlaced: Bool {
+        switch self {
+        case .i50, .i5994:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+/// Resolution limit options for TV preset
+enum TVResolutionLimit: String, CaseIterable, Identifiable {
+    case r720 = "720p"
+    case r1080 = "1080p"
+    case r2160 = "4K (2160p)"
+    case unlimited = "Unlimited"
+
+    var id: String { rawValue }
+
+    var maxHeight: Int? {
+        switch self {
+        case .r720: return 720
+        case .r1080: return 1080
+        case .r2160: return 2160
+        case .unlimited: return nil
+        }
+    }
+
+    var bitrate: String {
+        switch self {
+        case .r720: return "8M"
+        case .r1080: return "18M"
+        case .r2160: return "60M"
+        case .unlimited: return "100M"
+        }
+    }
+}
+
+/// AVC-Intra class options for TV AVC-Intra preset
+enum AVCIntraClass: String, CaseIterable, Identifiable {
+    case class50 = "AVC-Intra 50"
+    case class100 = "AVC-Intra 100"
+    case class200 = "AVC-Intra 200"
+
+    var id: String { rawValue }
+
+    var bitrate: String {
+        switch self {
+        case .class50: return "50M"
+        case .class100: return "100M"
+        case .class200: return "200M"
+        }
+    }
+
+    /// Returns the appropriate pixel format for each class
+    var pixelFormat: String {
+        switch self {
+        case .class50: return "yuv422p10le"
+        case .class100: return "yuv422p10le"
+        case .class200: return "yuv422p10le"
+        }
+    }
+}
+
+/// Audio channel count options for AVC-Intra preset
+enum AVCIntraAudioChannels: String, CaseIterable, Identifiable {
+    case ch4 = "4 Channels"
+    case ch8 = "8 Channels"
+    case ch16 = "16 Channels"
+
+    var id: String { rawValue }
+
+    var count: Int {
+        switch self {
+        case .ch4: return 4
+        case .ch8: return 8
+        case .ch16: return 16
+        }
+    }
+}
+
+/// Container options for Stream Copy preset
+enum StreamCopyContainer: String, CaseIterable, Identifiable {
+    case keepCurrent = "Keep Current"
+    case mov = "MOV"
+    case mp4 = "MP4"
+    case mkv = "MKV"
+
+    var id: String { rawValue }
+
+    var fileExtension: String? {
+        switch self {
+        case .keepCurrent: return nil
+        case .mov: return "mov"
+        case .mp4: return "mp4"
+        case .mkv: return "mkv"
+        }
+    }
+}
+
 enum ExportPreset: String, CaseIterable, Identifiable {
     case videoLoop = "VideoLoop"
     case videoLoopWithAudio = "VideoLoop w/Audio"
-    case tvQualityHD = "TV — HD"
-    case tvQuality4K = "TV — 4K"
+    case tvHEVC = "TV (HEVC 10-bit 4:2:2)"
+    case tvAVCIntra = "TV (AVC-Intra MXF)"
     case prores = "ProRes"
     case streamCopy = "Stream Copy"
-    case animatedAVIF = "Animated AVIF"
+    case animatedStill = "Animated Still"
     case hevcProxy1080p = "HEVC Proxy"
     case audioUncompressedWAV = "Audio only WAV (all channels)"
     case audioStereoAAC = "Audio only AAC (stereo downmix)"
     case custom1 = "Custom"
     case custom2 = "Custom 2"
     case custom3 = "Custom 3"
+    case custom4 = "Custom 4"
+    case custom5 = "Custom 5"
+    case custom6 = "Custom 6"
+    case custom7 = "Custom 7"
+    case custom8 = "Custom 8"
+    case custom9 = "Custom 9"
+    case custom10 = "Custom 10"
     
     var id: String { rawValue }
     
@@ -60,17 +219,21 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .videoLoop, .videoLoopWithAudio:
             return "mp4"
-        case .prores, .tvQualityHD, .tvQuality4K, .hevcProxy1080p:
+        case .prores, .tvHEVC, .hevcProxy1080p:
             return "mov"
+        case .tvAVCIntra:
+            return "mxf"
         case .streamCopy:
             return "mp4"
-        case .animatedAVIF:
-            return "avif"
+        case .animatedStill:
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.animatedStillFormatKey) ?? AppConstants.defaultAnimatedStillFormat
+            let format = AnimatedStillFormat(rawValue: formatRaw) ?? .avif
+            return format.fileExtension
         case .audioUncompressedWAV:
             return "wav"
         case .audioStereoAAC:
             return "m4a"
-        case .custom1, .custom2, .custom3:
+        case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return "mp4" }
             return Self.customFileExtension(for: slot)
         }
@@ -81,6 +244,15 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return fileExtension
         }
 
+        // Check for manual container override
+        let containerRaw = UserDefaults.standard.string(forKey: AppConstants.streamCopyContainerKey) ?? AppConstants.defaultStreamCopyContainer
+        let container = StreamCopyContainer(rawValue: containerRaw) ?? .keepCurrent
+
+        if let overrideExtension = container.fileExtension {
+            return overrideExtension
+        }
+
+        // Keep source extension
         if let ext = sourceURL?.pathExtension, !ext.isEmpty {
             return ext.lowercased()
         }
@@ -92,6 +264,11 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         if let slot = customSlotIndex {
             return Self.customDisplayName(for: slot)
         }
+        if self == .animatedStill {
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.animatedStillFormatKey) ?? AppConstants.defaultAnimatedStillFormat
+            let format = AnimatedStillFormat(rawValue: formatRaw) ?? .avif
+            return "Animated Still (\(format.rawValue))"
+        }
         return rawValue
     }
     
@@ -101,23 +278,23 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_VIDEO_LOOP_DESCRIPTION", comment: "Description for VideoLoop preset")
         case .videoLoopWithAudio:
             return NSLocalizedString("PRESET_VIDEO_LOOP_WITH_AUDIO_DESCRIPTION", comment: "Description for VideoLoop with Audio preset")
-        case .tvQualityHD:
-            return NSLocalizedString("PRESET_TV_QUALITY_HD_DESCRIPTION", comment: "Description for TV Quality HD preset")
-        case .tvQuality4K:
-            return NSLocalizedString("PRESET_TV_QUALITY_4K_DESCRIPTION", comment: "Description for TV Quality 4K preset")
+        case .tvHEVC:
+            return NSLocalizedString("PRESET_TV_HEVC_DESCRIPTION", comment: "Description for TV HEVC preset")
+        case .tvAVCIntra:
+            return NSLocalizedString("PRESET_TV_AVC_INTRA_DESCRIPTION", comment: "Description for TV AVC-Intra preset")
         case .prores:
             return NSLocalizedString("PRESET_PRORES_DESCRIPTION", comment: "Description for ProRes preset")
         case .streamCopy:
             return NSLocalizedString("PRESET_STREAM_COPY_DESCRIPTION", comment: "Description for Stream Copy preset")
-        case .animatedAVIF:
-            return NSLocalizedString("PRESET_ANIMATED_AVIF_DESCRIPTION", comment: "Description for Animated AVIF preset")
+        case .animatedStill:
+            return NSLocalizedString("PRESET_ANIMATED_STILL_DESCRIPTION", comment: "Description for Animated Still preset")
         case .hevcProxy1080p:
             return NSLocalizedString("PRESET_HEVC_PROXY_DESCRIPTION", comment: "Description for HECV Proxy 1080p preset")
         case .audioUncompressedWAV:
             return NSLocalizedString("PRESET_AUDIO_WAV_DESCRIPTION", comment: "Description for Audio WAV preset")
         case .audioStereoAAC:
             return NSLocalizedString("PRESET_AUDIO_AAC_STEREO_DESCRIPTION", comment: "Description for Audio AAC Stereo preset")
-        case .custom1, .custom2, .custom3:
+        case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             return NSLocalizedString("PRESET_CUSTOM_DESCRIPTION", comment: "Description for Custom preset")
         }
     }
@@ -128,23 +305,25 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_loop"
         case .videoLoopWithAudio:
             return "_loop_audio"
-        case .tvQualityHD:
-            return "_tv_hd"
-        case .tvQuality4K:
-            return "_tv_4k"
+        case .tvHEVC:
+            return "_tv"
+        case .tvAVCIntra:
+            return "_avcintra"
         case .prores:
             return "_prores"
         case .streamCopy:
             return "_copy"
-        case .animatedAVIF:
-            return "_avif"
+        case .animatedStill:
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.animatedStillFormatKey) ?? AppConstants.defaultAnimatedStillFormat
+            let format = AnimatedStillFormat(rawValue: formatRaw) ?? .avif
+            return "_\(format.fileExtension)"
         case .hevcProxy1080p:
             return "_proxy_1080p"
         case .audioUncompressedWAV:
             return "_audio_wav"
         case .audioStereoAAC:
             return "_audio_aac"
-        case .custom1, .custom2, .custom3:
+        case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return "_custom" }
             return Self.customFileSuffix(for: slot)
         }
@@ -199,42 +378,166 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
-        case .tvQualityHD:
+        case .tvHEVC:
+            // Get framerate and resolution settings
+            let framerateRaw = UserDefaults.standard.string(forKey: AppConstants.tvFramerateModeKey) ?? AppConstants.defaultTVFramerateMode
+            let framerateMode = TVFramerateMode(rawValue: framerateRaw) ?? .p50
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.tvResolutionLimitKey) ?? AppConstants.defaultTVResolutionLimit
+            let resolution = TVResolutionLimit(rawValue: resolutionRaw) ?? .r1080
+
+            // Build scale filter based on resolution
+            let scaleFilter: String
+            if let maxHeight = resolution.maxHeight {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
+            } else {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+            }
+
             var args = commonArgs + [
                 "-pix_fmt", "p210le",
                 "-c:v", "hevc_videotoolbox",
-                "-b:v", "18M",
+                "-b:v", resolution.bitrate,
                 "-profile:v", "main42210",
                 "-tag:v", "hvc1",
                 "-c:a", "pcm_s24le",
                 "-map", "0:v",
-                "-map", "0:a",
-                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
+                "-map", "0:a"
             ]
+
+            // Apply framerate settings
+            let framerateArgs = framerateMode.ffmpegArgs
+            if framerateMode.isInterlaced {
+                // For interlaced, combine scale with interlace filter
+                if let vfIndex = framerateArgs.firstIndex(of: "-vf"), vfIndex + 1 < framerateArgs.count {
+                    let interlaceFilter = framerateArgs[vfIndex + 1]
+                    args.append(contentsOf: ["-vf", "\(scaleFilter),\(interlaceFilter)"])
+                    // Add non-vf args
+                    for (i, arg) in framerateArgs.enumerated() {
+                        if arg != "-vf" && (i == 0 || framerateArgs[i - 1] != "-vf") {
+                            args.append(arg)
+                        }
+                    }
+                } else {
+                    args.append(contentsOf: ["-vf", scaleFilter])
+                    args.append(contentsOf: framerateArgs)
+                }
+            } else {
+                args.append(contentsOf: ["-vf", scaleFilter])
+                args.append(contentsOf: framerateArgs)
+            }
+
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
-        case .tvQuality4K:
+        case .tvAVCIntra:
+            // Get framerate and resolution settings (same as tvHEVC)
+            let framerateRaw = UserDefaults.standard.string(forKey: AppConstants.tvFramerateModeKey) ?? AppConstants.defaultTVFramerateMode
+            let framerateMode = TVFramerateMode(rawValue: framerateRaw) ?? .p50
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.tvResolutionLimitKey) ?? AppConstants.defaultTVResolutionLimit
+            let resolution = TVResolutionLimit(rawValue: resolutionRaw) ?? .r1080
+
+            // Get AVC-Intra specific settings
+            let classRaw = UserDefaults.standard.string(forKey: AppConstants.avcIntraClassKey) ?? AppConstants.defaultAVCIntraClass
+            let avcClass = AVCIntraClass(rawValue: classRaw) ?? .class100
+            let audioChannelsRaw = UserDefaults.standard.string(forKey: AppConstants.avcIntraAudioChannelsKey) ?? AppConstants.defaultAVCIntraAudioChannels
+            let audioChannels = AVCIntraAudioChannels(rawValue: audioChannelsRaw) ?? .ch8
+
+            // Build scale filter based on resolution
+            let scaleFilter: String
+            if let maxHeight = resolution.maxHeight {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
+            } else {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+            }
+
+            // Build audio: map all audio streams and output as N mono channels
+            // MXF broadcast typically needs a fixed number of mono PCM tracks
+            let channelCount = audioChannels.count
+
             var args = commonArgs + [
-                "-pix_fmt", "p210le",
-                "-c:v", "hevc_videotoolbox",
-                "-b:v", "60M",
-                "-profile:v", "main42210",
-                "-tag:v", "hvc1",
-                "-c:a", "pcm_s24le",
+                "-pix_fmt", avcClass.pixelFormat,
+                "-c:v", "libx264",
+                "-b:v", avcClass.bitrate,
+                "-g", "1",  // All intra (I-frames only)
+                "-bf", "0", // No B-frames
+                "-profile:v", "high422",
+                "-level:v", "4.1",
                 "-map", "0:v",
-                "-map", "0:a",
-                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),2160,-2)':h='if(lte(iw,ih),-2,2160)'"
+                "-map", "0:a?",  // Map all audio streams (? makes it optional if no audio)
+                "-c:a", "pcm_s24le",
+                "-ac", "\(channelCount)"  // Force output to N channels, ffmpeg handles mapping
             ]
+
+            // Apply framerate settings
+            let framerateArgs = framerateMode.ffmpegArgs
+            if framerateMode.isInterlaced {
+                // For interlaced, combine scale with interlace filter
+                if let vfIndex = framerateArgs.firstIndex(of: "-vf"), vfIndex + 1 < framerateArgs.count {
+                    let interlaceFilter = framerateArgs[vfIndex + 1]
+                    args.append(contentsOf: ["-vf", "\(scaleFilter),\(interlaceFilter)"])
+                    // Add non-vf args
+                    for (i, arg) in framerateArgs.enumerated() {
+                        if arg != "-vf" && (i == 0 || framerateArgs[i - 1] != "-vf") {
+                            args.append(arg)
+                        }
+                    }
+                } else {
+                    args.append(contentsOf: ["-vf", scaleFilter])
+                    args.append(contentsOf: framerateArgs)
+                }
+            } else {
+                args.append(contentsOf: ["-vf", scaleFilter])
+                args.append(contentsOf: framerateArgs)
+            }
+
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
-        case .animatedAVIF:
-            var args = commonArgs + [
-                "-pix_fmt", "p010le",
-                "-vcodec", "libsvtav1",
-                "-preset", "6",
-                "-crf", "28", "-an",
-                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'"
-            ]
+        case .animatedStill:
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.animatedStillFormatKey) ?? AppConstants.defaultAnimatedStillFormat
+            let format = AnimatedStillFormat(rawValue: formatRaw) ?? .avif
+            var args = commonArgs
+
+            switch format {
+            case .avif:
+                args += [
+                    "-pix_fmt", "p010le",
+                    "-vcodec", "libsvtav1",
+                    "-preset", "6",
+                    "-crf", "28",
+                    "-an",
+                    "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'"
+                ]
+            case .gif:
+                args += [
+                    "-vf", "fps=15,scale=480:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=256:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+                    "-loop", "0",
+                    "-an"
+                ]
+            case .apng:
+                args += [
+                    "-plays", "0",
+                    "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'",
+                    "-an"
+                ]
+            case .jpegXL:
+                args += [
+                    "-vcodec", "libjxl",
+                    "-distance", "1",
+                    "-effort", "7",
+                    "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'",
+                    "-an"
+                ]
+            case .webp:
+                args += [
+                    "-vcodec", "libwebp_anim",
+                    "-lossless", "0",
+                    "-compression_level", "4",
+                    "-q:v", "75",
+                    "-loop", "0",
+                    "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'",
+                    "-an"
+                ]
+            }
+
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
         case .hevcProxy1080p:
@@ -295,7 +598,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             ]
             ExportPreset.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
-        case .custom1, .custom2, .custom3:
+        case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return commonArgs }
             let customArgs = ExportPreset.parseCustomCommand(ExportPreset.customCommandString(for: slot))
             return commonArgs + customArgs
@@ -307,6 +610,13 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .custom1: return 0
         case .custom2: return 1
         case .custom3: return 2
+        case .custom4: return 3
+        case .custom5: return 4
+        case .custom6: return 5
+        case .custom7: return 6
+        case .custom8: return 7
+        case .custom9: return 8
+        case .custom10: return 9
         default: return nil
         }
     }
@@ -317,7 +627,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .streamCopy:
             return false // Stream copy cannot apply filters like crop
-        case .custom1, .custom2, .custom3:
+        case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesCrop(for: slot)
         default:
@@ -329,7 +639,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .streamCopy:
             return false // Stream copy cannot apply audio filters
-        case .custom1, .custom2, .custom3:
+        case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesAudioRouting(for: slot)
         default:
@@ -342,7 +652,14 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         let keys = [
             AppConstants.customPreset1ApplyCropKey,
             AppConstants.customPreset2ApplyCropKey,
-            AppConstants.customPreset3ApplyCropKey
+            AppConstants.customPreset3ApplyCropKey,
+            AppConstants.customPreset4ApplyCropKey,
+            AppConstants.customPreset5ApplyCropKey,
+            AppConstants.customPreset6ApplyCropKey,
+            AppConstants.customPreset7ApplyCropKey,
+            AppConstants.customPreset8ApplyCropKey,
+            AppConstants.customPreset9ApplyCropKey,
+            AppConstants.customPreset10ApplyCropKey
         ]
         let key = slot < keys.count ? keys[slot] : nil
         return key.map { defaults.bool(forKey: $0) } ?? false
@@ -353,10 +670,66 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         let keys = [
             AppConstants.customPreset1ApplyAudioRoutingKey,
             AppConstants.customPreset2ApplyAudioRoutingKey,
-            AppConstants.customPreset3ApplyAudioRoutingKey
+            AppConstants.customPreset3ApplyAudioRoutingKey,
+            AppConstants.customPreset4ApplyAudioRoutingKey,
+            AppConstants.customPreset5ApplyAudioRoutingKey,
+            AppConstants.customPreset6ApplyAudioRoutingKey,
+            AppConstants.customPreset7ApplyAudioRoutingKey,
+            AppConstants.customPreset8ApplyAudioRoutingKey,
+            AppConstants.customPreset9ApplyAudioRoutingKey,
+            AppConstants.customPreset10ApplyAudioRoutingKey
         ]
         let key = slot < keys.count ? keys[slot] : nil
         return key.map { defaults.bool(forKey: $0) } ?? false
+    }
+
+    /// Returns whether the custom preset at the given slot is active (visible in preset picker)
+    static func isCustomPresetActive(for slot: Int) -> Bool {
+        let defaults = UserDefaults.standard
+        let keys = [
+            AppConstants.customPreset1ActiveKey,
+            AppConstants.customPreset2ActiveKey,
+            AppConstants.customPreset3ActiveKey,
+            AppConstants.customPreset4ActiveKey,
+            AppConstants.customPreset5ActiveKey,
+            AppConstants.customPreset6ActiveKey,
+            AppConstants.customPreset7ActiveKey,
+            AppConstants.customPreset8ActiveKey,
+            AppConstants.customPreset9ActiveKey,
+            AppConstants.customPreset10ActiveKey
+        ]
+        guard slot >= 0, slot < keys.count else { return false }
+        return defaults.bool(forKey: keys[slot])
+    }
+
+    /// Returns whether this preset is visible in the preset picker
+    /// Custom presets use activation keys, built-in presets use visibility keys (default to visible)
+    var isVisible: Bool {
+        if let slot = customSlotIndex {
+            return ExportPreset.isCustomPresetActive(for: slot)
+        }
+
+        let defaults = UserDefaults.standard
+        let key: String
+        switch self {
+        case .videoLoop: key = AppConstants.videoLoopVisibleKey
+        case .videoLoopWithAudio: key = AppConstants.videoLoopWithAudioVisibleKey
+        case .tvHEVC: key = AppConstants.tvHEVCVisibleKey
+        case .tvAVCIntra: key = AppConstants.tvAVCIntraVisibleKey
+        case .prores: key = AppConstants.proresVisibleKey
+        case .streamCopy: key = AppConstants.streamCopyVisibleKey
+        case .animatedStill: key = AppConstants.animatedStillVisibleKey
+        case .hevcProxy1080p: key = AppConstants.hevcProxyVisibleKey
+        case .audioUncompressedWAV: key = AppConstants.audioWAVVisibleKey
+        case .audioStereoAAC: key = AppConstants.audioAACVisibleKey
+        default: return true
+        }
+
+        // Built-in presets default to visible (true) when key doesn't exist
+        if defaults.object(forKey: key) == nil {
+            return true
+        }
+        return defaults.bool(forKey: key)
     }
 }
 
@@ -376,7 +749,7 @@ extension ExportPreset {
     /// Indicates whether this preset is expected to output an audio track.
     var outputsAudioTrack: Bool {
         switch self {
-        case .videoLoop, .animatedAVIF:
+        case .videoLoop, .animatedStill:
             return false
         case .audioUncompressedWAV, .audioStereoAAC:
             return true
@@ -390,9 +763,17 @@ extension ExportPreset {
     /// Optional per-preset override for waveform/padded video resolution.
     var waveformResolutionOverride: CGSize? {
         switch self {
-        case .tvQuality4K:
-            return CGSize(width: 3840, height: 2160)
-        case .tvQualityHD, .hevcProxy1080p:
+        case .tvHEVC, .tvAVCIntra:
+            // Use resolution based on current setting
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.tvResolutionLimitKey) ?? AppConstants.defaultTVResolutionLimit
+            let resolution = TVResolutionLimit(rawValue: resolutionRaw) ?? .r1080
+            switch resolution {
+            case .r720: return CGSize(width: 1280, height: 720)
+            case .r1080: return CGSize(width: 1920, height: 1080)
+            case .r2160: return CGSize(width: 3840, height: 2160)
+            case .unlimited: return CGSize(width: 1920, height: 1080) // Default to 1080p for unlimited
+            }
+        case .hevcProxy1080p:
             return CGSize(width: 1920, height: 1080)
         default:
             return nil
@@ -514,7 +895,14 @@ extension ExportPreset {
         let nameKeys = [
             AppConstants.customPreset1NameKey,
             AppConstants.customPreset2NameKey,
-            AppConstants.customPreset3NameKey
+            AppConstants.customPreset3NameKey,
+            AppConstants.customPreset4NameKey,
+            AppConstants.customPreset5NameKey,
+            AppConstants.customPreset6NameKey,
+            AppConstants.customPreset7NameKey,
+            AppConstants.customPreset8NameKey,
+            AppConstants.customPreset9NameKey,
+            AppConstants.customPreset10NameKey
         ]
         let prefixes = AppConstants.customPresetPrefixes
         let fallbackSuffixes = AppConstants.defaultCustomPresetNameSuffixes
@@ -525,18 +913,19 @@ extension ExportPreset {
         let sanitizedSuffix = sanitizeCustomNameSuffix(storedSuffix, fallback: fallbackSuffix)
         return "\(prefix) \(sanitizedSuffix)"
     }
-    
+
     private static func sanitizeCustomNameSuffix(_ value: String?, fallback: String) -> String {
         let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return fallback }
-        if trimPrefixIfPresent(trimmed, prefix: "C1:") ||
-            trimPrefixIfPresent(trimmed, prefix: "C2:") ||
-            trimPrefixIfPresent(trimmed, prefix: "C3:") {
-            let noPrefix = trimmed
-                .split(separator: ":", maxSplits: 1, omittingEmptySubsequences: true)
-                .last?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return noPrefix.isEmpty ? fallback : noPrefix
+        // Check for any Cx: prefix pattern
+        for i in 1...10 {
+            if trimPrefixIfPresent(trimmed, prefix: "C\(i):") {
+                let noPrefix = trimmed
+                    .split(separator: ":", maxSplits: 1, omittingEmptySubsequences: true)
+                    .last?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return noPrefix.isEmpty ? fallback : noPrefix
+            }
         }
         return trimmed
     }
@@ -550,7 +939,14 @@ extension ExportPreset {
         let keys = [
             AppConstants.customPreset1SuffixKey,
             AppConstants.customPreset2SuffixKey,
-            AppConstants.customPreset3SuffixKey
+            AppConstants.customPreset3SuffixKey,
+            AppConstants.customPreset4SuffixKey,
+            AppConstants.customPreset5SuffixKey,
+            AppConstants.customPreset6SuffixKey,
+            AppConstants.customPreset7SuffixKey,
+            AppConstants.customPreset8SuffixKey,
+            AppConstants.customPreset9SuffixKey,
+            AppConstants.customPreset10SuffixKey
         ]
         let fallback = slot < AppConstants.defaultCustomPresetSuffixes.count ? AppConstants.defaultCustomPresetSuffixes[slot] : "_c\(slot + 1)"
         let key = slot < keys.count ? keys[slot] : nil
@@ -564,7 +960,14 @@ extension ExportPreset {
         let keys = [
             AppConstants.customPreset1ExtensionKey,
             AppConstants.customPreset2ExtensionKey,
-            AppConstants.customPreset3ExtensionKey
+            AppConstants.customPreset3ExtensionKey,
+            AppConstants.customPreset4ExtensionKey,
+            AppConstants.customPreset5ExtensionKey,
+            AppConstants.customPreset6ExtensionKey,
+            AppConstants.customPreset7ExtensionKey,
+            AppConstants.customPreset8ExtensionKey,
+            AppConstants.customPreset9ExtensionKey,
+            AppConstants.customPreset10ExtensionKey
         ]
         let fallback = slot < AppConstants.defaultCustomPresetExtensions.count ? AppConstants.defaultCustomPresetExtensions[slot] : "mp4"
         let key = slot < keys.count ? keys[slot] : nil
@@ -582,7 +985,14 @@ extension ExportPreset {
         let keys = [
             AppConstants.customPreset1CommandKey,
             AppConstants.customPreset2CommandKey,
-            AppConstants.customPreset3CommandKey
+            AppConstants.customPreset3CommandKey,
+            AppConstants.customPreset4CommandKey,
+            AppConstants.customPreset5CommandKey,
+            AppConstants.customPreset6CommandKey,
+            AppConstants.customPreset7CommandKey,
+            AppConstants.customPreset8CommandKey,
+            AppConstants.customPreset9CommandKey,
+            AppConstants.customPreset10CommandKey
         ]
         let fallback = slot < AppConstants.defaultCustomPresetCommands.count ? AppConstants.defaultCustomPresetCommands[slot] : "-c copy"
         let key = slot < keys.count ? keys[slot] : nil
@@ -636,5 +1046,6 @@ extension ExportPreset {
         
         return args
     }
+
 }
 
