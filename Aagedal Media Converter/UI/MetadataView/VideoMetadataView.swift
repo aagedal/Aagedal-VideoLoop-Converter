@@ -53,6 +53,8 @@ struct VideoMetadataView: View {
             infoRow("Container", value: metadata?.containerLongName ?? metadata?.formatName)
             infoRow("Duration", value: item.duration)
             infoRow("File Size", value: formattedSize)
+            infoRow("Date Created", value: formattedCreationDate)
+            infoRow("Date Modified", value: formattedModificationDate)
             infoRow("Bit Rate", value: formatBitRate(metadata?.bitRate))
             if let comment = item.metadataComment {
                 VStack(alignment: .leading, spacing: 6) {
@@ -161,6 +163,22 @@ struct VideoMetadataView: View {
         return VideoMetadataView.byteFormatter.string(fromByteCount: bytes)
     }
 
+    private var formattedCreationDate: String? {
+        guard let resourceValues = try? item.url.resourceValues(forKeys: [.creationDateKey]),
+              let creationDate = resourceValues.creationDate else {
+            return nil
+        }
+        return VideoMetadataView.dateFormatter.string(from: creationDate)
+    }
+
+    private var formattedModificationDate: String? {
+        guard let resourceValues = try? item.url.resourceValues(forKeys: [.contentModificationDateKey]),
+              let modificationDate = resourceValues.contentModificationDate else {
+            return nil
+        }
+        return VideoMetadataView.dateFormatter.string(from: modificationDate)
+    }
+
     private func formatBitRate(_ value: Int64?) -> String? {
         guard let value, value > 0 else { return nil }
         if value >= 1_000_000 {
@@ -201,6 +219,13 @@ struct VideoMetadataView: View {
         formatter.numberStyle = .decimal
         formatter.groupingSeparator = Locale.current.groupingSeparator
         formatter.maximumFractionDigits = 0
+        return formatter
+    }()
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
         return formatter
     }()
 }

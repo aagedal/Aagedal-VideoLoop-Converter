@@ -24,6 +24,8 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Option + D", description: "Deselect all items"),
                     ShortcutItem(keys: "Cmd + Up Arrow", description: "Move selection up in queue"),
                     ShortcutItem(keys: "Cmd + Down Arrow", description: "Move selection down in queue"),
+                    ShortcutItem(keys: "Ctrl + S", description: "Sort queue (cycles: Name A→Z, Z→A, Date Old→New, New→Old)"),
+                    ShortcutItem(keys: "Ctrl + M", description: "Toggle mute on selected items"),
                     ShortcutItem(keys: "Tab", description: "Focus next comment field"),
                     ShortcutItem(keys: "Shift + Tab", description: "Focus previous comment field"),
                 ])

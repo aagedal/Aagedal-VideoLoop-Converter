@@ -12,6 +12,30 @@ import UniformTypeIdentifiers
 import AppKit
 import Carbon.HIToolbox
 
+/// Sort mode for the queue list
+enum QueueSortMode: CaseIterable {
+    case filenameAscending
+    case filenameDescending
+    case dateOldest
+    case dateNewest
+
+    var displayName: String {
+        switch self {
+        case .filenameAscending: return "Sort by filename: A–Z"
+        case .filenameDescending: return "Sort by filename: Z–A"
+        case .dateOldest: return "Sort by date: Old–New"
+        case .dateNewest: return "Sort by date: New–Old"
+        }
+    }
+
+    func next() -> QueueSortMode {
+        let allCases = QueueSortMode.allCases
+        guard let currentIndex = allCases.firstIndex(of: self) else { return .filenameAscending }
+        let nextIndex = (currentIndex + 1) % allCases.count
+        return allCases[nextIndex]
+    }
+}
+
 struct VideoFileListView: View {
     @Binding var droppedFiles: [VideoItem]
     @Binding var currentProgress: Double
@@ -22,7 +46,7 @@ struct VideoFileListView: View {
     var preset: ExportPreset
     var mergeClipsEnabled: Bool
     var mergeClipsAvailable: Bool
-    
+
     // Callbacks for single-item actions - using UUID for stable reference
     var onOpenTrim: ((UUID) -> Void)?
     var onOpenTrimWithCrop: ((UUID) -> Void)?
@@ -31,13 +55,19 @@ struct VideoFileListView: View {
     var onOpenMetadata: ((UUID) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
-    
+
     @State private var isTargeted = false
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
     @State private var selection = Set<UUID>()
     @State private var focusedCommentID: UUID?
     /// Flag to trigger scroll-to-selection only for keyboard navigation
     @State private var shouldScrollToSelection = false
+    /// Current sort mode (nil = original/unsorted order)
+    @State private var currentSortMode: QueueSortMode?
+    /// Whether to show the sort mode overlay
+    @State private var showSortOverlay = false
+    /// Work item for dismissing the sort overlay
+    @State private var sortOverlayDismissTask: DispatchWorkItem?
 
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
@@ -119,6 +149,15 @@ struct VideoFileListView: View {
                     )
             }
         }
+        .overlay(alignment: .bottomLeading) {
+            if showSortOverlay, let sortMode = currentSortMode {
+                SortModeOverlay(text: sortMode.displayName)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .padding(.leading, 16)
+                    .padding(.bottom, 16)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showSortOverlay)
         // Support file drops on entire view (empty or populated)
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             return handleDrop(providers: providers)
@@ -141,7 +180,8 @@ struct VideoFileListView: View {
                     onDeselectAll: { selection.removeAll() },
                     onToggleMute: handleToggleMuteShortcut,
                     onNavigateUp: { handleNavigateSelection(direction: .up) },
-                    onNavigateDown: { handleNavigateSelection(direction: .down) }
+                    onNavigateDown: { handleNavigateSelection(direction: .down) },
+                    onSort: handleSortShortcut
                 )
 
                 Button(action: deleteSelectedItems) {
@@ -574,6 +614,47 @@ struct VideoFileListView: View {
         shouldScrollToSelection = true
     }
 
+    private func handleSortShortcut() {
+        guard droppedFiles.count > 1 else { return }
+
+        // Cycle to the next sort mode
+        let nextMode: QueueSortMode
+        if let current = currentSortMode {
+            nextMode = current.next()
+        } else {
+            nextMode = .filenameAscending
+        }
+        currentSortMode = nextMode
+
+        // Sort the array based on the mode
+        switch nextMode {
+        case .filenameAscending:
+            droppedFiles.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .filenameDescending:
+            droppedFiles.sort { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+        case .dateOldest:
+            droppedFiles.sort { fileCreationDate(for: $0.url) < fileCreationDate(for: $1.url) }
+        case .dateNewest:
+            droppedFiles.sort { fileCreationDate(for: $0.url) > fileCreationDate(for: $1.url) }
+        }
+
+        // Show the sort mode overlay
+        sortOverlayDismissTask?.cancel()
+        showSortOverlay = true
+
+        // Schedule dismissal after 3.5 seconds
+        let dismissTask = DispatchWorkItem { [self] in
+            showSortOverlay = false
+        }
+        sortOverlayDismissTask = dismissTask
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: dismissTask)
+    }
+
+    private func fileCreationDate(for url: URL) -> Date {
+        let resourceValues = try? url.resourceValues(forKeys: [.creationDateKey])
+        return resourceValues?.creationDate ?? Date.distantPast
+    }
+
     // MARK: - Row Builder
     @ViewBuilder
     private func cardRow(for index: Int) -> some View {
@@ -687,6 +768,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     // Navigation shortcuts (plain arrow keys)
     var onNavigateUp: () -> Void
     var onNavigateDown: () -> Void
+    // Sort shortcut
+    var onSort: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -705,7 +788,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onDeselectAll: onDeselectAll,
             onToggleMute: onToggleMute,
             onNavigateUp: onNavigateUp,
-            onNavigateDown: onNavigateDown
+            onNavigateDown: onNavigateDown,
+            onSort: onSort
         )
     }
 
@@ -733,6 +817,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onToggleMute = onToggleMute
         context.coordinator.onNavigateUp = onNavigateUp
         context.coordinator.onNavigateDown = onNavigateDown
+        context.coordinator.onSort = onSort
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -756,6 +841,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onToggleMute: () -> Void
         var onNavigateUp: () -> Void
         var onNavigateDown: () -> Void
+        var onSort: () -> Void
         private var monitor: Any?
 
         init(
@@ -774,7 +860,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onDeselectAll: @escaping () -> Void,
             onToggleMute: @escaping () -> Void,
             onNavigateUp: @escaping () -> Void,
-            onNavigateDown: @escaping () -> Void
+            onNavigateDown: @escaping () -> Void,
+            onSort: @escaping () -> Void
         ) {
             self.onForward = onForward
             self.onBackward = onBackward
@@ -792,6 +879,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onToggleMute = onToggleMute
             self.onNavigateUp = onNavigateUp
             self.onNavigateDown = onNavigateDown
+            self.onSort = onSort
         }
 
         func install() {
@@ -891,6 +979,12 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                     return nil
                 }
 
+                // Ctrl+S: Cycle through sort modes
+                if hasControl && !hasCommand && !hasOption && !hasShift && event.keyCode == kVK_ANSI_S {
+                    self.onSort()
+                    return nil
+                }
+
                 // Plain Up Arrow: Navigate selection up
                 if !hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_UpArrow {
                     self.onNavigateUp()
@@ -913,5 +1007,28 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 self.monitor = nil
             }
         }
+    }
+}
+
+// MARK: - Sort Mode Overlay
+
+private struct SortModeOverlay: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
     }
 }
