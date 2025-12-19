@@ -355,36 +355,40 @@ struct VideoFileUtils: Sendable {
             let assetDirectory = try await PreviewAssetGenerator.shared.getAssetDirectory(for: url)
             print(" [getCachedThumbnail] Asset directory: \(assetDirectory.path)")
             
-            // Try to load row thumbnail first (correct filename: row_thumb.jpg)
-            let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.jpg")
-            let rowExists = FileManager.default.fileExists(atPath: rowThumbnailURL.path)
-            print(" [getCachedThumbnail] Row thumbnail exists: \(rowExists)")
-            
-            if rowExists {
+            // Try to load row thumbnail first (check both .png and legacy .jpg)
+            let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.png")
+            let legacyRowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.jpg")
+            let rowURL = FileManager.default.fileExists(atPath: rowThumbnailURL.path) ? rowThumbnailURL :
+                         (FileManager.default.fileExists(atPath: legacyRowThumbnailURL.path) ? legacyRowThumbnailURL : nil)
+            print(" [getCachedThumbnail] Row thumbnail exists: \(rowURL != nil)")
+
+            if let rowURL = rowURL {
                 do {
-                    let thumbnailData = try Data(contentsOf: rowThumbnailURL)
+                    let thumbnailData = try Data(contentsOf: rowURL)
                     print(" [getCachedThumbnail] ✅ Loaded cached row thumbnail (\(thumbnailData.count) bytes) for: \(fileName)")
                     return thumbnailData
                 } catch {
                     print(" [getCachedThumbnail] ❌ Failed to read row thumbnail: \(error.localizedDescription)")
                 }
             }
-            
+
             // If row thumbnail doesn't exist, generate it now (fast, just the thumbnail)
             print(" [getCachedThumbnail] 🔨 Generating row thumbnail on-demand for: \(fileName)")
             if let thumbnailData = try? await PreviewAssetGenerator.shared.generateRowThumbnail(for: url) {
                 print(" [getCachedThumbnail] ✅ Generated row thumbnail (\(thumbnailData.count) bytes) for: \(fileName)")
                 return thumbnailData
             }
+
+            // Fallback to first filmstrip thumbnail if row thumbnail generation failed (check both .png and legacy .jpg)
+            let firstThumbnailURL = assetDirectory.appendingPathComponent("thumb_0.png")
+            let legacyFirstThumbnailURL = assetDirectory.appendingPathComponent("thumb_0.jpg")
+            let filmstripURL = FileManager.default.fileExists(atPath: firstThumbnailURL.path) ? firstThumbnailURL :
+                               (FileManager.default.fileExists(atPath: legacyFirstThumbnailURL.path) ? legacyFirstThumbnailURL : nil)
+            print(" [getCachedThumbnail] Filmstrip thumbnail exists: \(filmstripURL != nil)")
             
-            // Fallback to first filmstrip thumbnail if row thumbnail generation failed (correct filename: thumb_0.jpg)
-            let firstThumbnailURL = assetDirectory.appendingPathComponent("thumb_0.jpg")
-            let filmstripExists = FileManager.default.fileExists(atPath: firstThumbnailURL.path)
-            print(" [getCachedThumbnail] Filmstrip thumbnail exists: \(filmstripExists)")
-            
-            if filmstripExists {
+            if let filmstripURL = filmstripURL {
                 do {
-                    let thumbnailData = try Data(contentsOf: firstThumbnailURL)
+                    let thumbnailData = try Data(contentsOf: filmstripURL)
                     print(" [getCachedThumbnail] ✅ Loaded filmstrip thumbnail (\(thumbnailData.count) bytes) for: \(fileName)")
                     return thumbnailData
                 } catch {

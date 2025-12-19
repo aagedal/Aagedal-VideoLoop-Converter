@@ -10,6 +10,7 @@
 import SwiftUI
 import AVFoundation
 import AppKit
+import ImageIO
 
 struct VideoFileRowView: View {
     @Binding var file: VideoItem
@@ -23,10 +24,12 @@ struct VideoFileRowView: View {
     var onCommentFocusChange: (UUID, Bool) -> Void = { _, _ in }
     var mergeClipsEnabled: Bool = false
     var mergeClipsAvailable: Bool = false
+    var showCommentField: Bool = true
+    var showDateTagButton: Bool = true
 
     // Show yellow warning icon when VideoLoop preset is used on clips longer than 15 s
     private var showDurationWarning: Bool {
-        (preset == .videoLoop || preset == .videoLoopWithAudio) && file.durationSeconds > 15
+        preset == .videoLoop && file.durationSeconds > 15
     }
 
     private var shouldShowMergeIndicator: Bool {
@@ -52,8 +55,6 @@ struct VideoFileRowView: View {
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
     @State private var showCommentPreviewPopover = false
-    @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
-    @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
 
     var body: some View {
         ZStack {
@@ -220,16 +221,24 @@ struct VideoFileRowView: View {
         }
         .padding(.horizontal, 4)
         .sheet(isPresented: $showPreview) {
-            PreviewPlayerView(item: $file)
+            if showPreview {
+                PreviewPlayerView(item: $file)
+            }
         }
         .sheet(isPresented: $showMetadata) {
-            VideoMetadataView(item: $file)
+            if showMetadata {
+                VideoMetadataView(item: $file)
+            }
         }
         .sheet(isPresented: $showAudioRouting) {
-            AudioRoutingView(item: $file, preset: preset)
+            if showAudioRouting {
+                AudioRoutingView(item: $file, preset: preset)
+            }
         }
         .sheet(isPresented: $showTimecode) {
-            TimecodeView(item: $file)
+            if showTimecode {
+                TimecodeView(item: $file)
+            }
         }
         .task(id: file.thumbnailData) {
             // Decode thumbnail asynchronously off main thread
@@ -237,12 +246,20 @@ struct VideoFileRowView: View {
                 cachedThumbnail = nil
                 return
             }
-            
-            // Simple async decode - let SwiftUI handle aspect ratio
-            let image = await Task.detached(priority: .userInitiated) { () -> NSImage? in
-                NSImage(data: data)
+
+            // Use CGImageSource to avoid Apple bug rdar://143602439
+            // (kCGImageBlockFormatBGRx8 called for 24-bpp image)
+            let image = await Task.detached(priority: .utility) { () -> NSImage? in
+                guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+                      let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
+                        kCGImageSourceShouldCache: false,
+                        kCGImageSourceShouldAllowFloat: false
+                      ] as CFDictionary) else {
+                    return NSImage(data: data) // Fallback
+                }
+                return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             }.value
-            
+
             cachedThumbnail = image
         }
         .onAppear {
@@ -315,7 +332,10 @@ struct VideoFileRowView: View {
 
     @ViewBuilder
     private var audioRoutingBadge: some View {
-        if let config = file.audioRoutingConfig, config.isCustomized {
+        if file.isMuted {
+            // Show red muted badge when item is muted
+            badgeView(icon: "speaker.slash.fill", text: "Muted", color: .red)
+        } else if let config = file.audioRoutingConfig, config.isCustomized {
             badgeView(icon: "hifispeaker.2", text: "\(config.outputTrackIndices.count)")
         }
     }
@@ -354,7 +374,7 @@ struct VideoFileRowView: View {
         }
     }
 
-    private func badgeView(icon: String, text: String) -> some View {
+    private func badgeView(icon: String, text: String, color: Color? = nil) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.caption2)
@@ -367,7 +387,7 @@ struct VideoFileRowView: View {
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.accentColor)
+                .fill(color ?? Color.accentColor)
         )
         .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
         .padding(8)
@@ -554,7 +574,9 @@ struct VideoFileRowView: View {
                     }
                 }
             .onChange(of: focusedCommentID) { oldValue, newValue in
+                #if DEBUG
                 print("📍 focusedCommentID changed: \(oldValue?.uuidString.prefix(8) ?? "nil") → \(newValue?.uuidString.prefix(8) ?? "nil"), myID: \(file.id.uuidString.prefix(8))")
+                #endif
                 guard commentIsEditable else {
                     if isCommentFieldFocused {
                         isCommentFieldFocused = false
@@ -564,7 +586,9 @@ struct VideoFileRowView: View {
                 isCommentFieldFocused = (newValue == file.id)
             }
             .onChange(of: isCommentFieldFocused) { _, isFocused in
+                #if DEBUG
                 print("✏️ isCommentFieldFocused changed to \(isFocused) for file \(file.id.uuidString.prefix(8))")
+                #endif
                 guard commentIsEditable else {
                     if isFocused {
                         isCommentFieldFocused = false
@@ -593,7 +617,9 @@ struct VideoFileRowView: View {
         }
         .frame(height: 30)
         .onChange(of: isSelected) { _, selected in
+            #if DEBUG
             print("📌 Row selection changed to \(selected) for file \(file.id.uuidString.prefix(8))")
+            #endif
             guard commentIsEditable else {
                 if isCommentFieldFocused {
                     isCommentFieldFocused = false

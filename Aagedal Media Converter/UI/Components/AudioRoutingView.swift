@@ -79,9 +79,14 @@ struct AudioRoutingView: View {
         VStack(spacing: 0) {
             // Header
             headerView
-            
+
             Divider()
-            
+
+            // Mute toggle section
+            muteToggleSection
+
+            Divider()
+
             if config.inputTracks.isEmpty {
                 emptyStateView
             } else {
@@ -89,16 +94,18 @@ struct AudioRoutingView: View {
                 HStack(spacing: 0) {
                     // Left panel: Input tracks
                     inputTracksPanel
-                    
+
                     Divider()
-                    
+
                     // Right panel: Output configuration
                     outputTracksPanel
                 }
+                .opacity(item.isMuted ? 0.4 : 1.0)
+                .allowsHitTesting(!item.isMuted)
             }
-            
+
             Divider()
-            
+
             // Bottom toolbar
             bottomToolbar
         }
@@ -106,6 +113,56 @@ struct AudioRoutingView: View {
         .onAppear {
             updateValidation()
         }
+        // Hidden button for Ctrl+M mute toggle shortcut
+        .background(
+            Button("") {
+                item.isMuted.toggle()
+            }
+            .keyboardShortcut("m", modifiers: .control)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+        )
+    }
+
+    // MARK: - Mute Toggle Section
+
+    private var muteToggleSection: some View {
+        HStack(spacing: 12) {
+            Toggle(isOn: $item.isMuted) {
+                HStack(spacing: 8) {
+                    Image(systemName: item.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .foregroundColor(item.isMuted ? .red : .accentColor)
+                        .font(.title3)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Mute Audio")
+                            .font(.body)
+                            .fontWeight(.medium)
+
+                        Text(item.isMuted ? "All audio will be removed from output" : "Audio tracks will be included in output")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .toggleStyle(.switch)
+
+            Spacer()
+
+            if item.isMuted {
+                Text("⌃M to toggle")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(Color(NSColor.controlBackgroundColor))
+                    )
+            }
+        }
+        .padding()
+        .background(item.isMuted ? Color.red.opacity(0.05) : Color.clear)
     }
     
     // MARK: - Header
@@ -359,11 +416,11 @@ struct AudioRoutingView: View {
     }
     
     // MARK: - Bottom Toolbar
-    
+
     private var bottomToolbar: some View {
         HStack(spacing: 16) {
-            // Validation messages
-            if !validationMessages.isEmpty {
+            // Validation messages (hide when muted since routing is irrelevant)
+            if !validationMessages.isEmpty && !item.isMuted {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(validationMessages, id: \.self) { message in
                         HStack(spacing: 6) {
@@ -376,15 +433,17 @@ struct AudioRoutingView: View {
                     }
                 }
             }
-            
-            Spacer()
-            
-            // Channel operations section
-            channelOperationsSection
-            
+
             Spacer()
 
-            // Reset button (icon only)
+            // Channel operations section (disabled when muted)
+            if !item.isMuted {
+                channelOperationsSection
+            }
+
+            Spacer()
+
+            // Reset button (icon only, disabled when muted)
             Button {
                 withAnimation {
                     var updatedConfig = config
@@ -394,10 +453,10 @@ struct AudioRoutingView: View {
             } label: {
                 Image(systemName: "arrow.counterclockwise.circle.fill")
                     .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(config.isCustomized ? .accentColor : .secondary)
+                    .foregroundColor(config.isCustomized && !item.isMuted ? .accentColor : .secondary)
             }
             .buttonStyle(.plain)
-            .disabled(!config.isCustomized)
+            .disabled(!config.isCustomized || item.isMuted)
             .help("Reset to default")
 
             // Close button (icon only)

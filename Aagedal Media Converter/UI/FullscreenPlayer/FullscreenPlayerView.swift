@@ -142,6 +142,11 @@ struct FullscreenPlayerView: View {
                         startTimecodeEditWithChar(char)
                     }
                 },
+                captureScreenshot: { @Sendable in
+                    Task { @MainActor in
+                        captureScreenshot()
+                    }
+                },
                 isEditingTimecode: isEditingTimecode
             )
         )
@@ -628,6 +633,24 @@ struct FullscreenPlayerView: View {
         }
     }
 
+    private func captureScreenshot() {
+        Task {
+            let defaults = UserDefaults.standard
+            let directoryPath = defaults.string(forKey: AppConstants.screenshotDirectoryKey) ?? AppConstants.defaultScreenshotDirectory.path
+            let directoryURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
+
+            do {
+                let savedURL = try await controller.captureScreenshot(to: directoryURL)
+                await MainActor.run {
+                    controller.lastScreenshotURL = savedURL
+                    controller.showScreenshotConfirmationOverlay()
+                }
+            } catch {
+                NSLog("Screenshot capture failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func handleMouseHover(location: CGPoint, in size: CGSize) {
         let epsilon: CGFloat = 0.5
         if let last = lastMouseLocation {
@@ -952,6 +975,7 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
     let onClose: @Sendable () -> Void
     let onToggleTimecodeMode: @Sendable () -> Void
     let onTimecodeInput: @Sendable (String) -> Void
+    let captureScreenshot: @Sendable () -> Void
     let isEditingTimecode: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -960,6 +984,7 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             onClose: onClose,
             onToggleTimecodeMode: onToggleTimecodeMode,
             onTimecodeInput: onTimecodeInput,
+            captureScreenshot: captureScreenshot,
             isEditingTimecode: isEditingTimecode
         )
     }
@@ -976,6 +1001,7 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
         context.coordinator.onClose = onClose
         context.coordinator.onToggleTimecodeMode = onToggleTimecodeMode
         context.coordinator.onTimecodeInput = onTimecodeInput
+        context.coordinator.captureScreenshot = captureScreenshot
         context.coordinator.isEditingTimecode = isEditingTimecode
     }
 
@@ -988,6 +1014,7 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
         var onClose: @Sendable () -> Void
         var onToggleTimecodeMode: @Sendable () -> Void
         var onTimecodeInput: @Sendable (String) -> Void
+        var captureScreenshot: @Sendable () -> Void
         var isEditingTimecode: Bool
         private var monitor: Any?
 
@@ -996,12 +1023,14 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             onClose: @Sendable @escaping () -> Void,
             onToggleTimecodeMode: @Sendable @escaping () -> Void,
             onTimecodeInput: @Sendable @escaping (String) -> Void,
+            captureScreenshot: @Sendable @escaping () -> Void,
             isEditingTimecode: Bool
         ) {
             self.controller = controller
             self.onClose = onClose
             self.onToggleTimecodeMode = onToggleTimecodeMode
             self.onTimecodeInput = onTimecodeInput
+            self.captureScreenshot = captureScreenshot
             self.isEditingTimecode = isEditingTimecode
         }
 
@@ -1046,6 +1075,14 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
                         }
                         return nil
                     }
+                }
+
+                // CMD+S: Capture screenshot
+                if hasCommand && lower == "s" {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.captureScreenshot()
+                    }
+                    return nil
                 }
 
                 // Only consume keys we actually use

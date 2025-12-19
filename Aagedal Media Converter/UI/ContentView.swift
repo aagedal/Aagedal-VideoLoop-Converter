@@ -165,6 +165,7 @@ struct ContentView: View {
                 droppedFiles[index].timecodeConfig = nil
                 droppedFiles[index].trimStart = nil
                 droppedFiles[index].trimEnd = nil
+                droppedFiles[index].isMuted = false
             }
         }
     }
@@ -360,6 +361,10 @@ struct ContentView: View {
                 }
 
                 droppedFiles.append(placeholder)
+                // Auto-mute if VideoLoop preset is selected and setting is enabled
+                if selectedPreset == .videoLoop && videoLoopDefaultMuted {
+                    droppedFiles[droppedFiles.count - 1].isMuted = true
+                }
                 let placeholderID = placeholder.id
 
                 // Load details asynchronously in background
@@ -410,13 +415,17 @@ struct ContentView: View {
                 }
 
                 for fileURL in fileURLs {
-                    if let videoItem = await VideoFileUtils.createVideoItem(
+                    if var videoItem = await VideoFileUtils.createVideoItem(
                         from: fileURL,
                         outputFolder: folderURL.path,
                         preset: selectedPreset
                     ) {
                         await MainActor.run {
                             if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
+                                // Auto-mute if VideoLoop preset is selected and setting is enabled
+                                if selectedPreset == .videoLoop && videoLoopDefaultMuted {
+                                    videoItem.isMuted = true
+                                }
                                 droppedFiles.append(videoItem)
                             }
                         }
@@ -474,6 +483,10 @@ struct ContentView: View {
                 }
 
                 droppedFiles.append(placeholder)
+                // Auto-mute if VideoLoop preset is selected and setting is enabled
+                if selectedPreset == .videoLoop && videoLoopDefaultMuted {
+                    droppedFiles[droppedFiles.count - 1].isMuted = true
+                }
                 let placeholderID = placeholder.id
 
             // Load details asynchronously in background
@@ -632,6 +645,7 @@ struct ContentView: View {
         Binding(
             get: { selectedPreset },
             set: { newValue in
+                let oldValue = selectedPreset
                 hasUserChangedPreset = true
                 selectedPreset = newValue
                 refreshExpectedOutputURLs(for: newValue)
@@ -641,6 +655,12 @@ struct ContentView: View {
                 if newValue == .videoLoop && videoLoopDefaultMuted {
                     for index in droppedFiles.indices where droppedFiles[index].status == .waiting {
                         droppedFiles[index].isMuted = true
+                    }
+                }
+                // Auto-unmute items when switching away from a preset that forces mute
+                else if oldValue == .videoLoop && newValue != .videoLoop {
+                    for index in droppedFiles.indices where droppedFiles[index].status == .waiting {
+                        droppedFiles[index].isMuted = false
                     }
                 }
             }
@@ -694,6 +714,10 @@ struct ContentView: View {
             }
 
             droppedFiles.append(placeholder)
+            // Auto-mute if VideoLoop preset is selected and setting is enabled
+            if selectedPreset == .videoLoop && videoLoopDefaultMuted {
+                droppedFiles[droppedFiles.count - 1].isMuted = true
+            }
             let placeholderID = placeholder.id
 
             // Load details asynchronously in background
@@ -838,6 +862,7 @@ struct ContentView: View {
                 droppedFiles[index].timecodeConfig = nil
                 droppedFiles[index].trimStart = nil
                 droppedFiles[index].trimEnd = nil
+                droppedFiles[index].isMuted = false
             }
 
             didReset = true

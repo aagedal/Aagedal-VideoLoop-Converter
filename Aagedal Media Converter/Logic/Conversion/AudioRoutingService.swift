@@ -193,12 +193,7 @@ enum AudioRoutingService {
             if config.outputTrackIndices.count > 1 {
                 messages.append("Note: AAC format supports only one audio track. Multiple tracks will be converted to stereo and merged.")
             }
-            
-        case .videoLoopWithAudio:
-            if config.outputTrackIndices.count > 1 {
-                messages.append("Note: This preset converts audio to stereo AAC. Multiple tracks will be included but may increase file size.")
-            }
-            
+
         default:
             break
         }

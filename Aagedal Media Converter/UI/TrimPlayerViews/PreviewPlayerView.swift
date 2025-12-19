@@ -275,6 +275,10 @@ struct PreviewPlayerView: View {
             case "f":
                 controller.toggleFullscreen()
                 return true
+            case "s":
+                // CMD+S: Capture screenshot
+                captureScreenshot()
+                return true
             default:
                 return false
             }
