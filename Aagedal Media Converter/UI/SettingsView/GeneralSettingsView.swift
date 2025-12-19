@@ -6,6 +6,10 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path
+    @AppStorage(AppConstants.saveNextToOriginalKey) private var saveNextToOriginal = AppConstants.defaultSaveNextToOriginal
+    @AppStorage(AppConstants.saveNextToOriginalSubfolderKey) private var saveNextToOriginalSubfolder = AppConstants.defaultSaveNextToOriginalSubfolder
+    @AppStorage(AppConstants.saveNextToOriginalSubfolderModeKey) private var saveNextToOriginalSubfolderMode = AppConstants.defaultSaveNextToOriginalSubfolderMode
+    @AppStorage(AppConstants.saveNextToOriginalSubfolderNameKey) private var saveNextToOriginalSubfolderName = AppConstants.defaultSaveNextToOriginalSubfolderName
     @AppStorage(AppConstants.enableFileNameProcessingKey) private var enableFileNameProcessing = true
     @AppStorage(AppConstants.screenshotDirectoryKey) private var screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
     @AppStorage(AppConstants.previewCacheCleanupPolicyKey) private var previewCacheCleanupPolicyRaw = AppConstants.defaultPreviewCacheCleanupPolicyRaw
@@ -14,6 +18,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppConstants.screenshotHighBitFormatKey) private var screenshotHighBitFormat = AppConstants.defaultScreenshotFormat
     @AppStorage(AppConstants.screenshotAlphaHandlingKey) private var screenshotAlphaHandling = AppConstants.defaultScreenshotAlphaHandling
     @AppStorage(AppConstants.resetClearsSettingsKey) private var resetClearsSettings = AppConstants.defaultResetClearsSettings
+    @AppStorage(AppConstants.queueViewModeKey) private var queueViewMode = AppConstants.defaultQueueViewMode
 
     @State private var isClearingPreviewCache = false
     @State private var previewCacheSizeBytes: Int64 = 0
@@ -22,6 +27,7 @@ struct GeneralSettingsView: View {
         Form {
             outputFolderSection
             fileNameSection
+            queueDisplaySection
             resetBehaviorSection
             screenshotSection
             previewCacheSection
@@ -43,39 +49,84 @@ struct GeneralSettingsView: View {
     }
 
     private var outputFolderSection: some View {
-        Section(header: Text("Output Folder")) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Default Output Folder:")
-                    .font(.headline)
+        Section(header: Text("Output Location")) {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle("Save encoded files next to original", isOn: $saveNextToOriginal)
+                    .toggleStyle(SwitchToggleStyle())
 
-                HStack {
-                    Text(outputFolder)
-                        .truncationMode(.middle)
-                        .lineLimit(1)
-                        .help(outputFolder)
+                if saveNextToOriginal {
+                    // Subfolder options when saving next to original
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Place in subfolder", isOn: $saveNextToOriginalSubfolder)
+                            .toggleStyle(SwitchToggleStyle())
+                            .padding(.leading, 16)
 
-                    Button(action: {
-                        let url = URL(fileURLWithPath: outputFolder)
-                        guard FileManager.default.fileExists(atPath: url.path) else {
-                            outputFolder = AppConstants.defaultOutputDirectory.path
-                            NSWorkspace.shared.activateFileViewerSelecting([AppConstants.defaultOutputDirectory])
-                            return
+                        if saveNextToOriginalSubfolder {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Picker("Subfolder name:", selection: $saveNextToOriginalSubfolderMode) {
+                                    Text("Custom name").tag("custom")
+                                    Text("Use preset suffix").tag("presetSuffix")
+                                }
+                                .pickerStyle(.radioGroup)
+                                .padding(.leading, 32)
+
+                                if saveNextToOriginalSubfolderMode == "custom" {
+                                    HStack {
+                                        Text("Folder name:")
+                                        TextField("Encoded", text: $saveNextToOriginalSubfolderName)
+                                            .textFieldStyle(.roundedBorder)
+                                            .frame(maxWidth: 200)
+                                    }
+                                    .padding(.leading, 32)
+                                } else {
+                                    Text("Folder will be named using the preset suffix (e.g., \"loop\", \"tv\", \"prores\")")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .padding(.leading, 32)
+                                }
+                            }
                         }
-
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }) {
-                        Image(systemName: "arrow.right.circle.fill")
-                            .foregroundColor(.accentColor)
                     }
-                    .buttonStyle(BorderlessButtonStyle())
-                    .help("Show in Finder")
 
-                    Button(action: { selectNewOutputFolder() }) {
-                        Image(systemName: "folder.badge.gearshape")
-                            .foregroundColor(.accentColor)
+                    Text("Encoded files will be saved in the same folder as the source file.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    // Default output folder UI
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Default Output Folder:")
+                            .font(.headline)
+
+                        HStack {
+                            Text(outputFolder)
+                                .truncationMode(.middle)
+                                .lineLimit(1)
+                                .help(outputFolder)
+
+                            Button(action: {
+                                let url = URL(fileURLWithPath: outputFolder)
+                                guard FileManager.default.fileExists(atPath: url.path) else {
+                                    outputFolder = AppConstants.defaultOutputDirectory.path
+                                    NSWorkspace.shared.activateFileViewerSelecting([AppConstants.defaultOutputDirectory])
+                                    return
+                                }
+
+                                NSWorkspace.shared.activateFileViewerSelecting([url])
+                            }) {
+                                Image(systemName: "arrow.right.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                            .help("Show in Finder")
+
+                            Button(action: { selectNewOutputFolder() }) {
+                                Image(systemName: "folder.badge.gearshape")
+                                    .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(BorderlessButtonStyle())
+                            .help("Change default output folder")
+                        }
                     }
-                    .buttonStyle(BorderlessButtonStyle())
-                    .help("Change default output folder")
                 }
             }
             .padding(8)
@@ -89,6 +140,24 @@ struct GeneralSettingsView: View {
                     .toggleStyle(SwitchToggleStyle())
                     .help("When enabled, spaces and special characters in filenames are sanitized")
                 Text("When enabled, output filenames will be processed to replace spaces with underscores, convert Scandinavian characters (æ, ø, å) to ASCII equivalents, and remove special characters. When disabled, original filenames are preserved as-is.")
+                    .font(Font.caption.italic())
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(8)
+        }
+    }
+
+    private var queueDisplaySection: some View {
+        Section(header: Text("Queue Display")) {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Use compact list view", isOn: Binding(
+                    get: { queueViewMode == "compact" },
+                    set: { queueViewMode = $0 ? "compact" : "standard" }
+                ))
+                    .toggleStyle(SwitchToggleStyle())
+                    .help("Show a condensed view with smaller thumbnails and inline action buttons")
+                Text("Compact mode hides comment fields, file sizes, and duration to show more items at once. Action buttons appear in a row under each filename.")
                     .font(Font.caption.italic())
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

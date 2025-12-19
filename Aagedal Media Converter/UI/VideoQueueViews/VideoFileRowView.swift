@@ -26,6 +26,7 @@ struct VideoFileRowView: View {
     var mergeClipsAvailable: Bool = false
     var showCommentField: Bool = true
     var showDateTagButton: Bool = true
+    var isCompactMode: Bool = false
 
     // Show yellow warning icon when VideoLoop preset is used on clips longer than 15 s
     private var showDurationWarning: Bool {
@@ -129,91 +130,143 @@ struct VideoFileRowView: View {
                             Spacer()
                         }
                         
-                        // Progress and status
+                        // Compact mode: action buttons row
+                        if isCompactMode {
+                            HStack {
+                                HStack{
+                                    compactActionButtonsRow
+                                }
+                                
+    
+                                Spacer()
+                                // Action buttons (delete/reset) - right aligned
+                                HStack {
+                                    Spacer()
+                                    if file.status == .converting {
+                                        Button(action: onCancel) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.red)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel conversion")
+                                    } else {
+                                        Button(action: {
+                                            isBeingDeleted = true
+                                            if isCommentFieldFocused || focusedCommentID == file.id {
+                                                isCommentFieldFocused = false
+                                                focusedCommentID = nil
+                                            }
+                                            onDelete()
+                                        }) {
+                                            Image(systemName: "clear")
+                                                .foregroundColor(.red)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Remove from list")
+
+                                        FileResetButton(
+                                            isEnabled: file.status != .converting && file.status != .waiting,
+                                            onReset: onReset
+                                        )
+                                    }
+                                }
+                                .frame(width: 44, alignment: .trailing)
+                            }
+                        }
+
+                        // Progress bar (always shown when converting)
                         if file.status == .converting {
                             ProgressView(value: file.progress)
                                 .progressViewStyle(LinearProgressViewStyle())
                         }
-                        
-                        // Input info line: duration and size (no labels)
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(TimecodeFormatter.formatTimeForDisplay(seconds: file.durationSeconds, item: file, isDuration: true))
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                                .help("Input duration")
-                            if showDurationWarning {
-                                Image(systemName: "exclamationmark.triangle.fill").font(.subheadline)
-                                    .foregroundColor(.yellow)
-                                    .help("Duration exceeds 15 seconds. VideoLoops are best suited for shorter videos.")
-                            }
-                            
-                            Text("•")
-                                .foregroundColor(.gray)
 
-                            Text(file.formattedSize)
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                                .help("Input file size")
-
-                            Spacer()
-
-                            // Action buttons container with fixed width
-                            HStack(spacing: 4) {
-                                if file.status == .converting {
-                                    Button(action: onCancel) {
-                                        Image(systemName: "xmark.circle")
-                                            .foregroundColor(.red)
-                                    }
-                                    .buttonStyle(BorderlessButtonStyle())
-                                    .help("Cancel conversion")
-                                } else {
-                                    Button(action: {
-                                        // Set deletion flag and clear focus BEFORE deleting
-                                        isBeingDeleted = true
-                                        if isCommentFieldFocused || focusedCommentID == file.id {
-                                            isCommentFieldFocused = false
-                                            focusedCommentID = nil
-                                        }
-                                        onDelete()
-                                    }) {
-                                        Image(systemName: "clear")
-                                            .foregroundColor(.red)
-                                    }
-                                    .buttonStyle(BorderlessButtonStyle())
-                                    .help("Remove from list")
-
-                                    FileResetButton(
-                                        isEnabled: file.status != .converting && file.status != .waiting,
-                                        onReset: onReset
-                                    )
-                                }
-                            }
-                            .frame(width: 44, alignment: .trailing)
-                        }
-                        
-                        // Second line: status, overwrite warning, and export size
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            if file.status == .waiting && file.outputFileExists {
-                                Text("Existing file will be overwritten")
-                                    .font(.subheadline)
-                                    .foregroundColor(.orange)
-                            }
-                            
-                            if file.status == .done {
-                                Text("Export: \(file.formattedOutputSize ?? "—")")
+                        // Standard mode: duration and size line
+                        if !isCompactMode {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(TimecodeFormatter.formatTimeForDisplay(seconds: file.durationSeconds, item: file, isDuration: true))
                                     .font(.subheadline)
                                     .foregroundColor(.gray)
-                                    .help("Exported file size")
+                                    .help("Input duration")
+                                if showDurationWarning {
+                                    Image(systemName: "exclamationmark.triangle.fill").font(.subheadline)
+                                        .foregroundColor(.yellow)
+                                        .help("Duration exceeds 15 seconds. VideoLoops are best suited for shorter videos.")
+                                }
+
+                                Text("•")
+                                    .foregroundColor(.gray)
+
+                                Text(file.formattedSize)
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                                    .help("Input file size")
+
+                                Spacer()
+
+                                // Action buttons container with fixed width
+                                HStack(spacing: 4) {
+                                    if file.status == .converting {
+                                        Button(action: onCancel) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.red)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel conversion")
+                                    } else {
+                                        Button(action: {
+                                            // Set deletion flag and clear focus BEFORE deleting
+                                            isBeingDeleted = true
+                                            if isCommentFieldFocused || focusedCommentID == file.id {
+                                                isCommentFieldFocused = false
+                                                focusedCommentID = nil
+                                            }
+                                            onDelete()
+                                        }) {
+                                            Image(systemName: "clear")
+                                                .foregroundColor(.red)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Remove from list")
+
+                                        FileResetButton(
+                                            isEnabled: file.status != .converting && file.status != .waiting,
+                                            onReset: onReset
+                                        )
+                                    }
+                                }
+                                .frame(width: 44, alignment: .trailing)
                             }
-                            
+                        }
+
+                        // Status line (simplified in compact mode)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            if !isCompactMode {
+                                if file.status == .waiting && file.outputFileExists {
+                                    Text("Existing file will be overwritten")
+                                        .font(.subheadline)
+                                        .foregroundColor(.orange)
+                                }
+
+                                if file.status == .done {
+                                    Text("Export: \(file.formattedOutputSize ?? "—")")
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                        .help("Exported file size")
+                                }
+                            }
+
                             Spacer()
-                            
+
                             // Status text aligned to the right
                             Text(progressText)
-                                .font(.subheadline)
+                                .font(isCompactMode ? .caption : .subheadline)
                                 .foregroundColor(statusColor)
                         }
-                        commentSection
+
+                        // Comment section (only in standard mode)
+                        if !isCompactMode {
+                            commentSection
+                        }
                     }
                     .padding()
                 }
@@ -302,29 +355,34 @@ struct VideoFileRowView: View {
             .onTapGesture { showPreview = true }
     }
 
+    private var thumbnailWidth: CGFloat { isCompactMode ? 133 : 200 }
+    private var thumbnailHeight: CGFloat { isCompactMode ? 75 : 150 }
+
     @ViewBuilder
     private var thumbnailImageView: some View {
         ZStack {
             CheckerboardBackground()
-                .frame(width: 200, height: 150)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .frame(width: thumbnailWidth, height: thumbnailHeight)
+                .clipShape(RoundedRectangle(cornerRadius: isCompactMode ? 6 : 9, style: .continuous))
+            RoundedRectangle(cornerRadius: isCompactMode ? 6 : 9, style: .continuous)
                 .stroke(Color.black.opacity(0.2), lineWidth: 1)
-                .frame(width: 200, height: 150)
+                .frame(width: thumbnailWidth, height: thumbnailHeight)
 
             if let cachedImage = cachedThumbnail {
                 Image(nsImage: cachedImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 200, height: 150)
-                    .cornerRadius(4)
+                    .frame(width: thumbnailWidth, height: thumbnailHeight)
+                    .cornerRadius(isCompactMode ? 3 : 4)
             } else {
                 VStack {
                     Image(systemName: "film")
-                        .font(.largeTitle)
-                    Text("Generating thumbnail...")
-                        .font(.caption2)
-                        .foregroundColor(.gray)
+                        .font(isCompactMode ? .title2 : .largeTitle)
+                    if !isCompactMode {
+                        Text("Generating thumbnail...")
+                            .font(.caption2)
+                            .foregroundColor(.gray)
+                    }
                 }
             }
         }
@@ -333,8 +391,8 @@ struct VideoFileRowView: View {
     @ViewBuilder
     private var audioRoutingBadge: some View {
         if file.isMuted {
-            // Show red muted badge when item is muted
-            badgeView(icon: "speaker.slash.fill", text: "Muted", color: .red)
+            // Show red muted badge when item is muted (icon only)
+            badgeView(icon: "speaker.slash.fill", text: "", color: .red)
         } else if let config = file.audioRoutingConfig, config.isCustomized {
             badgeView(icon: "hifispeaker.2", text: "\(config.outputTrackIndices.count)")
         }
@@ -352,11 +410,11 @@ struct VideoFileRowView: View {
         if let timecodeConfig = file.timecodeConfig {
             switch timecodeConfig.mode {
             case .manual:
-                badgeView(icon: "timer", text: "Manual")
+                badgeView(icon: "timer", text: "MAN")
             case .preserveSource:
                 // Show different badge if source has timecode vs doesn't
                 if file.metadata?.timecode != nil {
-                    badgeView(icon: "timer", text: "Source")
+                    badgeView(icon: "timer", text: "SRC")
                 } else {
                     badgeView(icon: "timer", text: "No TC")
                 }
@@ -375,29 +433,31 @@ struct VideoFileRowView: View {
     }
 
     private func badgeView(icon: String, text: String, color: Color? = nil) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: text.isEmpty ? 0 : (isCompactMode ? 2 : 4)) {
             Image(systemName: icon)
-                .font(.caption2)
-            Text(text)
-                .font(.caption2)
-                .fontWeight(.medium)
+                .font(isCompactMode ? .system(size: 8) : .caption2)
+            if !text.isEmpty {
+                Text(text)
+                    .font(isCompactMode ? .system(size: 8) : .caption2)
+                    .fontWeight(.medium)
+            }
         }
         .foregroundColor(.white)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, isCompactMode ? 4 : 8)
+        .padding(.vertical, isCompactMode ? 2 : 4)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: isCompactMode ? 4 : 6, style: .continuous)
                 .fill(color ?? Color.accentColor)
         )
-        .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-        .padding(8)
+        .shadow(color: .black.opacity(0.3), radius: isCompactMode ? 1 : 2, x: 0, y: 1)
+        .padding(isCompactMode ? 4 : 8)
     }
 
     private var thumbnailHoverOverlay: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: isCompactMode ? 6 : 9, style: .continuous)
                 .fill(Color.black.opacity(0.35))
-                .frame(width: 200, height: 150)
+                .frame(width: thumbnailWidth, height: thumbnailHeight)
                 .allowsHitTesting(false)
 
             VStack {
@@ -410,7 +470,7 @@ struct VideoFileRowView: View {
                         } label: {
                             Label("Audio Routing", systemImage: "hifispeaker.2.badge.minus")
                                 .labelStyle(.iconOnly)
-                                .font(.system(size: 24, weight: .medium))
+                                .font(.system(size: isCompactMode ? 14 : 24, weight: .medium))
                                 .symbolRenderingMode(file.audioRoutingConfig?.isCustomized == true ? .multicolor : .monochrome)
                         }
                         .buttonStyle(.plain)
@@ -426,42 +486,42 @@ struct VideoFileRowView: View {
                     } label: {
                         Label("Timecode", systemImage: "timer")
                             .labelStyle(.iconOnly)
-                            .font(.system(size: 24, weight: .medium))
+                            .font(.system(size: isCompactMode ? 14 : 24, weight: .medium))
                             .symbolRenderingMode(file.timecodeConfig?.isActive == true ? .multicolor : .monochrome)
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.white)
                     .help(file.timecodeConfig?.isActive == true ? "Timecode configured" : "Configure output timecode")
                 }
-                .padding(10)
+                .padding(isCompactMode ? 5 : 10)
 
                 Spacer()
-                
+
                 // Center: Fullscreen play button (only for video files)
                 if file.hasVideoStream {
                     Button {
                         FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: file)
                     } label: {
                         Image(systemName: "play.circle.fill")
-                            .font(.system(size: 44, weight: .medium))
+                            .font(.system(size: isCompactMode ? 24 : 44, weight: .medium))
                             .foregroundColor(.white)
-                            .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
+                            .shadow(color: .black.opacity(0.4), radius: isCompactMode ? 2 : 4, x: 0, y: isCompactMode ? 1 : 2)
                     }
                     .buttonStyle(.plain)
                     .help("Play fullscreen")
                 }
-                
+
                 Spacer()
 
                 // Bottom row: Preview (left), Info (right)
-                HStack(spacing: 16) {
+                HStack(spacing: isCompactMode ? 8 : 16) {
                     // Preview button (bottom-left)
                     Button {
                         showPreview = true
                     } label: {
                         Label("Preview", systemImage: "timeline.selection")
                             .labelStyle(.iconOnly)
-                            .font(.system(size: 28, weight: .medium))
+                            .font(.system(size: isCompactMode ? 16 : 28, weight: .medium))
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.white)
@@ -475,17 +535,80 @@ struct VideoFileRowView: View {
                     } label: {
                         Label("Metadata", systemImage: "info.circle")
                             .labelStyle(.iconOnly)
-                            .font(.system(size: 24, weight: .medium))
+                            .font(.system(size: isCompactMode ? 14 : 24, weight: .medium))
                             .disabled(file.metadata == nil)
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.white)
                     .help("View technical metadata")
                 }
-                .padding(10)
+                .padding(isCompactMode ? 5 : 10)
             }
         }
         .transition(.opacity)
+    }
+
+    // MARK: - Compact Mode Action Buttons
+
+    @ViewBuilder
+    private var compactActionButtonsRow: some View {
+        HStack(spacing: 8) {
+            // Audio Routing button
+            if let audioStreams = file.metadata?.audioStreams, !audioStreams.isEmpty {
+                Button { showAudioRouting = true } label: {
+                    Image(systemName: "hifispeaker.2")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(file.audioRoutingConfig?.isCustomized == true ? .accentColor : .secondary)
+                .help("Audio routing")
+            }
+
+            // Timecode button
+            Button { showTimecode = true } label: {
+                Image(systemName: "timer")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(file.timecodeConfig?.isActive == true ? .accentColor : .secondary)
+            .help("Timecode")
+
+            // Preview/Trim button
+            Button { showPreview = true } label: {
+                Image(systemName: "timeline.selection")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(.secondary)
+            .help("Preview & trim")
+
+            // Fullscreen button (video only)
+            if file.hasVideoStream {
+                Button {
+                    FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: file)
+                } label: {
+                    Image(systemName: "play.circle")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(.secondary)
+                .help("Play fullscreen")
+            }
+
+            // Metadata button
+            Button { showMetadata = true } label: {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(.secondary)
+            .help("View metadata")
+        }
     }
 
     @ViewBuilder

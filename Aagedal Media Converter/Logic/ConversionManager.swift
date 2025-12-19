@@ -140,7 +140,13 @@ actor ConversionManager: Sendable {
 
         guard let firstItem = orderedWaitingItems.first else { return nil }
 
-        let baseOutputURL = URL(fileURLWithPath: outputFolder)
+        let resolvedOutputFolder = VideoFileUtils.resolveOutputFolder(for: firstItem.url, defaultOutputFolder: outputFolder, preset: preset) ?? outputFolder
+
+        // Ensure the output directory exists
+        let resolvedOutputFolderURL = URL(fileURLWithPath: resolvedOutputFolder)
+        try? FileManager.default.createDirectory(at: resolvedOutputFolderURL, withIntermediateDirectories: true)
+
+        let baseOutputURL = URL(fileURLWithPath: resolvedOutputFolder)
             .appendingPathComponent(
                 FileNameProcessor.processFileName(firstItem.url.deletingPathExtension().lastPathComponent)
                 + preset.fileSuffix
@@ -823,7 +829,13 @@ actor ConversionManager: Sendable {
         let inputURL = currentItem.url
         let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
         let outputFileName = sanitizedBaseName + preset.fileSuffix
-        let outputURL = URL(fileURLWithPath: outputFolder).appendingPathComponent(outputFileName)
+        let resolvedOutputFolder = VideoFileUtils.resolveOutputFolder(for: inputURL, defaultOutputFolder: outputFolder, preset: preset) ?? outputFolder
+
+        // Ensure the output directory exists
+        let resolvedOutputFolderURL = URL(fileURLWithPath: resolvedOutputFolder)
+        try? FileManager.default.createDirectory(at: resolvedOutputFolderURL, withIntermediateDirectories: true)
+
+        let outputURL = URL(fileURLWithPath: resolvedOutputFolder).appendingPathComponent(outputFileName)
 
         let waveformPreferences = AudioWaveformPreferences.loadConfig()
         let resolvedWaveformResolution = preset.resolvedWaveformResolution(defaultResolution: waveformPreferences.resolution)

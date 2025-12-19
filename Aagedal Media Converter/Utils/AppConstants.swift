@@ -310,4 +310,18 @@ enum AppConstants {
     // Reset behavior
     static let resetClearsSettingsKey = "resetClearsSettings"
     static let defaultResetClearsSettings = false // false = only reset status, true = also clear trim/crop/audio routing
+
+    // Queue display settings
+    static let queueViewModeKey = "queueViewMode"
+    static let defaultQueueViewMode = "standard" // "standard" or "compact"
+
+    // Output location settings
+    static let saveNextToOriginalKey = "saveNextToOriginal"
+    static let saveNextToOriginalSubfolderKey = "saveNextToOriginalSubfolder"
+    static let saveNextToOriginalSubfolderModeKey = "saveNextToOriginalSubfolderMode" // "custom" or "presetSuffix"
+    static let saveNextToOriginalSubfolderNameKey = "saveNextToOriginalSubfolderName"
+    static let defaultSaveNextToOriginal = false
+    static let defaultSaveNextToOriginalSubfolder = false
+    static let defaultSaveNextToOriginalSubfolderMode = "custom" // "custom" or "presetSuffix"
+    static let defaultSaveNextToOriginalSubfolderName = "Encoded"
 }

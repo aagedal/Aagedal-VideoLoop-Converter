@@ -681,13 +681,6 @@ struct ContentView: View {
             mergeClipsAvailable: mergeClipsAvailable,
             onToggleConversion: handleConversionToggle,
             onImport: { isFileImporterPresented = true },
-            onSelectOutputFolder: {
-                Task {
-                    if let folder = await selectOutputFolder() {
-                        currentOutputFolder = folder
-                    }
-                }
-            },
             onResetAll: resetAllFiles,
             hasResettableItems: hasResettableItems,
             onClear: clearAllFiles
@@ -813,16 +806,74 @@ struct ContentView: View {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    private func handleConversionToggle() {
+    private func handleConversionToggle(optionKeyPressed: Bool) {
         Task { @MainActor in
             let currentlyConverting = await ConversionManager.shared.isConvertingStatus()
             isConverting = currentlyConverting
+
             if currentlyConverting {
                 await cancelConversion()
+                return
+            }
+
+            // If Option key is pressed, let user select output folder first
+            if optionKeyPressed {
+                if let folder = await selectOutputFolder() {
+                    currentOutputFolder = folder
+                }
+                // Start conversion after folder selection (even if cancelled, use current folder)
+                await startConversionWithValidation()
             } else {
-                await startConversion()
+                await startConversionWithValidation()
             }
         }
+    }
+
+    /// Validates output folder and starts conversion, prompting for folder if needed
+    @MainActor
+    private func startConversionWithValidation() async {
+        // Check if "save next to original" is enabled - if so, skip validation
+        let saveNextToOriginal = UserDefaults.standard.bool(forKey: AppConstants.saveNextToOriginalKey)
+
+        if !saveNextToOriginal {
+            // Validate the current output folder is writable
+            let isWritable = isOutputFolderWritable(currentOutputFolder)
+
+            if !isWritable {
+                // Prompt user to select a valid folder
+                if let folder = await selectOutputFolder() {
+                    currentOutputFolder = folder
+                } else {
+                    // User cancelled, don't start conversion
+                    return
+                }
+
+                // Verify the newly selected folder is writable
+                if !isOutputFolderWritable(currentOutputFolder) {
+                    return
+                }
+            }
+        }
+
+        await startConversion()
+    }
+
+    /// Checks if a folder exists and is writable
+    private func isOutputFolderWritable(_ folder: URL) -> Bool {
+        let fileManager = FileManager.default
+        let path = folder.path
+
+        // Check if folder exists, if not try to create it
+        if !fileManager.fileExists(atPath: path) {
+            do {
+                try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+            } catch {
+                return false
+            }
+        }
+
+        // Check if writable
+        return fileManager.isWritableFile(atPath: path)
     }
 
     @MainActor
