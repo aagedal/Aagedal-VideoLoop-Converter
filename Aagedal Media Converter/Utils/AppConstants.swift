@@ -315,6 +315,12 @@ enum AppConstants {
     static let queueViewModeKey = "queueViewMode"
     static let defaultQueueViewMode = "standard" // "standard" or "compact"
 
+    // Sound settings
+    static let playSoundOnSuccessKey = "playSoundOnSuccess"
+    static let playSoundOnErrorKey = "playSoundOnError"
+    static let defaultPlaySoundOnSuccess = true
+    static let defaultPlaySoundOnError = true
+
     // Output location settings
     static let saveNextToOriginalKey = "saveNextToOriginal"
     static let saveNextToOriginalSubfolderKey = "saveNextToOriginalSubfolder"
