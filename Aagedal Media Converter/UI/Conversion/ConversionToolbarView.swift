@@ -129,6 +129,8 @@ private struct ConversionPlayButton: View {
             hasFiles: hasFiles,
             onToggleConversion: onToggleConversion
         )
+        .padding(.leading, 8)
+        .padding(.trailing, 4)
     }
 }
 
@@ -141,7 +143,7 @@ private struct ConversionPlayButtonNSViewWrapper: NSViewRepresentable {
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton()
         button.bezelStyle = .regularSquare
-        button.isBordered = true
+        button.isBordered = false
         button.imagePosition = .imageOnly
         button.target = context.coordinator
         button.action = #selector(Coordinator.buttonClicked(_:))
@@ -158,12 +160,17 @@ private struct ConversionPlayButtonNSViewWrapper: NSViewRepresentable {
     }
 
     private func configureButton(_ button: NSButton) {
+        // Symbol configuration for toolbar-sized icons
+        let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+
         // Update icon and color based on state
         if isConverting {
-            button.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "Cancel Conversion")
+            let image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "Cancel Conversion")
+            button.image = image?.withSymbolConfiguration(config)
             button.contentTintColor = .systemRed
         } else {
-            button.image = NSImage(systemSymbolName: "play.circle", accessibilityDescription: "Start Conversion")
+            let image = NSImage(systemSymbolName: "play.circle", accessibilityDescription: "Start Conversion")
+            button.image = image?.withSymbolConfiguration(config)
             button.contentTintColor = (!hasFiles || !canStartConversion) ? .systemGray : .systemGreen
         }
 
@@ -215,6 +222,8 @@ private struct ResetButton: View {
             isConverting: isConverting,
             onReset: onReset
         )
+        .padding(.leading, 8)
+        .padding(.trailing, 4)
     }
 }
 
@@ -226,11 +235,16 @@ private struct ResetButtonNSViewWrapper: NSViewRepresentable {
     func makeNSView(context: Context) -> NSButton {
         let button = NSButton()
         button.bezelStyle = .regularSquare
-        button.isBordered = true
-        button.image = NSImage(systemSymbolName: "arrow.clockwise.circle", accessibilityDescription: "Reset All")
+        button.isBordered = false
         button.imagePosition = .imageOnly
         button.target = context.coordinator
         button.action = #selector(Coordinator.buttonClicked(_:))
+
+        // Set initial image with toolbar-sized configuration
+        let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        let image = NSImage(systemSymbolName: "arrow.clockwise.circle", accessibilityDescription: "Reset All")
+        button.image = image?.withSymbolConfiguration(config)
+
         return button
     }
 
