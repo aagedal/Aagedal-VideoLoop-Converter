@@ -320,8 +320,23 @@ actor VideoMetadataService {
         // Extract timecode from format tags or video stream tags
         let timecode = format?.tags?.timecode ?? primaryVideoStream?.tags?.timecode
 
-        // Extract frame count from video stream
-        let frameCount = primaryVideoStream?.nbFrames.flatMap { Int($0) }
+        // Extract frame count from video stream, or calculate from duration and frame rate
+        let frameCount: Int? = {
+            // First try direct nb_frames from stream
+            if let nbFrames = primaryVideoStream?.nbFrames, let count = Int(nbFrames) {
+                return count
+            }
+            // Fallback: calculate from duration and frame rate (common for MXF files)
+            if let durationStr = format?.duration,
+               let duration = Double(durationStr),
+               let frameRateStr = primaryVideoStream?.avgFrameRate ?? primaryVideoStream?.rFrameRate,
+               let frameRate = VideoMetadata.FrameRate(frameRateString: frameRateStr),
+               let fps = frameRate.value,
+               fps > 0 {
+                return Int(round(duration * fps))
+            }
+            return nil
+        }()
 
         let video = primaryVideoStream.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
@@ -519,8 +534,23 @@ private struct FFprobeResponse: Decodable {
         // Extract timecode from format tags or video stream tags
         let timecode = formatMetadata?.tags?.timecode ?? videoStream?.tags?.timecode
 
-        // Extract frame count from video stream
-        let frameCount = videoStream?.nbFrames.flatMap { Int($0) }
+        // Extract frame count from video stream, or calculate from duration and frame rate
+        let frameCount: Int? = {
+            // First try direct nb_frames from stream
+            if let nbFrames = videoStream?.nbFrames, let count = Int(nbFrames) {
+                return count
+            }
+            // Fallback: calculate from duration and frame rate (common for MXF files)
+            if let durationStr = formatMetadata?.duration,
+               let duration = Double(durationStr),
+               let frameRateStr = videoStream?.avgFrameRate ?? videoStream?.rFrameRate,
+               let frameRate = VideoMetadata.FrameRate(frameRateString: frameRateStr),
+               let fps = frameRate.value,
+               fps > 0 {
+                return Int(round(duration * fps))
+            }
+            return nil
+        }()
 
         let video = videoStream.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
