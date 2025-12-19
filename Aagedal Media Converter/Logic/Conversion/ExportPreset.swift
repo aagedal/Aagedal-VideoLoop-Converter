@@ -58,6 +58,13 @@ enum AnimatedStillFormat: String, CaseIterable, Identifiable {
         case .webp: return "webp"
         }
     }
+
+    /// Available formats for the picker (excludes formats not supported by bundled FFMPEG)
+    static var availableCases: [AnimatedStillFormat] {
+        // WebP is excluded because bundled FFMPEG lacks libwebp encoder
+        // JPEG XL is excluded because bundled FFMPEG lacks animated JXL muxer (has encoder but no muxer)
+        allCases.filter { $0 != .webp && $0 != .jpegXL }
+    }
 }
 
 /// Framerate mode options for TV preset
@@ -586,7 +593,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 ]
             case .jpegXL:
                 args += [
-                    "-vcodec", "libjxl",
+                    "-c:v", "libjxl_anim",
                     "-distance", "1",
                     "-effort", "7",
                     "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'",
@@ -594,7 +601,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 ]
             case .webp:
                 args += [
-                    "-vcodec", "libwebp_anim",
+                    "-c:v", "libwebp",
                     "-lossless", "0",
                     "-compression_level", "4",
                     "-q:v", "75",

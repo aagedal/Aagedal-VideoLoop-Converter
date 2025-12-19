@@ -31,6 +31,8 @@ enum RandomTips {
         "Tip: Use T while in either player view, will change the timecode display to show source timecode, relative timecode or frame counter.",
         "Tip: Use Command + S while in either player view will save a still image of the current frame.",
         "Tip: Use Control + M will mute the selected files in the queue.",
+        "Tip: In the trim view hold ⌘ while dragging to set both in and out trim point in a single drag.",
+        "Tip: In the trim view hold Shift while dragging in between trim points to move both in and out trim point at once.",
     ]
 
     static func randomTip() -> LocalizedStringKey {
