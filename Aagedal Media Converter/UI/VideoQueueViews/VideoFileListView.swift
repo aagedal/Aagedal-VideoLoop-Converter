@@ -52,7 +52,7 @@ struct VideoFileListView: View {
     var onOpenTrimWithCrop: ((UUID) -> Void)?
     var onOpenTimecode: ((UUID) -> Void)?
     var onOpenAudioConfig: ((UUID) -> Void)?
-    var onOpenMetadata: ((UUID) -> Void)?
+    var onOpenMetadata: (([UUID]) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
 
@@ -488,8 +488,12 @@ struct VideoFileListView: View {
     }
     
     private func handleMetadataShortcut() {
-        guard let id = singleSelectedID else { return }
-        onOpenMetadata?(id)
+        // Support both single and multiple selection for metadata comparison
+        let selectedIDs = selection.filter { selectedID in
+            droppedFiles.contains(where: { $0.id == selectedID })
+        }
+        guard !selectedIDs.isEmpty else { return }
+        onOpenMetadata?(Array(selectedIDs))
     }
     
     private func handleToggleDateTagShortcut() {
@@ -930,7 +934,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                     return nil
                 }
                 
-                // Option+I: Open Metadata Info (single selection)
+                // Option+I: Open Metadata Info (single or multiple selection for comparison)
                 // Note: CMD+I is used for Import, so we use Option+I instead
                 if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_I {
                     self.onMetadata()

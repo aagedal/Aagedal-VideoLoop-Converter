@@ -74,7 +74,7 @@ struct ContentView: View {
     @State private var trimWithCropSheetItemID: UUID?
     @State private var timecodeSheetItemID: UUID?
     @State private var audioConfigSheetItemID: UUID?
-    @State private var metadataSheetItemID: UUID?
+    @State private var metadataSheetItemIDs: [UUID]?
     
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
@@ -118,9 +118,10 @@ struct ContentView: View {
                 guard droppedFiles.contains(where: { $0.id == id }) else { return }
                 audioConfigSheetItemID = id
             },
-            onOpenMetadata: { id in
-                guard droppedFiles.contains(where: { $0.id == id }) else { return }
-                metadataSheetItemID = id
+            onOpenMetadata: { ids in
+                let validIDs = ids.filter { id in droppedFiles.contains(where: { $0.id == id }) }
+                guard !validIDs.isEmpty else { return }
+                metadataSheetItemIDs = validIDs
             },
             onToggleDateTag: { index in
                 droppedFiles[index].includeDateTag.toggle()
@@ -238,11 +239,8 @@ struct ContentView: View {
                 AudioRoutingView(item: $droppedFiles[index], preset: selectedPreset)
             }
         }
-        .sheet(isPresented: sheetBinding(for: $metadataSheetItemID)) {
-            if let id = metadataSheetItemID,
-               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                VideoMetadataView(item: $droppedFiles[index])
-            }
+        .sheet(isPresented: metadataSheetBinding) {
+            metadataSheetContent
         }
         .background(
             GlobalKeyboardShortcutHandler(
@@ -618,6 +616,34 @@ struct ContentView: View {
                 }
             }
         )
+    }
+
+    /// Creates a Binding<Bool> for metadata sheet presentation (supports multiple items).
+    private var metadataSheetBinding: Binding<Bool> {
+        Binding(
+            get: { metadataSheetItemIDs != nil && !metadataSheetItemIDs!.isEmpty },
+            set: { isPresented in
+                if !isPresented {
+                    metadataSheetItemIDs = nil
+                }
+            }
+        )
+    }
+
+    /// Content for the metadata sheet - shows single item or comparison view.
+    @ViewBuilder
+    private var metadataSheetContent: some View {
+        if let ids = metadataSheetItemIDs {
+            if ids.count == 1,
+               let id = ids.first,
+               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
+                VideoMetadataView(item: $droppedFiles[index])
+            } else {
+                // Sort items by their position in the queue for consistent display order
+                let sortedItems = droppedFiles.filter { ids.contains($0.id) }
+                MetadataComparisonView(items: sortedItems)
+            }
+        }
     }
 
     private func expectedOutputURL(for item: VideoItem, preset: ExportPreset) -> URL? {
