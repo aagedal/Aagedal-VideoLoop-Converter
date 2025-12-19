@@ -181,6 +181,12 @@ enum FFMPEGCommandBuilder {
         await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
         await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
 
+        // Filter out unsupported audio codecs (e.g., APAC spatial audio from iPhone)
+        // Skip for stream copy (which doesn't decode) and when audio routing is applied (has its own mapping)
+        if preset != .streamCopy && (audioRoutingConfig == nil || !preset.appliesAudioRouting) {
+            await filterUnsupportedAudioStreams(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+        }
+
         // Apply crop to video filter if configured and preset supports it
         if let cropConfig = cropConfig,
            cropConfig.isActive,
@@ -695,6 +701,106 @@ extension FFMPEGCommandBuilder {
         return offsetTimecode
     }
 
+    /// Replaces generic `-map 0:a` with explicit mapping of only decodable audio streams.
+    /// This filters out unsupported codecs like Apple's APAC spatial audio.
+    static func filterUnsupportedAudioStreams(
+        inputURL: URL,
+        ffmpegArgs: inout [String]
+    ) async {
+        // Check if we have a generic audio map that needs filtering
+        guard ffmpegArgs.contains(where: { $0 == "-map" }),
+              let mapIndex = ffmpegArgs.firstIndex(of: "-map"),
+              mapIndex + 1 < ffmpegArgs.count else {
+            return
+        }
+
+        // Find all audio map arguments
+        var audioMapIndices: [(index: Int, value: String)] = []
+        for i in 0..<ffmpegArgs.count - 1 {
+            if ffmpegArgs[i] == "-map" {
+                let value = ffmpegArgs[i + 1]
+                if value == "0:a" || value == "0:a?" {
+                    audioMapIndices.append((i, value))
+                }
+            }
+        }
+
+        // If no generic audio maps, nothing to filter
+        guard !audioMapIndices.isEmpty else { return }
+
+        // Fetch audio streams to check codec support
+        guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
+              !audioStreams.isEmpty else {
+            return
+        }
+
+        // Check if all streams are decodable - if so, no need to change anything
+        let decodableStreams = audioStreams.filter { $0.isDecodable }
+        if decodableStreams.count == audioStreams.count {
+            return // All streams are decodable, keep original mapping
+        }
+
+        // Log which streams are being filtered
+        let skippedStreams = audioStreams.filter { !$0.isDecodable }
+        for stream in skippedStreams {
+            logger.info("Skipping unsupported audio stream index \(stream.index ?? -1) with codec '\(stream.codecName ?? "unknown", privacy: .public)'")
+        }
+
+        // If no decodable streams, remove audio mapping entirely
+        if decodableStreams.isEmpty {
+            // Remove all generic audio maps and replace with -an if preset expects audio
+            for (mapIdx, _) in audioMapIndices.reversed() {
+                ffmpegArgs.remove(at: mapIdx + 1)
+                ffmpegArgs.remove(at: mapIdx)
+            }
+            // Also remove audio codec settings if present
+            removeArgumentPair("-c:a", value: nil, from: &ffmpegArgs)
+            removeArgumentPair("-b:a", value: nil, from: &ffmpegArgs)
+            if !ffmpegArgs.contains("-an") {
+                ffmpegArgs.append("-an")
+            }
+            logger.warning("No decodable audio streams found, disabling audio output")
+            return
+        }
+
+        // Replace generic audio maps with explicit stream indices
+        // Process in reverse order to maintain correct indices during removal
+        for (mapIdx, originalValue) in audioMapIndices.reversed() {
+            ffmpegArgs.remove(at: mapIdx + 1)
+            ffmpegArgs.remove(at: mapIdx)
+        }
+
+        // Build position-based indices for decodable streams
+        // Audio stream positions are 0-based within audio streams (0:a:0, 0:a:1, etc.)
+        var audioPosition = 0
+        var decodablePositions: [Int] = []
+        for stream in audioStreams {
+            if stream.isDecodable {
+                decodablePositions.append(audioPosition)
+            }
+            audioPosition += 1
+        }
+
+        // Find where to insert the new audio maps (after video map if present)
+        var insertionIndex = 0
+        for (idx, arg) in ffmpegArgs.enumerated() {
+            if arg == "-map", idx + 1 < ffmpegArgs.count, ffmpegArgs[idx + 1].hasPrefix("0:v") {
+                insertionIndex = idx + 2
+                break
+            }
+        }
+
+        // Insert explicit audio stream maps
+        var offset = 0
+        for position in decodablePositions {
+            ffmpegArgs.insert("-map", at: insertionIndex + offset)
+            ffmpegArgs.insert("0:a:\(position)", at: insertionIndex + offset + 1)
+            offset += 2
+        }
+
+        logger.info("Filtered audio streams: mapping only decodable streams \(decodablePositions)")
+    }
+
     static func adjustArgumentsForInput(
         preset: ExportPreset,
         inputURL: URL,
@@ -776,14 +882,21 @@ extension FFMPEGCommandBuilder {
             durationStr = "3600" // Default to 1 hour if unknown
         }
 
-        // Fetch audio stream info from input
-        let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL) ?? []
+        // Fetch audio stream info from input and filter to only decodable streams
+        let allAudioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL) ?? []
+        let audioStreams = allAudioStreams.filter { $0.isDecodable }
+
+        // Log filtered streams
+        let skippedStreams = allAudioStreams.filter { !$0.isDecodable }
+        for stream in skippedStreams {
+            logger.info("AVC-Intra: Skipping unsupported audio stream index \(stream.index ?? -1) with codec '\(stream.codecName ?? "unknown", privacy: .public)'")
+        }
 
         // Remove existing audio mapping arguments
         removeArgumentPair("-map", value: "0:a?", from: &ffmpegArgs)
         removeArgumentPair("-ac", value: nil, from: &ffmpegArgs)
 
-        // If no audio streams, create silent mono streams
+        // If no decodable audio streams, create silent mono streams
         // Use a single aevalsrc source with asplit to minimize independent audio generators
         // aevalsrc generates samples on-demand, which helps with MXF muxer synchronization
         guard !audioStreams.isEmpty else {
@@ -817,18 +930,22 @@ extension FFMPEGCommandBuilder {
         }
 
         // Build filter graph to split all audio streams into mono channels
+        // Important: Use original audio stream positions for FFmpeg's 0:a:X notation
         var filterParts: [String] = []
         var monoOutputs: [String] = []
         var outputIndex = 0
 
-        for (streamIdx, stream) in audioStreams.enumerated() {
+        for (audioPosition, stream) in allAudioStreams.enumerated() {
+            // Skip unsupported streams
+            guard stream.isDecodable else { continue }
+
             let channels = stream.channels ?? 2
             let channelLayout = stream.channelLayout ?? (channels == 1 ? "mono" : "stereo")
 
             if channels == 1 {
                 // Mono stream - use directly but ensure consistent format
                 let outputLabel = "mono\(outputIndex)"
-                filterParts.append("[0:a:\(streamIdx)]aformat=sample_fmts=s32:sample_rates=48000:channel_layouts=mono[\(outputLabel)]")
+                filterParts.append("[0:a:\(audioPosition)]aformat=sample_fmts=s32:sample_rates=48000:channel_layouts=mono[\(outputLabel)]")
                 monoOutputs.append(outputLabel)
                 outputIndex += 1
             } else {
@@ -849,12 +966,12 @@ extension FFMPEGCommandBuilder {
                 // Generate output labels for each channel
                 var channelLabels: [String] = []
                 for ch in 0..<channels {
-                    channelLabels.append("s\(streamIdx)c\(ch)")
+                    channelLabels.append("s\(audioPosition)c\(ch)")
                 }
                 let outputLabelsStr = channelLabels.map { "[\($0)]" }.joined()
 
                 // Add channelsplit filter
-                filterParts.append("[0:a:\(streamIdx)]channelsplit=channel_layout=\(splitLayout)\(outputLabelsStr)")
+                filterParts.append("[0:a:\(audioPosition)]channelsplit=channel_layout=\(splitLayout)\(outputLabelsStr)")
 
                 // Add format filter for each split channel to ensure consistent output
                 for label in channelLabels {
@@ -1005,6 +1122,9 @@ extension FFMPEGCommandBuilder {
     private static func sanitizeArgumentsForCustomVideoPipeline(_ ffmpegArgs: inout [String]) {
         removeArgumentPair("-vf", value: nil, from: &ffmpegArgs)
         removeArgumentPair("-map", value: nil, from: &ffmpegArgs)
+        // Remove any preset-added filter_complex (e.g., AVC-Intra mono channel splitting)
+        // since waveform/synthesized video pipelines have their own filter_complex
+        removeArgumentPair("-filter_complex", value: nil, from: &ffmpegArgs)
     }
     
     /// Removes video-related arguments for audio-only encoding

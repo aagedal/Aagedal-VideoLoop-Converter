@@ -491,12 +491,29 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let audioChannels = AVCIntraAudioChannels(rawValue: audioChannelsRaw) ?? .ch8
 
             // Build scale filter based on resolution
+            // Force 16:9 aspect ratio with pillarbox/letterbox for broadcast MXF delivery
             let scaleFilter: String
-            if let maxHeight = resolution.maxHeight {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
-            } else {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+            let targetWidth: Int
+            let targetHeight: Int
+            switch resolution {
+            case .r720:
+                targetWidth = 1280
+                targetHeight = 720
+            case .r1080:
+                targetWidth = 1920
+                targetHeight = 1080
+            case .r2160:
+                targetWidth = 3840
+                targetHeight = 2160
+            case .unlimited:
+                // Default to 1080p for 16:9 enforcement when unlimited
+                targetWidth = 1920
+                targetHeight = 1080
             }
+            // 1. Desqueeze anamorphic to square pixels
+            // 2. Scale to fit within 16:9 frame while preserving aspect ratio
+            // 3. Pad to exact 16:9 resolution with black bars (centered)
+            scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=\(targetWidth):\(targetHeight):force_original_aspect_ratio=decrease,pad=\(targetWidth):\(targetHeight):-1:-1:color=black"
 
             // Build audio: map all audio streams and output as N mono channels
             // MXF broadcast typically needs a fixed number of mono PCM tracks

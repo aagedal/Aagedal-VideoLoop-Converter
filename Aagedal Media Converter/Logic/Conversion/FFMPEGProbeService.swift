@@ -22,11 +22,25 @@ enum FFMPEGProbeService {
         let index: Int?
         let channels: Int?
         let channelLayout: String?
+        let codecName: String?
 
         private enum CodingKeys: String, CodingKey {
             case index
             case channels
             case channelLayout = "channel_layout"
+            case codecName = "codec_name"
+        }
+
+        /// Returns true if FFmpeg can decode this audio stream.
+        /// Streams with unknown codecs (like Apple's APAC spatial audio) return false.
+        var isDecodable: Bool {
+            guard let codec = codecName?.lowercased() else { return false }
+            // FFmpeg reports unsupported codecs as empty string or with specific names
+            // that have no decoder available (e.g., "none" in the demuxer output)
+            if codec.isEmpty { return false }
+            // Known unsupported codecs on macOS/FFmpeg
+            let unsupportedCodecs = ["apac"] // Apple Positional Audio Codec (spatial audio)
+            return !unsupportedCodecs.contains(codec)
         }
     }
 
@@ -44,7 +58,7 @@ enum FFMPEGProbeService {
         process.arguments = [
             "-v", "error",
             "-select_streams", "a",
-            "-show_entries", "stream=index,channels,channel_layout",
+            "-show_entries", "stream=index,channels,channel_layout,codec_name",
             "-of", "json",
             url.path
         ]
@@ -66,7 +80,7 @@ enum FFMPEGProbeService {
 
             do {
                 let response = try JSONDecoder().decode(AudioStreamsResponse.self, from: outputData)
-                Logger().debug("FFprobe audio streams for \(url.lastPathComponent): \(response.streams.map { $0.channels ?? 0 })")
+                Logger().debug("FFprobe audio streams for \(url.lastPathComponent): \(response.streams.map { "\($0.codecName ?? "unknown"):\($0.channels ?? 0)ch" })")
                 return response.streams
             } catch {
                 Logger().error("Failed to decode FFprobe audio stream data for \(url.lastPathComponent): \(error.localizedDescription)")
