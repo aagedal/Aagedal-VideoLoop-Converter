@@ -287,7 +287,7 @@ struct PresetsSettingsView: View {
                     Text("Format")
                     Spacer()
                     Picker("", selection: $animatedStillFormat) {
-                        ForEach(AnimatedStillFormat.allCases) { format in
+                        ForEach(AnimatedStillFormat.availableCases) { format in
                             Text(format.rawValue).tag(format.rawValue)
                         }
                     }
