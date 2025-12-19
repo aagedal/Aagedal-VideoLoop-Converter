@@ -191,15 +191,60 @@ enum StreamCopyContainer: String, CaseIterable, Identifiable {
     }
 }
 
+/// Codec options for Proxy preset
+enum ProxyCodec: String, CaseIterable, Identifiable {
+    case hevc = "HEVC"
+    case prores = "ProRes"
+    case dnxhd = "DNx"
+
+    var id: String { rawValue }
+
+    var fileExtension: String {
+        switch self {
+        case .hevc: return "mov"
+        case .prores: return "mov"
+        case .dnxhd: return "mxf"
+        }
+    }
+}
+
+/// Resolution limit options for Proxy preset
+enum ProxyResolutionLimit: String, CaseIterable, Identifiable {
+    case r480 = "480p"
+    case r720 = "720p"
+    case r1080 = "1080p"
+    case source = "Source"
+
+    var id: String { rawValue }
+
+    var maxHeight: Int? {
+        switch self {
+        case .r480: return 480
+        case .r720: return 720
+        case .r1080: return 1080
+        case .source: return nil
+        }
+    }
+
+    var bitrate: String {
+        switch self {
+        case .r480: return "2M"
+        case .r720: return "4M"
+        case .r1080: return "6M"
+        case .source: return "10M"
+        }
+    }
+}
+
 enum ExportPreset: String, CaseIterable, Identifiable {
     case videoLoop = "VideoLoop"
-    case videoLoopWithAudio = "VideoLoop w/Audio"
+    case videoLoopWithSound = "VideoLoop with sound"
+    case animatedStill = "Animated Still"
     case tvHEVC = "TV (HEVC 10-bit 4:2:2)"
     case tvAVCIntra = "TV (AVC-Intra MXF)"
     case prores = "ProRes"
+    case proxy = "Proxy"
     case streamCopy = "Stream Copy"
-    case animatedStill = "Animated Still"
-    case hevcProxy1080p = "HEVC Proxy"
     case audioUncompressedWAV = "Audio only WAV (all channels)"
     case audioStereoAAC = "Audio only AAC (stereo downmix)"
     case custom1 = "Custom"
@@ -217,12 +262,16 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     
     var fileExtension: String {
         switch self {
-        case .videoLoop, .videoLoopWithAudio:
+        case .videoLoop, .videoLoopWithSound:
             return "mp4"
-        case .prores, .tvHEVC, .hevcProxy1080p:
+        case .prores, .tvHEVC:
             return "mov"
         case .tvAVCIntra:
             return "mxf"
+        case .proxy:
+            let codecRaw = UserDefaults.standard.string(forKey: AppConstants.proxyCodecKey) ?? AppConstants.defaultProxyCodec
+            let codec = ProxyCodec(rawValue: codecRaw) ?? .hevc
+            return codec.fileExtension
         case .streamCopy:
             return "mp4"
         case .animatedStill:
@@ -276,20 +325,20 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .videoLoop:
             return NSLocalizedString("PRESET_VIDEO_LOOP_DESCRIPTION", comment: "Description for VideoLoop preset")
-        case .videoLoopWithAudio:
-            return NSLocalizedString("PRESET_VIDEO_LOOP_WITH_AUDIO_DESCRIPTION", comment: "Description for VideoLoop with Audio preset")
+        case .videoLoopWithSound:
+            return NSLocalizedString("PRESET_VIDEO_LOOP_WITH_SOUND_DESCRIPTION", comment: "Description for VideoLoop with sound preset")
         case .tvHEVC:
             return NSLocalizedString("PRESET_TV_HEVC_DESCRIPTION", comment: "Description for TV HEVC preset")
         case .tvAVCIntra:
             return NSLocalizedString("PRESET_TV_AVC_INTRA_DESCRIPTION", comment: "Description for TV AVC-Intra preset")
         case .prores:
             return NSLocalizedString("PRESET_PRORES_DESCRIPTION", comment: "Description for ProRes preset")
+        case .proxy:
+            return NSLocalizedString("PRESET_PROXY_DESCRIPTION", comment: "Description for Proxy preset")
         case .streamCopy:
             return NSLocalizedString("PRESET_STREAM_COPY_DESCRIPTION", comment: "Description for Stream Copy preset")
         case .animatedStill:
             return NSLocalizedString("PRESET_ANIMATED_STILL_DESCRIPTION", comment: "Description for Animated Still preset")
-        case .hevcProxy1080p:
-            return NSLocalizedString("PRESET_HEVC_PROXY_DESCRIPTION", comment: "Description for HECV Proxy 1080p preset")
         case .audioUncompressedWAV:
             return NSLocalizedString("PRESET_AUDIO_WAV_DESCRIPTION", comment: "Description for Audio WAV preset")
         case .audioStereoAAC:
@@ -303,7 +352,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .videoLoop:
             return "_loop"
-        case .videoLoopWithAudio:
+        case .videoLoopWithSound:
             return "_loop_audio"
         case .tvHEVC:
             return "_tv"
@@ -311,14 +360,14 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_avcintra"
         case .prores:
             return "_prores"
+        case .proxy:
+            return "_proxy"
         case .streamCopy:
             return "_copy"
         case .animatedStill:
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.animatedStillFormatKey) ?? AppConstants.defaultAnimatedStillFormat
             let format = AnimatedStillFormat(rawValue: formatRaw) ?? .avif
             return "_\(format.fileExtension)"
-        case .hevcProxy1080p:
-            return "_proxy_1080p"
         case .audioUncompressedWAV:
             return "_audio_wav"
         case .audioStereoAAC:
@@ -356,7 +405,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
-        case .videoLoopWithAudio:
+        case .videoLoopWithSound:
             var args = commonArgs + [
                 "-bitexact",
                 "-bsf:v", "filter_units=remove_types=6",
@@ -370,13 +419,13 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-bufsize", "18000k",
                 "-profile:v", "main",
                 "-level:v", "4.0",
-                "-map", "0:v",
                 "-c:a", "aac",
-                "-b:a", "192k",
+                "-b:a", "128k",
+                "-map", "0:v",
                 "-map", "0:a",
                 "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
-            Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
+            Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
         case .tvHEVC:
             // Get framerate and resolution settings
@@ -540,14 +589,48 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
-        case .hevcProxy1080p:
-            var args = commonArgs + [
-                "-pix_fmt", "p010le",
-                "-c:v", "hevc_videotoolbox",
-                "-b:v", "6M",
-                "-profile:v", "main10",
-                "-tag:v", "hvc1",
-                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'",
+        case .proxy:
+            // Get proxy codec and resolution settings
+            let codecRaw = UserDefaults.standard.string(forKey: AppConstants.proxyCodecKey) ?? AppConstants.defaultProxyCodec
+            let codec = ProxyCodec(rawValue: codecRaw) ?? .hevc
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.proxyResolutionLimitKey) ?? AppConstants.defaultProxyResolutionLimit
+            let resolution = ProxyResolutionLimit(rawValue: resolutionRaw) ?? .r1080
+
+            // Build scale filter based on resolution
+            let scaleFilter: String
+            if let maxHeight = resolution.maxHeight {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
+            } else {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+            }
+
+            var args = commonArgs
+
+            switch codec {
+            case .hevc:
+                args += [
+                    "-pix_fmt", "p010le",
+                    "-c:v", "hevc_videotoolbox",
+                    "-b:v", resolution.bitrate,
+                    "-profile:v", "main10",
+                    "-tag:v", "hvc1"
+                ]
+            case .prores:
+                args += [
+                    "-pix_fmt", "yuv422p10le",
+                    "-vcodec", "prores_videotoolbox",
+                    "-profile:v", "proxy"
+                ]
+            case .dnxhd:
+                args += [
+                    "-pix_fmt", "yuv422p",
+                    "-c:v", "dnxhd",
+                    "-profile:v", "dnxhr_lb"  // Low Bandwidth DNxHR for proxy
+                ]
+            }
+
+            args += [
+                "-vf", scaleFilter,
                 "-map", "0:v",
                 "-c:a", "pcm_s24le",
                 "-map", "0:a"
@@ -713,13 +796,13 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         let key: String
         switch self {
         case .videoLoop: key = AppConstants.videoLoopVisibleKey
-        case .videoLoopWithAudio: key = AppConstants.videoLoopWithAudioVisibleKey
+        case .videoLoopWithSound: key = AppConstants.videoLoopWithSoundVisibleKey
+        case .animatedStill: key = AppConstants.animatedStillVisibleKey
         case .tvHEVC: key = AppConstants.tvHEVCVisibleKey
         case .tvAVCIntra: key = AppConstants.tvAVCIntraVisibleKey
         case .prores: key = AppConstants.proresVisibleKey
+        case .proxy: key = AppConstants.proxyVisibleKey
         case .streamCopy: key = AppConstants.streamCopyVisibleKey
-        case .animatedStill: key = AppConstants.animatedStillVisibleKey
-        case .hevcProxy1080p: key = AppConstants.hevcProxyVisibleKey
         case .audioUncompressedWAV: key = AppConstants.audioWAVVisibleKey
         case .audioStereoAAC: key = AppConstants.audioAACVisibleKey
         default: return true
@@ -751,6 +834,8 @@ extension ExportPreset {
         switch self {
         case .videoLoop, .animatedStill:
             return false
+        case .videoLoopWithSound:
+            return true
         case .audioUncompressedWAV, .audioStereoAAC:
             return true
         case .streamCopy:
@@ -773,8 +858,16 @@ extension ExportPreset {
             case .r2160: return CGSize(width: 3840, height: 2160)
             case .unlimited: return CGSize(width: 1920, height: 1080) // Default to 1080p for unlimited
             }
-        case .hevcProxy1080p:
-            return CGSize(width: 1920, height: 1080)
+        case .proxy:
+            // Use resolution based on current proxy setting
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.proxyResolutionLimitKey) ?? AppConstants.defaultProxyResolutionLimit
+            let resolution = ProxyResolutionLimit(rawValue: resolutionRaw) ?? .r1080
+            switch resolution {
+            case .r480: return CGSize(width: 854, height: 480)
+            case .r720: return CGSize(width: 1280, height: 720)
+            case .r1080: return CGSize(width: 1920, height: 1080)
+            case .source: return CGSize(width: 1920, height: 1080) // Default to 1080p for source
+            }
         default:
             return nil
         }

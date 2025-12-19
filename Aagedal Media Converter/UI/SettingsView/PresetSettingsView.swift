@@ -101,15 +101,19 @@ struct PresetsSettingsView: View {
     // VideoLoop mute default
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
 
+    // Proxy preset settings
+    @AppStorage(AppConstants.proxyCodecKey) private var proxyCodec = AppConstants.defaultProxyCodec
+    @AppStorage(AppConstants.proxyResolutionLimitKey) private var proxyResolutionLimit = AppConstants.defaultProxyResolutionLimit
+
     // Built-in preset visibility (default to true)
     @AppStorage(AppConstants.videoLoopVisibleKey) private var videoLoopVisible = true
-    @AppStorage(AppConstants.videoLoopWithAudioVisibleKey) private var videoLoopWithAudioVisible = true
+    @AppStorage(AppConstants.videoLoopWithSoundVisibleKey) private var videoLoopWithSoundVisible = true
+    @AppStorage(AppConstants.animatedStillVisibleKey) private var animatedStillVisible = true
     @AppStorage(AppConstants.tvHEVCVisibleKey) private var tvHEVCVisible = true
     @AppStorage(AppConstants.tvAVCIntraVisibleKey) private var tvAVCIntraVisible = true
     @AppStorage(AppConstants.proresVisibleKey) private var proresVisible = true
+    @AppStorage(AppConstants.proxyVisibleKey) private var proxyVisible = true
     @AppStorage(AppConstants.streamCopyVisibleKey) private var streamCopyVisible = true
-    @AppStorage(AppConstants.animatedStillVisibleKey) private var animatedStillVisible = true
-    @AppStorage(AppConstants.hevcProxyVisibleKey) private var hevcProxyVisible = true
     @AppStorage(AppConstants.audioWAVVisibleKey) private var audioWAVVisible = true
     @AppStorage(AppConstants.audioAACVisibleKey) private var audioAACVisible = true
 
@@ -401,6 +405,39 @@ struct PresetsSettingsView: View {
                     .fixedSize()
                     .labelsHidden()
                     .help("Choose output container format, or keep the source format.")
+                }
+            }
+        }
+
+        if selectedPreset == .proxy {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Codec")
+                        Spacer()
+                        Picker("", selection: $proxyCodec) {
+                            ForEach(ProxyCodec.allCases) { codec in
+                                Text(codec.rawValue).tag(codec.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Select the codec for proxy files. HEVC is most efficient, ProRes Proxy is widely compatible, DNx is for Avid workflows.")
+                    }
+                    HStack {
+                        Text("Resolution Limit")
+                        Spacer()
+                        Picker("", selection: $proxyResolutionLimit) {
+                            ForEach(ProxyResolutionLimit.allCases) { res in
+                                Text(res.rawValue).tag(res.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Limit proxy resolution. Lower resolutions create smaller files for faster editing.")
+                    }
                 }
             }
         }
@@ -736,20 +773,20 @@ struct PresetsSettingsView: View {
         switch preset {
         case .videoLoop:
             return $videoLoopVisible
-        case .videoLoopWithAudio:
-            return $videoLoopWithAudioVisible
+        case .videoLoopWithSound:
+            return $videoLoopWithSoundVisible
+        case .animatedStill:
+            return $animatedStillVisible
         case .tvHEVC:
             return $tvHEVCVisible
         case .tvAVCIntra:
             return $tvAVCIntraVisible
         case .prores:
             return $proresVisible
+        case .proxy:
+            return $proxyVisible
         case .streamCopy:
             return $streamCopyVisible
-        case .animatedStill:
-            return $animatedStillVisible
-        case .hevcProxy1080p:
-            return $hevcProxyVisible
         case .audioUncompressedWAV:
             return $audioWAVVisible
         case .audioStereoAAC:

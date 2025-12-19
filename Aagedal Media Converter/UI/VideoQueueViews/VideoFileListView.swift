@@ -36,6 +36,12 @@ struct VideoFileListView: View {
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
     @State private var selection = Set<UUID>()
     @State private var focusedCommentID: UUID?
+    /// Flag to trigger scroll-to-selection only for keyboard navigation
+    @State private var shouldScrollToSelection = false
+
+    @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
+    @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
+    @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
 
     var body: some View {
         ZStack {
@@ -62,18 +68,27 @@ struct VideoFileListView: View {
             } else {
                 // File list
                 // Enable multi-selection of rows by index
-                List(selection: $selection) {
-                    ForEach(Array(droppedFiles.enumerated()), id: \.element.id) { index, _ in
-                        cardRow(for: index)
+                ScrollViewReader { proxy in
+                    List(selection: $selection) {
+                        ForEach(Array(droppedFiles.enumerated()), id: \.element.id) { index, file in
+                            cardRow(for: index)
+                                .id(file.id)
+                        }
+                        .onDelete(perform: onDelete)
+                        .onMove { indices, newOffset in
+                            droppedFiles.move(fromOffsets: indices, toOffset: newOffset)
+                        }
                     }
-                    .onDelete(perform: onDelete)
-                    .onMove { indices, newOffset in
-                        droppedFiles.move(fromOffsets: indices, toOffset: newOffset)
+                    .listStyle(PlainListStyle())
+                    .scrollContentBackground(.hidden) // matches new card background
+                    .background(Color.clear)
+                    .onChange(of: shouldScrollToSelection) { _, shouldScroll in
+                        // Scroll to the first selected item only when triggered by keyboard navigation
+                        guard shouldScroll, let firstSelectedID = selection.first else { return }
+                        proxy.scrollTo(firstSelectedID, anchor: .center)
+                        shouldScrollToSelection = false
                     }
                 }
-                .listStyle(PlainListStyle())
-                .scrollContentBackground(.hidden) // matches new card background
-                .background(Color.clear)
             }
             
             // Drag and drop overlay
@@ -106,7 +121,9 @@ struct VideoFileListView: View {
                     onMoveDown: { handleMoveSelection(direction: .down) },
                     onResetSelected: handleResetSelectedShortcut,
                     onDeselectAll: { selection.removeAll() },
-                    onToggleMute: handleToggleMuteShortcut
+                    onToggleMute: handleToggleMuteShortcut,
+                    onNavigateUp: { handleNavigateSelection(direction: .up) },
+                    onNavigateDown: { handleNavigateSelection(direction: .down) }
                 )
 
                 Button(action: deleteSelectedItems) {
@@ -242,6 +259,10 @@ struct VideoFileListView: View {
         }
 
         self.droppedFiles.append(placeholder)
+        // Auto-mute if VideoLoop preset is selected and setting is enabled
+        if preset == .videoLoop && videoLoopDefaultMuted {
+            droppedFiles[droppedFiles.count - 1].isMuted = true
+        }
         let placeholderID = placeholder.id
         print(" Added placeholder video item to list. Total items: \(self.droppedFiles.count)")
 
@@ -459,9 +480,9 @@ struct VideoFileListView: View {
         let selectedIndices = selection.compactMap { selectedID in
             droppedFiles.firstIndex(where: { $0.id == selectedID })
         }.sorted()
-        
+
         guard !selectedIndices.isEmpty else { return }
-        
+
         switch direction {
         case .up:
             // Can't move up if first item is selected and at index 0
@@ -480,19 +501,55 @@ struct VideoFileListView: View {
         case .down:
             // Can't move down if last item is selected and at last index
             guard selectedIndices.last != droppedFiles.count - 1 else { return }
-            
+
             // Move items down one by one from bottom to top
             for index in selectedIndices.reversed() {
                 let newIndex = index + 1
                 droppedFiles.swapAt(index, newIndex)
             }
-            
+
             // Update selection to new positions
             let newSelection = Set(selectedIndices.map { droppedFiles[$0 + 1].id })
             selection = newSelection
         }
+        shouldScrollToSelection = true
     }
-    
+
+    private func handleNavigateSelection(direction: MoveDirection) {
+        guard !droppedFiles.isEmpty else { return }
+
+        // If nothing is selected, select first/last item based on direction
+        if selection.isEmpty {
+            switch direction {
+            case .down:
+                selection = [droppedFiles.first!.id]
+            case .up:
+                selection = [droppedFiles.last!.id]
+            }
+            shouldScrollToSelection = true
+            return
+        }
+
+        // Get the current selection index (use first selected if multiple)
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard let currentIndex = selectedIndices.first else { return }
+
+        switch direction {
+        case .up:
+            // Move to previous item (wrap or stay at first)
+            let newIndex = max(0, currentIndex - 1)
+            selection = [droppedFiles[newIndex].id]
+        case .down:
+            // Move to next item (wrap or stay at last)
+            let newIndex = min(droppedFiles.count - 1, currentIndex + 1)
+            selection = [droppedFiles[newIndex].id]
+        }
+        shouldScrollToSelection = true
+    }
+
     // MARK: - Row Builder
     @ViewBuilder
     private func cardRow(for index: Int) -> some View {
@@ -526,7 +583,9 @@ struct VideoFileListView: View {
                 }
             },
             mergeClipsEnabled: mergeClipsEnabled,
-            mergeClipsAvailable: mergeClipsAvailable
+            mergeClipsAvailable: mergeClipsAvailable,
+            showCommentField: showCommentField,
+            showDateTagButton: showDateTagButton
         )
         .padding([.vertical], 4)
         .listRowSeparator(.hidden)
@@ -600,6 +659,9 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onResetSelected: () -> Void
     var onDeselectAll: () -> Void
     var onToggleMute: () -> Void
+    // Navigation shortcuts (plain arrow keys)
+    var onNavigateUp: () -> Void
+    var onNavigateDown: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -616,7 +678,9 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onMoveDown: onMoveDown,
             onResetSelected: onResetSelected,
             onDeselectAll: onDeselectAll,
-            onToggleMute: onToggleMute
+            onToggleMute: onToggleMute,
+            onNavigateUp: onNavigateUp,
+            onNavigateDown: onNavigateDown
         )
     }
 
@@ -642,6 +706,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onResetSelected = onResetSelected
         context.coordinator.onDeselectAll = onDeselectAll
         context.coordinator.onToggleMute = onToggleMute
+        context.coordinator.onNavigateUp = onNavigateUp
+        context.coordinator.onNavigateDown = onNavigateDown
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -663,6 +729,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onResetSelected: () -> Void
         var onDeselectAll: () -> Void
         var onToggleMute: () -> Void
+        var onNavigateUp: () -> Void
+        var onNavigateDown: () -> Void
         private var monitor: Any?
 
         init(
@@ -679,7 +747,9 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onMoveDown: @escaping () -> Void,
             onResetSelected: @escaping () -> Void,
             onDeselectAll: @escaping () -> Void,
-            onToggleMute: @escaping () -> Void
+            onToggleMute: @escaping () -> Void,
+            onNavigateUp: @escaping () -> Void,
+            onNavigateDown: @escaping () -> Void
         ) {
             self.onForward = onForward
             self.onBackward = onBackward
@@ -695,6 +765,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onResetSelected = onResetSelected
             self.onDeselectAll = onDeselectAll
             self.onToggleMute = onToggleMute
+            self.onNavigateUp = onNavigateUp
+            self.onNavigateDown = onNavigateDown
         }
 
         func install() {
@@ -791,6 +863,18 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // Ctrl+M: Toggle mute on selected items
                 if hasControl && !hasCommand && !hasOption && !hasShift && event.keyCode == kVK_ANSI_M {
                     self.onToggleMute()
+                    return nil
+                }
+
+                // Plain Up Arrow: Navigate selection up
+                if !hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_UpArrow {
+                    self.onNavigateUp()
+                    return nil
+                }
+
+                // Plain Down Arrow: Navigate selection down
+                if !hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_DownArrow {
+                    self.onNavigateDown()
                     return nil
                 }
 

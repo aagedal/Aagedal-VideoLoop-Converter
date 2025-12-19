@@ -10,6 +10,7 @@
 import SwiftUI
 import AppKit
 import OSLog
+import ImageIO
 
 struct TrimTimelineView: View {
     @Binding private var trimStart: Double
@@ -28,6 +29,10 @@ struct TrimTimelineView: View {
     let compactMode: Bool
     let onEditingChanged: (Bool) -> Void
     let onSeek: (Double) -> Void
+
+    // Cached images loaded in background
+    @State private var cachedThumbnailImages: [NSImage] = []
+    @State private var cachedWaveformImage: NSImage?
 
     private let filmstripHeight: CGFloat = 72
     private let waveformHeight: CGFloat = 36
@@ -271,6 +276,42 @@ private struct TrimHandlesInteractionLayer: View {
         }
         .frame(height: effectiveHeight)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .task(id: thumbnails) {
+            // Load filmstrip thumbnails in background
+            guard let thumbnails = thumbnails, !thumbnails.isEmpty else {
+                cachedThumbnailImages = []
+                return
+            }
+            let images = await Task.detached(priority: .utility) {
+                thumbnails.compactMap { url -> NSImage? in
+                    guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+                          let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
+                            kCGImageSourceShouldCache: false
+                          ] as CFDictionary) else {
+                        return NSImage(contentsOf: url)
+                    }
+                    return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                }
+            }.value
+            cachedThumbnailImages = images
+        }
+        .task(id: waveformURL) {
+            // Load waveform image in background
+            guard let url = waveformURL else {
+                cachedWaveformImage = nil
+                return
+            }
+            let image = await Task.detached(priority: .utility) { () -> NSImage? in
+                guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+                      let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
+                        kCGImageSourceShouldCache: false
+                      ] as CFDictionary) else {
+                    return NSImage(contentsOf: url)
+                }
+                return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            }.value
+            cachedWaveformImage = image
+        }
     }
 
     // MARK: - Sections
@@ -293,24 +334,22 @@ private struct TrimHandlesInteractionLayer: View {
 
     @ViewBuilder
     private func filmstripContent(width: CGFloat, height: CGFloat) -> some View {
-        if let thumbnails, !thumbnails.isEmpty {
+        if !cachedThumbnailImages.isEmpty {
+            // Use cached images loaded in background
             HStack(spacing: 0) {
-                ForEach(Array(thumbnails.enumerated()), id: \.0) { _, url in
-                    Group {
-                        if let image = NSImage(contentsOf: url) {
-                            Image(nsImage: image)
-                                .resizable()
-                                .scaledToFill()
-                        } else {
-                            placeholderOverlay(systemName: "film")
-                        }
-                    }
-                    .frame(width: width / CGFloat(thumbnails.count), height: height)
-                    .clipped()
+                ForEach(Array(cachedThumbnailImages.enumerated()), id: \.0) { _, image in
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: width / CGFloat(cachedThumbnailImages.count), height: height)
+                        .clipped()
                 }
             }
             .frame(width: width, height: height)
             .background(Color.black.opacity(0.25))
+        } else if let thumbnails, !thumbnails.isEmpty {
+            // Show placeholder while loading
+            placeholderSection(systemName: "film", text: "Loading thumbnails…")
         } else if !quickThumbnailImages.isEmpty {
             HStack(spacing: 0) {
                 ForEach(Array(quickThumbnailImages.enumerated()), id: \.0) { index, image in
@@ -330,17 +369,22 @@ private struct TrimHandlesInteractionLayer: View {
 
     @ViewBuilder
     private func waveformContent(width: CGFloat, height: CGFloat) -> some View {
-        if let waveformURL, let image = NSImage(contentsOf: waveformURL) {
+        if let image = cachedWaveformImage {
+            // Use cached image loaded in background
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: width, height: height)
                 .clipped()
                 .id(waveformURL) // Force redraw when URL changes
+        } else if waveformURL != nil {
+            // Show placeholder while loading
+            placeholderSection(
+                systemName: "waveform",
+                text: "Loading waveform…"
+            )
+            .frame(width: width, height: height)
         } else {
-            if let url = waveformURL {
-                let _ = Logger(subsystem: "com.aagedal.MediaConverter", category: "TrimTimeline").warning("Failed to load waveform image from: \(url.path)")
-            }
             placeholderSection(
                 systemName: "waveform",
                 text: isLoading ? "Generating waveform…" : "Waveform unavailable"

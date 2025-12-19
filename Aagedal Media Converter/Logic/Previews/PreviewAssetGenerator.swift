@@ -52,9 +52,9 @@ actor PreviewAssetGenerator {
     private let thumbnailCount = 6
     private let waveformSize = "1000x90"
     private let rowThumbnailSize = "640:-1"  // 640px width for row thumbnail
-    private let waveformFilename = "waveform.jpg"
+    private let waveformFilename = "waveform.png"
     private let legacyWaveformFilename = "waveform.png"
-    private func waveformFilename(for streamIndex: Int) -> String { "waveform_a\(streamIndex).jpg" }
+    private func waveformFilename(for streamIndex: Int) -> String { "waveform_a\(streamIndex).png" }
 
     /// Clears the entire preview cache directory.
     func cleanupAllCache() async {
@@ -128,31 +128,48 @@ actor PreviewAssetGenerator {
     func cachedAssetsIfPresent(for url: URL) async -> PreviewAssets? {
         do {
             let assetDirectory = try ensureAssetDirectory(for: url)
-            let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.jpg", isDirectory: false)
-            let thumbnails = (0..<thumbnailCount).map { assetDirectory.appendingPathComponent("thumb_\($0).jpg", isDirectory: false) }
+
+            // Check for row thumbnail (prefer .png, fallback to legacy .jpg)
+            let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.png", isDirectory: false)
+            let legacyRowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.jpg", isDirectory: false)
+            let rowURL: URL? = fileManager.fileExists(atPath: rowThumbnailURL.path) ? rowThumbnailURL :
+                               (fileManager.fileExists(atPath: legacyRowThumbnailURL.path) ? legacyRowThumbnailURL : nil)
+
+            // Check for filmstrip thumbnails (prefer .png, fallback to legacy .jpg)
+            let thumbnailURLs: [URL] = (0..<thumbnailCount).compactMap { index in
+                let pngURL = assetDirectory.appendingPathComponent("thumb_\(index).png", isDirectory: false)
+                let jpgURL = assetDirectory.appendingPathComponent("thumb_\(index).jpg", isDirectory: false)
+                if fileManager.fileExists(atPath: pngURL.path) { return pngURL }
+                if fileManager.fileExists(atPath: jpgURL.path) { return jpgURL }
+                return nil
+            }
+
             let waveformURL = assetDirectory.appendingPathComponent(waveformFilename, isDirectory: false)
             let legacyWaveformURL = assetDirectory.appendingPathComponent(legacyWaveformFilename, isDirectory: false)
-
-            let rowExists = fileManager.fileExists(atPath: rowThumbnailURL.path)
-            let thumbnailURLs = thumbnails.filter { fileManager.fileExists(atPath: $0.path) }
-            let waveform = [waveformURL, legacyWaveformURL].first { fileManager.fileExists(atPath: $0.path) }
+            // Also check for legacy .jpg waveforms
+            let legacyJpgWaveformURL = assetDirectory.appendingPathComponent("waveform.jpg", isDirectory: false)
+            let waveform = [waveformURL, legacyWaveformURL, legacyJpgWaveformURL].first { fileManager.fileExists(atPath: $0.path) }
 
             var audioWaveforms: [Int: URL] = [:]
             if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
                 metadata.audioStreams.enumerated().forEach { index, _ in
-                    let custom = assetDirectory.appendingPathComponent(waveformFilename(for: index), isDirectory: false)
-                    if fileManager.fileExists(atPath: custom.path) {
-                        audioWaveforms[index] = custom
+                    // Check for .png first, then legacy .jpg
+                    let pngURL = assetDirectory.appendingPathComponent("waveform_a\(index).png", isDirectory: false)
+                    let jpgURL = assetDirectory.appendingPathComponent("waveform_a\(index).jpg", isDirectory: false)
+                    if fileManager.fileExists(atPath: pngURL.path) {
+                        audioWaveforms[index] = pngURL
+                    } else if fileManager.fileExists(atPath: jpgURL.path) {
+                        audioWaveforms[index] = jpgURL
                     }
                 }
             }
 
-            if !rowExists && thumbnailURLs.isEmpty && waveform == nil && audioWaveforms.isEmpty {
+            if rowURL == nil && thumbnailURLs.isEmpty && waveform == nil && audioWaveforms.isEmpty {
                 return nil
             }
 
             return PreviewAssets(
-                rowThumbnail: rowExists ? rowThumbnailURL : nil,
+                rowThumbnail: rowURL,
                 thumbnails: thumbnailURLs,
                 waveform: waveform,
                 audioWaveforms: audioWaveforms
@@ -252,9 +269,9 @@ actor PreviewAssetGenerator {
 
         let assetDirectory = try ensureAssetDirectory(for: url)
         logger.info("Asset directory: \(assetDirectory.path, privacy: .public)")
-        let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.jpg", isDirectory: false)
+        let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.png", isDirectory: false)
         let expectedThumbnailURLs = (0..<thumbnailCount).map { index in
-            assetDirectory.appendingPathComponent("thumb_\(index).jpg", isDirectory: false)
+            assetDirectory.appendingPathComponent("thumb_\(index).png", isDirectory: false)
         }
         let waveformURL = assetDirectory.appendingPathComponent(waveformFilename, isDirectory: false)
         let legacyWaveformURL = assetDirectory.appendingPathComponent(legacyWaveformFilename, isDirectory: false)
@@ -416,11 +433,16 @@ actor PreviewAssetGenerator {
         }
 
         let assetDirectory = try ensureAssetDirectory(for: url)
-        let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.jpg", isDirectory: false)
+        let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.png", isDirectory: false)
 
+        // Also check for legacy .jpg format
+        let legacyRowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.jpg", isDirectory: false)
         if fileManager.fileExists(atPath: rowThumbnailURL.path) {
             logger.info("Row thumbnail already cached")
             return try? Data(contentsOf: rowThumbnailURL)
+        } else if fileManager.fileExists(atPath: legacyRowThumbnailURL.path) {
+            logger.info("Legacy row thumbnail found")
+            return try? Data(contentsOf: legacyRowThumbnailURL)
         }
 
         let hasVideoStream = await hasVideoStream(for: url)

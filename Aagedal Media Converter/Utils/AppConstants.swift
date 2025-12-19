@@ -285,19 +285,25 @@ enum AppConstants {
     static let streamCopyContainerKey = "streamCopyContainer"
     static let defaultStreamCopyContainer = "Keep Current"
 
+    // Proxy preset settings
+    static let proxyCodecKey = "proxyCodec"
+    static let defaultProxyCodec = "HEVC"
+    static let proxyResolutionLimitKey = "proxyResolutionLimit"
+    static let defaultProxyResolutionLimit = "1080p"
+
     // VideoLoop mute settings
     static let videoLoopDefaultMutedKey = "videoLoopDefaultMuted"
     static let defaultVideoLoopMuted = true
 
     // Built-in preset visibility keys (all visible by default)
     static let videoLoopVisibleKey = "videoLoopVisible"
-    static let videoLoopWithAudioVisibleKey = "videoLoopWithAudioVisible"
+    static let videoLoopWithSoundVisibleKey = "videoLoopWithSoundVisible"
+    static let animatedStillVisibleKey = "animatedStillVisible"
     static let tvHEVCVisibleKey = "tvHEVCVisible"
     static let tvAVCIntraVisibleKey = "tvAVCIntraVisible"
     static let proresVisibleKey = "proresVisible"
+    static let proxyVisibleKey = "proxyVisible"
     static let streamCopyVisibleKey = "streamCopyVisible"
-    static let animatedStillVisibleKey = "animatedStillVisible"
-    static let hevcProxyVisibleKey = "hevcProxyVisible"
     static let audioWAVVisibleKey = "audioWAVVisible"
     static let audioAACVisibleKey = "audioAACVisible"
 

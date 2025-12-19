@@ -8,6 +8,7 @@ import Foundation
 import AppKit
 import AVKit
 import OSLog
+import ImageIO
 
 /// Screenshot format options for still image capture
 enum ScreenshotFormat: String, CaseIterable, Identifiable, Codable {
@@ -417,11 +418,22 @@ extension PreviewPlayerController {
         
         let ffmpegURL = URL(fileURLWithPath: ffmpegPath)
         try await runFFmpegCapture(executable: ffmpegURL, arguments: arguments)
-        
-        guard let image = NSImage(contentsOf: tempURL) else {
+
+        // Load image in background using CGImageSource to avoid Apple bug rdar://143602439
+        let loadedImage = await Task.detached(priority: .userInitiated) { () -> NSImage? in
+            guard let imageSource = CGImageSourceCreateWithURL(tempURL as CFURL, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
+                    kCGImageSourceShouldCache: false
+                  ] as CFDictionary) else {
+                return NSImage(contentsOf: tempURL)
+            }
+            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        }.value
+
+        guard let image = loadedImage else {
             throw ScreenshotError.conversionFailed("Could not load generated image")
         }
-        
+
         return image
     }
     
