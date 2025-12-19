@@ -268,6 +268,50 @@ struct TimecodeView: View {
             // Auto-correct on dismiss as safety net
             autoCorrectTimecode()
         }
+        // Hidden buttons for keyboard shortcuts (CMD+1, CMD+2, CMD+3)
+        .background {
+            Group {
+                Button("") {
+                    selectedMode = .preserveSource
+                }
+                .keyboardShortcut("1", modifiers: .command)
+
+                Button("") {
+                    selectedMode = .manual
+                    // Focus the text field when switching to manual mode
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isTextFieldFocused = true
+                    }
+                }
+                .keyboardShortcut("2", modifiers: .command)
+
+                Button("") {
+                    selectedMode = .disabled
+                }
+                .keyboardShortcut("3", modifiers: .command)
+            }
+            .opacity(0)
+            .allowsHitTesting(false)
+        }
+        // Handle number key presses to start typing in manual mode
+        .onKeyPress(characters: .decimalDigits) { press in
+            if selectedMode == .manual {
+                // Already in manual mode with focus - let the text field handle it
+                if isTextFieldFocused {
+                    return .ignored
+                }
+                // Focus and insert the character
+                isTextFieldFocused = true
+                return .ignored
+            } else {
+                // Switch to manual mode and focus
+                selectedMode = .manual
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isTextFieldFocused = true
+                }
+                return .handled
+            }
+        }
     }
 
     private func initializeFromConfig() {

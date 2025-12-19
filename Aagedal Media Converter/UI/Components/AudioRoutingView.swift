@@ -113,12 +113,23 @@ struct AudioRoutingView: View {
         .onAppear {
             updateValidation()
         }
-        // Hidden button for Ctrl+M mute toggle shortcut
+        // Hidden buttons for keyboard shortcuts
         .background(
-            Button("") {
-                item.isMuted.toggle()
+            Group {
+                // Ctrl+M mute toggle shortcut
+                Button("") {
+                    item.isMuted.toggle()
+                }
+                .keyboardShortcut("m", modifiers: .control)
+
+                // CMD+1...8 track toggle shortcuts
+                ForEach(1...8, id: \.self) { trackNum in
+                    Button("") {
+                        toggleTrack(trackNumber: trackNum)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character("\(trackNum)")), modifiers: .command)
+                }
             }
-            .keyboardShortcut("m", modifiers: .control)
             .opacity(0)
             .frame(width: 0, height: 0)
         )
@@ -592,7 +603,31 @@ struct AudioRoutingView: View {
     }
     
     // MARK: - Helpers
-    
+
+    /// Toggle a track in/out of the output by its 1-based track number (CMD+1...8)
+    private func toggleTrack(trackNumber: Int) {
+        // Find track with this track number (1-based)
+        // streamIndex is 0-based, so track 1 = streamIndex 0
+        let streamIndex = trackNumber - 1
+
+        guard streamIndex >= 0 && streamIndex < config.inputTracks.count else {
+            return
+        }
+
+        // Don't allow toggling when muted
+        guard !item.isMuted else { return }
+
+        withAnimation {
+            var updatedConfig = config
+            if config.outputTrackIndices.contains(streamIndex) {
+                updatedConfig.removeTrack(streamIndex)
+            } else {
+                updatedConfig.addTrack(streamIndex)
+            }
+            configBinding.wrappedValue = updatedConfig
+        }
+    }
+
     private func channelIcon(for channels: Int?) -> String {
         guard let channels else { return "waveform" }
         switch channels {
