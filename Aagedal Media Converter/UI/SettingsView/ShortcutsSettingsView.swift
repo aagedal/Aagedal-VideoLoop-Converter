@@ -69,15 +69,36 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "K", description: "Toggle playback"),
                     ShortcutItem(keys: "L", description: "Fast forward"),
                     ShortcutItem(keys: "C", description: "Toggle crop controls"),
+                    ShortcutItem(keys: "T", description: "Toggle timecode display mode"),
                     ShortcutItem(keys: "Cmd + L", description: "Toggle loop playback"),
                     ShortcutItem(keys: "Cmd + A", description: "Toggle audio meter"),
+                    ShortcutItem(keys: "Cmd + S", description: "Capture screenshot"),
+                    ShortcutItem(keys: "Cmd + F", description: "Toggle fullscreen"),
                     ShortcutItem(keys: "0-9, +, -, ., :, ;", description: "Activate timecode input"),
                     ShortcutItem(keys: "Escape", description: "Close editor"),
                 ])
+
+                // Timeline Modifier Gestures
+                ShortcutSection(title: "Timeline Gestures (hold while dragging)", shortcuts: [
+                    ShortcutItem(keys: "Cmd", description: "Range selection: click and drag to set in/out points"),
+                    ShortcutItem(keys: "Shift", description: "Range sliding: drag to move entire trim range"),
+                    ShortcutItem(keys: "Option", description: "Symmetric scaling: drag handle to move both symmetrically"),
+                ])
                 
-                // Sub-view Shortcuts
-                ShortcutSection(title: "Dialog Views", shortcuts: [
-                    ShortcutItem(keys: "Escape", description: "Close Timecode/Audio Routing/Metadata view/Full screen player"),
+                // Timecode Configuration Shortcuts
+                ShortcutSection(title: "Timecode Configuration", shortcuts: [
+                    ShortcutItem(keys: "Cmd + 1", description: "Select 'Preserve Source' mode"),
+                    ShortcutItem(keys: "Cmd + 2", description: "Select 'Manual Override' mode"),
+                    ShortcutItem(keys: "Cmd + 3", description: "Select 'Disable' mode"),
+                    ShortcutItem(keys: "0-9", description: "Switch to manual mode and start typing"),
+                    ShortcutItem(keys: "Escape", description: "Close timecode configuration"),
+                ])
+
+                // Audio Routing Shortcuts
+                ShortcutSection(title: "Audio Routing", shortcuts: [
+                    ShortcutItem(keys: "Cmd + 1-8", description: "Toggle source audio track 1-8 in/out of output"),
+                    ShortcutItem(keys: "Ctrl + M", description: "Toggle mute audio"),
+                    ShortcutItem(keys: "Escape", description: "Close audio routing"),
                 ])
             }
             .padding()
