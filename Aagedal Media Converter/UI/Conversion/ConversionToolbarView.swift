@@ -27,27 +27,20 @@ struct ConversionToolbarView: ToolbarContent {
     let displayName: (ExportPreset) -> String
     @Binding var mergeClipsEnabled: Bool
     let mergeClipsAvailable: Bool
-    let onToggleConversion: () -> Void
+    let onToggleConversion: (_ optionKeyPressed: Bool) -> Void
     let onImport: () -> Void
-    let onSelectOutputFolder: () -> Void
     let onResetAll: (_ optionKeyPressed: Bool) -> Void
     let hasResettableItems: Bool
     let onClear: () -> Void
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .automatic) {
-            Button(action: onToggleConversion) {
-                if isConverting {
-                    Image(systemName: "xmark.circle")
-                        .foregroundStyle(.red)
-                } else {
-                    Image(systemName: "play.circle")
-                        .foregroundStyle((!hasFiles || !canStartConversion) ? .gray : .green)
-                }
-            }
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!hasFiles || (!canStartConversion && !isConverting))
-            .help(hasFiles ? (isConverting ? "Cancel all conversions" : (canStartConversion ? "Start converting all files" : "No files ready to convert")) : "Add files to begin conversion")
+            ConversionPlayButton(
+                isConverting: isConverting,
+                canStartConversion: canStartConversion,
+                hasFiles: hasFiles,
+                onToggleConversion: onToggleConversion
+            )
         }
         ToolbarItem(placement: .automatic) {
             Toggle(isOn: $mergeClipsEnabled) {
@@ -73,15 +66,6 @@ struct ConversionToolbarView: ToolbarContent {
             }
             .help("Import video files")
             .keyboardShortcut("i", modifiers: .command)
-        }
-
-        ToolbarItem(placement: .automatic) {
-            Button(action: onSelectOutputFolder) {
-                Label("Output", systemImage: "folder.badge.gearshape")
-                    .foregroundColor(.accentColor)
-            }
-            .help("Select output folder")
-            .keyboardShortcut("o", modifiers: .command)
         }
 
         ToolbarItem(placement: .automatic) {
@@ -126,6 +110,92 @@ struct ConversionToolbarView: ToolbarContent {
             .buttonStyle(.plain)
             .help("Application Settings")
             .padding(.horizontal, 8)
+        }
+    }
+}
+
+// MARK: - Play/Stop Button with Option Key Support
+
+private struct ConversionPlayButton: View {
+    let isConverting: Bool
+    let canStartConversion: Bool
+    let hasFiles: Bool
+    let onToggleConversion: (_ optionKeyPressed: Bool) -> Void
+
+    var body: some View {
+        ConversionPlayButtonNSViewWrapper(
+            isConverting: isConverting,
+            canStartConversion: canStartConversion,
+            hasFiles: hasFiles,
+            onToggleConversion: onToggleConversion
+        )
+    }
+}
+
+private struct ConversionPlayButtonNSViewWrapper: NSViewRepresentable {
+    let isConverting: Bool
+    let canStartConversion: Bool
+    let hasFiles: Bool
+    let onToggleConversion: (_ optionKeyPressed: Bool) -> Void
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.bezelStyle = .regularSquare
+        button.isBordered = true
+        button.imagePosition = .imageOnly
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.buttonClicked(_:))
+
+        // Set initial state
+        configureButton(button)
+
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        configureButton(nsView)
+        context.coordinator.onToggleConversion = onToggleConversion
+    }
+
+    private func configureButton(_ button: NSButton) {
+        // Update icon and color based on state
+        if isConverting {
+            button.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "Cancel Conversion")
+            button.contentTintColor = .systemRed
+        } else {
+            button.image = NSImage(systemSymbolName: "play.circle", accessibilityDescription: "Start Conversion")
+            button.contentTintColor = (!hasFiles || !canStartConversion) ? .systemGray : .systemGreen
+        }
+
+        // Update enabled state
+        button.isEnabled = hasFiles && (canStartConversion || isConverting)
+
+        // Update tooltip
+        if !hasFiles {
+            button.toolTip = "Add files to begin conversion"
+        } else if isConverting {
+            button.toolTip = "Cancel all conversions"
+        } else if canStartConversion {
+            button.toolTip = "Start converting all files. Hold Option to select output folder first."
+        } else {
+            button.toolTip = "No files ready to convert"
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onToggleConversion: onToggleConversion)
+    }
+
+    class Coordinator: NSObject {
+        var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
+
+        init(onToggleConversion: @escaping (_ optionKeyPressed: Bool) -> Void) {
+            self.onToggleConversion = onToggleConversion
+        }
+
+        @objc func buttonClicked(_ sender: NSButton) {
+            let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+            onToggleConversion(optionKeyPressed)
         }
     }
 }

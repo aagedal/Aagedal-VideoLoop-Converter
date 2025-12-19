@@ -227,11 +227,47 @@ struct VideoFileUtils: Sendable {
     }
 
     private static func makeOutputURL(for url: URL, outputFolder: String?, preset: ExportPreset) -> URL? {
-        guard let outputFolder else { return nil }
+        let resolvedOutputFolder = resolveOutputFolder(for: url, defaultOutputFolder: outputFolder, preset: preset)
+        guard let resolvedOutputFolder else { return nil }
         let sanitizedBaseName = FileNameProcessor.processFileName(url.deletingPathExtension().lastPathComponent)
         let resolvedExtension = preset.outputExtension(for: url)
         let outputFileName = sanitizedBaseName + preset.fileSuffix + "." + resolvedExtension
-        return URL(fileURLWithPath: outputFolder).appendingPathComponent(outputFileName)
+        return URL(fileURLWithPath: resolvedOutputFolder).appendingPathComponent(outputFileName)
+    }
+
+    /// Resolves the output folder based on user preferences.
+    /// If "save next to original" is enabled, returns the source file's directory (with optional subfolder).
+    /// Otherwise, returns the default output folder.
+    static func resolveOutputFolder(for sourceURL: URL, defaultOutputFolder: String?, preset: ExportPreset) -> String? {
+        let saveNextToOriginal = UserDefaults.standard.bool(forKey: AppConstants.saveNextToOriginalKey)
+
+        if saveNextToOriginal {
+            var outputDirectory = sourceURL.deletingLastPathComponent()
+
+            let useSubfolder = UserDefaults.standard.bool(forKey: AppConstants.saveNextToOriginalSubfolderKey)
+            if useSubfolder {
+                let subfolderMode = UserDefaults.standard.string(forKey: AppConstants.saveNextToOriginalSubfolderModeKey)
+                    ?? AppConstants.defaultSaveNextToOriginalSubfolderMode
+
+                let subfolderName: String
+                if subfolderMode == "presetSuffix" {
+                    // Use the preset's file suffix without the leading underscore
+                    subfolderName = String(preset.fileSuffix.dropFirst(preset.fileSuffix.hasPrefix("_") ? 1 : 0))
+                } else {
+                    // Use custom folder name
+                    subfolderName = UserDefaults.standard.string(forKey: AppConstants.saveNextToOriginalSubfolderNameKey)
+                        ?? AppConstants.defaultSaveNextToOriginalSubfolderName
+                }
+
+                if !subfolderName.isEmpty {
+                    outputDirectory = outputDirectory.appendingPathComponent(subfolderName)
+                }
+            }
+
+            return outputDirectory.path
+        } else {
+            return defaultOutputFolder
+        }
     }
     
     /// Fetches metadata for a video item in the background

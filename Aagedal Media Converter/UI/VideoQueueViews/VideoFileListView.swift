@@ -42,6 +42,11 @@ struct VideoFileListView: View {
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
     @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
+    @AppStorage(AppConstants.queueViewModeKey) private var queueViewMode = AppConstants.defaultQueueViewMode
+
+    private var isCompactMode: Bool { queueViewMode == "compact" }
+
+    @State private var currentTip: LocalizedStringKey = RandomTips.randomTip()
 
     var body: some View {
         ZStack {
@@ -52,6 +57,7 @@ struct VideoFileListView: View {
                         .font(.system(size: 40))
                         .foregroundColor(.secondary)
                         .padding()
+                        .padding(.top, 36)
                     Text("Drag and drop video files here")
                         .font(.title2)
                         .foregroundColor(.secondary)
@@ -59,6 +65,18 @@ struct VideoFileListView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .padding(.top, 4)
+                        .padding(.bottom, 24)
+
+                    VStack {
+                        Text(currentTip)
+                            .font(.callout)
+                            .foregroundColor(.secondary.opacity(0.8))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                            .padding(.top, 12)
+                        Spacer()
+                    }.frame(height: 86)
+
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.windowBackgroundColor))
@@ -132,6 +150,12 @@ struct VideoFileListView: View {
                 .keyboardShortcut(.delete, modifiers: [.command])
                 .frame(width: 0, height: 0)
                 .opacity(0)
+            }
+        }
+        .onChange(of: droppedFiles.isEmpty) { wasEmpty, isEmpty in
+            // Show a new random tip when the queue becomes empty
+            if !wasEmpty && isEmpty {
+                currentTip = RandomTips.randomTip()
             }
         }
     }
@@ -585,7 +609,8 @@ struct VideoFileListView: View {
             mergeClipsEnabled: mergeClipsEnabled,
             mergeClipsAvailable: mergeClipsAvailable,
             showCommentField: showCommentField,
-            showDateTagButton: showDateTagButton
+            showDateTagButton: showDateTagButton,
+            isCompactMode: isCompactMode
         )
         .padding([.vertical], 4)
         .listRowSeparator(.hidden)
