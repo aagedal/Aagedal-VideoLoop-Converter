@@ -19,6 +19,8 @@ struct GeneralSettingsView: View {
     @AppStorage(AppConstants.screenshotAlphaHandlingKey) private var screenshotAlphaHandling = AppConstants.defaultScreenshotAlphaHandling
     @AppStorage(AppConstants.resetClearsSettingsKey) private var resetClearsSettings = AppConstants.defaultResetClearsSettings
     @AppStorage(AppConstants.queueViewModeKey) private var queueViewMode = AppConstants.defaultQueueViewMode
+    @AppStorage(AppConstants.playSoundOnSuccessKey) private var playSoundOnSuccess = AppConstants.defaultPlaySoundOnSuccess
+    @AppStorage(AppConstants.playSoundOnErrorKey) private var playSoundOnError = AppConstants.defaultPlaySoundOnError
 
     @State private var isClearingPreviewCache = false
     @State private var previewCacheSizeBytes: Int64 = 0
@@ -28,6 +30,7 @@ struct GeneralSettingsView: View {
             outputFolderSection
             fileNameSection
             queueDisplaySection
+            soundSection
             resetBehaviorSection
             screenshotSection
             previewCacheSection
@@ -161,6 +164,18 @@ struct GeneralSettingsView: View {
                     .font(Font.caption.italic())
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(8)
+        }
+    }
+
+    private var soundSection: some View {
+        Section(header: Text("Sounds")) {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("Play sound when encoding completes", isOn: $playSoundOnSuccess)
+                    .toggleStyle(SwitchToggleStyle())
+                Toggle("Play sound when an error occurs", isOn: $playSoundOnError)
+                    .toggleStyle(SwitchToggleStyle())
             }
             .padding(8)
         }

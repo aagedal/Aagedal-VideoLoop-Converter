@@ -34,6 +34,11 @@ struct TrimTimelineView: View {
     @State private var cachedThumbnailImages: [NSImage] = []
     @State private var cachedWaveformImage: NSImage?
 
+    // Key tracking for range selection (Cmd), range sliding (Shift), and symmetric scaling (Option)
+    @State private var isCommandKeyPressed: Bool = false
+    @State private var isShiftKeyPressed: Bool = false
+    @State private var isOptionKeyPressed: Bool = false
+
     private let filmstripHeight: CGFloat = 72
     private let waveformHeight: CGFloat = 36
     private let combinedHeight: CGFloat = 108
@@ -81,6 +86,7 @@ private struct TrimHandlesInteractionLayer: View {
     @Binding var trimEnd: Double
     let duration: Double
     let step: Double
+    let isSymmetricScalingActive: Bool
     let onEditingChanged: (Bool) -> Void
 
     private let handleWidth: CGFloat = 12  // Reduced from 16 for thinner handles
@@ -89,6 +95,10 @@ private struct TrimHandlesInteractionLayer: View {
     @State private var endInitialValue: Double?
     @State private var isDraggingStart = false
     @State private var isDraggingEnd = false
+
+    // For symmetric scaling, we need to store both initial values
+    @State private var symmetricInitialStart: Double?
+    @State private var symmetricInitialEnd: Double?
 
     var body: some View {
         GeometryReader { geometry in
@@ -141,18 +151,48 @@ private struct TrimHandlesInteractionLayer: View {
                 if !isDraggingStart {
                     isDraggingStart = true
                     startInitialValue = trimStart
+                    symmetricInitialStart = trimStart
+                    symmetricInitialEnd = trimEnd
                     onEditingChanged(true)
                 }
 
                 let baseValue = startInitialValue ?? trimStart
-                let proposed = baseValue + delta(for: value.translation.width, width: width)
+                let deltaValue = delta(for: value.translation.width, width: width)
+                let proposed = baseValue + deltaValue
                 let snapped = snap(proposed)
-                trimStart = clampStart(snapped)
+
+                if isSymmetricScalingActive {
+                    // Symmetric scaling: move end handle in opposite direction
+                    let initialStart = symmetricInitialStart ?? trimStart
+                    let initialEnd = symmetricInitialEnd ?? trimEnd
+
+                    var newStart = snap(initialStart + deltaValue)
+                    var newEnd = snap(initialEnd - deltaValue)
+
+                    // Clamp to valid bounds
+                    newStart = max(0, newStart)
+                    newEnd = min(duration, newEnd)
+
+                    // Ensure they don't cross
+                    let minGap = max(step, 0.0001)
+                    if newStart >= newEnd - minGap {
+                        let midpoint = (initialStart + initialEnd) / 2
+                        newStart = midpoint - minGap / 2
+                        newEnd = midpoint + minGap / 2
+                    }
+
+                    trimStart = newStart
+                    trimEnd = newEnd
+                } else {
+                    trimStart = clampStart(snapped)
+                }
             }
             .onEnded { _ in
                 if isDraggingStart {
                     isDraggingStart = false
                     startInitialValue = nil
+                    symmetricInitialStart = nil
+                    symmetricInitialEnd = nil
                     onEditingChanged(false)
                 }
             }
@@ -165,18 +205,48 @@ private struct TrimHandlesInteractionLayer: View {
                 if !isDraggingEnd {
                     isDraggingEnd = true
                     endInitialValue = trimEnd
+                    symmetricInitialStart = trimStart
+                    symmetricInitialEnd = trimEnd
                     onEditingChanged(true)
                 }
 
                 let baseValue = endInitialValue ?? trimEnd
-                let proposed = baseValue + delta(for: value.translation.width, width: width)
+                let deltaValue = delta(for: value.translation.width, width: width)
+                let proposed = baseValue + deltaValue
                 let snapped = snap(proposed)
-                trimEnd = clampEnd(snapped)
+
+                if isSymmetricScalingActive {
+                    // Symmetric scaling: move start handle in opposite direction
+                    let initialStart = symmetricInitialStart ?? trimStart
+                    let initialEnd = symmetricInitialEnd ?? trimEnd
+
+                    var newStart = snap(initialStart - deltaValue)
+                    var newEnd = snap(initialEnd + deltaValue)
+
+                    // Clamp to valid bounds
+                    newStart = max(0, newStart)
+                    newEnd = min(duration, newEnd)
+
+                    // Ensure they don't cross
+                    let minGap = max(step, 0.0001)
+                    if newStart >= newEnd - minGap {
+                        let midpoint = (initialStart + initialEnd) / 2
+                        newStart = midpoint - minGap / 2
+                        newEnd = midpoint + minGap / 2
+                    }
+
+                    trimStart = newStart
+                    trimEnd = newEnd
+                } else {
+                    trimEnd = clampEnd(snapped)
+                }
             }
             .onEnded { _ in
                 if isDraggingEnd {
                     isDraggingEnd = false
                     endInitialValue = nil
+                    symmetricInitialStart = nil
+                    symmetricInitialEnd = nil
                     onEditingChanged(false)
                 }
             }
@@ -260,8 +330,12 @@ private struct TrimHandlesInteractionLayer: View {
                 // Scrubbing layer (behind handles)
                 TimelineScrubLayer(
                     duration: duration,
-                    trimStart: trimStart,
-                    trimEnd: trimEnd,
+                    trimStart: $trimStart,
+                    trimEnd: $trimEnd,
+                    step: step,
+                    isRangeSelectionActive: isCommandKeyPressed,
+                    isRangeSlidingActive: isShiftKeyPressed,
+                    onEditingChanged: onEditingChanged,
                     onSeek: onSeek
                 )
 
@@ -270,12 +344,14 @@ private struct TrimHandlesInteractionLayer: View {
                     trimEnd: $trimEnd,
                     duration: duration,
                     step: step,
+                    isSymmetricScalingActive: isOptionKeyPressed,
                     onEditingChanged: onEditingChanged
                 )
             }
         }
         .frame(height: effectiveHeight)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(TimelineKeyTrackerView(isCommandKeyPressed: $isCommandKeyPressed, isShiftKeyPressed: $isShiftKeyPressed, isOptionKeyPressed: $isOptionKeyPressed))
         .task(id: thumbnails) {
             // Load filmstrip thumbnails in background
             guard let thumbnails = thumbnails, !thumbnails.isEmpty else {
@@ -481,15 +557,27 @@ private struct TrimTimelineOverlay: View {
 
 private struct TimelineScrubLayer: View {
     let duration: Double
-    let trimStart: Double
-    let trimEnd: Double
+    @Binding var trimStart: Double
+    @Binding var trimEnd: Double
+    let step: Double
+    let isRangeSelectionActive: Bool
+    let isRangeSlidingActive: Bool
+    let onEditingChanged: (Bool) -> Void
     let onSeek: (Double) -> Void
 
     private let handleWidth: CGFloat = 12  // Matches handle visual width
     private let handleMargin: CGFloat = 6  // Increased margin to compensate for thinner handle
-    
+
     @State private var isScrubbing = false
-    
+    @State private var isRangeSelecting = false
+    @State private var rangeStartTime: Double?
+
+    // Range sliding state
+    @State private var isRangeSliding = false
+    @State private var slideInitialTrimStart: Double?
+    @State private var slideInitialTrimEnd: Double?
+    @State private var slideInitialClickTime: Double?
+
     var body: some View {
         GeometryReader { geometry in
             Rectangle()
@@ -499,42 +587,150 @@ private struct TimelineScrubLayer: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             guard duration > 0 else { return }
-                            
-                            // Check if click is near a handle - if so, don't scrub
+
                             let width = geometry.size.width
+                            let clickX = value.location.x
+                            let clickTime = timeForPosition(clickX, width: width)
+
+                            // Range selection mode when R is held
+                            if isRangeSelectionActive {
+                                if !isRangeSelecting {
+                                    // Start of range selection - set in-point
+                                    isRangeSelecting = true
+                                    onEditingChanged(true)
+                                    let snapped = snap(clickTime)
+                                    rangeStartTime = snapped
+                                    trimStart = max(0, snapped)
+                                    onSeek(trimStart)
+                                } else {
+                                    // During range selection - update out-point preview
+                                    let snapped = snap(clickTime)
+                                    // Temporarily update end to show visual feedback
+                                    let start = rangeStartTime ?? trimStart
+                                    if snapped >= start {
+                                        trimEnd = min(duration, snapped)
+                                    } else {
+                                        // Dragging before start - swap preview
+                                        trimStart = max(0, snapped)
+                                        trimEnd = min(duration, start)
+                                    }
+                                    onSeek(snapped)
+                                }
+                                return
+                            }
+
+                            // Check handle proximity for scrubbing
                             let startX = position(for: trimStart, width: width)
                             let endX = position(for: trimEnd, width: width)
-                            let clickX = value.location.x
-                            
                             let nearStartHandle = abs(clickX - startX) < (handleWidth / 2 + handleMargin)
                             let nearEndHandle = abs(clickX - endX) < (handleWidth / 2 + handleMargin)
-                            
+
+                            // Range sliding mode when Shift is held and click is between trim points
+                            if isRangeSlidingActive && !nearStartHandle && !nearEndHandle {
+                                let isBetweenTrimPoints = clickTime > trimStart && clickTime < trimEnd
+
+                                if !isRangeSliding && isBetweenTrimPoints {
+                                    // Start of range sliding
+                                    isRangeSliding = true
+                                    onEditingChanged(true)
+                                    slideInitialTrimStart = trimStart
+                                    slideInitialTrimEnd = trimEnd
+                                    slideInitialClickTime = clickTime
+                                } else if isRangeSliding {
+                                    // During range sliding - move both points by the same delta
+                                    guard let initialStart = slideInitialTrimStart,
+                                          let initialEnd = slideInitialTrimEnd,
+                                          let initialClick = slideInitialClickTime else { return }
+
+                                    let delta = clickTime - initialClick
+                                    let rangeDuration = initialEnd - initialStart
+
+                                    // Calculate new positions
+                                    var newStart = initialStart + delta
+                                    var newEnd = initialEnd + delta
+
+                                    // Clamp to valid bounds
+                                    if newStart < 0 {
+                                        newStart = 0
+                                        newEnd = rangeDuration
+                                    }
+                                    if newEnd > duration {
+                                        newEnd = duration
+                                        newStart = duration - rangeDuration
+                                    }
+
+                                    // Snap to grid
+                                    trimStart = snap(max(0, newStart))
+                                    trimEnd = snap(min(duration, newEnd))
+
+                                    // Seek to current position within the range
+                                    onSeek(clickTime)
+                                }
+                                return
+                            }
+
+                            // Normal scrubbing mode - skip if near handles
                             if nearStartHandle || nearEndHandle {
                                 return
                             }
-                            
+
                             if !isScrubbing {
                                 isScrubbing = true
                             }
-                            let time = timeForPosition(clickX, width: width)
-                            onSeek(time)
+                            onSeek(clickTime)
                         }
-                        .onEnded { _ in
+                        .onEnded { value in
+                            if isRangeSelecting {
+                                // End of range selection - finalize out-point
+                                let width = geometry.size.width
+                                let clickX = value.location.x
+                                let time = timeForPosition(clickX, width: width)
+                                let snapped = snap(time)
+                                let start = rangeStartTime ?? trimStart
+
+                                // Ensure start < end, swap if necessary
+                                if snapped >= start {
+                                    trimStart = max(0, start)
+                                    trimEnd = min(duration, snapped)
+                                } else {
+                                    trimStart = max(0, snapped)
+                                    trimEnd = min(duration, start)
+                                }
+
+                                isRangeSelecting = false
+                                rangeStartTime = nil
+                                onEditingChanged(false)
+                            }
+
+                            if isRangeSliding {
+                                // End of range sliding
+                                isRangeSliding = false
+                                slideInitialTrimStart = nil
+                                slideInitialTrimEnd = nil
+                                slideInitialClickTime = nil
+                                onEditingChanged(false)
+                            }
+
                             isScrubbing = false
                         }
                 )
         }
     }
-    
+
     private func position(for value: Double, width: CGFloat) -> CGFloat {
         guard duration > 0 else { return 0 }
         return CGFloat(value / duration) * width
     }
-    
+
     private func timeForPosition(_ x: CGFloat, width: CGFloat) -> Double {
         guard width > 0 else { return 0 }
         let fraction = Double(max(0, min(x, width)) / width)
         return max(0, min(duration, duration * fraction))
+    }
+
+    private func snap(_ value: Double) -> Double {
+        guard step > 0 else { return value }
+        return (value / step).rounded() * step
     }
 }
 
@@ -544,22 +740,22 @@ private struct ChunkedPreviewOverlay: View {
     let duration: Double
     let loadedChunks: Set<Int>
     let chunkDuration: TimeInterval
-    
+
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
             let totalChunks = Int(ceil(duration / chunkDuration))
-            
+
             // Show orange overlay for unloaded chunks
             ForEach(0..<totalChunks, id: \.self) { chunkIndex in
                 if !loadedChunks.contains(chunkIndex) {
                     let chunkStart = Double(chunkIndex) * chunkDuration
                     let chunkEnd = min(Double(chunkIndex + 1) * chunkDuration, duration)
-                    
+
                     let startX = position(for: chunkStart, width: width)
                     let endX = position(for: chunkEnd, width: width)
                     let chunkWidth = endX - startX
-                    
+
                     Rectangle()
                         .fill(Color.orange.opacity(0.3))
                         .frame(width: chunkWidth)
@@ -568,9 +764,69 @@ private struct ChunkedPreviewOverlay: View {
             }
         }
     }
-    
+
     private func position(for value: Double, width: CGFloat) -> CGFloat {
         guard duration > 0 else { return 0 }
         return CGFloat(value / duration) * width
+    }
+}
+
+// MARK: - Timeline Key Tracker
+
+/// Tracks modifier keys: Command (range selection), Shift (range sliding), Option (symmetric scaling)
+private struct TimelineKeyTrackerView: NSViewRepresentable {
+    @Binding var isCommandKeyPressed: Bool
+    @Binding var isShiftKeyPressed: Bool
+    @Binding var isOptionKeyPressed: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = TimelineKeyTrackingNSView()
+        view.isCommandKeyPressed = $isCommandKeyPressed
+        view.isShiftKeyPressed = $isShiftKeyPressed
+        view.isOptionKeyPressed = $isOptionKeyPressed
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // No updates needed
+    }
+
+    @MainActor
+    class TimelineKeyTrackingNSView: NSView {
+        var isCommandKeyPressed: Binding<Bool>?
+        var isShiftKeyPressed: Binding<Bool>?
+        var isOptionKeyPressed: Binding<Bool>?
+
+        private var flagsChangedMonitor: Any? {
+            willSet {
+                if let oldMonitor = flagsChangedMonitor {
+                    NSEvent.removeMonitor(oldMonitor)
+                }
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+
+            if window != nil {
+                // Monitor modifier flags for Command, Shift, and Option
+                flagsChangedMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                    Task { @MainActor in
+                        self?.isCommandKeyPressed?.wrappedValue = event.modifierFlags.contains(.command)
+                        self?.isShiftKeyPressed?.wrappedValue = event.modifierFlags.contains(.shift)
+                        self?.isOptionKeyPressed?.wrappedValue = event.modifierFlags.contains(.option)
+                    }
+                    return event
+                }
+            } else {
+                flagsChangedMonitor = nil
+            }
+        }
+
+        override func removeFromSuperview() {
+            // Clean up monitors before removal
+            flagsChangedMonitor = nil
+            super.removeFromSuperview()
+        }
     }
 }

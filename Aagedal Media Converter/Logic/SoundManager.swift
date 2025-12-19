@@ -18,11 +18,13 @@ final class SoundManager {
     }
 
     func playSuccess() {
+        guard UserDefaults.standard.object(forKey: AppConstants.playSoundOnSuccessKey) as? Bool ?? AppConstants.defaultPlaySoundOnSuccess else { return }
         successSound?.stop()
         successSound?.play()
     }
 
     func playError() {
+        guard UserDefaults.standard.object(forKey: AppConstants.playSoundOnErrorKey) as? Bool ?? AppConstants.defaultPlaySoundOnError else { return }
         errorSound?.stop()
         errorSound?.play()
     }
