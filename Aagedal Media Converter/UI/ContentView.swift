@@ -261,7 +261,8 @@ struct ContentView: View {
                 },
                 onResetAll: {
                     resetAllFiles()
-                }
+                },
+                onToggleConversion: handleConversionToggle
             )
         )
         .onAppear {
@@ -966,13 +967,15 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
     var onSelectOutputFolder: () -> Void
     var onToggleMerge: () -> Void
     var onResetAll: () -> Void
-    
+    var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onToggleWatchFolder: onToggleWatchFolder,
             onSelectOutputFolder: onSelectOutputFolder,
             onToggleMerge: onToggleMerge,
-            onResetAll: onResetAll
+            onResetAll: onResetAll,
+            onToggleConversion: onToggleConversion
         )
     }
     
@@ -988,6 +991,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         context.coordinator.onSelectOutputFolder = onSelectOutputFolder
         context.coordinator.onToggleMerge = onToggleMerge
         context.coordinator.onResetAll = onResetAll
+        context.coordinator.onToggleConversion = onToggleConversion
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -999,18 +1003,21 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         var onSelectOutputFolder: () -> Void
         var onToggleMerge: () -> Void
         var onResetAll: () -> Void
+        var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
         private var monitor: Any?
-        
+
         init(
             onToggleWatchFolder: @escaping () -> Void,
             onSelectOutputFolder: @escaping () -> Void,
             onToggleMerge: @escaping () -> Void,
-            onResetAll: @escaping () -> Void
+            onResetAll: @escaping () -> Void,
+            onToggleConversion: @escaping (_ optionKeyPressed: Bool) -> Void
         ) {
             self.onToggleWatchFolder = onToggleWatchFolder
             self.onSelectOutputFolder = onSelectOutputFolder
             self.onToggleMerge = onToggleMerge
             self.onResetAll = onResetAll
+            self.onToggleConversion = onToggleConversion
         }
         
         func install() {
@@ -1046,7 +1053,13 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
                     self.onResetAll()
                     return nil
                 }
-                
+
+                // Cmd+Return: Start/Stop Conversion
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_Return {
+                    self.onToggleConversion(false)
+                    return nil
+                }
+
                 return event
             }
         }
