@@ -38,7 +38,7 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Option + T", description: "Open Timecode configuration"),
                     ShortcutItem(keys: "Option + A", description: "Open Audio Routing configuration"),
                     ShortcutItem(keys: "Cmd + D", description: "Toggle date tag"),
-                    ShortcutItem(keys: "F", description: "Open fullscreen player"),
+                    ShortcutItem(keys: "Cmd + F", description: "Open fullscreen player"),
                 ])
                 
                 // Global Shortcuts

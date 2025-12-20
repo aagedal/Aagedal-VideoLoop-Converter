@@ -167,6 +167,9 @@ struct ContentView: View {
                 droppedFiles[index].trimStart = nil
                 droppedFiles[index].trimEnd = nil
                 droppedFiles[index].isMuted = false
+                // Also reset comment and date tag to defaults
+                droppedFiles[index].comment = ""
+                droppedFiles[index].includeDateTag = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
             }
         }
     }
@@ -941,6 +944,9 @@ struct ContentView: View {
                 droppedFiles[index].trimStart = nil
                 droppedFiles[index].trimEnd = nil
                 droppedFiles[index].isMuted = false
+                // Also reset comment and date tag to defaults
+                droppedFiles[index].comment = ""
+                droppedFiles[index].includeDateTag = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
             }
 
             didReset = true

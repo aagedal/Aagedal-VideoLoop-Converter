@@ -401,10 +401,18 @@ struct VideoFileListView: View {
             if currentFocused == currentID,
                let nextIndex = nextIndex(from: currentIndex, forward: forward) {
                 let nextID = droppedFiles[nextIndex].id
+                // Clear focus first, then update selection, then set new focus
+                // This prevents the old row's deselection handler from clearing our new focus
+                focusedCommentID = nil
                 selection = [nextID]
-                focusedCommentID = nextID
+                shouldScrollToSelection = true
+                // Use async to ensure selection change is processed before setting new focus
+                DispatchQueue.main.async {
+                    self.focusedCommentID = nextID
+                }
             } else {
                 focusedCommentID = currentID
+                shouldScrollToSelection = true
             }
             return
         }
@@ -413,8 +421,13 @@ struct VideoFileListView: View {
            let currentIndex = droppedFiles.firstIndex(where: { $0.id == currentFocused }) {
             if let nextIndex = nextIndex(from: currentIndex, forward: forward) {
                 let nextID = droppedFiles[nextIndex].id
+                // Clear focus first, then update selection, then set new focus
+                focusedCommentID = nil
                 selection = [nextID]
-                focusedCommentID = nextID
+                shouldScrollToSelection = true
+                DispatchQueue.main.async {
+                    self.focusedCommentID = nextID
+                }
             }
             return
         }
@@ -422,7 +435,11 @@ struct VideoFileListView: View {
         let startIndex = forward ? 0 : max(droppedFiles.count - 1, 0)
         let startID = droppedFiles[startIndex].id
         selection = [startID]
-        focusedCommentID = startID
+        shouldScrollToSelection = true
+        // Use async to ensure selection change is processed before setting focus
+        DispatchQueue.main.async {
+            self.focusedCommentID = startID
+        }
     }
 
     private func nextIndex(from currentIndex: Int, forward: Bool) -> Int? {
@@ -686,7 +703,10 @@ struct VideoFileListView: View {
                     if !selection.contains(id) {
                         selection = [id]
                     }
-                    focusedCommentID = id
+                    // Guard against redundant updates to prevent feedback loop
+                    if focusedCommentID != id {
+                        focusedCommentID = id
+                    }
                 } else if focusedCommentID == id {
                     focusedCommentID = nil
                 }
@@ -890,12 +910,28 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self else { return event }
-                
+
+                // Check if a text field or text view is the first responder
+                // If so, pass through Arrow keys for cursor movement within the text
+                // Note: Tab is NOT passed through - it's handled by focusComment to move between fields
+                if let firstResponder = NSApp.keyWindow?.firstResponder {
+                    let isTextInput = firstResponder is NSTextView || firstResponder is NSTextField
+                    if isTextInput {
+                        // Pass through Arrow keys when editing text for cursor movement
+                        if event.keyCode == kVK_UpArrow ||
+                           event.keyCode == kVK_DownArrow ||
+                           event.keyCode == kVK_LeftArrow ||
+                           event.keyCode == kVK_RightArrow {
+                            return event
+                        }
+                    }
+                }
+
                 let hasCommand = event.modifierFlags.contains(.command)
                 let hasOption = event.modifierFlags.contains(.option)
                 let hasShift = event.modifierFlags.contains(.shift)
                 let hasControl = event.modifierFlags.contains(.control)
-                
+
                 // Tab handling (no command/option/control)
                 if event.keyCode == kVK_Tab {
                     let disallowedModifiers: NSEvent.ModifierFlags = [.command, .option, .control]
@@ -947,8 +983,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                     return nil
                 }
                 
-                // F: Play Fullscreen (no modifiers)
-                if !hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_F {
+                // CMD+F: Play Fullscreen
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_F {
                     self.onPlayFullscreen()
                     return nil
                 }

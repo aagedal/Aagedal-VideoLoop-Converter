@@ -105,10 +105,41 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.proxyCodecKey) private var proxyCodec = AppConstants.defaultProxyCodec
     @AppStorage(AppConstants.proxyResolutionLimitKey) private var proxyResolutionLimit = AppConstants.defaultProxyResolutionLimit
 
+    // H.264 preset settings
+    @AppStorage(AppConstants.h264EncoderKey) private var h264Encoder = AppConstants.defaultH264Encoder
+    @AppStorage(AppConstants.h264ContainerKey) private var h264Container = AppConstants.defaultH264Container
+    @AppStorage(AppConstants.h264QualityKey) private var h264Quality = AppConstants.defaultH264Quality
+    @AppStorage(AppConstants.h264SpeedKey) private var h264Speed = AppConstants.defaultH264Speed
+    @AppStorage(AppConstants.h264ResolutionLimitKey) private var h264ResolutionLimit = AppConstants.defaultH264ResolutionLimit
+    @AppStorage(AppConstants.h264BitrateKey) private var h264Bitrate = AppConstants.defaultH264Bitrate
+    @AppStorage(AppConstants.h264AudioFormatKey) private var h264AudioFormat = AppConstants.defaultH264AudioFormat
+    @AppStorage(AppConstants.h264AudioBitrateKey) private var h264AudioBitrate = AppConstants.defaultH264AudioBitrate
+
+    // H.265 preset settings
+    @AppStorage(AppConstants.h265EncoderKey) private var h265Encoder = AppConstants.defaultH265Encoder
+    @AppStorage(AppConstants.h265ContainerKey) private var h265Container = AppConstants.defaultH265Container
+    @AppStorage(AppConstants.h265QualityKey) private var h265Quality = AppConstants.defaultH265Quality
+    @AppStorage(AppConstants.h265SpeedKey) private var h265Speed = AppConstants.defaultH265Speed
+    @AppStorage(AppConstants.h265ResolutionLimitKey) private var h265ResolutionLimit = AppConstants.defaultH265ResolutionLimit
+    @AppStorage(AppConstants.h265BitrateKey) private var h265Bitrate = AppConstants.defaultH265Bitrate
+    @AppStorage(AppConstants.h265AudioFormatKey) private var h265AudioFormat = AppConstants.defaultH265AudioFormat
+    @AppStorage(AppConstants.h265AudioBitrateKey) private var h265AudioBitrate = AppConstants.defaultH265AudioBitrate
+
+    // AV1 preset settings
+    @AppStorage(AppConstants.av1ContainerKey) private var av1Container = AppConstants.defaultAV1Container
+    @AppStorage(AppConstants.av1QualityKey) private var av1Quality = AppConstants.defaultAV1Quality
+    @AppStorage(AppConstants.av1SpeedKey) private var av1Speed = AppConstants.defaultAV1Speed
+    @AppStorage(AppConstants.av1ResolutionLimitKey) private var av1ResolutionLimit = AppConstants.defaultAV1ResolutionLimit
+    @AppStorage(AppConstants.av1AudioFormatKey) private var av1AudioFormat = AppConstants.defaultAV1AudioFormat
+    @AppStorage(AppConstants.av1AudioBitrateKey) private var av1AudioBitrate = AppConstants.defaultAV1AudioBitrate
+
     // Built-in preset visibility (default to true)
     @AppStorage(AppConstants.videoLoopVisibleKey) private var videoLoopVisible = true
     @AppStorage(AppConstants.videoLoopWithSoundVisibleKey) private var videoLoopWithSoundVisible = true
     @AppStorage(AppConstants.animatedStillVisibleKey) private var animatedStillVisible = true
+    @AppStorage(AppConstants.h264VisibleKey) private var h264Visible = true
+    @AppStorage(AppConstants.h265VisibleKey) private var h265Visible = true
+    @AppStorage(AppConstants.av1VisibleKey) private var av1Visible = true
     @AppStorage(AppConstants.tvHEVCVisibleKey) private var tvHEVCVisible = true
     @AppStorage(AppConstants.tvAVCIntraVisibleKey) private var tvAVCIntraVisible = true
     @AppStorage(AppConstants.proresVisibleKey) private var proresVisible = true
@@ -295,6 +326,367 @@ struct PresetsSettingsView: View {
                     .fixedSize()
                     .labelsHidden()
                     .help("Select the animated image format.")
+                }
+            }
+        }
+
+        if selectedPreset == .h264 {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Encoder")
+                        Spacer()
+                        Picker("", selection: $h264Encoder) {
+                            ForEach(H264Encoder.allCases) { encoder in
+                                Text(encoder.rawValue).tag(encoder.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Hardware uses VideoToolbox for fast encoding. Software (libx264) offers better compression with CRF quality control.")
+                    }
+
+                    if H264Encoder(rawValue: h264Encoder) == .software {
+                        HStack {
+                            Text("Quality (CRF)")
+                            Spacer()
+                            Picker("", selection: $h264Quality) {
+                                ForEach(CodecQualityLevel.allCases) { quality in
+                                    Text(quality.rawValue).tag(quality.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Lower CRF values = higher quality and larger files. 23 is a good default for H.264.")
+                        }
+
+                        HStack {
+                            Text("Encoding Speed")
+                            Spacer()
+                            Picker("", selection: $h264Speed) {
+                                ForEach(EncodingSpeed.allCases) { speed in
+                                    Text(speed.rawValue).tag(speed.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Slower presets produce better quality at the same file size.")
+                        }
+                    } else {
+                        HStack {
+                            Text("Bitrate")
+                            Spacer()
+                            TextField("10M", text: $h264Bitrate)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 80)
+                                .help("Target bitrate (e.g., 10M, 5000k)")
+                        }
+                    }
+
+                    HStack {
+                        Text("Container")
+                        Spacer()
+                        Picker("", selection: $h264Container) {
+                            ForEach(CodecContainer.allCases) { container in
+                                Text(container.rawValue).tag(container.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("MP4 is most compatible. MOV is native to Apple. MKV supports all features but has less compatibility.")
+                        .onChange(of: h264Container) { _, newValue in
+                            // Reset audio format to AAC if Opus is selected but container doesn't support it
+                            if h264AudioFormat == CodecAudioFormat.opus.rawValue && newValue != CodecContainer.mkv.rawValue {
+                                h264AudioFormat = CodecAudioFormat.aac.rawValue
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Text("Resolution Limit")
+                        Spacer()
+                        Picker("", selection: $h264ResolutionLimit) {
+                            ForEach(CodecResolutionLimit.allCases) { res in
+                                Text(res.rawValue).tag(res.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Limit the output resolution. Unlimited preserves source resolution.")
+                    }
+
+                    Divider()
+
+                    HStack {
+                        Text("Audio Codec")
+                        Spacer()
+                        Picker("", selection: $h264AudioFormat) {
+                            ForEach(CodecAudioFormat.availableCases(for: CodecContainer(rawValue: h264Container) ?? .mp4)) { format in
+                                Text(format.rawValue).tag(format.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("AAC is widely compatible. PCM is uncompressed. Opus requires MKV container.")
+                    }
+
+                    if CodecAudioFormat(rawValue: h264AudioFormat)?.requiresBitrate == true {
+                        HStack {
+                            Text("Audio Bitrate")
+                            Spacer()
+                            Picker("", selection: $h264AudioBitrate) {
+                                ForEach(AudioBitrate.allCases) { bitrate in
+                                    Text(bitrate.rawValue).tag(bitrate.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Higher bitrate = better audio quality and larger files.")
+                        }
+                    }
+                }
+            }
+        }
+
+        if selectedPreset == .h265 {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Encoder")
+                        Spacer()
+                        Picker("", selection: $h265Encoder) {
+                            ForEach(H265Encoder.allCases) { encoder in
+                                Text(encoder.rawValue).tag(encoder.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Hardware uses VideoToolbox for fast encoding. Software (libx265) offers better compression with CRF quality control.")
+                    }
+
+                    if H265Encoder(rawValue: h265Encoder) == .software {
+                        HStack {
+                            Text("Quality (CRF)")
+                            Spacer()
+                            Picker("", selection: $h265Quality) {
+                                ForEach(CodecQualityLevel.allCases) { quality in
+                                    Text(quality.rawValue).tag(quality.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Lower CRF values = higher quality and larger files. 28 is a good default for H.265.")
+                        }
+
+                        HStack {
+                            Text("Encoding Speed")
+                            Spacer()
+                            Picker("", selection: $h265Speed) {
+                                ForEach(EncodingSpeed.allCases) { speed in
+                                    Text(speed.rawValue).tag(speed.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Slower presets produce better quality at the same file size.")
+                        }
+                    } else {
+                        HStack {
+                            Text("Bitrate")
+                            Spacer()
+                            TextField("8M", text: $h265Bitrate)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 80)
+                                .help("Target bitrate (e.g., 8M, 5000k)")
+                        }
+                    }
+
+                    HStack {
+                        Text("Container")
+                        Spacer()
+                        Picker("", selection: $h265Container) {
+                            ForEach(CodecContainer.allCases) { container in
+                                Text(container.rawValue).tag(container.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("MP4 is most compatible. MOV is native to Apple. MKV supports all features but has less compatibility.")
+                        .onChange(of: h265Container) { _, newValue in
+                            // Reset audio format to AAC if Opus is selected but container doesn't support it
+                            if h265AudioFormat == CodecAudioFormat.opus.rawValue && newValue != CodecContainer.mkv.rawValue {
+                                h265AudioFormat = CodecAudioFormat.aac.rawValue
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Text("Resolution Limit")
+                        Spacer()
+                        Picker("", selection: $h265ResolutionLimit) {
+                            ForEach(CodecResolutionLimit.allCases) { res in
+                                Text(res.rawValue).tag(res.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Limit the output resolution. Unlimited preserves source resolution.")
+                    }
+
+                    Divider()
+
+                    HStack {
+                        Text("Audio Codec")
+                        Spacer()
+                        Picker("", selection: $h265AudioFormat) {
+                            ForEach(CodecAudioFormat.availableCases(for: CodecContainer(rawValue: h265Container) ?? .mp4)) { format in
+                                Text(format.rawValue).tag(format.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("AAC is widely compatible. PCM is uncompressed. Opus requires MKV container.")
+                    }
+
+                    if CodecAudioFormat(rawValue: h265AudioFormat)?.requiresBitrate == true {
+                        HStack {
+                            Text("Audio Bitrate")
+                            Spacer()
+                            Picker("", selection: $h265AudioBitrate) {
+                                ForEach(AudioBitrate.allCases) { bitrate in
+                                    Text(bitrate.rawValue).tag(bitrate.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Higher bitrate = better audio quality and larger files.")
+                        }
+                    }
+                }
+            }
+        }
+
+        if selectedPreset == .av1 {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.blue)
+                        Text("AV1 encoding uses SVT-AV1 (software). No hardware acceleration available.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(8)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(6)
+
+                    HStack {
+                        Text("Quality (CRF)")
+                        Spacer()
+                        Picker("", selection: $av1Quality) {
+                            ForEach(AV1QualityLevel.allCases) { quality in
+                                Text(quality.rawValue).tag(quality.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Lower CRF values = higher quality and larger files. 30 is the SVT-AV1 default.")
+                    }
+
+                    HStack {
+                        Text("Encoding Speed (Preset)")
+                        Spacer()
+                        Picker("", selection: $av1Speed) {
+                            ForEach(AV1EncodingSpeed.allCases) { speed in
+                                Text(speed.displayName).tag(speed.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("0 = slowest/best quality, 13 = fastest. 6 is a balanced default.")
+                    }
+
+                    HStack {
+                        Text("Container")
+                        Spacer()
+                        Picker("", selection: $av1Container) {
+                            ForEach(CodecContainer.allCases) { container in
+                                Text(container.rawValue).tag(container.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("MP4 is most compatible. MKV supports all AV1 features.")
+                        .onChange(of: av1Container) { _, newValue in
+                            // Reset audio format to AAC if Opus is selected but container doesn't support it
+                            if av1AudioFormat == CodecAudioFormat.opus.rawValue && newValue != CodecContainer.mkv.rawValue {
+                                av1AudioFormat = CodecAudioFormat.aac.rawValue
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Text("Resolution Limit")
+                        Spacer()
+                        Picker("", selection: $av1ResolutionLimit) {
+                            ForEach(CodecResolutionLimit.allCases) { res in
+                                Text(res.rawValue).tag(res.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Limit the output resolution. Unlimited preserves source resolution.")
+                    }
+
+                    Divider()
+
+                    HStack {
+                        Text("Audio Codec")
+                        Spacer()
+                        Picker("", selection: $av1AudioFormat) {
+                            ForEach(CodecAudioFormat.availableCases(for: CodecContainer(rawValue: av1Container) ?? .mp4)) { format in
+                                Text(format.rawValue).tag(format.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("AAC is widely compatible. PCM is uncompressed. Opus requires MKV container.")
+                    }
+
+                    if CodecAudioFormat(rawValue: av1AudioFormat)?.requiresBitrate == true {
+                        HStack {
+                            Text("Audio Bitrate")
+                            Spacer()
+                            Picker("", selection: $av1AudioBitrate) {
+                                ForEach(AudioBitrate.allCases) { bitrate in
+                                    Text(bitrate.rawValue).tag(bitrate.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Higher bitrate = better audio quality and larger files.")
+                        }
+                    }
                 }
             }
         }
@@ -777,6 +1169,12 @@ struct PresetsSettingsView: View {
             return $videoLoopWithSoundVisible
         case .animatedStill:
             return $animatedStillVisible
+        case .h264:
+            return $h264Visible
+        case .h265:
+            return $h265Visible
+        case .av1:
+            return $av1Visible
         case .tvHEVC:
             return $tvHEVCVisible
         case .tvAVCIntra:

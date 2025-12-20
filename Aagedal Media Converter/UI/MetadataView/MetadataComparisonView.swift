@@ -155,6 +155,12 @@ struct MetadataComparisonView: View {
             comparisonRow("Bit Depth") { item in
                 item.metadata?.videoStream?.bitDepth.map { "\($0)-bit" }
             }
+            comparisonRow("Chroma Subsampling") { item in
+                item.metadata?.videoStream?.chromaSubsampling
+            }
+            comparisonRow("Chroma Resolution") { item in
+                item.metadata?.videoStream?.chromaResolutionDescription
+            }
             comparisonRow("Pixel Format") { item in
                 item.metadata?.videoStream?.pixelFormat
             }

@@ -108,6 +108,7 @@ struct VideoMetadata: Equatable, Sendable {
         let displayAspectRatio: Ratio?
         let frameRate: FrameRate?
         let bitDepth: Int?
+        let chromaSubsampling: String?
         let colorPrimaries: String?
         let colorTransfer: String?
         let colorSpace: String?
@@ -115,6 +116,30 @@ struct VideoMetadata: Equatable, Sendable {
         let chromaLocation: String?
         let fieldOrder: String?
         let isInterlaced: Bool?
+
+        /// Calculates chroma channel resolution based on subsampling
+        /// Returns nil for 4:4:4 (same as luma), grayscale, or unknown subsampling
+        var chromaResolution: (width: Int, height: Int)? {
+            guard let width, let height, let subsampling = chromaSubsampling else { return nil }
+
+            // 4:4:4 has same resolution as luma, no need to show separately
+            let factors: (h: Int, v: Int)? = switch subsampling {
+            case "4:2:2": (2, 1)  // Half horizontal
+            case "4:2:0": (2, 2)  // Half horizontal and vertical
+            case "4:1:1": (4, 1)  // Quarter horizontal
+            case "4:1:0": (4, 2)  // Quarter horizontal, half vertical
+            default: nil
+            }
+
+            guard let factors else { return nil }
+            return (width / factors.h, height / factors.v)
+        }
+
+        /// Formatted string for chroma resolution display
+        var chromaResolutionDescription: String? {
+            guard let res = chromaResolution else { return nil }
+            return "\(res.width)×\(res.height)"
+        }
     }
 
     struct AudioStream: Equatable, Sendable {
@@ -341,6 +366,10 @@ actor VideoMetadataService {
         let video = primaryVideoStream.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
             let hasAlpha = stream.pixFmt.map { hasAlphaChannel(pixelFormat: $0) } ?? false
+            // Use bitsPerRawSample if available, otherwise extract from pixel format
+            let bitDepth: Int? = stream.bitsPerRawSample.flatMap { Int($0) }
+                ?? stream.pixFmt.flatMap { bitDepthFromPixelFormat($0) }
+            let chromaSubsampling = stream.pixFmt.flatMap { chromaSubsamplingFromPixelFormat($0) }
             return VideoMetadata.VideoStream(
                 codec: stream.codecName,
                 codecLongName: stream.codecLongName,
@@ -352,7 +381,8 @@ actor VideoMetadataService {
                 pixelAspectRatio: stream.sampleAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
                 displayAspectRatio: stream.displayAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
                 frameRate: frameRateString.flatMap(VideoMetadata.FrameRate.init(frameRateString:)),
-                bitDepth: stream.bitsPerRawSample.flatMap { Int($0) },
+                bitDepth: bitDepth,
+                chromaSubsampling: chromaSubsampling,
                 colorPrimaries: stream.colorPrimaries,
                 colorTransfer: stream.colorTransfer,
                 colorSpace: stream.colorSpace,
@@ -397,6 +427,97 @@ actor VideoMetadataService {
         )
     }
 
+}
+
+/// Extracts bit depth from pixel format string
+/// Examples: yuv420p10le -> 10, yuv422p12be -> 12, yuv420p -> 8
+private func bitDepthFromPixelFormat(_ pixelFormat: String) -> Int? {
+    let format = pixelFormat.lowercased()
+
+    // Look for bit depth patterns like "10le", "12be", "10", "12", "16"
+    // Common patterns: yuv420p10le, yuv422p12be, rgb48be, gray16le
+    let patterns = [
+        #"(\d{1,2})(le|be)?$"#,  // Ending with bit depth (optionally with endianness)
+        #"p(\d{1,2})(le|be)?$"#, // After 'p' for planar formats
+    ]
+
+    for pattern in patterns {
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+           let match = regex.firstMatch(in: format, options: [], range: NSRange(format.startIndex..., in: format)) {
+            // Get the capture group with the number
+            let captureRange = match.numberOfRanges > 1 ? match.range(at: 1) : match.range(at: 0)
+            if let range = Range(captureRange, in: format),
+               let bitDepth = Int(format[range]),
+               bitDepth >= 8 && bitDepth <= 16 {
+                return bitDepth
+            }
+        }
+    }
+
+    // Special cases for formats without explicit bit depth (default to 8-bit)
+    // yuv420p, yuv422p, yuv444p, rgb24, bgr24, etc. are all 8-bit
+    if format.contains("24") || format.contains("32") {
+        return 8  // rgb24, bgr24, rgba32 are 8 bits per component
+    }
+
+    if format.contains("48") || format.contains("64") {
+        return 16  // rgb48, rgba64 are 16 bits per component
+    }
+
+    // Formats like yuv420p, yuv422p without bit depth suffix are 8-bit
+    let eightBitPatterns = ["yuv420p", "yuv422p", "yuv444p", "yuvj420p", "yuvj422p", "yuvj444p", "nv12", "nv21"]
+    for pattern in eightBitPatterns {
+        if format == pattern {
+            return 8
+        }
+    }
+
+    return nil
+}
+
+/// Extracts chroma subsampling from pixel format string
+/// Examples: yuv420p -> "4:2:0", yuv422p10le -> "4:2:2", yuv444p -> "4:4:4"
+private func chromaSubsamplingFromPixelFormat(_ pixelFormat: String) -> String? {
+    let format = pixelFormat.lowercased()
+
+    // YUV 4:2:0 patterns
+    if format.contains("420") || format.contains("nv12") || format.contains("nv21") {
+        return "4:2:0"
+    }
+
+    // YUV 4:2:2 patterns
+    if format.contains("422") || format.contains("yuyv") || format.contains("uyvy") {
+        return "4:2:2"
+    }
+
+    // YUV 4:4:4 patterns
+    if format.contains("444") {
+        return "4:4:4"
+    }
+
+    // YUV 4:1:1 patterns
+    if format.contains("411") {
+        return "4:1:1"
+    }
+
+    // YUV 4:1:0 patterns
+    if format.contains("410") {
+        return "4:1:0"
+    }
+
+    // RGB/RGBA formats have no chroma subsampling (4:4:4 equivalent)
+    if format.hasPrefix("rgb") || format.hasPrefix("bgr") || format.hasPrefix("argb") ||
+       format.hasPrefix("abgr") || format.hasPrefix("rgba") || format.hasPrefix("bgra") ||
+       format.hasPrefix("gbr") {
+        return "4:4:4"
+    }
+
+    // Grayscale/monochrome has no chroma
+    if format.hasPrefix("gray") || format.hasPrefix("mono") || format == "y" {
+        return nil  // No chroma subsampling for grayscale
+    }
+
+    return nil
 }
 
 /// Detects if a pixel format contains an alpha channel
@@ -555,6 +676,10 @@ private struct FFprobeResponse: Decodable {
         let video = videoStream.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
             let hasAlpha = stream.pixFmt.map { hasAlphaChannel(pixelFormat: $0) } ?? false
+            // Use bitsPerRawSample if available, otherwise extract from pixel format
+            let bitDepth: Int? = stream.bitsPerRawSample.flatMap { Int($0) }
+                ?? stream.pixFmt.flatMap { bitDepthFromPixelFormat($0) }
+            let chromaSubsampling = stream.pixFmt.flatMap { chromaSubsamplingFromPixelFormat($0) }
             return VideoMetadata.VideoStream(
                 codec: stream.codecName,
                 codecLongName: stream.codecLongName,
@@ -566,7 +691,8 @@ private struct FFprobeResponse: Decodable {
                 pixelAspectRatio: stream.sampleAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
                 displayAspectRatio: stream.displayAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
                 frameRate: frameRateString.flatMap(VideoMetadata.FrameRate.init(frameRateString:)),
-                bitDepth: stream.bitsPerRawSample.flatMap { Int($0) },
+                bitDepth: bitDepth,
+                chromaSubsampling: chromaSubsampling,
                 colorPrimaries: stream.colorPrimaries,
                 colorTransfer: stream.colorTransfer,
                 colorSpace: stream.colorSpace,

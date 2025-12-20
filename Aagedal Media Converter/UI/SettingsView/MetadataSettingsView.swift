@@ -147,20 +147,26 @@ struct MetadataSettingsView: View {
     
     private var commentSection: some View {
         Section(header: Text("Comment Formatting")) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading) {
                 Text("Configure optional prefix/suffix for metadata comments and how the date tag is formatted.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                LabeledContent("Prefix") {
-                    TextField("", text: $commentPrefix)
-                        .textFieldStyle(.roundedBorder)
-                }
+                HStack{
+                    LabeledContent("Prefix") {
+                        TextField("", text: $commentPrefix)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }.frame(width: 200)
 
-                LabeledContent("Suffix") {
-                    TextField("", text: $commentSuffix)
-                        .textFieldStyle(.roundedBorder)
-                }
+
+                HStack{
+                    LabeledContent("Suffix") {
+                        TextField("", text: $commentSuffix)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }.frame(width: 200)
+
                 
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -172,38 +178,47 @@ struct MetadataSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                LabeledContent("Separator") {
-                    Picker("", selection: $commentSeparator) {
-                        Text("Pipe ( | )").tag(" | ")
-                        Text("Dash ( - )").tag(" - ")
-                        Text("Colon ( : )").tag(": ")
-                        Text("Comma ( , )").tag(", ")
-                        Text("Space").tag(" ")
-                        Text("None").tag("")
+                HStack {
+                    LabeledContent("Separator") {
+                        Picker("", selection: $commentSeparator) {
+                            Text("Pipe ( | )").tag(" | ")
+                            Text("Dash ( - )").tag(" - ")
+                            Text("Colon ( : )").tag(": ")
+                            Text("Comma ( , )").tag(", ")
+                            Text("Space").tag(" ")
+                            Text("None").tag("")
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 220, alignment: .leading)
                     }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 220, alignment: .leading)
-                }
+                }.frame(width: 300)
 
-                LabeledContent("Date format") {
-                    Picker("", selection: $commentDateFormat) {
-                        Text("YYYYMMDD (\(formattedDateExample("yyyyMMdd")))").tag("yyyyMMdd")
-                        Text("YYYY-MM-DD (\(formattedDateExample("yyyy-MM-dd")))").tag("yyyy-MM-dd")
-                        Text("DD/MM/YYYY (\(formattedDateExample("dd/MM/yyyy")))").tag("dd/MM/yyyy")
-                        Text("MM/DD/YYYY (\(formattedDateExample("MM/dd/yyyy")))").tag("MM/dd/yyyy")
-                        Text("DD.MM.YYYY (\(formattedDateExample("dd.MM.yyyy")))").tag("dd.MM.yyyy")
-                        Text("YYYY.MM.DD (\(formattedDateExample("yyyy.MM.dd")))").tag("yyyy.MM.dd")
-                        Text("MMM DD, YYYY (\(formattedDateExample("MMM dd, yyyy")))").tag("MMM dd, yyyy")
-                        Text("DD MMM YYYY (\(formattedDateExample("dd MMM yyyy")))").tag("dd MMM yyyy")
+
+                HStack {
+                    LabeledContent("Date format") {
+                        Picker("", selection: $commentDateFormat) {
+                            Text("YYYYMMDD (\(formattedDateExample("yyyyMMdd")))").tag("yyyyMMdd")
+                            Text("YYYY-MM-DD (\(formattedDateExample("yyyy-MM-dd")))").tag("yyyy-MM-dd")
+                            Text("DD/MM/YYYY (\(formattedDateExample("dd/MM/yyyy")))").tag("dd/MM/yyyy")
+                            Text("MM/DD/YYYY (\(formattedDateExample("MM/dd/yyyy")))").tag("MM/dd/yyyy")
+                            Text("DD.MM.YYYY (\(formattedDateExample("dd.MM.yyyy")))").tag("dd.MM.yyyy")
+                            Text("YYYY.MM.DD (\(formattedDateExample("yyyy.MM.dd")))").tag("yyyy.MM.dd")
+                            Text("MMM DD, YYYY (\(formattedDateExample("MMM dd, yyyy")))").tag("MMM dd, yyyy")
+                            Text("DD MMM YYYY (\(formattedDateExample("dd MMM yyyy")))").tag("dd MMM yyyy")
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 280, alignment: .leading)
                     }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 280, alignment: .leading)
-                }
+                }.frame(width: 300)
 
-                LabeledContent("Date prefix") {
-                    TextField("", text: $dateTagPrefix)
-                        .textFieldStyle(.roundedBorder)
-                }
+
+                HStack {
+                    LabeledContent("Date prefix") {
+                        TextField("", text: $dateTagPrefix)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }.frame(width: 300)
+
 
                 Divider()
 
