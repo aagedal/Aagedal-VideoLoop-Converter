@@ -7,14 +7,14 @@
 import Foundation
 
 /// Represents how timecode should be displayed
-enum TimecodeDisplayMode: CaseIterable {
+enum TimecodeDisplayMode: String, CaseIterable {
     /// Relative timecode starting from 00:00:00:00
-    case relative
+    case relative = "relative"
     /// Source timecode from the file's embedded metadata
-    case source
+    case source = "source"
     /// Frame count from 0 to total frames
-    case frames
-    
+    case frames = "frames"
+
     var prefix: String {
         switch self {
         case .relative: return "REL TC"
@@ -22,7 +22,15 @@ enum TimecodeDisplayMode: CaseIterable {
         case .frames: return "FRM"
         }
     }
-    
+
+    var displayName: String {
+        switch self {
+        case .relative: return "Relative Timecode (REL TC)"
+        case .source: return "Source Timecode (SRC TC)"
+        case .frames: return "Frame Count (FRM)"
+        }
+    }
+
     /// Cycles to the next display mode (relative -> source -> frames -> relative)
     mutating func toggle() {
         switch self {
@@ -30,6 +38,13 @@ enum TimecodeDisplayMode: CaseIterable {
         case .source: self = .frames
         case .frames: self = .relative
         }
+    }
+
+    /// Returns the preferred timecode display mode from UserDefaults
+    static var preferred: TimecodeDisplayMode {
+        let rawValue = UserDefaults.standard.string(forKey: AppConstants.preferredTimecodeDisplayModeKey)
+            ?? AppConstants.defaultPreferredTimecodeDisplayMode
+        return TimecodeDisplayMode(rawValue: rawValue) ?? .relative
     }
 }
 
@@ -111,7 +126,7 @@ struct TimecodeFormatter {
 
     /// Determine the effective starting timecode for a video item
     /// - Parameter item: The video item to check
-    /// - Returns: Starting timecode string, or nil if none configured
+    /// - Returns: Starting timecode string, or nil if none available
     static func effectiveStartTimecode(for item: VideoItem) -> String? {
         // Priority 1: Manual override
         if let config = item.timecodeConfig {
@@ -124,8 +139,8 @@ struct TimecodeFormatter {
             }
         }
 
-        // No timecode configuration
-        return nil
+        // Default fallback: use source timecode from metadata if available
+        return item.metadata?.timecode
     }
 
     /// Check if timecode should be used for display

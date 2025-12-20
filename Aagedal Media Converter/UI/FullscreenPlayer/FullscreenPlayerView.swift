@@ -11,18 +11,24 @@ import Carbon.HIToolbox
 struct FullscreenPlayerView: View {
     let item: VideoItem
     let onClose: () -> Void
+    let onPreviousItem: (@Sendable () -> Void)?
+    let onNextItem: (@Sendable () -> Void)?
+    let onOverlayVisibilityChanged: ((Bool) -> Void)?
+    let onTimecodeDisplayModeChanged: ((TimecodeDisplayMode) -> Void)?
+    let canGoToPrevious: Bool
+    let canGoToNext: Bool
 
     @StateObject private var controller: PreviewPlayerController
     @State private var itemState: VideoItem
 
-    @State private var showOverlay = true
+    @State private var showOverlay: Bool
     @State private var isMouseIdle = false
     @State private var isHoveringControls = false
     @State private var overlayHideTask: Task<Void, Never>?
     @State private var lastMouseLocation: CGPoint?
-    
+
     // Timecode display state
-    @State private var timecodeDisplayMode: TimecodeDisplayMode = .relative
+    @State private var timecodeDisplayMode: TimecodeDisplayMode
     @State private var isEditingTimecode = false
     @State private var timecodeInput = ""
     @State private var timecodeJustActivated = false
@@ -31,11 +37,31 @@ struct FullscreenPlayerView: View {
 
     private let rightEdgeHideThreshold: CGFloat = 50
 
-    init(item: VideoItem, onClose: @escaping () -> Void) {
+    init(
+        item: VideoItem,
+        initialOverlayHidden: Bool = false,
+        initialTimecodeDisplayMode: TimecodeDisplayMode = .preferred,
+        onClose: @escaping () -> Void,
+        onPreviousItem: (@Sendable () -> Void)? = nil,
+        onNextItem: (@Sendable () -> Void)? = nil,
+        onOverlayVisibilityChanged: ((Bool) -> Void)? = nil,
+        onTimecodeDisplayModeChanged: ((TimecodeDisplayMode) -> Void)? = nil,
+        canGoToPrevious: Bool = false,
+        canGoToNext: Bool = false
+    ) {
         self.item = item
         self.onClose = onClose
+        self.onPreviousItem = onPreviousItem
+        self.onNextItem = onNextItem
+        self.onOverlayVisibilityChanged = onOverlayVisibilityChanged
+        self.onTimecodeDisplayModeChanged = onTimecodeDisplayModeChanged
+        self.canGoToPrevious = canGoToPrevious
+        self.canGoToNext = canGoToNext
         self._itemState = State(initialValue: item)
         self._controller = StateObject(wrappedValue: PreviewPlayerController(videoItem: item))
+        self._showOverlay = State(initialValue: !initialOverlayHidden)
+        self._isMouseIdle = State(initialValue: initialOverlayHidden)
+        self._timecodeDisplayMode = State(initialValue: initialTimecodeDisplayMode)
     }
     
     private var aspectRatio: CGFloat {
@@ -147,11 +173,18 @@ struct FullscreenPlayerView: View {
                         captureScreenshot()
                     }
                 },
+                onPreviousItem: onPreviousItem,
+                onNextItem: onNextItem,
+                canGoToPrevious: canGoToPrevious,
+                canGoToNext: canGoToNext,
                 isEditingTimecode: isEditingTimecode
             )
         )
         .onAppear {
-            scheduleOverlayHide()
+            // Schedule overlay hide if it's currently visible
+            if showOverlay {
+                scheduleOverlayHide()
+            }
 
             Task {
                 if itemState.metadata == nil {
@@ -327,12 +360,11 @@ struct FullscreenPlayerView: View {
                         .frame(width: 50)
                 }
 
-                // Duration display (always relative)
+                // End point timecode display
                 Text(TimecodeFormatter.formatTimeForDisplayWithMode(
                     seconds: duration,
                     item: itemState,
-                    mode: .relative,
-                    isDuration: true
+                    mode: timecodeDisplayMode
                 ))
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.9))
@@ -614,11 +646,14 @@ struct FullscreenPlayerView: View {
             guard !Task.isCancelled else { return }
             guard !isHoveringControls else { return }
 
+            // Set cursor state immediately (not animatable)
+            isMouseIdle = true
+
             withAnimation(.easeOut(duration: 0.25)) {
                 showOverlay = false
-                isMouseIdle = true
                 isHoveringControls = false
             }
+            onOverlayVisibilityChanged?(true)
         }
     }
 
@@ -626,11 +661,14 @@ struct FullscreenPlayerView: View {
         overlayHideTask?.cancel()
         overlayHideTask = nil
 
+        // Set cursor state immediately (not animatable)
+        isMouseIdle = true
+
         withAnimation(.easeOut(duration: 0.2)) {
             showOverlay = false
-            isMouseIdle = true
             isHoveringControls = false
         }
+        onOverlayVisibilityChanged?(true)
     }
 
     private func captureScreenshot() {
@@ -667,6 +705,9 @@ struct FullscreenPlayerView: View {
             return
         }
 
+        if !showOverlay {
+            onOverlayVisibilityChanged?(false)
+        }
         showOverlay = true
         isMouseIdle = false
         scheduleOverlayHide()
@@ -884,6 +925,7 @@ struct FullscreenPlayerView: View {
     
     private func toggleTimecodeMode() {
         timecodeDisplayMode.toggle()
+        onTimecodeDisplayModeChanged?(timecodeDisplayMode)
     }
 }
 
@@ -976,6 +1018,10 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
     let onToggleTimecodeMode: @Sendable () -> Void
     let onTimecodeInput: @Sendable (String) -> Void
     let captureScreenshot: @Sendable () -> Void
+    let onPreviousItem: (@Sendable () -> Void)?
+    let onNextItem: (@Sendable () -> Void)?
+    let canGoToPrevious: Bool
+    let canGoToNext: Bool
     let isEditingTimecode: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -985,6 +1031,10 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             onToggleTimecodeMode: onToggleTimecodeMode,
             onTimecodeInput: onTimecodeInput,
             captureScreenshot: captureScreenshot,
+            onPreviousItem: onPreviousItem,
+            onNextItem: onNextItem,
+            canGoToPrevious: canGoToPrevious,
+            canGoToNext: canGoToNext,
             isEditingTimecode: isEditingTimecode
         )
     }
@@ -1002,6 +1052,10 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
         context.coordinator.onToggleTimecodeMode = onToggleTimecodeMode
         context.coordinator.onTimecodeInput = onTimecodeInput
         context.coordinator.captureScreenshot = captureScreenshot
+        context.coordinator.onPreviousItem = onPreviousItem
+        context.coordinator.onNextItem = onNextItem
+        context.coordinator.canGoToPrevious = canGoToPrevious
+        context.coordinator.canGoToNext = canGoToNext
         context.coordinator.isEditingTimecode = isEditingTimecode
     }
 
@@ -1015,6 +1069,10 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
         var onToggleTimecodeMode: @Sendable () -> Void
         var onTimecodeInput: @Sendable (String) -> Void
         var captureScreenshot: @Sendable () -> Void
+        var onPreviousItem: (@Sendable () -> Void)?
+        var onNextItem: (@Sendable () -> Void)?
+        var canGoToPrevious: Bool
+        var canGoToNext: Bool
         var isEditingTimecode: Bool
         private var monitor: Any?
 
@@ -1024,6 +1082,10 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             onToggleTimecodeMode: @Sendable @escaping () -> Void,
             onTimecodeInput: @Sendable @escaping (String) -> Void,
             captureScreenshot: @Sendable @escaping () -> Void,
+            onPreviousItem: (@Sendable () -> Void)?,
+            onNextItem: (@Sendable () -> Void)?,
+            canGoToPrevious: Bool,
+            canGoToNext: Bool,
             isEditingTimecode: Bool
         ) {
             self.controller = controller
@@ -1031,6 +1093,10 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             self.onToggleTimecodeMode = onToggleTimecodeMode
             self.onTimecodeInput = onTimecodeInput
             self.captureScreenshot = captureScreenshot
+            self.onPreviousItem = onPreviousItem
+            self.onNextItem = onNextItem
+            self.canGoToPrevious = canGoToPrevious
+            self.canGoToNext = canGoToNext
             self.isEditingTimecode = isEditingTimecode
         }
 
@@ -1056,7 +1122,29 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
                 }
 
                 let lower = characters.lowercased()
-                
+
+                // CMD+B: Go to previous item in queue
+                if hasCommand && !hasShift && !hasOption && !hasControl && lower == "b" {
+                    if self.canGoToPrevious, let onPrevious = self.onPreviousItem {
+                        DispatchQueue.main.async {
+                            onPrevious()
+                        }
+                    }
+                    // Always consume the event to prevent propagation to other handlers
+                    return nil
+                }
+
+                // CMD+N: Go to next item in queue
+                if hasCommand && !hasShift && !hasOption && !hasControl && lower == "n" {
+                    if self.canGoToNext, let onNext = self.onNextItem {
+                        DispatchQueue.main.async {
+                            onNext()
+                        }
+                    }
+                    // Always consume the event to prevent propagation to other handlers
+                    return nil
+                }
+
                 // T (no modifiers): Toggle timecode mode
                 if noModifiers && !self.isEditingTimecode && lower == "t" {
                     DispatchQueue.main.async { [weak self] in
@@ -1064,7 +1152,7 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
                     }
                     return nil
                 }
-                
+
                 // Number keys and timecode characters to activate timecode input (when not already editing)
                 // Exclude 't' since it's used for timecode mode toggle
                 if noModifiers && !self.isEditingTimecode {

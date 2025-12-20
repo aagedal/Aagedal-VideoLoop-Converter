@@ -21,7 +21,7 @@ struct PreviewPlayerView: View {
     @State private var isCropControlsExpanded: Bool = false
     @State private var timecodeActivationTrigger: String?
     @State private var isEditingTimecode: Bool = false
-    @State private var timecodeDisplayMode: TimecodeDisplayMode = .relative
+    @State private var timecodeDisplayMode: TimecodeDisplayMode = .preferred
     
     private let initialCropExpanded: Bool
 
