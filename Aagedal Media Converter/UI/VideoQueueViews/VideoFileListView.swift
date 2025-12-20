@@ -105,7 +105,7 @@ struct VideoFileListView: View {
                             .padding(.horizontal, 40)
                             .padding(.top, 12)
                         Spacer()
-                    }.frame(height: 86)
+                    }.frame(width: 500,height: 86)
 
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -188,6 +188,14 @@ struct VideoFileListView: View {
                     EmptyView()
                 }
                 .keyboardShortcut(.delete, modifiers: [.command])
+                .frame(width: 0, height: 0)
+                .opacity(0)
+
+                // Control+R to show a new random tip
+                Button(action: { currentTip = RandomTips.randomTip() }) {
+                    EmptyView()
+                }
+                .keyboardShortcut("r", modifiers: [.control])
                 .frame(width: 0, height: 0)
                 .opacity(0)
             }
@@ -917,7 +925,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // Check if a text field or text view is the first responder
                 // If so, pass through Arrow keys for cursor movement within the text
                 // Note: Tab is NOT passed through - it's handled by focusComment to move between fields
-                if let firstResponder = NSApp.keyWindow?.firstResponder {
+                let firstResponder = MainActor.assumeIsolated { NSApp.keyWindow?.firstResponder }
+                if let firstResponder {
                     let isTextInput = firstResponder is NSTextView || firstResponder is NSTextField
                     if isTextInput {
                         // Pass through Arrow keys when editing text for cursor movement

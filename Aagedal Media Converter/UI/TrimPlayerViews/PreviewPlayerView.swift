@@ -19,6 +19,7 @@ struct PreviewPlayerView: View {
     @State private var currentPlaybackTime: Double = 0
     @State private var showsPlaybackControls: Bool = false
     @State private var isCropControlsExpanded: Bool = false
+    @State private var selectedCropAspectRatio: AspectRatio = .free
     @State private var timecodeActivationTrigger: String?
     @State private var isEditingTimecode: Bool = false
     @State private var timecodeDisplayMode: TimecodeDisplayMode = .preferred
@@ -54,6 +55,7 @@ struct PreviewPlayerView: View {
                 controller: controller,
                 currentPlaybackTime: $currentPlaybackTime,
                 isCropControlsExpanded: $isCropControlsExpanded,
+                selectedCropAspectRatio: $selectedCropAspectRatio,
                 onSeek: controller.seekTo,
                 onReset: resetTrim,
                 onCaptureScreenshot: captureScreenshot,
@@ -228,7 +230,163 @@ struct PreviewPlayerView: View {
         }
     }
 
+    // MARK: - Crop Keyboard Shortcuts
+
+    /// Move the crop box by the given delta in normalized coordinates
+    private func moveCropBox(dx: Double, dy: Double) {
+        var config = item.cropConfig ?? CropConfig(normalizedRect: .fullFrame)
+        var rect = config.normalizedRect
+
+        // Apply the delta
+        rect.x += dx
+        rect.y += dy
+
+        // Clamp to bounds (0-1)
+        rect.x = max(0, min(1 - rect.width, rect.x))
+        rect.y = max(0, min(1 - rect.height, rect.y))
+
+        config.normalizedRect = rect
+        item.cropConfig = config.isActive ? config : nil
+    }
+
+    /// Select a crop aspect ratio preset via keyboard shortcut
+    private func selectCropAspectRatio(_ newRatio: AspectRatio) {
+        selectedCropAspectRatio = newRatio
+
+        var config = item.cropConfig ?? CropConfig(normalizedRect: .fullFrame)
+        config.aspectRatioLock = newRatio == .free ? nil : newRatio
+
+        // If not free, adjust the rectangle to match the aspect ratio
+        if let targetRatio = newRatio.numericRatio {
+            var rect = config.normalizedRect
+
+            // Calculate center point to maintain position
+            let centerX = rect.x + rect.width / 2
+            let centerY = rect.y + rect.height / 2
+
+            // Get the video's display aspect ratio
+            let videoDisplayAspectRatio = item.videoDisplayAspectRatio ?? (16.0 / 9.0)
+
+            // Convert target aspect ratio from VISUAL space to normalized (source-pixel) space
+            let normalizedTargetRatio = targetRatio / videoDisplayAspectRatio
+
+            // Calculate dimensions that maintain aspect ratio and fit within bounds
+            var newWidth: Double
+            var newHeight: Double
+
+            // Try to fit rectangle with target aspect ratio within full frame
+            if normalizedTargetRatio >= 1.0 {
+                // Wider than tall: fit width to 1.0, scale height accordingly
+                newWidth = 1.0
+                newHeight = newWidth / normalizedTargetRatio
+                if newHeight > 1.0 {
+                    newHeight = 1.0
+                    newWidth = newHeight * normalizedTargetRatio
+                }
+            } else {
+                // Taller than wide: fit height to 1.0, scale width accordingly
+                newHeight = 1.0
+                newWidth = newHeight * normalizedTargetRatio
+                if newWidth > 1.0 {
+                    newWidth = 1.0
+                    newHeight = newWidth / normalizedTargetRatio
+                }
+            }
+
+            // Position to maintain center as much as possible, but ensure it fits
+            rect.width = newWidth
+            rect.height = newHeight
+            rect.x = max(0, min(1.0 - rect.width, centerX - rect.width / 2))
+            rect.y = max(0, min(1.0 - rect.height, centerY - rect.height / 2))
+
+            config.normalizedRect = rect
+        }
+
+        item.cropConfig = config.isActive ? config : nil
+    }
+
+    /// Reset crop to full frame
+    private func resetCrop() {
+        item.cropConfig = nil
+        selectedCropAspectRatio = .free
+    }
+
+    /// Scale the crop box by a factor while maintaining center position and aspect ratio
+    private func scaleCropBox(factor: Double) {
+        var config = item.cropConfig ?? CropConfig(normalizedRect: .fullFrame)
+        var rect = config.normalizedRect
+
+        // Calculate center point
+        let centerX = rect.x + rect.width / 2
+        let centerY = rect.y + rect.height / 2
+
+        // Scale dimensions
+        var newWidth = rect.width * factor
+        var newHeight = rect.height * factor
+
+        // Clamp to minimum size (2% of frame)
+        let minSize = 0.02
+        newWidth = max(minSize, newWidth)
+        newHeight = max(minSize, newHeight)
+
+        // Clamp to maximum size (full frame)
+        newWidth = min(1.0, newWidth)
+        newHeight = min(1.0, newHeight)
+
+        // If aspect ratio is locked, maintain it
+        if let targetRatio = selectedCropAspectRatio.numericRatio {
+            let videoDisplayAspectRatio = item.videoDisplayAspectRatio ?? (16.0 / 9.0)
+            let normalizedTargetRatio = targetRatio / videoDisplayAspectRatio
+
+            // Adjust to maintain aspect ratio
+            if normalizedTargetRatio >= 1.0 {
+                newHeight = newWidth / normalizedTargetRatio
+                if newHeight > 1.0 {
+                    newHeight = 1.0
+                    newWidth = newHeight * normalizedTargetRatio
+                }
+            } else {
+                newWidth = newHeight * normalizedTargetRatio
+                if newWidth > 1.0 {
+                    newWidth = 1.0
+                    newHeight = newWidth / normalizedTargetRatio
+                }
+            }
+        }
+
+        // Position centered
+        rect.width = newWidth
+        rect.height = newHeight
+        rect.x = max(0, min(1.0 - rect.width, centerX - rect.width / 2))
+        rect.y = max(0, min(1.0 - rect.height, centerY - rect.height / 2))
+
+        config.normalizedRect = rect
+        item.cropConfig = config.isActive ? config : nil
+    }
+
     private func handleKeyCommand(key: String, modifiers: NSEvent.ModifierFlags, specialKey: NSEvent.SpecialKey? = nil) -> Bool {
+        // CMD + Arrow keys: Move crop box (when crop mode is active)
+        if modifiers.contains(.command) && isCropControlsExpanded {
+            if let direction = specialKey {
+                switch direction {
+                case .leftArrow:
+                    moveCropBox(dx: -0.01, dy: 0)
+                    return true
+                case .rightArrow:
+                    moveCropBox(dx: 0.01, dy: 0)
+                    return true
+                case .upArrow:
+                    moveCropBox(dx: 0, dy: -0.01)
+                    return true
+                case .downArrow:
+                    moveCropBox(dx: 0, dy: 0.01)
+                    return true
+                default:
+                    break
+                }
+            }
+        }
+
         if specialKey == .downArrow {
             // Down: Jump forward 10 frames
             controller.seekByFrames(10)
@@ -279,6 +437,37 @@ struct PreviewPlayerView: View {
                 // CMD+S: Capture screenshot
                 captureScreenshot()
                 return true
+            case "1", "2", "3", "4", "5", "6", "7", "8":
+                // CMD+1...8: Select aspect ratio presets (when crop mode is active)
+                if isCropControlsExpanded, let index = Int(lowerKey) {
+                    let ratios = AspectRatio.allCases
+                    if index >= 1 && index <= ratios.count {
+                        selectCropAspectRatio(ratios[index - 1])
+                        return true
+                    }
+                }
+                return false
+            case "0":
+                // CMD+0: Reset crop
+                if isCropControlsExpanded {
+                    resetCrop()
+                    return true
+                }
+                return false
+            case "=", "+":
+                // CMD+= or CMD++: Scale crop box larger
+                if isCropControlsExpanded {
+                    scaleCropBox(factor: 1.05)
+                    return true
+                }
+                return false
+            case "-":
+                // CMD+-: Scale crop box smaller
+                if isCropControlsExpanded {
+                    scaleCropBox(factor: 0.95)
+                    return true
+                }
+                return false
             default:
                 return false
             }

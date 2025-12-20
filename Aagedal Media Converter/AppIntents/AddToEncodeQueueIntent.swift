@@ -14,6 +14,7 @@ import Foundation
 // MARK: - Notification used to hand off URL from App Intent to running app instance
 extension Notification.Name {
     static let enqueueFileURL = Notification.Name("enqueueFileURL")
+    static let showFileImporter = Notification.Name("showFileImporter")
 }
 
 // MARK: - Add To Encode Queue Intent

@@ -11,6 +11,7 @@ struct PreviewTrimControls: View {
     @ObservedObject var controller: PreviewPlayerController
     @Binding var currentPlaybackTime: Double
     @Binding var isCropControlsExpanded: Bool
+    @Binding var selectedCropAspectRatio: AspectRatio
     let onSeek: (Double) -> Void
     let onReset: () -> Void
     let onCaptureScreenshot: () -> Void
@@ -60,7 +61,12 @@ struct PreviewTrimControls: View {
 
             // Crop controls
             if item.hasVideoStream {
-                CropControlsView(item: $item, controller: controller, isExpanded: $isCropControlsExpanded)
+                CropControlsView(
+                    item: $item,
+                    controller: controller,
+                    isExpanded: $isCropControlsExpanded,
+                    selectedAspectRatio: $selectedCropAspectRatio
+                )
             }
         }
         .onChange(of: timecodeActivationTrigger) { _, newValue in

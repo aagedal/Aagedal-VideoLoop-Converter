@@ -12,12 +12,6 @@ import AVFoundation
 import AppKit
 import Carbon.HIToolbox
 
-// Custom notification to trigger file importer from menu command
-#if !os(iOS)
-extension Notification.Name {
-    static let showFileImporter = Notification.Name("showFileImporter")
-}
-#endif
 
 struct ContentView: View {
     @State private var droppedFiles: [VideoItem] = []
@@ -178,267 +172,133 @@ struct ContentView: View {
     }
 
     var body: some View {
+        mainContentView
+            .overlay(alignment: .bottom) { updateNotificationOverlay }
+            .frame(minWidth: 780)
+            .modifier(ContentViewSheets(
+                droppedFiles: $droppedFiles,
+                trimSheetItemID: $trimSheetItemID,
+                trimWithCropSheetItemID: $trimWithCropSheetItemID,
+                timecodeSheetItemID: $timecodeSheetItemID,
+                audioConfigSheetItemID: $audioConfigSheetItemID,
+                metadataSheetItemIDs: $metadataSheetItemIDs,
+                selectedPreset: selectedPreset
+            ))
+            .background(keyboardShortcutHandler)
+            .modifier(ContentViewLifecycle(
+                hasInitializedPreset: $hasInitializedPreset,
+                hasUserChangedPreset: $hasUserChangedPreset,
+                selectedPreset: $selectedPreset,
+                currentOutputFolder: $currentOutputFolder,
+                isConverting: $isConverting,
+                storedDefaultPresetRawValue: storedDefaultPresetRawValue,
+                outputFolder: outputFolder,
+                scheduleMergeCompatibilityEvaluation: scheduleMergeCompatibilityEvaluation,
+                refreshExpectedOutputURLs: refreshExpectedOutputURLs,
+                updateChecker: updateChecker
+            ))
+            .modifier(ContentViewChangeHandlers(
+                showUpdateNotification: $showUpdateNotification,
+                updateNotificationTask: $updateNotificationTask,
+                selectedPreset: $selectedPreset,
+                hasUserChangedPreset: $hasUserChangedPreset,
+                currentOutputFolder: $currentOutputFolder,
+                isFileImporterPresented: $isFileImporterPresented,
+                mergeClipsEnabled: mergeClipsEnabled,
+                watchFolderModeEnabled: watchFolderModeEnabled,
+                isConverting: isConverting,
+                droppedFilesCount: droppedFiles.count,
+                updateChecker: updateChecker,
+                outputFolder: outputFolder,
+                storedDefaultPresetRawValue: storedDefaultPresetRawValue,
+                refreshExpectedOutputURLs: refreshExpectedOutputURLs,
+                scheduleMergeCompatibilityEvaluation: scheduleMergeCompatibilityEvaluation,
+                handleWatchFolderToggle: handleWatchFolderToggle,
+                scheduleAutoEncode: scheduleAutoEncode
+            ))
+            .onChange(of: droppedFiles) { _, _ in
+                if mergeClipsEnabled {
+                    refreshExpectedOutputURLs(for: selectedPreset)
+                }
+                scheduleMergeCompatibilityEvaluation()
+            }
+            .modifier(ContentViewNotificationHandlers(
+                droppedFiles: $droppedFiles,
+                currentOutputFolder: $currentOutputFolder,
+                outputFolder: $outputFolder,
+                selectedPreset: selectedPreset,
+                videoLoopDefaultMuted: videoLoopDefaultMuted,
+                startConversion: startConversion
+            ))
+    }
+
+    // MARK: - Body Subviews
+
+    private var mainContentView: some View {
         VStack {
             fileListView
-            .fileImporter(
-                isPresented: $isFileImporterPresented,
-                allowedContentTypes: supportedVideoTypes,
-                allowsMultipleSelection: true
-            ) { result in
-                handleFileSelection(result: result)
-            }
-            .task {
-                await startProgressUpdates()
-            }
-            .toolbar {
-                conversionToolbar
-            }
-            
-            // Overall progress bar
+                .fileImporter(
+                    isPresented: $isFileImporterPresented,
+                    allowedContentTypes: supportedVideoTypes,
+                    allowsMultipleSelection: true
+                ) { result in
+                    handleFileSelection(result: result)
+                }
+                .task {
+                    await startProgressUpdates()
+                }
+                .toolbar {
+                    conversionToolbar
+                }
+
             if isConverting {
                 OverallProgressView(progress: overallProgress)
             }
         }
-        .overlay(alignment: .bottom) {
-            if showUpdateNotification {
-                UpdateNotificationView(
-                    latestVersion: updateChecker.latestVersion,
-                    onDownload: {
-                        updateChecker.openDownloadPage()
-                        withAnimation {
-                            showUpdateNotification = false
-                        }
-                    },
-                    onDismiss: {
-                        withAnimation {
-                            showUpdateNotification = false
-                        }
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .padding(.bottom, 20)
-            }
-        }
-        .frame(minWidth: 760)
-        // Sheets for keyboard shortcuts - using item-based presentation to ensure content is always valid
-        .sheet(isPresented: sheetBinding(for: $trimSheetItemID)) {
-            if let id = trimSheetItemID,
-               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                PreviewPlayerView(item: $droppedFiles[index])
-            }
-        }
-        .sheet(isPresented: sheetBinding(for: $trimWithCropSheetItemID)) {
-            if let id = trimWithCropSheetItemID,
-               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                PreviewPlayerView(item: $droppedFiles[index], initialCropExpanded: true)
-            }
-        }
-        .sheet(isPresented: sheetBinding(for: $timecodeSheetItemID)) {
-            if let id = timecodeSheetItemID,
-               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                TimecodeView(item: $droppedFiles[index])
-            }
-        }
-        .sheet(isPresented: sheetBinding(for: $audioConfigSheetItemID)) {
-            if let id = audioConfigSheetItemID,
-               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                AudioRoutingView(item: $droppedFiles[index], preset: selectedPreset)
-            }
-        }
-        .sheet(isPresented: metadataSheetBinding) {
-            metadataSheetContent
-        }
-        .background(
-            GlobalKeyboardShortcutHandler(
-                onToggleWatchFolder: { watchFolderModeEnabled.toggle() },
-                onSelectOutputFolder: {
-                    Task {
-                        if let folder = await selectOutputFolder() {
-                            currentOutputFolder = folder
-                        }
+    }
+
+    @ViewBuilder
+    private var updateNotificationOverlay: some View {
+        if showUpdateNotification {
+            UpdateNotificationView(
+                latestVersion: updateChecker.latestVersion,
+                onDownload: {
+                    updateChecker.openDownloadPage()
+                    withAnimation {
+                        showUpdateNotification = false
                     }
                 },
-                onToggleMerge: {
-                    if mergeClipsAvailable {
-                        mergeClipsEnabled.toggle()
-                    }
-                },
-                onResetAll: {
-                    resetAllFiles()
-                },
-                onToggleConversion: handleConversionToggle
-            )
-        )
-        .onAppear {
-            if !hasInitializedPreset {
-                selectedPreset = ExportPreset(rawValue: storedDefaultPresetRawValue) ?? .videoLoop
-                hasInitializedPreset = true
-                hasUserChangedPreset = false
-            }
-            let storedFolderURL = URL(fileURLWithPath: outputFolder)
-            if storedFolderURL.path != currentOutputFolder.path {
-                currentOutputFolder = storedFolderURL
-            } else {
-                refreshExpectedOutputURLs(for: selectedPreset)
-            }
-            Task {
-                isConverting = await ConversionManager.shared.isConvertingStatus()
-            }
-            scheduleMergeCompatibilityEvaluation()
-            
-            // Check for updates
-            updateChecker.checkForUpdatesIfNeeded()
-        }
-        .onChange(of: updateChecker.updateAvailable) { _, available in
-            if available {
-                withAnimation {
-                    showUpdateNotification = true
-                }
-                // Auto-dismiss after 10 seconds
-                updateNotificationTask?.cancel()
-                updateNotificationTask = Task {
-                    try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
+                onDismiss: {
                     withAnimation {
                         showUpdateNotification = false
                     }
                 }
-            }
+            )
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .padding(.bottom, 20)
         }
-        .onChange(of: storedDefaultPresetRawValue) { _, newValue in
-            selectedPreset = ExportPreset(rawValue: newValue) ?? .videoLoop
-            hasUserChangedPreset = false
-        }
-        .onChange(of: outputFolder) { _, newValue in
-            let updatedFolderURL = URL(fileURLWithPath: newValue)
-            if updatedFolderURL.path != currentOutputFolder.path {
-                currentOutputFolder = updatedFolderURL
-            } else {
-                refreshExpectedOutputURLs(for: selectedPreset)
-            }
-        }
-        // Listen for menu command
-        .onReceive(NotificationCenter.default.publisher(for: .showFileImporter)) { _ in
-            isFileImporterPresented = true
-        }
-        .onChange(of: watchFolderModeEnabled) { _, newValue in
-            handleWatchFolderToggle(newValue)
-        }
-        .onChange(of: droppedFiles) { _, _ in
-            if mergeClipsEnabled {
-                refreshExpectedOutputURLs(for: selectedPreset)
-            }
-            scheduleMergeCompatibilityEvaluation()
-        }
-        .onChange(of: mergeClipsEnabled) { _, _ in
-            refreshExpectedOutputURLs(for: selectedPreset)
-        }
-        .onChange(of: isConverting) { _, _ in
-            scheduleMergeCompatibilityEvaluation()
-        }
-        .onChange(of: droppedFiles.count) { oldCount, newCount in
-            if watchFolderModeEnabled && newCount > oldCount {
-                scheduleAutoEncode()
-            }
-        }
-        // Listen for App Intent to enqueue file(s)
-        .onReceive(NotificationCenter.default.publisher(for: .enqueueFileURL)) { notification in
-            // Support both single URL and array of URLs
-            let urls: [URL]
-            if let singleURL = notification.object as? URL {
-                urls = [singleURL]
-            } else if let multipleURLs = notification.object as? [URL] {
-                urls = multipleURLs
-            } else {
-                return
-            }
+    }
 
-            for url in urls {
-                // Check for duplicates before creating placeholder
-                guard !droppedFiles.contains(where: { $0.url == url }) else { continue }
-
-                guard let placeholder = VideoFileUtils.makePlaceholderItem(
-                    from: url,
-                    outputFolder: outputFolder,
-                    preset: selectedPreset
-                ) else {
-                    print("Skipping unsupported file from AppIntent: \(url.lastPathComponent)")
-                    continue
-                }
-
-                droppedFiles.append(placeholder)
-                // Auto-mute if VideoLoop preset is selected and setting is enabled
-                if selectedPreset == .videoLoop && videoLoopDefaultMuted {
-                    droppedFiles[droppedFiles.count - 1].isMuted = true
-                }
-                let placeholderID = placeholder.id
-
-                // Load details asynchronously in background
-                Task(priority: .utility) {
-                    let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                    let durationSeconds = details.durationSeconds
-                    let metadata = await VideoFileUtils.fetchMetadata(for: url)
-
-                    await MainActor.run {
-                        if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
-                            self.droppedFiles[index].apply(details: details)
-                            self.droppedFiles[index].detailsLoaded = true
-                            self.droppedFiles[index].metadata = metadata
-
-                            let effectiveDuration = self.droppedFiles[index].durationSeconds
-                            let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                            if durationForPrefetch > 0 {
-                                VideoFileUtils.prefetchPreviewAssets(
-                                    for: url,
-                                    durationSeconds: durationForPrefetch
-                                )
-                            }
-                        }
+    private var keyboardShortcutHandler: some View {
+        GlobalKeyboardShortcutHandler(
+            onToggleWatchFolder: { watchFolderModeEnabled.toggle() },
+            onSelectOutputFolder: {
+                Task {
+                    if let folder = await selectOutputFolder() {
+                        currentOutputFolder = folder
                     }
                 }
-            }
-        }
-        // Handle ConvertImmediatelyIntent
-        .onReceive(NotificationCenter.default.publisher(for: .convertImmediately)) { notification in
-            guard let info = notification.userInfo,
-                  let folderURL = info["outputFolderURL"] as? URL else { return }
-
-            // Support both single URL and array of URLs
-            let fileURLs: [URL]
-            if let singleURL = info["fileURL"] as? URL {
-                fileURLs = [singleURL]
-            } else if let multipleURLs = info["fileURLs"] as? [URL] {
-                fileURLs = multipleURLs
-            } else {
-                return
-            }
-
-            Task {
-                // Update output folder to match source directory
-                await MainActor.run {
-                    currentOutputFolder = folderURL
-                    outputFolder = folderURL.path
+            },
+            onToggleMerge: {
+                if mergeClipsAvailable {
+                    mergeClipsEnabled.toggle()
                 }
-
-                for fileURL in fileURLs {
-                    if var videoItem = await VideoFileUtils.createVideoItem(
-                        from: fileURL,
-                        outputFolder: folderURL.path,
-                        preset: selectedPreset
-                    ) {
-                        await MainActor.run {
-                            if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
-                                // Auto-mute if VideoLoop preset is selected and setting is enabled
-                                if selectedPreset == .videoLoop && videoLoopDefaultMuted {
-                                    videoItem.isMuted = true
-                                }
-                                droppedFiles.append(videoItem)
-                            }
-                        }
-                    }
-                }
-                await startConversion()
-            }
-        }
+            },
+            onResetAll: {
+                resetAllFiles()
+            },
+            onToggleConversion: handleConversionToggle
+        )
     }
 
     // Helper function for folder selection
@@ -1104,6 +964,330 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
                 NSEvent.removeMonitor(monitor)
                 self.monitor = nil
             }
+        }
+    }
+}
+
+// MARK: - Content View Modifiers
+
+/// ViewModifier for all sheet presentations
+private struct ContentViewSheets: ViewModifier {
+    @Binding var droppedFiles: [VideoItem]
+    @Binding var trimSheetItemID: UUID?
+    @Binding var trimWithCropSheetItemID: UUID?
+    @Binding var timecodeSheetItemID: UUID?
+    @Binding var audioConfigSheetItemID: UUID?
+    @Binding var metadataSheetItemIDs: [UUID]?
+    let selectedPreset: ExportPreset
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: sheetBinding(for: $trimSheetItemID)) {
+                trimSheetContent
+            }
+            .sheet(isPresented: sheetBinding(for: $trimWithCropSheetItemID)) {
+                trimWithCropSheetContent
+            }
+            .sheet(isPresented: sheetBinding(for: $timecodeSheetItemID)) {
+                timecodeSheetContent
+            }
+            .sheet(isPresented: sheetBinding(for: $audioConfigSheetItemID)) {
+                audioConfigSheetContent
+            }
+            .sheet(isPresented: metadataSheetBinding) {
+                metadataSheetContent
+            }
+    }
+
+    @ViewBuilder
+    private var trimSheetContent: some View {
+        if let id = trimSheetItemID,
+           let index = droppedFiles.firstIndex(where: { $0.id == id }) {
+            PreviewPlayerView(item: $droppedFiles[index])
+        }
+    }
+
+    @ViewBuilder
+    private var trimWithCropSheetContent: some View {
+        if let id = trimWithCropSheetItemID,
+           let index = droppedFiles.firstIndex(where: { $0.id == id }) {
+            PreviewPlayerView(item: $droppedFiles[index], initialCropExpanded: true)
+        }
+    }
+
+    @ViewBuilder
+    private var timecodeSheetContent: some View {
+        if let id = timecodeSheetItemID,
+           let index = droppedFiles.firstIndex(where: { $0.id == id }) {
+            TimecodeView(item: $droppedFiles[index])
+        }
+    }
+
+    @ViewBuilder
+    private var audioConfigSheetContent: some View {
+        if let id = audioConfigSheetItemID,
+           let index = droppedFiles.firstIndex(where: { $0.id == id }) {
+            AudioRoutingView(item: $droppedFiles[index], preset: selectedPreset)
+        }
+    }
+
+    @ViewBuilder
+    private var metadataSheetContent: some View {
+        if let ids = metadataSheetItemIDs {
+            if ids.count == 1,
+               let id = ids.first,
+               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
+                VideoMetadataView(item: $droppedFiles[index])
+            } else {
+                let sortedItems = droppedFiles.filter { ids.contains($0.id) }
+                MetadataComparisonView(items: sortedItems)
+            }
+        }
+    }
+
+    private func sheetBinding(for itemID: Binding<UUID?>) -> Binding<Bool> {
+        Binding(
+            get: { itemID.wrappedValue != nil },
+            set: { isPresented in
+                if !isPresented {
+                    itemID.wrappedValue = nil
+                }
+            }
+        )
+    }
+
+    private var metadataSheetBinding: Binding<Bool> {
+        Binding(
+            get: { metadataSheetItemIDs != nil && !(metadataSheetItemIDs?.isEmpty ?? true) },
+            set: { isPresented in
+                if !isPresented {
+                    metadataSheetItemIDs = nil
+                }
+            }
+        )
+    }
+}
+
+/// ViewModifier for onAppear lifecycle
+private struct ContentViewLifecycle: ViewModifier {
+    @Binding var hasInitializedPreset: Bool
+    @Binding var hasUserChangedPreset: Bool
+    @Binding var selectedPreset: ExportPreset
+    @Binding var currentOutputFolder: URL
+    @Binding var isConverting: Bool
+    let storedDefaultPresetRawValue: String
+    let outputFolder: String
+    let scheduleMergeCompatibilityEvaluation: () -> Void
+    let refreshExpectedOutputURLs: (ExportPreset) -> Void
+    let updateChecker: UpdateChecker
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                if !hasInitializedPreset {
+                    selectedPreset = ExportPreset(rawValue: storedDefaultPresetRawValue) ?? .videoLoop
+                    hasInitializedPreset = true
+                    hasUserChangedPreset = false
+                }
+                let storedFolderURL = URL(fileURLWithPath: outputFolder)
+                if storedFolderURL.path != currentOutputFolder.path {
+                    currentOutputFolder = storedFolderURL
+                } else {
+                    refreshExpectedOutputURLs(selectedPreset)
+                }
+                Task {
+                    isConverting = await ConversionManager.shared.isConvertingStatus()
+                }
+                scheduleMergeCompatibilityEvaluation()
+                updateChecker.checkForUpdatesIfNeeded()
+            }
+    }
+}
+
+/// ViewModifier for onChange handlers
+private struct ContentViewChangeHandlers: ViewModifier {
+    @Binding var showUpdateNotification: Bool
+    @Binding var updateNotificationTask: Task<Void, Never>?
+    @Binding var selectedPreset: ExportPreset
+    @Binding var hasUserChangedPreset: Bool
+    @Binding var currentOutputFolder: URL
+    @Binding var isFileImporterPresented: Bool
+    let mergeClipsEnabled: Bool
+    let watchFolderModeEnabled: Bool
+    let isConverting: Bool
+    let droppedFilesCount: Int
+    let updateChecker: UpdateChecker
+    let outputFolder: String
+    let storedDefaultPresetRawValue: String
+    let refreshExpectedOutputURLs: (ExportPreset) -> Void
+    let scheduleMergeCompatibilityEvaluation: () -> Void
+    let handleWatchFolderToggle: (Bool) -> Void
+    let scheduleAutoEncode: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: updateChecker.updateAvailable) { _, available in
+                handleUpdateAvailable(available)
+            }
+            .onChange(of: storedDefaultPresetRawValue) { _, newValue in
+                selectedPreset = ExportPreset(rawValue: newValue) ?? .videoLoop
+                hasUserChangedPreset = false
+            }
+            .onChange(of: outputFolder) { _, newValue in
+                handleOutputFolderChange(newValue)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showFileImporter)) { _ in
+                isFileImporterPresented = true
+            }
+            .onChange(of: watchFolderModeEnabled) { _, newValue in
+                handleWatchFolderToggle(newValue)
+            }
+            .onChange(of: mergeClipsEnabled) { _, _ in
+                refreshExpectedOutputURLs(selectedPreset)
+            }
+            .onChange(of: isConverting) { _, _ in
+                scheduleMergeCompatibilityEvaluation()
+            }
+            .onChange(of: droppedFilesCount) { oldCount, newCount in
+                if watchFolderModeEnabled && newCount > oldCount {
+                    scheduleAutoEncode()
+                }
+            }
+    }
+
+    private func handleUpdateAvailable(_ available: Bool) {
+        if available {
+            withAnimation {
+                showUpdateNotification = true
+            }
+            updateNotificationTask?.cancel()
+            updateNotificationTask = Task {
+                try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
+                withAnimation {
+                    showUpdateNotification = false
+                }
+            }
+        }
+    }
+
+    private func handleOutputFolderChange(_ newValue: String) {
+        let updatedFolderURL = URL(fileURLWithPath: newValue)
+        if updatedFolderURL.path != currentOutputFolder.path {
+            currentOutputFolder = updatedFolderURL
+        } else {
+            refreshExpectedOutputURLs(selectedPreset)
+        }
+    }
+}
+
+/// ViewModifier for notification handlers (enqueue and convert immediately)
+private struct ContentViewNotificationHandlers: ViewModifier {
+    @Binding var droppedFiles: [VideoItem]
+    @Binding var currentOutputFolder: URL
+    @Binding var outputFolder: String
+    let selectedPreset: ExportPreset
+    let videoLoopDefaultMuted: Bool
+    let startConversion: () async -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .enqueueFileURL)) { notification in
+                handleEnqueueNotification(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .convertImmediately)) { notification in
+                handleConvertImmediatelyNotification(notification)
+            }
+    }
+
+    private func handleEnqueueNotification(_ notification: Notification) {
+        let urls: [URL]
+        if let singleURL = notification.object as? URL {
+            urls = [singleURL]
+        } else if let multipleURLs = notification.object as? [URL] {
+            urls = multipleURLs
+        } else {
+            return
+        }
+
+        for url in urls {
+            guard !droppedFiles.contains(where: { $0.url == url }) else { continue }
+
+            guard let placeholder = VideoFileUtils.makePlaceholderItem(
+                from: url,
+                outputFolder: outputFolder,
+                preset: selectedPreset
+            ) else {
+                print("Skipping unsupported file from AppIntent: \(url.lastPathComponent)")
+                continue
+            }
+
+            droppedFiles.append(placeholder)
+            if selectedPreset == .videoLoop && videoLoopDefaultMuted {
+                droppedFiles[droppedFiles.count - 1].isMuted = true
+            }
+            let placeholderID = placeholder.id
+
+            Task(priority: .utility) {
+                let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
+                let durationSeconds = details.durationSeconds
+                let metadata = await VideoFileUtils.fetchMetadata(for: url)
+
+                await MainActor.run {
+                    if let index = droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
+                        droppedFiles[index].apply(details: details)
+                        droppedFiles[index].detailsLoaded = true
+                        droppedFiles[index].metadata = metadata
+
+                        let effectiveDuration = droppedFiles[index].durationSeconds
+                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
+                        if durationForPrefetch > 0 {
+                            VideoFileUtils.prefetchPreviewAssets(
+                                for: url,
+                                durationSeconds: durationForPrefetch
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func handleConvertImmediatelyNotification(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let folderURL = info["outputFolderURL"] as? URL else { return }
+
+        let fileURLs: [URL]
+        if let singleURL = info["fileURL"] as? URL {
+            fileURLs = [singleURL]
+        } else if let multipleURLs = info["fileURLs"] as? [URL] {
+            fileURLs = multipleURLs
+        } else {
+            return
+        }
+
+        Task {
+            await MainActor.run {
+                currentOutputFolder = folderURL
+                outputFolder = folderURL.path
+            }
+
+            for fileURL in fileURLs {
+                if var videoItem = await VideoFileUtils.createVideoItem(
+                    from: fileURL,
+                    outputFolder: folderURL.path,
+                    preset: selectedPreset
+                ) {
+                    await MainActor.run {
+                        if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
+                            if selectedPreset == .videoLoop && videoLoopDefaultMuted {
+                                videoItem.isMuted = true
+                            }
+                            droppedFiles.append(videoItem)
+                        }
+                    }
+                }
+            }
+            await startConversion()
         }
     }
 }
