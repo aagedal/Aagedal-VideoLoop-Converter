@@ -765,7 +765,7 @@ extension FFMPEGCommandBuilder {
 
         // Replace generic audio maps with explicit stream indices
         // Process in reverse order to maintain correct indices during removal
-        for (mapIdx, originalValue) in audioMapIndices.reversed() {
+        for (mapIdx, _) in audioMapIndices.reversed() {
             ffmpegArgs.remove(at: mapIdx + 1)
             ffmpegArgs.remove(at: mapIdx)
         }

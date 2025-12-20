@@ -33,6 +33,12 @@ enum RandomTips {
         "Tip: Use Control + M will mute the selected files in the queue.",
         "Tip: In the trim view hold ⌘ while dragging to set both in and out trim point in a single drag.",
         "Tip: In the trim view hold Shift while dragging in between trim points to move both in and out trim point at once.",
+        "Tip: In the full screen player you can use Command + N to go to the next video in the queue, and Command + B to go back to the previous video in the queue.",
+        "Tip: In the full screen player the UI overlay disappears immidiately if you place the mouse on the very right side of the screen.",
+        "Tip: In the player views you can press T to toggle between relative timecode, source timecode and frame counter.",
+        "Tip: Press Control + R to load a random tip here.",
+        "Tip: In the Audio Routing overlay use Control + M to mute all audio. You can also use Command + [1...8] to enable or disable a specific audio source track.",
+        "Tip: In the Crop view you can also use Command + [1...8] to switch between different crop modes. Use CMD + ↑←↓→ to move the crop box. Use CMD + -/+ to resize the crop box.",
     ]
 
     static func randomTip() -> LocalizedStringKey {

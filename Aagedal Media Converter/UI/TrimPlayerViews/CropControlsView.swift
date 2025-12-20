@@ -14,7 +14,7 @@ struct CropControlsView: View {
     @Binding var item: VideoItem
     @ObservedObject var controller: PreviewPlayerController
     @Binding var isExpanded: Bool
-    @State private var selectedAspectRatio: AspectRatio = .free
+    @Binding var selectedAspectRatio: AspectRatio
 
     // Pixel input states
     @State private var pixelX: String = "0"
