@@ -243,10 +243,235 @@ enum ProxyResolutionLimit: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Codec Preset Enums
+
+/// Encoder type for H.264 preset
+enum H264Encoder: String, CaseIterable, Identifiable {
+    case hardware = "Hardware (VideoToolbox)"
+    case software = "Software (libx264)"
+
+    var id: String { rawValue }
+
+    var ffmpegEncoder: String {
+        switch self {
+        case .hardware: return "h264_videotoolbox"
+        case .software: return "libx264"
+        }
+    }
+}
+
+/// Encoder type for H.265 preset
+enum H265Encoder: String, CaseIterable, Identifiable {
+    case hardware = "Hardware (VideoToolbox)"
+    case software = "Software (libx265)"
+
+    var id: String { rawValue }
+
+    var ffmpegEncoder: String {
+        switch self {
+        case .hardware: return "hevc_videotoolbox"
+        case .software: return "libx265"
+        }
+    }
+}
+
+/// Container format options for codec presets
+enum CodecContainer: String, CaseIterable, Identifiable {
+    case mp4 = "MP4"
+    case mov = "MOV"
+    case mkv = "MKV"
+
+    var id: String { rawValue }
+
+    var fileExtension: String { rawValue.lowercased() }
+}
+
+/// Encoding speed/effort presets for software encoders (x264/x265)
+enum EncodingSpeed: String, CaseIterable, Identifiable {
+    case ultrafast = "Ultrafast"
+    case superfast = "Superfast"
+    case veryfast = "Veryfast"
+    case faster = "Faster"
+    case fast = "Fast"
+    case medium = "Medium"
+    case slow = "Slow"
+    case slower = "Slower"
+    case veryslow = "Veryslow"
+
+    var id: String { rawValue }
+
+    var ffmpegPreset: String { rawValue.lowercased() }
+}
+
+/// Encoding speed for AV1 (SVT-AV1 uses 0-13 scale)
+enum AV1EncodingSpeed: Int, CaseIterable, Identifiable {
+    case preset0 = 0
+    case preset1 = 1
+    case preset2 = 2
+    case preset3 = 3
+    case preset4 = 4
+    case preset5 = 5
+    case preset6 = 6
+    case preset7 = 7
+    case preset8 = 8
+    case preset9 = 9
+    case preset10 = 10
+    case preset11 = 11
+    case preset12 = 12
+    case preset13 = 13
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .preset0: return "0 (Slowest)"
+        case .preset6: return "6 (Balanced)"
+        case .preset13: return "13 (Fastest)"
+        default: return "\(rawValue)"
+        }
+    }
+}
+
+/// Resolution limit for codec presets
+enum CodecResolutionLimit: String, CaseIterable, Identifiable {
+    case r720 = "720p"
+    case r1080 = "1080p"
+    case r1440 = "1440p"
+    case r2160 = "4K (2160p)"
+    case unlimited = "Unlimited"
+
+    var id: String { rawValue }
+
+    var maxHeight: Int? {
+        switch self {
+        case .r720: return 720
+        case .r1080: return 1080
+        case .r1440: return 1440
+        case .r2160: return 2160
+        case .unlimited: return nil
+        }
+    }
+}
+
+/// Quality level for CRF-based encoding (x264/x265)
+enum CodecQualityLevel: String, CaseIterable, Identifiable {
+    case veryHigh = "Very High (15)"
+    case high = "High (18)"
+    case good = "Good (23)"
+    case balanced = "Balanced (28)"
+    case medium = "Medium (32)"
+    case low = "Low (38)"
+
+    var id: String { rawValue }
+
+    var crfValue: Int {
+        switch self {
+        case .veryHigh: return 15
+        case .high: return 18
+        case .good: return 23
+        case .balanced: return 28
+        case .medium: return 32
+        case .low: return 38
+        }
+    }
+}
+
+/// Quality level for AV1 (0-63 scale)
+enum AV1QualityLevel: String, CaseIterable, Identifiable {
+    case veryHigh = "Very High (15)"
+    case high = "High (23)"
+    case good = "Good (30)"
+    case balanced = "Balanced (35)"
+    case medium = "Medium (40)"
+    case low = "Low (50)"
+
+    var id: String { rawValue }
+
+    var crfValue: Int {
+        switch self {
+        case .veryHigh: return 15
+        case .high: return 23
+        case .good: return 30
+        case .balanced: return 35
+        case .medium: return 40
+        case .low: return 50
+        }
+    }
+}
+
+/// Audio codec options for codec presets
+enum CodecAudioFormat: String, CaseIterable, Identifiable {
+    case aac = "AAC"
+    case pcm16 = "PCM 16-bit"
+    case pcm24 = "PCM 24-bit"
+    case pcm32 = "PCM 32-bit"
+    case opus = "Opus"
+
+    var id: String { rawValue }
+
+    /// Returns available cases based on container format
+    static func availableCases(for container: CodecContainer) -> [CodecAudioFormat] {
+        switch container {
+        case .mkv:
+            return [.aac, .pcm16, .pcm24, .pcm32, .opus]
+        case .mp4, .mov:
+            return [.aac, .pcm16, .pcm24, .pcm32]
+        }
+    }
+
+    func ffmpegArgs(bitrate: String) -> [String] {
+        switch self {
+        case .aac:
+            return ["-c:a", "aac", "-b:a", bitrate]
+        case .pcm16:
+            return ["-c:a", "pcm_s16le"]
+        case .pcm24:
+            return ["-c:a", "pcm_s24le"]
+        case .pcm32:
+            return ["-c:a", "pcm_s32le"]
+        case .opus:
+            return ["-c:a", "libopus", "-b:a", bitrate]
+        }
+    }
+
+    var requiresBitrate: Bool {
+        switch self {
+        case .aac, .opus: return true
+        case .pcm16, .pcm24, .pcm32: return false
+        }
+    }
+}
+
+/// AAC/Opus bitrate options
+enum AudioBitrate: String, CaseIterable, Identifiable {
+    case k96 = "96 kbps"
+    case k128 = "128 kbps"
+    case k160 = "160 kbps"
+    case k192 = "192 kbps"
+    case k256 = "256 kbps"
+    case k320 = "320 kbps"
+
+    var id: String { rawValue }
+
+    var ffmpegValue: String {
+        switch self {
+        case .k96: return "96k"
+        case .k128: return "128k"
+        case .k160: return "160k"
+        case .k192: return "192k"
+        case .k256: return "256k"
+        case .k320: return "320k"
+        }
+    }
+}
+
 enum ExportPreset: String, CaseIterable, Identifiable {
     case videoLoop = "VideoLoop"
     case videoLoopWithSound = "VideoLoop with sound"
     case animatedStill = "Animated Still"
+    case h264 = "H.264 / AVC"
+    case h265 = "H.265 / HEVC"
+    case av1 = "AV1"
     case tvHEVC = "TV (HEVC 10-bit 4:2:2)"
     case tvAVCIntra = "TV (AVC-Intra MXF)"
     case prores = "ProRes"
@@ -271,6 +496,15 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .videoLoop, .videoLoopWithSound:
             return "mp4"
+        case .h264:
+            let containerRaw = UserDefaults.standard.string(forKey: AppConstants.h264ContainerKey) ?? AppConstants.defaultH264Container
+            return CodecContainer(rawValue: containerRaw)?.fileExtension ?? "mp4"
+        case .h265:
+            let containerRaw = UserDefaults.standard.string(forKey: AppConstants.h265ContainerKey) ?? AppConstants.defaultH265Container
+            return CodecContainer(rawValue: containerRaw)?.fileExtension ?? "mp4"
+        case .av1:
+            let containerRaw = UserDefaults.standard.string(forKey: AppConstants.av1ContainerKey) ?? AppConstants.defaultAV1Container
+            return CodecContainer(rawValue: containerRaw)?.fileExtension ?? "mp4"
         case .prores, .tvHEVC:
             return "mov"
         case .tvAVCIntra:
@@ -334,6 +568,12 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_VIDEO_LOOP_DESCRIPTION", comment: "Description for VideoLoop preset")
         case .videoLoopWithSound:
             return NSLocalizedString("PRESET_VIDEO_LOOP_WITH_SOUND_DESCRIPTION", comment: "Description for VideoLoop with sound preset")
+        case .h264:
+            return NSLocalizedString("PRESET_H264_DESCRIPTION", comment: "Description for H.264 preset")
+        case .h265:
+            return NSLocalizedString("PRESET_H265_DESCRIPTION", comment: "Description for H.265 preset")
+        case .av1:
+            return NSLocalizedString("PRESET_AV1_DESCRIPTION", comment: "Description for AV1 preset")
         case .tvHEVC:
             return NSLocalizedString("PRESET_TV_HEVC_DESCRIPTION", comment: "Description for TV HEVC preset")
         case .tvAVCIntra:
@@ -361,6 +601,12 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_loop"
         case .videoLoopWithSound:
             return "_loop_audio"
+        case .h264:
+            return "_h264"
+        case .h265:
+            return "_h265"
+        case .av1:
+            return "_av1"
         case .tvHEVC:
             return "_tv"
         case .tvAVCIntra:
@@ -432,6 +678,201 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-map", "0:a",
                 "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
+            Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
+            return args
+        case .h264:
+            // Get encoder setting
+            let encoderRaw = UserDefaults.standard.string(forKey: AppConstants.h264EncoderKey) ?? AppConstants.defaultH264Encoder
+            let encoder = H264Encoder(rawValue: encoderRaw) ?? .software
+
+            // Get container setting
+            let containerRaw = UserDefaults.standard.string(forKey: AppConstants.h264ContainerKey) ?? AppConstants.defaultH264Container
+            let container = CodecContainer(rawValue: containerRaw) ?? .mp4
+
+            // Get resolution limit
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.h264ResolutionLimitKey) ?? AppConstants.defaultH264ResolutionLimit
+            let resolution = CodecResolutionLimit(rawValue: resolutionRaw) ?? .unlimited
+
+            // Get audio settings
+            let audioFormatRaw = UserDefaults.standard.string(forKey: AppConstants.h264AudioFormatKey) ?? AppConstants.defaultH264AudioFormat
+            var audioFormat = CodecAudioFormat(rawValue: audioFormatRaw) ?? .aac
+            // Fallback if Opus selected but container doesn't support it
+            if audioFormat == .opus && container != .mkv {
+                audioFormat = .aac
+            }
+            let audioBitrateRaw = UserDefaults.standard.string(forKey: AppConstants.h264AudioBitrateKey) ?? AppConstants.defaultH264AudioBitrate
+            let audioBitrate = AudioBitrate(rawValue: audioBitrateRaw) ?? .k192
+
+            // Build scale filter
+            let scaleFilter: String
+            if let maxHeight = resolution.maxHeight {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
+            } else {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+            }
+
+            var args = commonArgs
+
+            switch encoder {
+            case .hardware:
+                let bitrate = UserDefaults.standard.string(forKey: AppConstants.h264BitrateKey) ?? AppConstants.defaultH264Bitrate
+                args += [
+                    "-c:v", "h264_videotoolbox",
+                    "-b:v", bitrate,
+                    "-profile:v", "high",
+                    "-pix_fmt", "yuv420p"
+                ]
+            case .software:
+                let qualityRaw = UserDefaults.standard.string(forKey: AppConstants.h264QualityKey) ?? AppConstants.defaultH264Quality
+                let quality = CodecQualityLevel(rawValue: qualityRaw) ?? .good
+                let speedRaw = UserDefaults.standard.string(forKey: AppConstants.h264SpeedKey) ?? AppConstants.defaultH264Speed
+                let speed = EncodingSpeed(rawValue: speedRaw) ?? .medium
+
+                args += [
+                    "-c:v", "libx264",
+                    "-crf", "\(quality.crfValue)",
+                    "-preset", speed.ffmpegPreset,
+                    "-profile:v", "high",
+                    "-pix_fmt", "yuv420p"
+                ]
+            }
+
+            // Add movflags for MP4/MOV
+            if container != .mkv {
+                args += ["-movflags", "+faststart"]
+            }
+
+            args += [
+                "-vf", scaleFilter,
+                "-map", "0:v"
+            ]
+            args += audioFormat.ffmpegArgs(bitrate: audioBitrate.ffmpegValue)
+            args += ["-map", "0:a?"]
+
+            Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
+            return args
+        case .h265:
+            // Get encoder setting
+            let encoderRaw = UserDefaults.standard.string(forKey: AppConstants.h265EncoderKey) ?? AppConstants.defaultH265Encoder
+            let encoder = H265Encoder(rawValue: encoderRaw) ?? .software
+
+            // Get container setting
+            let containerRaw = UserDefaults.standard.string(forKey: AppConstants.h265ContainerKey) ?? AppConstants.defaultH265Container
+            let container = CodecContainer(rawValue: containerRaw) ?? .mp4
+
+            // Get resolution limit
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.h265ResolutionLimitKey) ?? AppConstants.defaultH265ResolutionLimit
+            let resolution = CodecResolutionLimit(rawValue: resolutionRaw) ?? .unlimited
+
+            // Get audio settings
+            let audioFormatRaw = UserDefaults.standard.string(forKey: AppConstants.h265AudioFormatKey) ?? AppConstants.defaultH265AudioFormat
+            var audioFormat = CodecAudioFormat(rawValue: audioFormatRaw) ?? .aac
+            // Fallback if Opus selected but container doesn't support it
+            if audioFormat == .opus && container != .mkv {
+                audioFormat = .aac
+            }
+            let audioBitrateRaw = UserDefaults.standard.string(forKey: AppConstants.h265AudioBitrateKey) ?? AppConstants.defaultH265AudioBitrate
+            let audioBitrate = AudioBitrate(rawValue: audioBitrateRaw) ?? .k192
+
+            // Build scale filter
+            let scaleFilter: String
+            if let maxHeight = resolution.maxHeight {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
+            } else {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+            }
+
+            var args = commonArgs
+
+            switch encoder {
+            case .hardware:
+                let bitrate = UserDefaults.standard.string(forKey: AppConstants.h265BitrateKey) ?? AppConstants.defaultH265Bitrate
+                args += [
+                    "-c:v", "hevc_videotoolbox",
+                    "-b:v", bitrate,
+                    "-tag:v", "hvc1",
+                    "-pix_fmt", "p010le"
+                ]
+            case .software:
+                let qualityRaw = UserDefaults.standard.string(forKey: AppConstants.h265QualityKey) ?? AppConstants.defaultH265Quality
+                let quality = CodecQualityLevel(rawValue: qualityRaw) ?? .balanced
+                let speedRaw = UserDefaults.standard.string(forKey: AppConstants.h265SpeedKey) ?? AppConstants.defaultH265Speed
+                let speed = EncodingSpeed(rawValue: speedRaw) ?? .medium
+
+                args += [
+                    "-c:v", "libx265",
+                    "-crf", "\(quality.crfValue)",
+                    "-preset", speed.ffmpegPreset,
+                    "-tag:v", "hvc1",
+                    "-pix_fmt", "yuv420p10le"
+                ]
+            }
+
+            // Add movflags for MP4/MOV
+            if container != .mkv {
+                args += ["-movflags", "+faststart"]
+            }
+
+            args += [
+                "-vf", scaleFilter,
+                "-map", "0:v"
+            ]
+            args += audioFormat.ffmpegArgs(bitrate: audioBitrate.ffmpegValue)
+            args += ["-map", "0:a?"]
+
+            Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
+            return args
+        case .av1:
+            // Get container setting
+            let containerRaw = UserDefaults.standard.string(forKey: AppConstants.av1ContainerKey) ?? AppConstants.defaultAV1Container
+            let container = CodecContainer(rawValue: containerRaw) ?? .mp4
+
+            // Get quality setting
+            let qualityRaw = UserDefaults.standard.string(forKey: AppConstants.av1QualityKey) ?? AppConstants.defaultAV1Quality
+            let quality = AV1QualityLevel(rawValue: qualityRaw) ?? .good
+
+            // Get speed setting
+            let speed = UserDefaults.standard.integer(forKey: AppConstants.av1SpeedKey)
+            let presetValue = speed > 0 ? speed : AppConstants.defaultAV1Speed
+
+            // Get resolution limit
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.av1ResolutionLimitKey) ?? AppConstants.defaultAV1ResolutionLimit
+            let resolution = CodecResolutionLimit(rawValue: resolutionRaw) ?? .unlimited
+
+            // Get audio settings
+            let audioFormatRaw = UserDefaults.standard.string(forKey: AppConstants.av1AudioFormatKey) ?? AppConstants.defaultAV1AudioFormat
+            var audioFormat = CodecAudioFormat(rawValue: audioFormatRaw) ?? .aac
+            // Fallback if Opus selected but container doesn't support it
+            if audioFormat == .opus && container != .mkv {
+                audioFormat = .aac
+            }
+            let audioBitrateRaw = UserDefaults.standard.string(forKey: AppConstants.av1AudioBitrateKey) ?? AppConstants.defaultAV1AudioBitrate
+            let audioBitrate = AudioBitrate(rawValue: audioBitrateRaw) ?? .k192
+
+            // Build scale filter
+            let scaleFilter: String
+            if let maxHeight = resolution.maxHeight {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
+            } else {
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+            }
+
+            var args = commonArgs + [
+                "-c:v", "libsvtav1",
+                "-crf", "\(quality.crfValue)",
+                "-preset", "\(presetValue)",
+                "-pix_fmt", "yuv420p10le",
+                "-vf", scaleFilter,
+                "-map", "0:v"
+            ]
+            args += audioFormat.ffmpegArgs(bitrate: audioBitrate.ffmpegValue)
+            args += ["-map", "0:a?"]
+
+            // Add movflags for MP4/MOV
+            if container != .mkv {
+                args += ["-movflags", "+faststart"]
+            }
+
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
         case .tvHEVC:
@@ -822,6 +1263,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .videoLoop: key = AppConstants.videoLoopVisibleKey
         case .videoLoopWithSound: key = AppConstants.videoLoopWithSoundVisibleKey
         case .animatedStill: key = AppConstants.animatedStillVisibleKey
+        case .h264: key = AppConstants.h264VisibleKey
+        case .h265: key = AppConstants.h265VisibleKey
+        case .av1: key = AppConstants.av1VisibleKey
         case .tvHEVC: key = AppConstants.tvHEVCVisibleKey
         case .tvAVCIntra: key = AppConstants.tvAVCIntraVisibleKey
         case .prores: key = AppConstants.proresVisibleKey

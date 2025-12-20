@@ -706,7 +706,11 @@ struct VideoFileRowView: View {
                     }
                     return
                 }
-                isCommentFieldFocused = (newValue == file.id)
+                let shouldBeFocused = (newValue == file.id)
+                // Guard against redundant updates to prevent feedback loop
+                if isCommentFieldFocused != shouldBeFocused {
+                    isCommentFieldFocused = shouldBeFocused
+                }
             }
             .onChange(of: isCommentFieldFocused) { _, isFocused in
                 #if DEBUG
@@ -722,7 +726,10 @@ struct VideoFileRowView: View {
                     return
                 }
                 if isFocused {
-                    focusedCommentID = file.id
+                    // Guard against redundant updates to prevent feedback loop
+                    if focusedCommentID != file.id {
+                        focusedCommentID = file.id
+                    }
                     onCommentFocusChange(file.id, true)
                 } else if focusedCommentID == file.id {
                     focusedCommentID = nil

@@ -96,7 +96,7 @@ struct ConversionToolbarView: ToolbarContent {
                 }
             }
             .pickerStyle(.menu)
-            .frame(width: 150)
+            .frame(width: 180)
             .disabled(isConverting)
             .foregroundColor(.primary)
             .help("Select export preset for all files")
