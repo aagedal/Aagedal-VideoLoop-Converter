@@ -711,6 +711,9 @@ struct VideoFileListView: View {
                     focusedCommentID = nil
                 }
             },
+            onPlayFullscreen: {
+                onPlayFullscreen?(file.wrappedValue.id)
+            },
             mergeClipsEnabled: mergeClipsEnabled,
             mergeClipsAvailable: mergeClipsAvailable,
             showCommentField: showCommentField,

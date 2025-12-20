@@ -22,6 +22,7 @@ struct VideoFileRowView: View {
     /// Indicates if this row is selected in the list
     var isSelected: Bool = false
     var onCommentFocusChange: (UUID, Bool) -> Void = { _, _ in }
+    var onPlayFullscreen: () -> Void = {}
     var mergeClipsEnabled: Bool = false
     var mergeClipsAvailable: Bool = false
     var showCommentField: Bool = true
@@ -349,7 +350,7 @@ struct VideoFileRowView: View {
                 TapGesture(count: 2)
                     .onEnded {
                         guard file.hasVideoStream else { return }
-                        FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: file)
+                        onPlayFullscreen()
                     }
             )
             .onTapGesture { showPreview = true }
@@ -500,7 +501,7 @@ struct VideoFileRowView: View {
                 // Center: Fullscreen play button (only for video files)
                 if file.hasVideoStream {
                     Button {
-                        FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: file)
+                        onPlayFullscreen()
                     } label: {
                         Image(systemName: "play.circle.fill")
                             .font(.system(size: isCompactMode ? 24 : 44, weight: .medium))
@@ -588,7 +589,7 @@ struct VideoFileRowView: View {
             // Fullscreen button (video only)
             if file.hasVideoStream {
                 Button {
-                    FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: file)
+                    onPlayFullscreen()
                 } label: {
                     Image(systemName: "play.circle")
                         .font(.system(size: 12, weight: .medium))

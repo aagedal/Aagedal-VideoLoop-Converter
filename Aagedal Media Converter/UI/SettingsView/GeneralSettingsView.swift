@@ -21,6 +21,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppConstants.queueViewModeKey) private var queueViewMode = AppConstants.defaultQueueViewMode
     @AppStorage(AppConstants.playSoundOnSuccessKey) private var playSoundOnSuccess = AppConstants.defaultPlaySoundOnSuccess
     @AppStorage(AppConstants.playSoundOnErrorKey) private var playSoundOnError = AppConstants.defaultPlaySoundOnError
+    @AppStorage(AppConstants.preferredTimecodeDisplayModeKey) private var preferredTimecodeDisplayMode = AppConstants.defaultPreferredTimecodeDisplayMode
 
     @State private var isClearingPreviewCache = false
     @State private var previewCacheSizeBytes: Int64 = 0
@@ -30,6 +31,7 @@ struct GeneralSettingsView: View {
             outputFolderSection
             fileNameSection
             queueDisplaySection
+            timecodeDisplaySection
             soundSection
             resetBehaviorSection
             screenshotSection
@@ -161,6 +163,28 @@ struct GeneralSettingsView: View {
                     .toggleStyle(SwitchToggleStyle())
                     .help("Show a condensed view with smaller thumbnails and inline action buttons")
                 Text("Compact mode hides comment fields, file sizes, and duration to show more items at once. Action buttons appear in a row under each filename.")
+                    .font(Font.caption.italic())
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(8)
+        }
+    }
+
+    private var timecodeDisplaySection: some View {
+        Section(header: Text("Timecode Display")) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Default timecode mode:")
+                    Picker("", selection: $preferredTimecodeDisplayMode) {
+                        ForEach(TimecodeDisplayMode.allCases, id: \.rawValue) { mode in
+                            Text(mode.displayName).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 250)
+                }
+                Text("Sets the initial timecode display mode when opening the trim view or fullscreen player. You can toggle modes during playback by pressing T.")
                     .font(Font.caption.italic())
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

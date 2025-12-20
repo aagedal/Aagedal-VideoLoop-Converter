@@ -128,7 +128,10 @@ struct ContentView: View {
             },
             onPlayFullscreen: { id in
                 if let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                    FullscreenPlayerWindowController.shared.openFullscreenPlayer(for: droppedFiles[index])
+                    FullscreenPlayerWindowController.shared.openFullscreenPlayer(
+                        for: droppedFiles[index],
+                        in: droppedFiles
+                    )
                 }
             }
         )

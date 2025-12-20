@@ -374,6 +374,10 @@ enum AppConstants {
     static let defaultPlaySoundOnSuccess = true
     static let defaultPlaySoundOnError = true
 
+    // Timecode display settings
+    static let preferredTimecodeDisplayModeKey = "preferredTimecodeDisplayMode"
+    static let defaultPreferredTimecodeDisplayMode = "relative" // relative, source, frames
+
     // Output location settings
     static let saveNextToOriginalKey = "saveNextToOriginal"
     static let saveNextToOriginalSubfolderKey = "saveNextToOriginalSubfolder"
