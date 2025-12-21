@@ -11,6 +11,10 @@ struct GeneralSettingsView: View {
     @AppStorage(AppConstants.saveNextToOriginalSubfolderModeKey) private var saveNextToOriginalSubfolderMode = AppConstants.defaultSaveNextToOriginalSubfolderMode
     @AppStorage(AppConstants.saveNextToOriginalSubfolderNameKey) private var saveNextToOriginalSubfolderName = AppConstants.defaultSaveNextToOriginalSubfolderName
     @AppStorage(AppConstants.enableFileNameProcessingKey) private var enableFileNameProcessing = true
+    @AppStorage(AppConstants.fileNameReplaceSpacesKey) private var fileNameReplaceSpaces = AppConstants.defaultFileNameReplaceSpaces
+    @AppStorage(AppConstants.fileNameReplaceScandinavianCharsKey) private var fileNameReplaceScandinavianChars = AppConstants.defaultFileNameReplaceScandinavianChars
+    @AppStorage(AppConstants.fileNameRemoveSpecialCharsKey) private var fileNameRemoveSpecialChars = AppConstants.defaultFileNameRemoveSpecialChars
+    @AppStorage(AppConstants.fileNameIncludePresetSuffixKey) private var fileNameIncludePresetSuffix = AppConstants.defaultFileNameIncludePresetSuffix
     @AppStorage(AppConstants.screenshotDirectoryKey) private var screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
     @AppStorage(AppConstants.previewCacheCleanupPolicyKey) private var previewCacheCleanupPolicyRaw = AppConstants.defaultPreviewCacheCleanupPolicyRaw
     @AppStorage(AppConstants.screenshot8BitFormatKey) private var screenshot8BitFormat = AppConstants.defaultScreenshotFormat
@@ -144,7 +148,28 @@ struct GeneralSettingsView: View {
                 Toggle("Enable filename processing", isOn: $enableFileNameProcessing)
                     .toggleStyle(SwitchToggleStyle())
                     .help("When enabled, spaces and special characters in filenames are sanitized")
-                Text("When enabled, output filenames will be processed to replace spaces with underscores, convert Scandinavian characters (æ, ø, å) to ASCII equivalents, and remove special characters. When disabled, original filenames are preserved as-is.")
+
+                if enableFileNameProcessing {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle("Replace spaces with underscores", isOn: $fileNameReplaceSpaces)
+                            .toggleStyle(SwitchToggleStyle())
+                            .padding(.leading, 16)
+                        Toggle("Convert Scandinavian characters (æ, ø, å)", isOn: $fileNameReplaceScandinavianChars)
+                            .toggleStyle(SwitchToggleStyle())
+                            .padding(.leading, 16)
+                        Toggle("Remove special characters", isOn: $fileNameRemoveSpecialChars)
+                            .toggleStyle(SwitchToggleStyle())
+                            .padding(.leading, 16)
+                    }
+                }
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                Toggle("Include preset suffix in filename", isOn: $fileNameIncludePresetSuffix)
+                    .toggleStyle(SwitchToggleStyle())
+                    .help("When enabled, preset suffixes like '_loop' or '_tv' are added to output filenames")
+                Text("When disabled, output filenames will not include preset-specific suffixes.")
                     .font(Font.caption.italic())
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -231,7 +231,8 @@ struct VideoFileUtils: Sendable {
         guard let resolvedOutputFolder else { return nil }
         let sanitizedBaseName = FileNameProcessor.processFileName(url.deletingPathExtension().lastPathComponent)
         let resolvedExtension = preset.outputExtension(for: url)
-        let outputFileName = sanitizedBaseName + preset.fileSuffix + "." + resolvedExtension
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        let outputFileName = sanitizedBaseName + suffixPart + "." + resolvedExtension
         return URL(fileURLWithPath: resolvedOutputFolder).appendingPathComponent(outputFileName)
     }
 

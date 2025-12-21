@@ -146,10 +146,11 @@ actor ConversionManager: Sendable {
         let resolvedOutputFolderURL = URL(fileURLWithPath: resolvedOutputFolder)
         try? FileManager.default.createDirectory(at: resolvedOutputFolderURL, withIntermediateDirectories: true)
 
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
         let baseOutputURL = URL(fileURLWithPath: resolvedOutputFolder)
             .appendingPathComponent(
                 FileNameProcessor.processFileName(firstItem.url.deletingPathExtension().lastPathComponent)
-                + preset.fileSuffix
+                + suffixPart
                 + "_merge"
             )
 
@@ -828,7 +829,8 @@ actor ConversionManager: Sendable {
         let currentItem = droppedFiles.wrappedValue[idx]
         let inputURL = currentItem.url
         let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
-        let outputFileName = sanitizedBaseName + preset.fileSuffix
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        let outputFileName = sanitizedBaseName + suffixPart
         let resolvedOutputFolder = VideoFileUtils.resolveOutputFolder(for: inputURL, defaultOutputFolder: outputFolder, preset: preset) ?? outputFolder
 
         // Ensure the output directory exists

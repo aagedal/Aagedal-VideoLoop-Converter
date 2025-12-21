@@ -24,32 +24,51 @@ struct FileNameProcessor {
         guard isEnabled else {
             return input
         }
+
+        // Check individual processing options
+        let replaceSpaces = UserDefaults.standard.object(forKey: AppConstants.fileNameReplaceSpacesKey) as? Bool ?? AppConstants.defaultFileNameReplaceSpaces
+        let replaceScandinavianChars = UserDefaults.standard.object(forKey: AppConstants.fileNameReplaceScandinavianCharsKey) as? Bool ?? AppConstants.defaultFileNameReplaceScandinavianChars
+        let removeSpecialChars = UserDefaults.standard.object(forKey: AppConstants.fileNameRemoveSpecialCharsKey) as? Bool ?? AppConstants.defaultFileNameRemoveSpecialChars
+
         var cleanedName = input
-            .replacingOccurrences(of: " ", with: "_")
-        
-        // Replace Scandinavian characters
-        cleanedName = cleanedName
-            .replacingOccurrences(of: "æ", with: "ae")
-            .replacingOccurrences(of: "ø", with: "o")
-            .replacingOccurrences(of: "å", with: "aa")
-            .replacingOccurrences(of: "Æ", with: "AE")
-            .replacingOccurrences(of: "Ø", with: "O")
-            .replacingOccurrences(of: "Å", with: "AA")
-        
-        // Remove special characters but keep letters, numbers, underscores, and hyphens
-        let pattern = "[^a-zA-Z0-9_-]"
-        if let regex = try? NSRegularExpression(pattern: pattern) {
-            let range = NSRange(cleanedName.startIndex..<cleanedName.endIndex, in: cleanedName)
-            cleanedName = regex.stringByReplacingMatches(
-                in: cleanedName,
-                range: range,
-                withTemplate: ""
-            )
+
+        // Replace spaces with underscores
+        if replaceSpaces {
+            cleanedName = cleanedName.replacingOccurrences(of: " ", with: "_")
         }
-        
-        // Remove any leading/trailing special characters
-        cleanedName = cleanedName.trimmingCharacters(in: CharacterSet(charactersIn: "_-"))
-        
+
+        // Replace Scandinavian characters
+        if replaceScandinavianChars {
+            cleanedName = cleanedName
+                .replacingOccurrences(of: "æ", with: "ae")
+                .replacingOccurrences(of: "ø", with: "o")
+                .replacingOccurrences(of: "å", with: "aa")
+                .replacingOccurrences(of: "Æ", with: "AE")
+                .replacingOccurrences(of: "Ø", with: "O")
+                .replacingOccurrences(of: "Å", with: "AA")
+        }
+
+        // Remove special characters but keep letters, numbers, underscores, and hyphens
+        if removeSpecialChars {
+            let pattern = "[^a-zA-Z0-9_\\- ]"
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(cleanedName.startIndex..<cleanedName.endIndex, in: cleanedName)
+                cleanedName = regex.stringByReplacingMatches(
+                    in: cleanedName,
+                    range: range,
+                    withTemplate: ""
+                )
+            }
+
+            // Remove any leading/trailing special characters
+            cleanedName = cleanedName.trimmingCharacters(in: CharacterSet(charactersIn: "_-"))
+        }
+
         return cleanedName.isEmpty ? "unnamed" : cleanedName
+    }
+
+    /// Returns whether preset suffixes should be included in output filenames.
+    static var includePresetSuffix: Bool {
+        UserDefaults.standard.object(forKey: AppConstants.fileNameIncludePresetSuffixKey) as? Bool ?? AppConstants.defaultFileNameIncludePresetSuffix
     }
 }
