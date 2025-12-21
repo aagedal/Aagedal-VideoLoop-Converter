@@ -49,6 +49,34 @@ struct ContentView: View {
     @AppStorage(AppConstants.customPreset8NameKey) private var customPreset8Name = AppConstants.defaultCustomPresetDisplayNames[7]
     @AppStorage(AppConstants.customPreset9NameKey) private var customPreset9Name = AppConstants.defaultCustomPresetDisplayNames[8]
     @AppStorage(AppConstants.customPreset10NameKey) private var customPreset10Name = AppConstants.defaultCustomPresetDisplayNames[9]
+
+    // Preset visibility (built-in presets)
+    @AppStorage(AppConstants.videoLoopVisibleKey) private var videoLoopVisible = true
+    @AppStorage(AppConstants.videoLoopWithSoundVisibleKey) private var videoLoopWithSoundVisible = true
+    @AppStorage(AppConstants.animatedStillVisibleKey) private var animatedStillVisible = true
+    @AppStorage(AppConstants.h264VisibleKey) private var h264Visible = true
+    @AppStorage(AppConstants.h265VisibleKey) private var h265Visible = true
+    @AppStorage(AppConstants.av1VisibleKey) private var av1Visible = true
+    @AppStorage(AppConstants.tvHEVCVisibleKey) private var tvHEVCVisible = true
+    @AppStorage(AppConstants.tvAVCIntraVisibleKey) private var tvAVCIntraVisible = true
+    @AppStorage(AppConstants.proresVisibleKey) private var proresVisible = true
+    @AppStorage(AppConstants.proxyVisibleKey) private var proxyVisible = true
+    @AppStorage(AppConstants.streamCopyVisibleKey) private var streamCopyVisible = true
+    @AppStorage(AppConstants.audioWAVVisibleKey) private var audioWAVVisible = true
+    @AppStorage(AppConstants.audioAACVisibleKey) private var audioAACVisible = true
+
+    // Custom preset activation
+    @AppStorage(AppConstants.customPreset1ActiveKey) private var customPreset1Active = false
+    @AppStorage(AppConstants.customPreset2ActiveKey) private var customPreset2Active = false
+    @AppStorage(AppConstants.customPreset3ActiveKey) private var customPreset3Active = false
+    @AppStorage(AppConstants.customPreset4ActiveKey) private var customPreset4Active = false
+    @AppStorage(AppConstants.customPreset5ActiveKey) private var customPreset5Active = false
+    @AppStorage(AppConstants.customPreset6ActiveKey) private var customPreset6Active = false
+    @AppStorage(AppConstants.customPreset7ActiveKey) private var customPreset7Active = false
+    @AppStorage(AppConstants.customPreset8ActiveKey) private var customPreset8Active = false
+    @AppStorage(AppConstants.customPreset9ActiveKey) private var customPreset9Active = false
+    @AppStorage(AppConstants.customPreset10ActiveKey) private var customPreset10Active = false
+
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.watchFolderModeKey) private var watchFolderModeEnabled = false
     @AppStorage(AppConstants.watchFolderPathKey) private var watchFolderPath = ""
@@ -82,6 +110,38 @@ struct ContentView: View {
 
     private var hasResettableItems: Bool {
         droppedFiles.contains { $0.status != .waiting }
+    }
+
+    /// Presets that are currently visible in the picker, computed from @AppStorage values
+    /// This ensures SwiftUI reactively updates the picker when visibility settings change
+    private var visiblePresets: [ExportPreset] {
+        ExportPreset.allCases.filter { preset in
+            switch preset {
+            case .videoLoop: return videoLoopVisible
+            case .videoLoopWithSound: return videoLoopWithSoundVisible
+            case .animatedStill: return animatedStillVisible
+            case .h264: return h264Visible
+            case .h265: return h265Visible
+            case .av1: return av1Visible
+            case .tvHEVC: return tvHEVCVisible
+            case .tvAVCIntra: return tvAVCIntraVisible
+            case .prores: return proresVisible
+            case .proxy: return proxyVisible
+            case .streamCopy: return streamCopyVisible
+            case .audioUncompressedWAV: return audioWAVVisible
+            case .audioStereoAAC: return audioAACVisible
+            case .custom1: return customPreset1Active
+            case .custom2: return customPreset2Active
+            case .custom3: return customPreset3Active
+            case .custom4: return customPreset4Active
+            case .custom5: return customPreset5Active
+            case .custom6: return customPreset6Active
+            case .custom7: return customPreset7Active
+            case .custom8: return customPreset8Active
+            case .custom9: return customPreset9Active
+            case .custom10: return customPreset10Active
+            }
+        }
     }
 
     private var fileListView: some View {
@@ -519,7 +579,8 @@ struct ContentView: View {
 
         let sanitizedBaseName = FileNameProcessor.processFileName(item.url.deletingPathExtension().lastPathComponent)
         let resolvedExtension = preset.outputExtension(for: item.url)
-        let outputFileName = sanitizedBaseName + preset.fileSuffix + "." + resolvedExtension
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        let outputFileName = sanitizedBaseName + suffixPart + "." + resolvedExtension
         return currentOutputFolder.appendingPathComponent(outputFileName)
     }
 
@@ -530,7 +591,8 @@ struct ContentView: View {
 
         let sanitizedBaseName = FileNameProcessor.processFileName(referenceItem.url.deletingPathExtension().lastPathComponent)
         let resolvedExtension = preset.outputExtension(for: referenceItem.url)
-        let outputFileName = sanitizedBaseName + preset.fileSuffix + "_merge" + "." + resolvedExtension
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        let outputFileName = sanitizedBaseName + suffixPart + "_merge" + "." + resolvedExtension
         return currentOutputFolder.appendingPathComponent(outputFileName)
     }
 
@@ -568,7 +630,7 @@ struct ContentView: View {
             watchFolderModeEnabled: $watchFolderModeEnabled,
             watchFolderPath: watchFolderPath,
             selectedPreset: toolbarPresetBinding,
-            presets: ExportPreset.allCases,
+            presets: visiblePresets,
             displayName: { displayName(for: $0) },
             mergeClipsEnabled: $mergeClipsEnabled,
             mergeClipsAvailable: mergeClipsAvailable,

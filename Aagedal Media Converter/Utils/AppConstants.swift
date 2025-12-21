@@ -101,6 +101,14 @@ enum AppConstants {
     static let showCommentFieldKey = "showCommentField"
     static let showDateTagButtonKey = "showDateTagButton"
     static let enableFileNameProcessingKey = "enableFileNameProcessing"
+    static let fileNameReplaceSpacesKey = "fileNameReplaceSpaces"
+    static let fileNameReplaceScandinavianCharsKey = "fileNameReplaceScandinavianChars"
+    static let fileNameRemoveSpecialCharsKey = "fileNameRemoveSpecialChars"
+    static let fileNameIncludePresetSuffixKey = "fileNameIncludePresetSuffix"
+    static let defaultFileNameReplaceSpaces = true
+    static let defaultFileNameReplaceScandinavianChars = true
+    static let defaultFileNameRemoveSpecialChars = true
+    static let defaultFileNameIncludePresetSuffix = true
     static let customPresetCommandKey = "customPresetFFmpegCommand"
     static let customPresetSuffixKey = "customPresetFileSuffix"
     static let customPresetExtensionKey = "customPresetFileExtension"
