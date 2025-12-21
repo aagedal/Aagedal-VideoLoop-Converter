@@ -1,15 +1,14 @@
 # Aagedal Media Converter
 
-A lightweight minimal-ish macOS application for simple batch encoding of video files. Powered by FFMPEG, FFPROBE and VLCKit under the hood and written entirely in Swift / SwiftUI.
+A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE and VLCKit under the hood and written entirely in Swift / SwiftUI.
 
-Fully private and local. Completely free and open source. No subscriptions or paid add-ons.
+Completely free and open source. Sandboxed, private and local. (An optional update checker is activated by default, but it can be turned off.)
 
 A passion project; I made this for myself, I just wanted to share.
 
 Note that most of this app is vibe-coded.
 
 <img width="1062" height="575" alt="SCR-20251217-npcv-2" src="https://github.com/user-attachments/assets/1ae1a20d-ed3b-4e86-8b64-9b02ba79344c" />
-
 
 
 ---
@@ -22,7 +21,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 ```
 
 ### Manual download
-[Latest version (3.0.1)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.0.1/Aagedal-Media-Converter_3-0-1.zip)
+[Latest version (3.1.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.1.0/Aagedal-Media-Converter_3-1-0.zip)
 
 
 ---
@@ -31,11 +30,17 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 ## Key Features
 
 ### General
-- Launches quickly
-- Can encode almost every file format that exists (FFMPEG 8.0.1 backend)
-- Minimal and easy to understand
-- Advanced features easily accessible
-- Trim, crop
+- Launches quickly and is lightweight
+- Can play and encode almost every video file that exists (VLC and FFMPEG backend)
+- Minimalist and easy to understand
+- Advanced features available if you need it
+- Batch conversion, watch folder, progress bar, 
+- Trim, crop, reroute or remove audio tracks, merge clips (if in the same format)
+- Metadata comparison
+- Lots of shortcuts: most features are accessible without using a mouse
+- Lots of settings if you want to customize
+- Language support: English and Norwegian
+- Automatically check for updates with a subtle update notification, can be turned off.
 
 ### Batch conversion
 - Automatically encode all the files in the queue
@@ -90,31 +95,53 @@ In the trim player there is a camera button that allows capturing still images. 
 
 ### Metadata
 - Per file comment field, to add an optional comment to the file metadata. Useful for embedding credit information
-- Optional date tag (Generated [YYYYMMDD]) in the comment field before the comment.
-- Language support: English and Norwegian
-- Automatically check for updates with a subtle update notification, can be turned off.
+- Optional date tag (Generated [YYYYMMDD]), prefix and suffix in the comment field before the comment.
+- View and compare metadata
+
+### 15-Second Autoplay Warning for VideoLoop presets
+Web browsers often refuse to autoplay long, looping videos with sound. The app shows a yellow ⚠️ icon when the VideoLoop presets are applied to clips longer than 15 seconds, encouraging you to trim the video or pick another preset.
+
+### App Intents
+1. Add to Encode Cue
+2. Convert Video Immediately (using the default preset).
 
 
 ## Export Presets
-  
+All presets can be set as default on launch, and all except the default can be hidden from the preset selector.
+
 #### Video Loop
 x264 very slow 1080p max resolution, keeping original aspect ratio, removing all audio channels, nice for compact web distribution such as GIF-replacements, slow export.
 Automatic duration warning if a VideoLoop clip exceeds 15s (short videos are best for auto-playing and looping on webpages)
   
 #### Video Loop w/ Audio
-same as above but keeping a stereo AAC track
+Same as above but keeping a stereo AAC track.
 
-#### TV Quality HD / 4K
+#### H.264 / AVC
+Generic H.264 codec, with lots of options to change quality and chose between software or hardware encoding. Container and audio format is also adjustable.
+
+#### H.265 / HEVC
+Generic H.264 codec, with lots of options to change quality and chose between software or hardware encoding. Container and audio format is also adjustable.
+
+#### AV1
+Generic H.264 codec, with lots of options to change quality. Container and audio format is also adjustable.
+
+#### TV (HEVC 10-bit 4:2:2)
 HEVC hardware encoding for fast high quality exports, compatible with most editing software, 10-bit 4:2:2, limit short side resolution to either 1080p or 2160p.
+
+#### TV (AVC-Intra)
+Limits the aspect ratio to 16:9, with options for resolution, frame rate and audio channels.
 
 #### Stream copy
 Copy the input codecs into a new file, most useful when combined with merge or trim as it will keep the same file extension as the source. Keeps extra metadata. Compatible with trimming, timecode adjustments and merging, but not cropping.
 
-### ProRes
-High quality file maintaining original resolution. The default ProRes version can be set in the Preset Settings Menu
+#### ProRes
+High quality file maintaining original resolution. The default ProRes version can be set in the Preset Settings Menu.
 
-#### Animated AVIF
-Another GIF-alternative without sound. Doesn't need special web-code to loop, but less hardware and software compatibility than VideoLoops
+#### Proxy
+Make edit proxies in ProRes Proxy, DNxHR, or HEVC. Tips: Useful if combined with the option to export in a "Proxy" sub-folder next to originals.
+
+#### Animated Stills
+Option to chose between AVIF, GIF and Animated PNG.
 
 #### HEVC Proxy 1080p
 Compact proxy file format, 10-bit 4:2:0, can be used fast file sharing
@@ -125,15 +152,8 @@ Extract a small stereo audio file from video
 #### Audio Only WAV
 Extract uncompressed audio from video, keeping all audio channels
 
-#### 3 Custom FFMPEG presets
-If you don't like my presets you can make your own and give them a name. There is a toggle to apply crop and audio routing, but -copy won't work.
-  
-### 15-Second Autoplay Warning
-Web browsers often refuse to autoplay long, looping videos with sound. The app shows a yellow ⚠️ icon when the VideoLoop presets are applied to clips longer than 15 seconds, encouraging you to trim the video or pick another preset.
-
-### App Intents
-1. Add to Encode Cue
-2. Convert Video Immediately (using the default VideoLoop-preset).
+#### 10 Custom FFMPEG presets
+If you don't like my presets you can make your own and give them a name. There is a toggle to apply crop and audio routing, but -copy won't work with those features.
 
 
 
