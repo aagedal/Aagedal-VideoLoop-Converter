@@ -70,3 +70,8 @@ fastlane/test_output
 /Releases/
 /release/
 /dist/
+
+
+
+# Testing
+/MPVKit/

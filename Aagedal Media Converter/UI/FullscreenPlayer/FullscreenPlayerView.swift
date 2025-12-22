@@ -223,8 +223,8 @@ struct FullscreenPlayerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let player = controller.player {
             FullscreenAVPlayerView(player: player)
-        } else if controller.useVLC, let vlcPlayer = controller.vlcPlayer {
-            FullscreenVLCView(player: vlcPlayer)
+        } else if controller.useMPV, let mpvPlayer = controller.mpvPlayer {
+            FullscreenMPVView(player: mpvPlayer)
         } else {
             Color.black
         }
@@ -550,7 +550,7 @@ struct FullscreenPlayerView: View {
 
     private var isPlaybackActive: Bool {
         if controller.isReverseSimulating { return true }
-        if controller.useVLC { return controller.vlcPlayer?.isPlaying ?? false }
+        if controller.useMPV { return controller.mpvPlayer?.isPlaying ?? false }
         return (controller.player?.rate ?? 0) != 0
     }
 
@@ -989,24 +989,6 @@ private struct FullscreenAVPlayerView: NSViewRepresentable {
     
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         nsView.player = player
-    }
-}
-
-// MARK: - VLC View
-
-private struct FullscreenVLCView: NSViewRepresentable {
-    let player: VLCPlayer
-    
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.black.cgColor
-        player.mediaPlayer.drawable = view
-        return view
-    }
-    
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // No updates needed
     }
 }
 

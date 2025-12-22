@@ -26,17 +26,17 @@ final class PreviewPlayerController: ObservableObject {
     
     @Published var volume: Double = 100 {
         didSet {
-            // Only apply if VLC is active
-            if useVLC, let vlcPlayer {
-                vlcPlayer.volume = volume
+            // Only apply if MPV is active
+            if useMPV, let mpvPlayer {
+                mpvPlayer.volume = volume
             }
         }
     }
     @Published var isMuted: Bool = false {
         didSet {
-            // Only apply if VLC is active
-            if useVLC, let vlcPlayer {
-                vlcPlayer.isMuted = isMuted
+            // Only apply if MPV is active
+            if useMPV, let mpvPlayer {
+                mpvPlayer.isMuted = isMuted
             }
         }
     }
@@ -53,8 +53,8 @@ final class PreviewPlayerController: ObservableObject {
     private var reverseSpeed: Int = 1 // 1x, 2x, 3x, 4x
     private var reverseTimer: Timer?
     
-    // VLC trim observer
-    var vlcTrimObserverTimer: Timer?
+    // MPV trim observer
+    var mpvTrimObserverTimer: Timer?
     @Published var previewAssets: PreviewAssets? {
         didSet { updateCurrentWaveform() }
     }
@@ -110,16 +110,14 @@ final class PreviewPlayerController: ObservableObject {
     // MARK: - Audio Monitoring
     // UniversalAudioMeterService is defined below in Audio Metering section
     
-    // MARK: - VLC State
-    var vlcPlayer: VLCPlayer?
-    var useVLC = false
+    // MARK: - MPV State
+    var mpvPlayer: MPVPlayer?
+    var useMPV = false
 
-    /// Codecs that require chunk-based fallback (not supported by AVPlayer but FFMPEG can decode)
+    /// Codecs that require chunk-based fallback (not supported by AVPlayer or MPV)
+    /// Note: APV and VVC removed - now supported by MPV with custom-built FFmpeg decoders
     private static let chunkFallbackCodecs: Set<String> = [
-        "apv",                   // Apple Advanced Professional Video
-        "vvc", "vvc1", "vvi1",  // VVC/H.266
-        "h266"                   // Alternative H.266 identifier
-        // Future codecs can be added here
+        // Future codecs can be added here if needed
     ]
 
     // MARK: - Initialization
@@ -175,7 +173,7 @@ final class PreviewPlayerController: ObservableObject {
         isLoadingPreviewAssets = true
         previewAssets = nil
         usePreviewFallback = false
-        useVLC = false
+        useMPV = false
 
         let currentItem = videoItem
         let url = currentItem.url
@@ -202,7 +200,7 @@ final class PreviewPlayerController: ObservableObject {
         
         self.player = player
         
-        // Monitor player item status for failures, fallback to VLC if needed
+        // Monitor player item status for failures, fallback to MPV if needed
         installPlayerItemStatusObserver(for: playerItem, startTime: startTime)
         
         self.isPreparing = false
@@ -223,62 +221,45 @@ final class PreviewPlayerController: ObservableObject {
     
     var debugWindowController: Any? // Holds strong reference to keep window alive
 
-    func setupVLC(url: URL, startTime: Double) {
+    func setupMPV(url: URL, startTime: Double) {
         // Explicitly nil the player to prevent key consumption
         player = nil
-        
-        let vlc = VLCPlayer()
-        self.vlcPlayer = vlc
-        self.useVLC = true
+
+        let mpv = MPVPlayer()
+        self.mpvPlayer = mpv
+        self.useMPV = true
         self.isPreparing = false
-        
-        // Load without autostarting
-        vlc.load(url: url, autostart: false)
-        
-        // Seek to start position
-        // IMPORTANT: Seeking can trigger playback on some VLC versions, so pause immediately after
-        // We do this even for startTime == 0 to ensure consistent paused state
-        vlc.seek(to: startTime)
-        
-        // Mute before force-render to prevent audio burst
-        vlc.isMuted = true
-        
-        // Force a brief play to render the first frame (black frame fix)
-        vlc.play()
-        
-        // Wait briefly for frame to render, then pause and unmute
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self, weak vlc] in
-            guard let self, let vlc else { return }
-            vlc.pause()
-            vlc.seek(to: startTime) // Seek back to start to ensure we are on the first frame, not the second
-            vlc.isMuted = false
-            
-            // Refresh audio tracks now that VLC has likely parsed the media
-            self.refreshAudioTrackOptions(for: self.videoItem, playerItem: nil)
-            
-            // Double-check pause state after another small delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                if vlc.isPlaying { vlc.pause() }
-            }
-        }
-        
-        // Sync time
-        Task { @MainActor [weak self, weak vlc] in
-            guard let self, let vlc else { return }
-            for await time in vlc.$timePos.values {
+
+        // Apply volume/mute state before loading
+        mpv.volume = volume
+        mpv.isMuted = isMuted
+
+        // Load without autostarting, with start time
+        mpv.load(url: url, startTime: startTime, autostart: false)
+
+        // Sync time position
+        Task { @MainActor [weak self, weak mpv] in
+            guard let self, let mpv else { return }
+            for await time in mpv.$timePos.values {
                 self.currentPlaybackTime = time
             }
         }
-        
-        // Install VLC trim boundary observer for looping
-        installVLCTrimObserver()
-        
+
+        // Refresh audio tracks after a brief delay for MPV to parse the media
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            self.refreshAudioTrackOptions(for: self.videoItem, playerItem: nil)
+        }
+
+        // Install MPV trim boundary observer for looping
+        installMPVTrimObserver()
+
         // Reload preview assets (teardown() clears them when switching from AVPlayer)
         // This uses the cache so it's instant
         loadPreviewAssets(for: url)
-        
+
         // Audio monitoring is handled globally by UniversalAudioMeterService
-        
+
         // DON'T call updateCurrentWaveform() here!
         // It will be called automatically via previewAssets.didSet when assets finish loading
     }
@@ -291,19 +272,19 @@ final class PreviewPlayerController: ObservableObject {
             stopReverseSimulation()
             return
         }
-        
-        if useVLC, let vlc = vlcPlayer {
+
+        if useMPV, let mpv = mpvPlayer {
             // Check if currently playing
-            let wasPlaying = vlc.isPlaying
+            let wasPlaying = mpv.isPlaying
             // Reset rate FIRST, ensure it's applied
-            vlc.rate = 1.0
+            mpv.rate = 1.0
             currentPlaybackSpeed = 1.0
-            
+
             if wasPlaying {
-                vlc.pause()
+                mpv.pause()
             } else {
                 // Make sure rate is 1.0 before playing
-                vlc.play()
+                mpv.play()
             }
         } else if let player = player {
             currentPlaybackSpeed = 1.0
@@ -318,12 +299,12 @@ final class PreviewPlayerController: ObservableObject {
     
     func pause() {
         stopReverseSimulation()
-        
-        if useVLC, let vlc = vlcPlayer {
+
+        if useMPV, let mpv = mpvPlayer {
             // Reset rate FIRST, then pause
-            vlc.rate = 1.0
+            mpv.rate = 1.0
             currentPlaybackSpeed = 1.0
-            vlc.pause()
+            mpv.pause()
         } else {
             currentPlaybackSpeed = 1.0
             player?.pause()
@@ -331,13 +312,13 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func stepRate(forward: Bool) {
-        if useVLC, let vlc = vlcPlayer {
-            // VLC rate stepping: 0.5 -> 1.0 -> 1.5 -> 2.0 etc
-            let current = vlc.rate
+        if useMPV, let mpv = mpvPlayer {
+            // MPV rate stepping: 0.5 -> 1.0 -> 1.5 -> 2.0 etc
+            let current = mpv.rate
             let step: Float = 0.5
             let newRate = forward ? current + step : current - step
-            vlc.rate = max(0.25, min(newRate, 4.0))
-            currentPlaybackSpeed = vlc.rate
+            mpv.rate = max(0.25, min(newRate, 4.0))
+            currentPlaybackSpeed = mpv.rate
         } else if let player = player {
             // AVPlayer rate stepping
             let current = player.rate
@@ -401,13 +382,13 @@ final class PreviewPlayerController: ObservableObject {
             stopReverseSimulation()
             return
         }
-        
+
         // If paused, start playing at 1×
-        if useVLC, let vlc = vlcPlayer {
-            if !vlc.isPlaying {
-                vlc.rate = 1.0
+        if useMPV, let mpv = mpvPlayer {
+            if !mpv.isPlaying {
+                mpv.rate = 1.0
                 currentPlaybackSpeed = 1.0
-                vlc.play()
+                mpv.play()
                 return
             }
         } else if let player = player {
@@ -418,7 +399,7 @@ final class PreviewPlayerController: ObservableObject {
                 return
             }
         }
-        
+
         // Otherwise increase forward speed
         stepRate(forward: true)
     }
@@ -473,11 +454,11 @@ final class PreviewPlayerController: ObservableObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
 
-            if useVLC {
-                guard let vlc = vlcPlayer else { return }
-                let names = vlc.audioTrackNames
-                let indexes = vlc.audioTrackIndexes
-                buildVLCAudioTrackOptions(names: names, indexes: indexes)
+            if useMPV {
+                guard let mpv = mpvPlayer else { return }
+                let names = mpv.audioTrackNames
+                let indexes = mpv.audioTrackIndexes
+                buildMPVAudioTrackOptions(names: names, indexes: indexes)
             } else {
                 let metadata: VideoMetadata?
                 if let cached = item.metadata {
@@ -576,49 +557,39 @@ final class PreviewPlayerController: ObservableObject {
         audioTrackOptions = options
     }
     
-    private func buildVLCAudioTrackOptions(names: [String], indexes: [Int32]) {
+    private func buildMPVAudioTrackOptions(names: [String], indexes: [Int32]) {
         var options: [AudioTrackOption] = []
-        
-        // VLC returns tracks including "Disable" (id -1).
-        // We want to skip "Disable" for our list, or handle it differently.
-        // Usually "Disable" is index 0.
-        
+
+        // MPV returns tracks with 1-based IDs
+        // We skip any "Disable" track (id 0 or -1 if present)
+
         for (index, trackID) in indexes.enumerated() {
-            if trackID == -1 { continue } // Skip "Disable" track
-            
+            if trackID <= 0 { continue } // Skip "Disable" or invalid tracks
+
             let name = index < names.count ? names[index] : "Track \(trackID)"
-            
-            // Try to match with metadata if possible, but VLC names are usually descriptive enough
-            // or just "Track 1", "Track 2"
-            
-            // We use the index in the 'indexes' array as the ID for now, or the trackID itself?
-            // AudioTrackOption expects 'id' to be Int.
-            // We'll use the trackID as the ID.
-            
+
             // Position in our UI list (0-based)
             let position = options.count
-            
+
             options.append(
                 AudioTrackOption(
                     id: Int(trackID),
                     position: position,
-                    streamIndex: Int(trackID) - 1, // VLC track IDs are 1-based, waveforms are 0-based
+                    streamIndex: Int(trackID) - 1, // MPV track IDs are 1-based, waveforms are 0-based
                     mediaOptionIndex: nil,
                     title: name,
-                    subtitle: nil // Could try to fetch more info if available
+                    subtitle: nil
                 )
             )
         }
-        
+
         audioTrackOptions = options
-        
+
         // Update selection if needed
         if !audioTrackOptions.isEmpty {
-             // If we have a stored selection, try to maintain it?
-             // For now, default to 0 if out of bounds
-             if selectedAudioTrackOrderIndex >= audioTrackOptions.count {
-                 selectedAudioTrackOrderIndex = 0
-             }
+            if selectedAudioTrackOrderIndex >= audioTrackOptions.count {
+                selectedAudioTrackOrderIndex = 0
+            }
         }
     }
 
@@ -652,9 +623,9 @@ final class PreviewPlayerController: ObservableObject {
 
     func selectAudioTrack(at position: Int) {
         guard position != selectedAudioTrackOrderIndex else { return }
-        
+
         // Pause playback to prevent audio overlap/buffering issues
-        let wasPlaying = (player?.rate ?? 0) > 0 || (vlcPlayer?.isPlaying ?? false)
+        let wasPlaying = (player?.rate ?? 0) > 0 || (mpvPlayer?.isPlaying ?? false)
         if wasPlaying {
             pause()
         }
@@ -672,42 +643,37 @@ final class PreviewPlayerController: ObservableObject {
     }
 
     func applySelectedAudioTrack() {
-        if useVLC {
-            applySelectedAudioTrackToVLC()
+        if useMPV {
+            applySelectedAudioTrackToMPV()
         } else {
             applySelectedAudioTrackToCurrentPlayerItem()
         }
         updateCurrentWaveform()
     }
-    
-    private func applySelectedAudioTrackToVLC() {
-        guard let vlc = vlcPlayer else {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("applySelectedAudioTrackToVLC: vlcPlayer is nil")
+
+    private func applySelectedAudioTrackToMPV() {
+        guard let mpv = mpvPlayer else {
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("applySelectedAudioTrackToMPV: mpvPlayer is nil")
             return
         }
-        
-        let indexes = vlc.audioTrackIndexes
-        let names = vlc.audioTrackNames
-        
+
+        let indexes = mpv.audioTrackIndexes
+        let names = mpv.audioTrackNames
+
         Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-            .debug("applySelectedAudioTrackToVLC: indexes=\(indexes), names=\(names), selectedOrderIndex=\(self.selectedAudioTrackOrderIndex)")
-        
-        // VLC usually has [-1, 1, 2, ...] where -1 is "Disable"
+            .debug("applySelectedAudioTrackToMPV: indexes=\(indexes), names=\(names), selectedOrderIndex=\(self.selectedAudioTrackOrderIndex)")
+
+        // MPV track IDs are 1-based
         // Our selectedAudioTrackOrderIndex is 0-based for actual tracks
-        // So we want indexes[selectedAudioTrackOrderIndex + 1]
-        
-        // Check if we have enough indexes (need at least 1 for Disable + 1 for first track)
-        // If selectedAudioTrackOrderIndex is 0, we need index 1.
-        let vlcIndex = selectedAudioTrackOrderIndex + 1
-        
-        if vlcIndex < indexes.count {
-            let trackID = indexes[vlcIndex]
-            vlc.currentAudioTrackIndex = trackID
+
+        if self.selectedAudioTrackOrderIndex < indexes.count {
+            let trackID = indexes[self.selectedAudioTrackOrderIndex]
+            mpv.currentAudioTrackIndex = trackID
             Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .debug("Selected VLC audio track ID: \(trackID) (name: \(vlcIndex < names.count ? names[vlcIndex] : "?"))")
+                .debug("Selected MPV audio track ID: \(trackID) (name: \(self.selectedAudioTrackOrderIndex < names.count ? names[self.selectedAudioTrackOrderIndex] : "?"))")
         } else {
-             Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .warning("Could not map audio track index \(self.selectedAudioTrackOrderIndex) to VLC indexes: \(indexes)")
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .warning("Could not map audio track index \(self.selectedAudioTrackOrderIndex) to MPV indexes: \(indexes)")
         }
     }
 
@@ -855,11 +821,11 @@ final class PreviewPlayerController: ObservableObject {
             Task { await session.cancel(); await session.cleanup() }
         }
         
-        if let vlc = vlcPlayer {
-            vlc.stop()
-            vlcPlayer = nil
+        if let mpv = mpvPlayer {
+            mpv.stop()
+            mpvPlayer = nil
         }
-        useVLC = false
+        useMPV = false
 
         isPreparing = false
         isGeneratingFallbackPreview = false
@@ -898,8 +864,8 @@ final class PreviewPlayerController: ObservableObject {
     // MARK: - Playback Control
     
     func refreshPreviewForTrim() {
-        if useVLC, let vlc = vlcPlayer {
-            vlc.seek(to: videoItem.effectiveTrimStart)
+        if useMPV, let mpv = mpvPlayer {
+            mpv.seek(to: videoItem.effectiveTrimStart)
             return
         }
         
@@ -925,9 +891,9 @@ final class PreviewPlayerController: ObservableObject {
     func seekTo(_ time: Double) {
         // Update playback time immediately for UI responsiveness
         currentPlaybackTime = time
-        
-        if useVLC, let vlc = vlcPlayer {
-            vlc.seek(to: time)
+
+        if useMPV, let mpv = mpvPlayer {
+            mpv.seek(to: time)
             return
         }
         
