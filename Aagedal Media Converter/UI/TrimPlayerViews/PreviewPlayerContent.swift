@@ -63,11 +63,11 @@ struct PreviewPlayerContent: View {
                 .onReceive(controller.playbackTimePublisher) { time in
                     currentPlaybackTime = time
                 }
-            } else if controller.useVLC, let vlcPlayer = controller.vlcPlayer {
+            } else if controller.useMPV, let mpvPlayer = controller.mpvPlayer {
                 ZStack {
                     CheckerboardBackground()
-                    
-                    VLCVideoView(player: vlcPlayer, keyHandler: keyHandler)
+
+                    MPVVideoView(player: mpvPlayer, keyHandler: keyHandler)
                         .aspectRatio(playerAspectRatio, contentMode: .fit)
 
                     // Crop overlay

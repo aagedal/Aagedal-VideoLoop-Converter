@@ -539,8 +539,8 @@ struct PreviewTrimControls: View {
     // MARK: - Helper Properties
 
     private var isLoopDisabled: Bool {
-        // Disable loop when using fallback preview modes (VLC or chunk-based)
-        controller.useVLC || controller.usePreviewFallback
+        // Disable loop when using fallback preview modes (MPV or chunk-based)
+        controller.useMPV || controller.usePreviewFallback
     }
 
     private var loopButtonTooltip: String {

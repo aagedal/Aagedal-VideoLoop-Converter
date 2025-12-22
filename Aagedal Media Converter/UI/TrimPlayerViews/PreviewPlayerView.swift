@@ -426,7 +426,7 @@ struct PreviewPlayerView: View {
             switch lowerKey {
             case "l":
                 // Only allow loop toggle when not in fallback mode
-                if !controller.useVLC && !controller.usePreviewFallback {
+                if !controller.useMPV && !controller.usePreviewFallback {
                     item.loopPlayback.toggle()
                 }
                 return true

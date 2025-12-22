@@ -141,7 +141,7 @@ extension PreviewPlayerController {
             throw ScreenshotError.captureInProgress
         }
 
-        guard player != nil || vlcPlayer != nil else {
+        guard player != nil || mpvPlayer != nil else {
             throw ScreenshotError.videoUnavailable
         }
 
