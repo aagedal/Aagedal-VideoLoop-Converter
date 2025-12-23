@@ -51,6 +51,7 @@ actor FFMPEGConverter {
         additionalOutputArguments: [String]? = nil,
         isMuted: Bool = false,
         expectedDuration: Double? = nil,
+        videoFrameRate: Double? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool) -> Void
     ) async {
@@ -140,7 +141,8 @@ actor FFMPEGConverter {
         // Only process stderr as that's where FFMPEG sends its progress updates
         let errorPipe = Pipe()
         process.standardError = errorPipe
-        process.standardOutput = Pipe() // Still need to capture stdout to prevent hanging
+        process.standardOutput = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice  // Prevent FFmpeg from waiting for stdin
 
         let totalDurationBox = DurationBox()
         let effectiveDurationBox = DurationBox()
@@ -152,15 +154,19 @@ actor FFMPEGConverter {
             }
         }
         let stderrCollector = StderrCollector()
-        
+        let frameStallTracker = FrameStallTracker()
+        let frameRate = videoFrameRate ?? 24.0  // Default to 24fps if not provided
+
         let errorReadabilityHandler: @Sendable (FileHandle) -> Void = { fileHandle in
             let data = fileHandle.availableData
             if let output = String(data: data, encoding: .utf8), !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // Process the output through our handler
                 let (newTotalDuration, _) = FFMPEGProgressParser.handleOutput(
-                    output, 
-                    totalDuration: totalDurationBox.value, 
+                    output,
+                    totalDuration: totalDurationBox.value,
                     effectiveDuration: effectiveDurationBox.value,
+                    frameRate: frameRate,
+                    frameStallTracker: frameStallTracker,
                     progressUpdate: progressUpdate
                 )
                 if let newTotalDuration = newTotalDuration {
@@ -183,9 +189,13 @@ actor FFMPEGConverter {
         let capturedTempAudioURL = tempAudioURL
 
         process.terminationHandler = { [weak self] _ in
+            // Stop the readability handler to prevent log spam after process ends
+            errorPipe.fileHandleForReading.readabilityHandler = nil
+
             Task { [weak self] in
                 await self?.setCurrentProcess(nil)
                 let success = process.terminationStatus == 0
+                print("✅ FFmpeg process terminated with status: \(process.terminationStatus) (success: \(success))")
                 if !success {
                     let collectedStderr = await stderrCollector.snapshot()
                     let stderrString = String(data: collectedStderr, encoding: .utf8) ?? "(unable to decode ffmpeg stderr)"
