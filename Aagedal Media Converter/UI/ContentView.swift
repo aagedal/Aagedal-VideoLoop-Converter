@@ -426,14 +426,7 @@ struct ContentView: View {
                         self.droppedFiles[index].detailsLoaded = true
                         self.droppedFiles[index].metadata = metadata
 
-                        let effectiveDuration = self.droppedFiles[index].durationSeconds
-                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                        if durationForPrefetch > 0 {
-                            VideoFileUtils.prefetchPreviewAssets(
-                                for: url,
-                                durationSeconds: durationForPrefetch
-                            )
-                        }
+                        VideoFileUtils.prefetchPreviewAssets(for: url)
                     }
                 }
             }
@@ -680,14 +673,7 @@ struct ContentView: View {
                         self.droppedFiles[index].detailsLoaded = true
                         self.droppedFiles[index].metadata = metadata
 
-                        let effectiveDuration = self.droppedFiles[index].durationSeconds
-                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                        if durationForPrefetch > 0 {
-                            VideoFileUtils.prefetchPreviewAssets(
-                                for: url,
-                                durationSeconds: durationForPrefetch
-                            )
-                        }
+                        VideoFileUtils.prefetchPreviewAssets(for: url)
                     }
                 }
             }
@@ -1299,15 +1285,7 @@ private struct ContentViewNotificationHandlers: ViewModifier {
                         droppedFiles[index].apply(details: details)
                         droppedFiles[index].detailsLoaded = true
                         droppedFiles[index].metadata = metadata
-
-                        let effectiveDuration = droppedFiles[index].durationSeconds
-                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                        if durationForPrefetch > 0 {
-                            VideoFileUtils.prefetchPreviewAssets(
-                                for: url,
-                                durationSeconds: durationForPrefetch
-                            )
-                        }
+                        VideoFileUtils.prefetchPreviewAssets(for: url)
                     }
                 }
             }

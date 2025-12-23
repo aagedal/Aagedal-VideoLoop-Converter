@@ -22,8 +22,6 @@ struct TrimTimelineView: View {
     let quickThumbnailImages: [NSImage]
     let waveformURL: URL?
     let isLoading: Bool
-    let fallbackPreviewRange: ClosedRange<Double>?
-    let loadedChunks: Set<Int>?
     let step: Double
     let hideFilmstrip: Bool
     let compactMode: Bool
@@ -43,7 +41,6 @@ struct TrimTimelineView: View {
     private let waveformHeight: CGFloat = 36
     private let combinedHeight: CGFloat = 108
     private let compactHeight: CGFloat = 20
-    private let chunkDuration: TimeInterval = 2.0
 
     init(
         trimStart: Binding<Double>,
@@ -54,8 +51,6 @@ struct TrimTimelineView: View {
         quickThumbnailImages: [NSImage] = [],
         waveformURL: URL?,
         isLoading: Bool,
-        fallbackPreviewRange: ClosedRange<Double>? = nil,
-        loadedChunks: Set<Int>? = nil,
         step: Double = 0.1,
         hideFilmstrip: Bool = false,
         compactMode: Bool = false,
@@ -70,8 +65,6 @@ struct TrimTimelineView: View {
         self.quickThumbnailImages = quickThumbnailImages
         self.waveformURL = waveformURL
         self.isLoading = isLoading
-        self.fallbackPreviewRange = fallbackPreviewRange
-        self.loadedChunks = loadedChunks
         self.step = step
         self.hideFilmstrip = hideFilmstrip
         self.compactMode = compactMode
@@ -316,16 +309,6 @@ private struct TrimHandlesInteractionLayer: View {
                     playbackTime: playbackTime
                 )
                 .allowsHitTesting(false)
-
-                // Preview range overlay (shows unavailable chunks in orange)
-                if fallbackPreviewRange != nil {
-                    ChunkedPreviewOverlay(
-                        duration: duration,
-                        loadedChunks: loadedChunks ?? [],
-                        chunkDuration: chunkDuration
-                    )
-                    .allowsHitTesting(false)
-                }
 
                 // Scrubbing layer (behind handles)
                 TimelineScrubLayer(
@@ -731,43 +714,6 @@ private struct TimelineScrubLayer: View {
     private func snap(_ value: Double) -> Double {
         guard step > 0 else { return value }
         return (value / step).rounded() * step
-    }
-}
-
-// MARK: - Chunked Preview Overlay
-
-private struct ChunkedPreviewOverlay: View {
-    let duration: Double
-    let loadedChunks: Set<Int>
-    let chunkDuration: TimeInterval
-
-    var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let totalChunks = Int(ceil(duration / chunkDuration))
-
-            // Show orange overlay for unloaded chunks
-            ForEach(0..<totalChunks, id: \.self) { chunkIndex in
-                if !loadedChunks.contains(chunkIndex) {
-                    let chunkStart = Double(chunkIndex) * chunkDuration
-                    let chunkEnd = min(Double(chunkIndex + 1) * chunkDuration, duration)
-
-                    let startX = position(for: chunkStart, width: width)
-                    let endX = position(for: chunkEnd, width: width)
-                    let chunkWidth = endX - startX
-
-                    Rectangle()
-                        .fill(Color.orange.opacity(0.3))
-                        .frame(width: chunkWidth)
-                        .position(x: startX + chunkWidth / 2, y: geometry.size.height / 2)
-                }
-            }
-        }
-    }
-
-    private func position(for value: Double, width: CGFloat) -> CGFloat {
-        guard duration > 0 else { return 0 }
-        return CGFloat(value / duration) * width
     }
 }
 

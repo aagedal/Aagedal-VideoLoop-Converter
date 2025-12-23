@@ -151,13 +151,9 @@ struct VideoFileUtils: Sendable {
         )
     }
 
-    /// Schedules generation of heavy preview assets (filmstrip thumbnails, waveform, and first preview chunk)
+    /// Schedules generation of heavy preview assets (filmstrip thumbnails, waveform)
     /// after the lightweight metadata and row thumbnail are complete.
-    static func prefetchPreviewAssets(
-        for url: URL,
-        durationSeconds: Double,
-        previewChunkDuration: TimeInterval = 5.0
-    ) {
+    static func prefetchPreviewAssets(for url: URL) {
         Task.detached(priority: .background) {
             let fileName = url.lastPathComponent
             do {
@@ -166,50 +162,6 @@ struct VideoFileUtils: Sendable {
                 print(" [prefetchPreviewAssets] ✅ Cached filmstrip/waveform for \(fileName) (\(assets.thumbnails.count) thumbnails, waveform: \(assets.waveform != nil))")
             } catch {
                 print(" [prefetchPreviewAssets] ⚠️ Failed to generate preview assets for \(fileName): \(error.localizedDescription)")
-            }
-
-            guard durationSeconds > 0 else { return }
-
-            // Only generate chunks for files that aren't supported by AVPlayer OR VLC
-            // This means chunks are only for fallback chunk-based rendering
-            let isNative = await isNativelySupported(url)
-            let isVLC = await isVLCSupported(url)
-            if isNative || isVLC {
-                print(" [prefetchPreviewAssets] File is supported by AVPlayer or VLC, skipping chunk generation for \(fileName)")
-                return
-            }
-
-            do {
-                let cacheDirectory = try await PreviewAssetGenerator.shared.getAssetDirectory(for: url)
-                
-                // Determine if file has video stream for correct FFmpeg mapping
-                let asset = AVURLAsset(url: url)
-                let videoTracks = try? await asset.loadTracks(withMediaType: .video)
-                let hasVideo = !(videoTracks ?? []).isEmpty
-                
-                let session = MP4PreviewSession(
-                    sourceURL: url,
-                    cacheDirectory: cacheDirectory,
-                    audioStreamIndices: [],
-                    hasVideoStream: hasVideo
-                )
-
-                let chunkIndex = 0
-                let chunkPath = session.chunkURL(for: chunkIndex)
-                if FileManager.default.fileExists(atPath: chunkPath.path) {
-                    print(" [prefetchPreviewAssets] Chunk #0 already cached for \(fileName)")
-                    return
-                }
-
-                let chunkDuration = min(previewChunkDuration, durationSeconds)
-                _ = try await session.generatePreviewChunk(
-                    chunkIndex: chunkIndex,
-                    startTime: 0,
-                    durationLimit: chunkDuration
-                )
-                print(" [prefetchPreviewAssets] ✅ Cached initial preview chunk for \(fileName)")
-            } catch {
-                print(" [prefetchPreviewAssets] ⚠️ Failed to prefetch preview chunk for \(fileName): \(error.localizedDescription)")
             }
         }
     }

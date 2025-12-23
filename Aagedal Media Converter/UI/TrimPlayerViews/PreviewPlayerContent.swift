@@ -155,44 +155,8 @@ struct PreviewPlayerContent: View {
             }
             .padding(16)
             
-            // Center: Loading/buffering indicator
-            if controller.isLoadingChunk {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .scaleEffect(1.2)
-                        .tint(.white)
-                    
-                    Text("Loading...")
-                        .foregroundColor(.white)
-                }
-            }
-            
             if controller.isCapturingScreenshot {
                 dimOverlay(title: "Capturing Still…")
-            }
-            
-            if controller.isGeneratingFallbackPreview {
-                dimOverlay(
-                    title: "Generating Preview…",
-                    subtitle: "This format requires transcoding for playback"
-                )
-            }
-            
-            // Bottom: badges and controls (hide when crop mode is active)
-            if controller.fallbackPreviewRange != nil && !controller.isGeneratingFallbackPreview && !controller.isCropEnabled {
-                VStack {
-                    Spacer()
-                    HStack {
-                        fallbackBadge
-                        Spacer()
-                        if controller.showScreenshotOverlay {
-                            screenshotBadge
-                        }
-                        Spacer()
-                        toggleControlsButton
-                    }
-                }
             }
         }
     }
@@ -256,24 +220,6 @@ struct PreviewPlayerContent: View {
         .padding(12)
         .transition(.opacity.combined(with: .scale))
         .animation(.easeOut(duration: 0.2), value: controller.showScreenshotOverlay)
-    }
-
-    private var fallbackBadge: some View {
-        HStack {
-            Image(systemName: "video.badge.waveform")
-                .font(.system(size: 11, weight: .medium))
-            Text("Low Quality Preview")
-                .font(.system(size: 11, weight: .medium))
-        }
-        .foregroundColor(.white)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.black.opacity(0.7))
-        )
-        .help("Unsupported format. Low quality preview files are generated.")
-        .padding(12)
     }
 
     private var toggleControlsButton: some View {
