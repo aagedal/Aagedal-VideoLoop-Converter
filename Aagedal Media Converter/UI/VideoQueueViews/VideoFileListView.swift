@@ -975,7 +975,18 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 
                 // Option+I: Open Metadata Info (single or multiple selection for comparison)
                 // Note: CMD+I is used for Import, so we use Option+I instead
+                // Skip if we're in a sheet (trim view uses Option+I to clear trim start)
                 if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_I {
+                    // Check if the key window IS a sheet (has a sheetParent) or HAS a sheet attached
+                    let isInSheet = MainActor.assumeIsolated {
+                        if let keyWindow = NSApp.keyWindow {
+                            return keyWindow.sheetParent != nil || keyWindow.attachedSheet != nil
+                        }
+                        return false
+                    }
+                    if isInSheet {
+                        return event  // Pass through to let the sheet handle it
+                    }
                     self.onMetadata()
                     return nil
                 }
