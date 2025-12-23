@@ -537,16 +537,11 @@ struct PreviewTrimControls: View {
     // MARK: - Helper Properties
 
     private var isLoopDisabled: Bool {
-        // Disable loop when using MPV fallback
-        controller.useMPV
+        false
     }
 
     private var loopButtonTooltip: String {
-        if isLoopDisabled {
-            return "Loop is not available for this video format"
-        } else {
-            return "Loop playback (⌘L)"
-        }
+        "Loop playback (⌘L)"
     }
     
     // MARK: - Timecode Formatting with Mode

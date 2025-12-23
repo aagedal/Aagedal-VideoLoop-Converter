@@ -417,7 +417,6 @@ struct ContentView: View {
             // Load details asynchronously in background
             Task(priority: .utility) {
                 let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let durationSeconds = details.durationSeconds
                 let metadata = await VideoFileUtils.fetchMetadata(for: url)
 
                 await MainActor.run {
@@ -664,7 +663,6 @@ struct ContentView: View {
             // Load details asynchronously in background
             Task(priority: .utility) {
                 let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let durationSeconds = details.durationSeconds
                 let metadata = await VideoFileUtils.fetchMetadata(for: url)
 
                 await MainActor.run {
@@ -1277,7 +1275,6 @@ private struct ContentViewNotificationHandlers: ViewModifier {
 
             Task(priority: .utility) {
                 let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let durationSeconds = details.durationSeconds
                 let metadata = await VideoFileUtils.fetchMetadata(for: url)
 
                 await MainActor.run {

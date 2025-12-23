@@ -120,6 +120,9 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         checkError(mpv_set_option_string(mpv, "gpu-context", "moltenvk"))
         checkError(mpv_set_option_string(mpv, "hwdec", "videotoolbox"))
 
+        // Enable HDR passthrough (EDR on macOS)
+        checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes"))
+
         // Disable features we don't need
         checkError(mpv_set_option_string(mpv, "ytdl", "no"))
         checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
