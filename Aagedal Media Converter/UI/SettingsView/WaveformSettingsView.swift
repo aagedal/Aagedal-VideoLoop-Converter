@@ -35,10 +35,16 @@ struct WaveformSettingsView: View {
                 Toggle("Enable waveform video by default", isOn: $waveformVideoDefaultEnabled)
                     .toggleStyle(SwitchToggleStyle())
                     .help("When enabled, newly added audio-only files will generate waveform videos unless disabled per item.")
+                
+                Divider()
+                    .padding(.vertical, 4)
 
                 Toggle("Normalize audio levels", isOn: $waveformNormalizeAudio)
                     .toggleStyle(SwitchToggleStyle())
                     .help("Applies dynamic normalization before rendering the waveform and exporting audio to keep amplitudes consistent.")
+                
+                Divider()
+                    .padding(.vertical, 4)
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -56,9 +62,6 @@ struct WaveformSettingsView: View {
                 colorSettingsGroup
                 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Frame Rate")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                     Picker("Frame Rate", selection: Binding(
                         get: { Int(waveformFrameRate.rounded()) },
                         set: { waveformFrameRate = Double($0) }
@@ -68,10 +71,12 @@ struct WaveformSettingsView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .labelsHidden()
                     .help("Controls waveform animation smoothness. Higher frame rates increase render cost.")
                 }
 
+                Divider()
+                    .padding(.vertical, 4)
+                
                 HStack {
                     Picker(
                         "Waveform style",
@@ -86,7 +91,7 @@ struct WaveformSettingsView: View {
                     }
                     .pickerStyle(MenuPickerStyle())
                     .help("Choose the visual appearance used when rendering waveform videos.")
-                }.frame(width: 200)
+                }
 
                 HStack {
                     Spacer()

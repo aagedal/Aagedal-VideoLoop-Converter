@@ -130,6 +130,9 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         // This allows seeking back after playback ends
         checkError(mpv_set_option_string(mpv, "keep-open", "yes"))
 
+        // Auto-detect interlaced content and deinterlace only when needed
+        checkError(mpv_set_option_string(mpv, "deinterlace", "auto"))
+
         // Disable features we don't need
         checkError(mpv_set_option_string(mpv, "ytdl", "no"))
         checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
@@ -259,6 +262,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
 
         var names: [String] = []
         let count = getInt(MPVProperty.trackListCount)
+        var audioIndex = 0
 
         for i in 0..<count {
             let typeKey = "track-list/\(i)/type"
@@ -266,18 +270,56 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
 
             let titleKey = "track-list/\(i)/title"
             let langKey = "track-list/\(i)/lang"
+            let codecKey = "track-list/\(i)/codec"
+            let channelsKey = "track-list/\(i)/demux-channel-count"
+            let sampleRateKey = "track-list/\(i)/demux-samplerate"
 
-            let title = getString(titleKey) ?? "Track \(i + 1)"
-            let lang = getString(langKey)
+            // Build track name with available metadata
+            var components: [String] = []
 
-            if let lang = lang, !lang.isEmpty {
-                names.append("\(title) (\(lang))")
-            } else {
-                names.append(title)
+            // Track number
+            components.append("#\(audioIndex)")
+            audioIndex += 1
+
+            // Title or language
+            if let title = getString(titleKey), !title.isEmpty {
+                components.append(title)
+            } else if let lang = getString(langKey), !lang.isEmpty {
+                components.append(lang.uppercased())
             }
+
+            // Codec
+            if let codec = getString(codecKey), !codec.isEmpty {
+                components.append(codec.uppercased())
+            }
+
+            // Channel layout
+            let channels = getInt(channelsKey)
+            if channels > 0 {
+                let channelDesc = formatChannelCount(channels)
+                components.append(channelDesc)
+            }
+
+            // Sample rate
+            let sampleRate = getInt(sampleRateKey)
+            if sampleRate > 0 {
+                components.append("\(sampleRate / 1000) kHz")
+            }
+
+            names.append(components.joined(separator: " • "))
         }
 
         return names
+    }
+
+    private func formatChannelCount(_ channels: Int) -> String {
+        switch channels {
+        case 1: return "Mono"
+        case 2: return "Stereo"
+        case 6: return "5.1"
+        case 8: return "7.1"
+        default: return "\(channels) ch"
+        }
     }
 
     var audioTrackIndexes: [Int32] {
@@ -305,6 +347,89 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         set {
             setInt(MPVProperty.aid, Int(newValue))
         }
+    }
+
+    // MARK: - Subtitle Tracks
+
+    var subtitleTrackNames: [String] {
+        guard mpv != nil else { return [] }
+
+        var names: [String] = []
+        let count = getInt(MPVProperty.trackListCount)
+        var subIndex = 0
+
+        for i in 0..<count {
+            let typeKey = "track-list/\(i)/type"
+            guard let type = getString(typeKey), type == "sub" else { continue }
+
+            let titleKey = "track-list/\(i)/title"
+            let langKey = "track-list/\(i)/lang"
+            let codecKey = "track-list/\(i)/codec"
+
+            // Build track name with available metadata
+            var components: [String] = []
+
+            // Track number
+            components.append("#\(subIndex)")
+            subIndex += 1
+
+            // Title or language
+            if let title = getString(titleKey), !title.isEmpty {
+                components.append(title)
+            } else if let lang = getString(langKey), !lang.isEmpty {
+                components.append(lang.uppercased())
+            }
+
+            // Codec
+            if let codec = getString(codecKey), !codec.isEmpty {
+                components.append(codec.uppercased())
+            }
+
+            names.append(components.joined(separator: " • "))
+        }
+
+        return names
+    }
+
+    var subtitleTrackIndexes: [Int32] {
+        guard mpv != nil else { return [] }
+
+        var indexes: [Int32] = []
+        let count = getInt(MPVProperty.trackListCount)
+
+        for i in 0..<count {
+            let typeKey = "track-list/\(i)/type"
+            guard let type = getString(typeKey), type == "sub" else { continue }
+
+            let idKey = "track-list/\(i)/id"
+            let trackId = getInt(idKey)
+            indexes.append(Int32(trackId))
+        }
+
+        return indexes
+    }
+
+    var currentSubtitleTrackIndex: Int32 {
+        get {
+            Int32(getInt(MPVProperty.sid))
+        }
+        set {
+            setInt(MPVProperty.sid, Int(newValue))
+        }
+    }
+
+    var isSubtitleVisible: Bool {
+        get {
+            getInt(MPVProperty.subVisibility) != 0
+        }
+        set {
+            setFlag(MPVProperty.subVisibility, newValue)
+        }
+    }
+
+    /// Disables subtitle display (sets sid to 0)
+    func disableSubtitles() {
+        setInt(MPVProperty.sid, 0)
     }
 
     // MARK: - Event Handling

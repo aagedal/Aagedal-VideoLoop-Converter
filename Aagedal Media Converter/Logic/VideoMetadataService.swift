@@ -157,8 +157,19 @@ struct VideoMetadata: Equatable, Sendable {
         let isDefault: Bool
     }
 
+    struct SubtitleStream: Equatable, Sendable {
+        let index: Int?
+        let languageCode: String?
+        let title: String?
+        let codec: String?
+        let codecLongName: String?
+        let isDefault: Bool
+        let isForced: Bool
+    }
+
     let videoStream: VideoStream?
     let audioStreams: [AudioStream]
+    let subtitleStreams: [SubtitleStream]
 
     func isDefaultAudioStream(index: Int) -> Bool {
         guard audioStreams.indices.contains(index) else { return false }
@@ -245,10 +256,23 @@ actor VideoMetadataService {
             allowNoStreams: true
         )
 
+        let subtitleResponse = try await fetchFFprobeResponse(
+            url: url,
+            ffprobePath: ffprobePath,
+            arguments: [
+                "-v", "error",
+                "-select_streams", "s",
+                "-show_streams",
+                "-of", "json"
+            ],
+            allowNoStreams: true
+        )
+
         let metadata = try buildMetadata(
             format: formatResponse.format,
             videoStreams: videoResponse.streams,
-            audioStreams: audioResponse.streams
+            audioStreams: audioResponse.streams,
+            subtitleStreams: subtitleResponse.streams
         )
         cache.setObject(CachedMetadata(metadata: metadata), forKey: url as NSURL)
         return metadata
@@ -333,7 +357,7 @@ actor VideoMetadataService {
         }
     }
 
-    private func buildMetadata(format: FFprobeResponse.Format?, videoStreams: [FFprobeResponse.Stream], audioStreams: [FFprobeResponse.Stream]) throws -> VideoMetadata {
+    private func buildMetadata(format: FFprobeResponse.Format?, videoStreams: [FFprobeResponse.Stream], audioStreams: [FFprobeResponse.Stream], subtitleStreams: [FFprobeResponse.Stream]) throws -> VideoMetadata {
         let primaryVideoStream = videoStreams.first { stream in
             stream.codecType == "video" && stream.disposition?.attachedPic != 1
         }
@@ -413,6 +437,20 @@ actor VideoMetadataService {
             )
         }
 
+        let filteredSubtitleStreams = subtitleStreams.filter { $0.codecType == "subtitle" }
+
+        let subtitles = filteredSubtitleStreams.map { stream -> VideoMetadata.SubtitleStream in
+            VideoMetadata.SubtitleStream(
+                index: stream.index,
+                languageCode: stream.tags?.language?.lowercased(),
+                title: stream.tags?.title,
+                codec: stream.codecName,
+                codecLongName: stream.codecLongName,
+                isDefault: (stream.disposition?.defaultStream == 1),
+                isForced: (stream.disposition?.forced == 1)
+            )
+        }
+
         return VideoMetadata(
             duration: format?.duration.flatMap { Double($0) },
             formatName: format?.formatName,
@@ -423,7 +461,8 @@ actor VideoMetadataService {
             timecode: timecode,
             frameCount: frameCount,
             videoStream: video,
-            audioStreams: audio
+            audioStreams: audio,
+            subtitleStreams: subtitles
         )
     }
 
@@ -629,6 +668,7 @@ private struct FFprobeResponse: Decodable {
         struct Disposition: Decodable {
             let defaultStream: Int?
             let attachedPic: Int?
+            let forced: Int?
         }
     }
 
@@ -725,6 +765,21 @@ private struct FFprobeResponse: Decodable {
             )
         }
 
+        // Get all subtitle streams
+        let subtitleStreams = streams.filter { $0.codecType == "subtitle" }
+
+        let subtitles = subtitleStreams.map { stream -> VideoMetadata.SubtitleStream in
+            return VideoMetadata.SubtitleStream(
+                index: stream.index,
+                languageCode: stream.tags?.language?.lowercased(),
+                title: stream.tags?.title,
+                codec: stream.codecName,
+                codecLongName: stream.codecLongName,
+                isDefault: (stream.disposition?.defaultStream == 1),
+                isForced: (stream.disposition?.forced == 1)
+            )
+        }
+
         return VideoMetadata(
             duration: formatMetadata?.duration.flatMap { Double($0) },
             formatName: formatMetadata?.formatName,
@@ -735,7 +790,8 @@ private struct FFprobeResponse: Decodable {
             timecode: timecode,
             frameCount: frameCount,
             videoStream: video,
-            audioStreams: audio
+            audioStreams: audio,
+            subtitleStreams: subtitles
         )
     }
 }

@@ -430,7 +430,8 @@ extension FFMPEGCommandBuilder {
         let frameRateValue = max(1, Int(round(request.frameRate)))
 
         let channelLayout = request.style == .circle ? "mono" : "stereo"
-        var audioFilters = ["aformat=channel_layouts=\(channelLayout)"]
+        // Resample to 48kHz for broadcast format compatibility (MXF requires 48kHz)
+        var audioFilters = ["aresample=48000", "aformat=channel_layouts=\(channelLayout)"]
         if request.normalizeAudio {
             audioFilters.append("dynaudnorm=f=250:g=30:p=0.9")
         }
