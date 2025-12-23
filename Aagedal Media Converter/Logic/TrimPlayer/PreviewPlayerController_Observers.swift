@@ -332,6 +332,7 @@ extension PreviewPlayerController {
 
                             // Direct playback successful
                             logger.debug("Direct AVPlayer playback ready")
+                            self.isReady = true
 
                             // Apply audio track selection now that tracks are loaded
                             self.applySelectedAudioTrack()

@@ -22,6 +22,13 @@ final class PreviewPlayerController: ObservableObject {
         let subtitle: String?
     }
 
+    struct SubtitleTrackOption: Identifiable, Equatable {
+        let id: Int
+        let position: Int
+        let trackId: Int32
+        let title: String
+    }
+
     // MARK: - Published State
     
     @Published var volume: Double = 100 {
@@ -42,6 +49,7 @@ final class PreviewPlayerController: ObservableObject {
     }
     @Published var player: AVPlayer?
     @Published var isPreparing = false
+    @Published var isReady = false
     @Published var errorMessage: String?
     @Published private(set) var currentWaveformURL: URL?
     @Published var currentPlaybackTime: Double = 0
@@ -61,6 +69,7 @@ final class PreviewPlayerController: ObservableObject {
     @Published var isLoadingPreviewAssets = false
     @Published var isCapturingScreenshot = false
     @Published var audioTrackOptions: [AudioTrackOption] = []
+    @Published var subtitleTrackOptions: [SubtitleTrackOption] = []
     @Published var isCropEnabled: Bool = false
 
     // MARK: - State
@@ -79,7 +88,8 @@ final class PreviewPlayerController: ObservableObject {
     var hasSecurityScope = false
     weak var playerView: AVPlayerView?
     var selectedAudioTrackOrderIndex: Int = 0
-    
+    var selectedSubtitleTrackOrderIndex: Int = -1  // -1 means subtitles disabled
+
     // MARK: - Audio Monitoring
     // UniversalAudioMeterService is defined below in Audio Metering section
     
@@ -120,6 +130,7 @@ final class PreviewPlayerController: ObservableObject {
     func preparePreview(startTime: TimeInterval, resetAudioSelection: Bool = true) {
         teardown(resetAudioSelection: resetAudioSelection)
         isPreparing = true
+        isReady = false
         errorMessage = nil
         isLoadingPreviewAssets = true
         previewAssets = nil
@@ -166,6 +177,11 @@ final class PreviewPlayerController: ObservableObject {
         // Explicitly nil the player to prevent key consumption
         player = nil
 
+        // Re-acquire security-scoped access for MPV (teardown released it)
+        let bookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url)
+        let directAccess = !bookmarkAccess && url.startAccessingSecurityScopedResource()
+        hasSecurityScope = bookmarkAccess || directAccess
+
         let mpv = MPVPlayer()
         self.mpvPlayer = mpv
         self.useMPV = true
@@ -183,6 +199,17 @@ final class PreviewPlayerController: ObservableObject {
             guard let self, let mpv else { return }
             for await time in mpv.$timePos.values {
                 self.currentPlaybackTime = time
+            }
+        }
+
+        // Observe file loaded state for isReady
+        Task { @MainActor [weak self, weak mpv] in
+            guard let self, let mpv else { return }
+            for await isLoaded in mpv.$isFileLoaded.values {
+                if isLoaded {
+                    self.isReady = true
+                    break  // Only need to set once per file
+                }
             }
         }
 
@@ -206,8 +233,11 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     // MARK: - Unified Playback Control
-    
+
     func togglePlayback() {
+        // Ignore if player is not ready yet
+        guard isReady else { return }
+
         // If reversing, K/Space should just stop reverse (stay paused)
         if isReverseSimulating {
             stopReverseSimulation()
@@ -271,6 +301,9 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func startReverseSimulation() {
+        // Ignore if player is not ready yet
+        guard isReady else { return }
+
         // If already reversing, increase speed (max 4x)
         if isReverseSimulating {
             reverseSpeed = min(reverseSpeed + 1, 4)
@@ -318,6 +351,9 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func fastForward() {
+        // Ignore if player is not ready yet
+        guard isReady else { return }
+
         // If reversing, L stops reverse
         if isReverseSimulating {
             stopReverseSimulation()
@@ -400,6 +436,7 @@ final class PreviewPlayerController: ObservableObject {
                 let names = mpv.audioTrackNames
                 let indexes = mpv.audioTrackIndexes
                 buildMPVAudioTrackOptions(names: names, indexes: indexes)
+                buildMPVSubtitleTrackOptions()
             } else {
                 let metadata: VideoMetadata?
                 if let cached = item.metadata {
@@ -689,7 +726,53 @@ final class PreviewPlayerController: ObservableObject {
         currentWaveformURL = previewAssets?.waveform(forAudioStream: streamIndex)
         Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform URL: \(self.currentWaveformURL?.lastPathComponent ?? "nil", privacy: .public) for stream index: \(streamIndex ?? -1)")
     }
-    
+
+    // MARK: - Subtitle Track Selection
+
+    func buildMPVSubtitleTrackOptions() {
+        guard let mpv = mpvPlayer else {
+            subtitleTrackOptions = []
+            return
+        }
+
+        let names = mpv.subtitleTrackNames
+        let indexes = mpv.subtitleTrackIndexes
+
+        var options: [SubtitleTrackOption] = []
+
+        for (index, trackID) in indexes.enumerated() {
+            if trackID <= 0 { continue }
+
+            let name = index < names.count ? names[index] : "Subtitle \(trackID)"
+            let position = options.count
+
+            options.append(
+                SubtitleTrackOption(
+                    id: Int(trackID),
+                    position: position,
+                    trackId: trackID,
+                    title: name
+                )
+            )
+        }
+
+        subtitleTrackOptions = options
+    }
+
+    func selectSubtitleTrack(at position: Int) {
+        guard useMPV, let mpv = mpvPlayer else { return }
+
+        if position < 0 {
+            // Disable subtitles
+            mpv.disableSubtitles()
+            selectedSubtitleTrackOrderIndex = -1
+        } else if position < subtitleTrackOptions.count {
+            let option = subtitleTrackOptions[position]
+            mpv.currentSubtitleTrackIndex = option.trackId
+            selectedSubtitleTrackOrderIndex = position
+        }
+    }
+
     func teardown(resetAudioSelection: Bool = true) {
         preparationTask?.cancel()
         preparationTask = nil
@@ -721,8 +804,10 @@ final class PreviewPlayerController: ObservableObject {
         removePlayerItemStatusObserver()
         if resetAudioSelection {
             selectedAudioTrackOrderIndex = 0
+            selectedSubtitleTrackOrderIndex = -1
         }
         audioTrackOptions = []
+        subtitleTrackOptions = []
         currentWaveformURL = nil
 
         // Stop audio monitoring
@@ -757,6 +842,9 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func seekTo(_ time: Double) {
+        // Ignore if player is not ready yet
+        guard isReady else { return }
+
         // Update playback time immediately for UI responsiveness
         currentPlaybackTime = time
 

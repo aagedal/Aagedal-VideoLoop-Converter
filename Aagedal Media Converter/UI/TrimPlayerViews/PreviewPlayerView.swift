@@ -434,8 +434,8 @@ struct PreviewPlayerView: View {
                 // CMD+S: Capture screenshot
                 captureScreenshot()
                 return true
-            case "1", "2", "3", "4", "5", "6", "7", "8":
-                // CMD+1...8: Select aspect ratio presets (when crop mode is active)
+            case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+                // CMD+1...9: Select aspect ratio presets (when crop mode is active)
                 if isCropControlsExpanded, let index = Int(lowerKey) {
                     let ratios = AspectRatio.allCases
                     if index >= 1 && index <= ratios.count {

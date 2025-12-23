@@ -2,20 +2,59 @@
 
 import SwiftUI
 
+/// Short edge resolution options for waveform video
+enum ShortEdgeResolution: Int, CaseIterable, Identifiable {
+    case p2160 = 2160
+    case p1080 = 1080
+    case p720 = 720
+    case p480 = 480
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .p2160: return "2160p (4K)"
+        case .p1080: return "1080p"
+        case .p720: return "720p"
+        case .p480: return "480p"
+        }
+    }
+}
+
 struct WaveformSettingsView: View {
     @AppStorage(AppConstants.audioWaveformVideoDefaultEnabledKey) private var waveformVideoDefaultEnabled = true
-    @AppStorage(AppConstants.audioWaveformResolutionKey) private var waveformResolutionString = "1280x720"
+    @AppStorage(AppConstants.audioWaveformAspectRatioKey) private var waveformAspectRatioRaw = AppConstants.defaultAudioWaveformAspectRatio
+    @AppStorage(AppConstants.audioWaveformShortEdgeKey) private var waveformShortEdge = AppConstants.defaultAudioWaveformShortEdge
     @AppStorage(AppConstants.audioWaveformBackgroundColorKey) private var waveformBackgroundHex = "#000000"
     @AppStorage(AppConstants.audioWaveformForegroundColorKey) private var waveformForegroundHex = "#FFFFFF"
     @AppStorage(AppConstants.audioWaveformNormalizeKey) private var waveformNormalizeAudio = false
     @AppStorage(AppConstants.audioWaveformStyleKey) private var waveformStyleRaw = AppConstants.defaultAudioWaveformStyleRaw
     @AppStorage(AppConstants.audioWaveformFrameRateKey) private var waveformFrameRate = AppConstants.defaultAudioWaveformFrameRate
-
-    @State private var resolutionSanitizationTask: Task<Void, Never>?
     
     var bgColorText: String = "Background Color"
     var waveformColorText: String = "Foreground Color"
-    
+
+    private var selectedAspectRatio: Binding<AspectRatio> {
+        Binding(
+            get: { AspectRatio(rawValue: waveformAspectRatioRaw) ?? .ratio16_9 },
+            set: { waveformAspectRatioRaw = $0.rawValue }
+        )
+    }
+
+    private var selectedShortEdge: Binding<ShortEdgeResolution> {
+        Binding(
+            get: { ShortEdgeResolution(rawValue: waveformShortEdge) ?? .p1080 },
+            set: { waveformShortEdge = $0.rawValue }
+        )
+    }
+
+    /// Computed resolution string for display
+    private var computedResolution: String {
+        let aspectRatio = AspectRatio(rawValue: waveformAspectRatioRaw) ?? .ratio16_9
+        let shortEdge = waveformShortEdge
+        let (width, height) = AudioWaveformPreferences.computeResolution(aspectRatio: aspectRatio, shortEdge: shortEdge)
+        return "\(width)x\(height)"
+    }
 
     var body: some View {
         Form {
@@ -23,8 +62,6 @@ struct WaveformSettingsView: View {
         }
         .formStyle(.grouped)
         .onDisappear {
-            resolutionSanitizationTask?.cancel()
-            sanitizeWaveformResolution()
             sanitizeWaveformColors()
         }
     }
@@ -46,17 +83,40 @@ struct WaveformSettingsView: View {
                 Divider()
                     .padding(.vertical, 4)
 
-                HStack(spacing: 12) {
+                HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Resolution (e.g. 1280x720)")
+                        Text("Aspect Ratio")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        TextField("1280x720", text: $waveformResolutionString)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit(sanitizeWaveformResolution)
-                            .onChange(of: waveformResolutionString) { _, newValue in
-                                scheduleResolutionSanitization(for: newValue)
+                        Picker("", selection: selectedAspectRatio) {
+                            ForEach(AspectRatio.allCases.filter { $0 != .free }) { ratio in
+                                Text(ratio.displayName).tag(ratio)
                             }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Short Edge")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Picker("", selection: selectedShortEdge) {
+                            ForEach(ShortEdgeResolution.allCases) { resolution in
+                                Text(resolution.displayName).tag(resolution)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Output")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(computedResolution)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.primary)
                     }
                 }
                 colorSettingsGroup
@@ -163,24 +223,6 @@ struct WaveformSettingsView: View {
 
     // MARK: - Helpers (scoped to Waveform tab)
 
-    private func scheduleResolutionSanitization(for newValue: String) {
-        resolutionSanitizationTask?.cancel()
-        resolutionSanitizationTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(400))
-            guard newValue == waveformResolutionString else { return }
-            sanitizeWaveformResolution()
-        }
-    }
-
-    private func sanitizeWaveformResolution() {
-        let trimmed = waveformResolutionString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let (width, height) = AudioWaveformPreferences.parseResolution(trimmed) {
-            waveformResolutionString = "\(width)x\(height)"
-        } else {
-            waveformResolutionString = "1280x720"
-        }
-    }
-
     private func sanitizeWaveformColors() {
         waveformBackgroundHex = "#" + AudioWaveformPreferences.sanitizeHex(waveformBackgroundHex, fallback: "000000")
         waveformForegroundHex = "#" + AudioWaveformPreferences.sanitizeHex(waveformForegroundHex, fallback: "FFFFFF")
@@ -188,7 +230,8 @@ struct WaveformSettingsView: View {
 
     private func resetWaveformDefaults() {
         waveformVideoDefaultEnabled = true
-        waveformResolutionString = "1280x720"
+        waveformAspectRatioRaw = AppConstants.defaultAudioWaveformAspectRatio
+        waveformShortEdge = AppConstants.defaultAudioWaveformShortEdge
         waveformBackgroundHex = "#000000"
         waveformForegroundHex = "#FFFFFF"
         waveformNormalizeAudio = false

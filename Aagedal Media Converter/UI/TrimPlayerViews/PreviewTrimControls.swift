@@ -183,7 +183,8 @@ struct PreviewTrimControls: View {
             }
 
             audioTrackSelector
-            
+            subtitleTrackSelector
+
             Toggle(isOn: $controller.isAudioMeterEnabled) {
                 Label("Audio Meter", systemImage: "waveform")
                     .labelStyle(.iconOnly)
@@ -239,6 +240,47 @@ struct PreviewTrimControls: View {
         .menuStyle(.borderlessButton)
         .disabled(controller.audioTrackOptions.count <= 1)
         .help(controller.audioTrackOptions.isEmpty ? "No alternate audio tracks" : "Select audio track")
+    }
+
+    private var subtitleTrackSelector: some View {
+        Menu {
+            // "Off" option to disable subtitles
+            Button {
+                controller.selectSubtitleTrack(at: -1)
+            } label: {
+                HStack {
+                    Text("Off")
+                    Spacer()
+                    if controller.selectedSubtitleTrackOrderIndex < 0 {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            if !controller.subtitleTrackOptions.isEmpty {
+                Divider()
+
+                ForEach(controller.subtitleTrackOptions) { option in
+                    Button {
+                        controller.selectSubtitleTrack(at: option.position)
+                    } label: {
+                        HStack {
+                            Text(option.title)
+                            Spacer()
+                            if option.position == controller.selectedSubtitleTrackOrderIndex {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Select subtitle track", systemImage: "captions.bubble.fill")
+                .labelStyle(.iconOnly)
+        }
+        .menuStyle(.borderlessButton)
+        .disabled(controller.subtitleTrackOptions.isEmpty)
+        .help(controller.subtitleTrackOptions.isEmpty ? "No subtitle tracks" : "Select subtitle track")
     }
 
     // MARK: - Timecode Input Helpers
