@@ -52,6 +52,8 @@ final class PreviewPlayerController: ObservableObject {
     @Published var isReady = false
     @Published var errorMessage: String?
     @Published private(set) var currentWaveformURL: URL?
+    @Published private(set) var currentWaveformChunks: [WaveformChunk] = []
+    @Published private(set) var totalDuration: Double = 0  // For chunk width calculation
     @Published var currentPlaybackTime: Double = 0
     @Published private(set) var currentPlaybackSpeed: Float = 1.0
     @Published private(set) var isReverseSimulating: Bool = false
@@ -77,6 +79,7 @@ final class PreviewPlayerController: ObservableObject {
     var videoItem: VideoItem
     var preparationTask: Task<Void, Never>?
     var previewAssetTask: Task<Void, Never>?
+    private var previewAssetURL: URL?  // Track URL being processed to avoid redundant cancellation
     var loopObserver: Any?
     var timeObserver: Any?
     var playbackTimeObserver: Any?
@@ -723,8 +726,12 @@ final class PreviewPlayerController: ObservableObject {
 
     private func updateCurrentWaveform() {
         let streamIndex = selectedAudioStreamIndex()
+        // Legacy single-image waveform (kept for backwards compatibility)
         currentWaveformURL = previewAssets?.waveform(forAudioStream: streamIndex)
-        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform URL: \(self.currentWaveformURL?.lastPathComponent ?? "nil", privacy: .public) for stream index: \(streamIndex ?? -1)")
+        // Chunked waveform support
+        currentWaveformChunks = previewAssets?.waveformChunks(forAudioStream: streamIndex) ?? []
+        totalDuration = previewAssets?.totalDuration ?? 0
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform: \(self.currentWaveformChunks.count) chunks, totalDuration: \(self.totalDuration)s for stream index: \(streamIndex ?? -1)")
     }
 
     // MARK: - Subtitle Track Selection
@@ -778,6 +785,11 @@ final class PreviewPlayerController: ObservableObject {
         preparationTask = nil
         previewAssetTask?.cancel()
         previewAssetTask = nil
+
+        // NOTE: We do NOT cancel FFmpeg processes here - generation continues in the
+        // background even after the trim view is closed. This allows waveforms to
+        // complete generating for all files in the queue.
+        previewAssetURL = nil  // Reset URL tracking so next load can proceed
         player?.pause()
 
         // Release security-scoped resource only if we acquired it
@@ -809,6 +821,12 @@ final class PreviewPlayerController: ObservableObject {
         audioTrackOptions = []
         subtitleTrackOptions = []
         currentWaveformURL = nil
+        currentWaveformChunks = []
+        totalDuration = 0
+
+        // Stop asset refresh polling
+        assetRefreshTask?.cancel()
+        assetRefreshTask = nil
 
         // Stop audio monitoring
         isAudioMeterEnabled = false
@@ -875,38 +893,99 @@ final class PreviewPlayerController: ObservableObject {
     
     // MARK: - Preview Assets
     
+    private var assetRefreshTask: Task<Void, Never>?
+
     func loadPreviewAssets(for url: URL) {
-        previewAssetTask?.cancel()
+        // Only restart local tasks if requesting assets for a different URL
+        // This prevents waveform generation from being interrupted when the same file
+        // is re-selected (e.g., opening/closing fullscreen, clicking the same row)
+        // NOTE: We do NOT cancel FFmpeg processes for the old URL - generation continues
+        // in the background. Only the UI tracking tasks are cancelled.
+        if previewAssetURL != url {
+            // Cancel local UI tracking tasks (not the actual FFmpeg generation)
+            previewAssetTask?.cancel()
+            assetRefreshTask?.cancel()
+            previewAssetURL = url
+        } else if previewAssetTask != nil {
+            // Same URL and task already running - don't restart
+            return
+        }
+
         isLoadingPreviewAssets = true
-        previewAssetTask = Task { [weak self] in
+
+        // Start a refresh task that periodically updates previewAssets with partial results
+        // This enables progressive loading of waveform chunks
+        assetRefreshTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                // 1. Try to load cached assets first for immediate display
+            while !Task.isCancelled && self.isLoadingPreviewAssets {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { break }
+
                 if let cached = await PreviewAssetGenerator.shared.cachedAssetsIfPresent(for: url) {
-                    self.previewAssets = cached
-                    
-                    // 2. If we have a waveform, we're good! Return early.
-                    if cached.waveform != nil {
-                        self.isLoadingPreviewAssets = false
-                        return
+                    // Only update if we have new chunks
+                    let currentChunkCount = self.previewAssets?.waveformChunks.count ?? 0
+                    if cached.waveformChunks.count > currentChunkCount || cached.thumbnails.count > (self.previewAssets?.thumbnails.count ?? 0) {
+                        self.previewAssets = cached
                     }
-                    // If waveform is missing, continue to generateAssets to get the rest
-                }
-                
-                // 3. Generate full assets (waits for existing task if running)
-                let assets = try await PreviewAssetGenerator.shared.generateAssets(for: url)
-                try Task.checkCancellation()
-                self.previewAssets = assets
-            } catch {
-                // Only clear assets if we don't have any (don't wipe partial cache on error)
-                if self.previewAssets == nil {
-                    self.previewAssets = nil
-                }
-                if (error as? CancellationError) == nil {
-                    Logger(subsystem: "com.aagedal.MediaConverter", category: "PreviewAssets").error("Failed to load preview assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
-            self.isLoadingPreviewAssets = false
+        }
+
+        previewAssetTask = Task { [weak self] in
+            guard let self else { return }
+
+            // Capture the URL this task is for, to avoid race conditions
+            let taskURL = url
+
+            do {
+                // 1. Try to load cached assets first for immediate display
+                if let cached = await PreviewAssetGenerator.shared.cachedAssetsIfPresent(for: taskURL) {
+                    // Only update if we're still viewing this file
+                    if self.previewAssetURL == taskURL {
+                        self.previewAssets = cached
+                    }
+
+                    // 2. If we have complete waveform chunks, we're good! Return early.
+                    let expectedChunks = cached.expectedChunkCount
+                    if expectedChunks > 0 && cached.waveformChunks.count >= expectedChunks {
+                        // Only stop loading if still viewing this file
+                        if self.previewAssetURL == taskURL {
+                            self.isLoadingPreviewAssets = false
+                            self.assetRefreshTask?.cancel()
+                        }
+                        return
+                    }
+                    // If chunks are missing, continue to generateAssets to get the rest
+                }
+
+                // 3. Generate full assets (waits for existing task if running)
+                let assets = try await PreviewAssetGenerator.shared.generateAssets(for: taskURL)
+                try Task.checkCancellation()
+
+                // Only update if we're still viewing this file
+                if self.previewAssetURL == taskURL {
+                    self.previewAssets = assets
+                }
+            } catch {
+                // Only handle errors if we're still viewing this file
+                if self.previewAssetURL == taskURL {
+                    // Only clear assets if we don't have any (don't wipe partial cache on error)
+                    if self.previewAssets == nil {
+                        self.previewAssets = nil
+                    }
+                    if (error as? CancellationError) == nil {
+                        Logger(subsystem: "com.aagedal.MediaConverter", category: "PreviewAssets").error("Failed to load preview assets for \(taskURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+            }
+
+            // Only update loading state if we're still viewing this file
+            // This prevents a cancelled old task from stopping the new task's refresh
+            if self.previewAssetURL == taskURL {
+                self.isLoadingPreviewAssets = false
+                self.assetRefreshTask?.cancel()
+                self.previewAssetTask = nil
+            }
         }
     }
     

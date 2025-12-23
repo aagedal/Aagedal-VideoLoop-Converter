@@ -76,11 +76,12 @@ struct MPVVideoView: NSViewControllerRepresentable {
 
     func makeNSViewController(context: Context) -> MPVViewController {
         let viewController = MPVViewController(player: player)
+        context.coordinator.viewController = viewController
         return viewController
     }
 
     func updateNSViewController(_ nsViewController: MPVViewController, context: Context) {
-        // Handle updates if needed
+        context.coordinator.viewController = nsViewController
     }
 
     func makeCoordinator() -> Coordinator {
@@ -90,6 +91,7 @@ struct MPVVideoView: NSViewControllerRepresentable {
     final class Coordinator: NSObject {
         private var monitor: Any?
         private let keyHandler: (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool
+        weak var viewController: MPVViewController?
 
         init(keyHandler: @escaping (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool) {
             self.keyHandler = keyHandler
@@ -97,6 +99,15 @@ struct MPVVideoView: NSViewControllerRepresentable {
 
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self = self else { return event }
+
+                // Only handle events if our window is the key window
+                // This prevents capturing events when fullscreen player is open
+                guard let vc = self.viewController,
+                      let window = vc.view.window,
+                      window.isKeyWindow else {
+                    return event
+                }
+
                 guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return event }
 
                 // Process keyboard events - the handler decides if they should be handled

@@ -116,7 +116,7 @@ struct FullscreenPlayerView: View {
                             }
                     )
 
-                if showOverlay || isHoveringControls {
+                if showOverlay || isHoveringControls || isDraggingTimeline {
                     // Speed indicator (matches trim player)
                     VStack {
                         HStack {
@@ -146,29 +146,26 @@ struct FullscreenPlayerView: View {
                     errorOverlay(message: error)
                 }
 
-                // Right edge cursor-hide zone
-                HStack {
-                    Spacer()
-                    RightEdgeCursorHideZone { hovering in
-                        isHoveringRightEdge = hovering
-                        if hovering {
-                            // Hide overlay when entering right edge
-                            if !isHoveringControls, !isDraggingTimeline {
-                                overlayHideTask?.cancel()
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    showOverlay = false
-                                }
-                                onOverlayVisibilityChanged?(true)
+                // Right edge cursor-hide zone - positioned at trailing edge only
+                RightEdgeCursorHideZone { hovering in
+                    isHoveringRightEdge = hovering
+                    if hovering {
+                        // Hide overlay when entering right edge
+                        if !isHoveringControls, !isDraggingTimeline {
+                            overlayHideTask?.cancel()
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                showOverlay = false
                             }
-                        } else {
-                            // Show overlay when leaving right edge
-                            showOverlay = true
-                            scheduleOverlayHide()
+                            onOverlayVisibilityChanged?(true)
                         }
+                    } else {
+                        // Show overlay when leaving right edge
+                        showOverlay = true
+                        scheduleOverlayHide()
                     }
-                    .frame(width: rightEdgeWidth)
                 }
-                .allowsHitTesting(true)
+                .frame(width: rightEdgeWidth, height: geometry.size.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .onContinuousHover { phase in
@@ -217,6 +214,9 @@ struct FullscreenPlayerView: View {
                 scheduleOverlayHide()
             }
 
+            // Capture startTime immediately on appear to avoid any SwiftUI state issues
+            let capturedStartTime = startTime
+
             Task {
                 if itemState.metadata == nil {
                     if let metadata = await VideoFileUtils.fetchMetadata(for: itemState.url) {
@@ -229,7 +229,8 @@ struct FullscreenPlayerView: View {
                 await MainActor.run {
                     controller.updateVideoItem(itemState)
                     // Use provided startTime if available, otherwise fall back to effectiveTrimStart
-                    let initialTime = startTime ?? itemState.effectiveTrimStart
+                    let initialTime = capturedStartTime ?? itemState.effectiveTrimStart
+                    NSLog("FullscreenPlayerView: startTime=\(String(describing: capturedStartTime)), effectiveTrimStart=\(itemState.effectiveTrimStart), using initialTime=\(initialTime)")
                     controller.preparePreview(startTime: initialTime)
                 }
             }
@@ -480,7 +481,10 @@ struct FullscreenPlayerView: View {
     
     private var timelineSlider: some View {
         GeometryReader { geo in
-            let duration = max(itemState.durationSeconds, 0)
+            // Use itemState duration, falling back to MPV player duration if available
+            let duration = itemState.durationSeconds > 0
+                ? itemState.durationSeconds
+                : (controller.mpvPlayer?.duration ?? 0)
             let progress = duration > 0 ? controller.currentPlaybackTime / duration : 0
             
             ZStack(alignment: .leading) {
@@ -1062,6 +1066,11 @@ private class RightEdgeCursorHideNSView: NSView {
     var onHoverChanged: ((Bool) -> Void)?
     private var trackingArea: NSTrackingArea?
     private var isHovering = false
+
+    // Allow clicks to pass through while keeping tracking areas active
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()

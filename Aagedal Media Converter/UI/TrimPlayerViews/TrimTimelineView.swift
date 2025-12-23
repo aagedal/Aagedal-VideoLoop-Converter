@@ -21,6 +21,8 @@ struct TrimTimelineView: View {
     let thumbnails: [URL]?
     let quickThumbnailImages: [NSImage]
     let waveformURL: URL?
+    let waveformChunks: [WaveformChunk]
+    let chunkTotalDuration: Double
     let isLoading: Bool
     let step: Double
     let hideFilmstrip: Bool
@@ -30,7 +32,13 @@ struct TrimTimelineView: View {
 
     // Cached images loaded in background
     @State private var cachedThumbnailImages: [NSImage] = []
+    @State private var cachedThumbnailImagesById: [Int: NSImage] = [:]  // For progressive loading
     @State private var cachedWaveformImage: NSImage?
+    @State private var cachedChunkImages: [Int: NSImage] = [:]
+    @State private var failedChunkLoads: [Int: Int] = [:]  // Track retry counts for failed loads
+
+    // Expected thumbnail count matches PreviewAssetGenerator.thumbnailCount
+    private let expectedThumbnailCount = 6
 
     // Key tracking for range selection (Cmd), range sliding (Shift), and symmetric scaling (Option)
     @State private var isCommandKeyPressed: Bool = false
@@ -38,8 +46,8 @@ struct TrimTimelineView: View {
     @State private var isOptionKeyPressed: Bool = false
 
     private let filmstripHeight: CGFloat = 72
-    private let waveformHeight: CGFloat = 36
-    private let combinedHeight: CGFloat = 108
+    private let waveformHeight: CGFloat = 66
+    private let combinedHeight: CGFloat = 138
     private let compactHeight: CGFloat = 20
 
     init(
@@ -50,6 +58,8 @@ struct TrimTimelineView: View {
         thumbnails: [URL]?,
         quickThumbnailImages: [NSImage] = [],
         waveformURL: URL?,
+        waveformChunks: [WaveformChunk] = [],
+        chunkTotalDuration: Double = 0,
         isLoading: Bool,
         step: Double = 0.1,
         hideFilmstrip: Bool = false,
@@ -64,6 +74,8 @@ struct TrimTimelineView: View {
         self.thumbnails = thumbnails
         self.quickThumbnailImages = quickThumbnailImages
         self.waveformURL = waveformURL
+        self.waveformChunks = waveformChunks
+        self.chunkTotalDuration = chunkTotalDuration
         self.isLoading = isLoading
         self.step = step
         self.hideFilmstrip = hideFilmstrip
@@ -335,24 +347,26 @@ private struct TrimHandlesInteractionLayer: View {
         .frame(height: effectiveHeight)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .background(TimelineKeyTrackerView(isCommandKeyPressed: $isCommandKeyPressed, isShiftKeyPressed: $isShiftKeyPressed, isOptionKeyPressed: $isOptionKeyPressed))
-        .task(id: thumbnails) {
-            // Load filmstrip thumbnails in background
-            guard let thumbnails = thumbnails, !thumbnails.isEmpty else {
-                cachedThumbnailImages = []
-                return
+        .onChange(of: thumbnails) { _, newThumbnails in
+            // Clear cache when thumbnails array reference changes (e.g., different file selected)
+            // Note: Individual thumbnails are loaded progressively in thumbnailSlotView
+            if newThumbnails == nil || newThumbnails?.isEmpty == true {
+                cachedThumbnailImagesById = [:]
             }
-            let images = await Task.detached(priority: .utility) {
-                thumbnails.compactMap { url -> NSImage? in
-                    guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-                          let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
-                            kCGImageSourceShouldCache: false
-                          ] as CFDictionary) else {
-                        return NSImage(contentsOf: url)
-                    }
-                    return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                }
-            }.value
-            cachedThumbnailImages = images
+        }
+        .onChange(of: waveformChunks) { oldChunks, newChunks in
+            // Clear chunk cache when chunks change (different file or audio track selected)
+            // We detect a track/file switch by checking if the first chunk's URL changed
+            let oldFirstURL = oldChunks.first?.url
+            let newFirstURL = newChunks.first?.url
+
+            // Clear cache if:
+            // 1. Chunks became empty (file closed)
+            // 2. First chunk URL changed (different file or audio track)
+            if newChunks.isEmpty || (oldFirstURL != nil && newFirstURL != nil && oldFirstURL != newFirstURL) {
+                cachedChunkImages = [:]
+                failedChunkLoads = [:]
+            }
         }
         .task(id: waveformURL) {
             // Load waveform image in background
@@ -393,23 +407,11 @@ private struct TrimHandlesInteractionLayer: View {
 
     @ViewBuilder
     private func filmstripContent(width: CGFloat, height: CGFloat) -> some View {
-        if !cachedThumbnailImages.isEmpty {
-            // Use cached images loaded in background
-            HStack(spacing: 0) {
-                ForEach(Array(cachedThumbnailImages.enumerated()), id: \.0) { _, image in
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: width / CGFloat(cachedThumbnailImages.count), height: height)
-                        .clipped()
-                }
-            }
-            .frame(width: width, height: height)
-            .background(Color.black.opacity(0.25))
-        } else if let thumbnails, !thumbnails.isEmpty {
-            // Show placeholder while loading
-            placeholderSection(systemName: "film", text: "Loading thumbnails…")
+        // Progressive loading: show expected slots and fill with images as they become available
+        if thumbnails != nil || isLoading {
+            progressiveFilmstripContent(width: width, height: height)
         } else if !quickThumbnailImages.isEmpty {
+            // Fallback to quick thumbnails when no filmstrip available
             HStack(spacing: 0) {
                 ForEach(Array(quickThumbnailImages.enumerated()), id: \.0) { index, image in
                     Image(nsImage: image)
@@ -422,14 +424,89 @@ private struct TrimHandlesInteractionLayer: View {
             .frame(width: width, height: height)
             .background(Color.black.opacity(0.25))
         } else {
-            placeholderSection(systemName: "film", text: isLoading ? "Generating thumbnails…" : "No thumbnails")
+            placeholderSection(systemName: "film", text: "No thumbnails")
+        }
+    }
+
+    @ViewBuilder
+    private func progressiveFilmstripContent(width: CGFloat, height: CGFloat) -> some View {
+        let thumbWidth = width / CGFloat(expectedThumbnailCount)
+        HStack(spacing: 0) {
+            ForEach(0..<expectedThumbnailCount, id: \.self) { index in
+                thumbnailSlotView(index: index, slotWidth: thumbWidth, height: height)
+            }
+        }
+        .frame(width: width, height: height)
+        .background(Color.black.opacity(0.25))
+    }
+
+    @ViewBuilder
+    private func thumbnailSlotView(index: Int, slotWidth: CGFloat, height: CGFloat) -> some View {
+        // Check if we have this thumbnail URL
+        let thumbURL: URL? = {
+            guard let urls = thumbnails, index < urls.count else { return nil }
+            return urls[index]
+        }()
+
+        if let image = cachedThumbnailImagesById[index] {
+            // Thumbnail is loaded - display it
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: slotWidth, height: height)
+                .clipped()
+        } else if let url = thumbURL {
+            // Thumbnail exists but not loaded - show placeholder and load async
+            Rectangle()
+                .fill(Color.gray.opacity(0.2))
+                .frame(width: slotWidth, height: height)
+                .task {
+                    await loadThumbnailImage(at: index, from: url)
+                }
+        } else {
+            // Thumbnail not yet generated - show orange placeholder
+            Rectangle()
+                .fill(Color.orange.opacity(0.15))
+                .frame(width: slotWidth, height: height)
+                .overlay(
+                    Group {
+                        if isLoading {
+                            ProgressView()
+                                .scaleEffect(0.5)
+                        }
+                    }
+                )
+        }
+    }
+
+    private func loadThumbnailImage(at index: Int, from url: URL) async {
+        guard cachedThumbnailImagesById[index] == nil else { return }
+
+        let image = await Task.detached(priority: .utility) { () -> NSImage? in
+            guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
+                    kCGImageSourceShouldCache: false
+                  ] as CFDictionary) else {
+                return NSImage(contentsOf: url)
+            }
+            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        }.value
+
+        if let image = image {
+            cachedThumbnailImagesById[index] = image
         }
     }
 
     @ViewBuilder
     private func waveformContent(width: CGFloat, height: CGFloat) -> some View {
-        if let image = cachedWaveformImage {
-            // Use cached image loaded in background
+        // Use chunked waveforms when:
+        // 1. We already have some chunks, OR
+        // 2. We have a totalDuration from assets, OR
+        // 3. The video duration exceeds 10 minutes (would need chunks)
+        if !waveformChunks.isEmpty || chunkTotalDuration > 0 || duration > 600 {
+            chunkedWaveformContent(width: width, height: height)
+        } else if let image = cachedWaveformImage {
+            // Fallback to legacy single-image waveform
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -437,7 +514,7 @@ private struct TrimHandlesInteractionLayer: View {
                 .clipped()
                 .id(waveformURL) // Force redraw when URL changes
         } else if waveformURL != nil {
-            // Show placeholder while loading
+            // Show placeholder while loading legacy waveform
             placeholderSection(
                 systemName: "waveform",
                 text: "Loading waveform…"
@@ -449,6 +526,116 @@ private struct TrimHandlesInteractionLayer: View {
                 text: isLoading ? "Generating waveform…" : "Waveform unavailable"
             )
             .frame(width: width, height: height)
+        }
+    }
+
+    /// Expected number of chunks based on duration
+    /// Always uses the video's actual duration (not chunkTotalDuration from assets)
+    /// to ensure consistent chunk count during progressive loading
+    private var expectedChunkCount: Int {
+        guard duration > 0 else { return 0 }
+        return Int(ceil(duration / 600.0))  // 10-minute chunks
+    }
+
+    /// Calculate proportional width for a chunk
+    /// Always uses the video's actual duration for consistent positioning
+    private func chunkWidth(for index: Int, totalWidth: CGFloat) -> CGFloat {
+        guard duration > 0 else { return 0 }
+
+        // Each chunk represents up to 600 seconds (10 minutes)
+        let chunkDurationSeconds: Double = 600.0
+        let startTime = Double(index) * chunkDurationSeconds
+        let endTime = min(startTime + chunkDurationSeconds, duration)
+        let thisChunkDuration = endTime - startTime
+
+        return CGFloat(thisChunkDuration / duration) * totalWidth
+    }
+
+    @ViewBuilder
+    private func chunkedWaveformContent(width: CGFloat, height: CGFloat) -> some View {
+        let chunkCount = expectedChunkCount
+        if chunkCount > 0 {
+            HStack(spacing: 0) {
+                ForEach(0..<chunkCount, id: \.self) { index in
+                    chunkView(index: index, totalWidth: width, height: height)
+                }
+            }
+            .frame(width: width, height: height)
+        } else {
+            placeholderSection(
+                systemName: "waveform",
+                text: isLoading ? "Generating waveform…" : "Waveform unavailable"
+            )
+            .frame(width: width, height: height)
+        }
+    }
+
+    @ViewBuilder
+    private func chunkView(index: Int, totalWidth: CGFloat, height: CGFloat) -> some View {
+        let chunk = waveformChunks.first { $0.id == index }
+        let chunkW = chunkWidth(for: index, totalWidth: totalWidth)
+
+        if chunk != nil, let image = cachedChunkImages[index] {
+            // Chunk is loaded and cached - display it
+            // Resize to fill the exact frame dimensions
+            Image(nsImage: image)
+                .resizable()
+                .frame(width: chunkW, height: height)
+        } else if let chunk = chunk {
+            // Chunk exists but image not loaded yet - show gray placeholder and load async
+            // Use task(id:) with chunk count to retry when new chunks arrive
+            Rectangle()
+                .fill(Color.gray.opacity(0.2))
+                .frame(width: chunkW, height: height)
+                .task(id: waveformChunks.count) {
+                    await loadChunkImage(chunk)
+                }
+        } else {
+            // Chunk not yet generated - show orange placeholder
+            Rectangle()
+                .fill(Color.orange.opacity(0.15))
+                .frame(width: chunkW, height: height)
+                .overlay(
+                    Group {
+                        if isLoading {
+                            ProgressView()
+                                .scaleEffect(0.5)
+                        }
+                    }
+                )
+        }
+    }
+
+    private func loadChunkImage(_ chunk: WaveformChunk) async {
+        guard cachedChunkImages[chunk.id] == nil else { return }
+
+        // Don't retry more than 3 times
+        let retryCount = failedChunkLoads[chunk.id] ?? 0
+        guard retryCount < 3 else { return }
+
+        let image = await Task.detached(priority: .utility) { () -> NSImage? in
+            // Check if file exists and has non-zero size (not still being written)
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: chunk.url.path),
+                  let fileSize = attributes[.size] as? Int,
+                  fileSize > 100 else {  // PNG header is ~100 bytes minimum
+                return nil
+            }
+
+            guard let imageSource = CGImageSourceCreateWithURL(chunk.url as CFURL, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
+                    kCGImageSourceShouldCache: false
+                  ] as CFDictionary) else {
+                return NSImage(contentsOf: chunk.url)
+            }
+            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        }.value
+
+        if let image = image {
+            cachedChunkImages[chunk.id] = image
+            failedChunkLoads.removeValue(forKey: chunk.id)
+        } else {
+            // Track failed load for retry limiting
+            failedChunkLoads[chunk.id] = retryCount + 1
         }
     }
 

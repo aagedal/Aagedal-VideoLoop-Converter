@@ -457,21 +457,15 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                 return
             }
 
-            print("[MPV] readEvents: starting event loop")
-
             while self.mpv != nil {
                 let event = mpv_wait_event(self.mpv, 0)
                 guard let pointee = event?.pointee else {
-                    print("[MPV] readEvents: event pointee is nil, breaking")
                     break
                 }
 
                 if pointee.event_id == MPV_EVENT_NONE {
                     break
                 }
-
-                let eventName = String(cString: mpv_event_name(pointee.event_id))
-                print("[MPV] readEvents: got event \(eventName)")
 
                 switch pointee.event_id {
                 case MPV_EVENT_PROPERTY_CHANGE:

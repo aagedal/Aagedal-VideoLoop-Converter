@@ -12,15 +12,39 @@ import OSLog
 import CryptoKit
 import AVFoundation
 
+/// Represents a single chunk of a waveform image for progressive loading
+struct WaveformChunk: Sendable, Identifiable, Equatable {
+    let id: Int              // Chunk index (0, 1, 2, ...)
+    let url: URL             // Path to chunk image file
+    let startTime: Double    // Start time in seconds
+    let duration: Double     // Chunk duration in seconds
+}
+
 struct PreviewAssets: Sendable {
     let rowThumbnail: URL?
     let thumbnails: [URL]
     let waveform: URL?
     let audioWaveforms: [Int: URL]
 
+    // Chunked waveform support for long files
+    let waveformChunks: [WaveformChunk]
+    let audioWaveformChunks: [Int: [WaveformChunk]]
+    let totalDuration: Double  // Total media duration for chunk width calculation
+
+    /// Expected total number of chunks based on duration
+    var expectedChunkCount: Int {
+        guard totalDuration > 0 else { return 0 }
+        return Int(ceil(totalDuration / 600.0))  // 10-minute chunks
+    }
+
     func waveform(forAudioStream streamIndex: Int?) -> URL? {
         guard let streamIndex else { return waveform }
         return audioWaveforms[streamIndex] ?? waveform
+    }
+
+    func waveformChunks(forAudioStream streamIndex: Int?) -> [WaveformChunk] {
+        guard let streamIndex else { return waveformChunks }
+        return audioWaveformChunks[streamIndex] ?? waveformChunks
     }
 }
 
@@ -55,6 +79,67 @@ actor PreviewAssetGenerator {
     private let waveformFilename = "waveform.png"
     private let legacyWaveformFilename = "waveform.png"
     private func waveformFilename(for streamIndex: Int) -> String { "waveform_a\(streamIndex).png" }
+
+    // Chunked waveform settings
+    private let chunkDurationSeconds: Double = 600  // 10 minutes per chunk
+    private let chunkHeight: Int = 90
+    private let totalWaveformWidth: Int = 1000  // Target total width for all chunks combined
+    private func waveformChunkFilename(chunkIndex: Int) -> String { "waveform_chunk_\(chunkIndex).png" }
+    private func waveformChunkFilename(for streamIndex: Int, chunkIndex: Int) -> String { "waveform_a\(streamIndex)_chunk_\(chunkIndex).png" }
+
+    /// Tracks all running FFmpeg/FFprobe processes for cleanup on app termination
+    private var runningProcesses: Set<Process> = []
+
+    /// Tracks running processes by URL for targeted cancellation
+    private var processesPerURL: [URL: Set<Process>] = [:]
+
+    /// Tracks in-progress asset generation tasks to prevent duplicate work
+    /// When multiple callers request assets for the same URL, they all await the same task
+    private var inProgressGenerations: [URL: Task<PreviewAssets, Error>] = [:]
+
+    /// Terminates all running FFmpeg/FFprobe processes
+    /// Call this when the app is about to quit to prevent orphaned processes
+    func terminateAllProcesses() {
+        logger.info("Terminating \(self.runningProcesses.count) running preview processes")
+        for process in runningProcesses {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        runningProcesses.removeAll()
+    }
+
+    /// Synchronous version for use in applicationWillTerminate
+    /// Uses a semaphore to wait for the actor-isolated method to complete
+    nonisolated func terminateAllProcessesSync() {
+        let semaphore = DispatchSemaphore(value: 0)
+        Task {
+            await self.terminateAllProcesses()
+            semaphore.signal()
+        }
+        // Wait up to 2 seconds for processes to be terminated
+        _ = semaphore.wait(timeout: .now() + 2.0)
+    }
+
+    /// Cancels asset generation for a specific URL
+    /// The current FFmpeg process is allowed to finish to avoid corrupted chunks.
+    /// Future chunks are cancelled via Task cancellation.
+    func cancelGeneration(for url: URL) {
+        logger.info("Cancelling asset generation for \(url.lastPathComponent, privacy: .public)")
+
+        // Cancel the in-progress generation task
+        // The current FFmpeg process will finish naturally, then the task will see
+        // the cancellation via Task.checkCancellation() and stop the loop.
+        if let task = inProgressGenerations[url] {
+            task.cancel()
+            inProgressGenerations.removeValue(forKey: url)
+        }
+
+        // NOTE: We do NOT terminate running processes here.
+        // This prevents corrupted chunk files from incomplete FFmpeg output.
+        // The process will finish, write its complete file, and the task will
+        // check for cancellation before starting the next chunk.
+    }
 
     /// Clears the entire preview cache directory.
     func cleanupAllCache() async {
@@ -150,21 +235,82 @@ actor PreviewAssetGenerator {
             let legacyJpgWaveformURL = assetDirectory.appendingPathComponent("waveform.jpg", isDirectory: false)
             let waveform = [waveformURL, legacyWaveformURL, legacyJpgWaveformURL].first { fileManager.fileExists(atPath: $0.path) }
 
+            // Check for existing per-stream waveforms WITHOUT fetching metadata
+            // Scan the directory for waveform_a*.png/jpg files to avoid spawning ffprobe
             var audioWaveforms: [Int: URL] = [:]
-            if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
-                metadata.audioStreams.enumerated().forEach { index, _ in
-                    // Check for .png first, then legacy .jpg
-                    let pngURL = assetDirectory.appendingPathComponent("waveform_a\(index).png", isDirectory: false)
-                    let jpgURL = assetDirectory.appendingPathComponent("waveform_a\(index).jpg", isDirectory: false)
-                    if fileManager.fileExists(atPath: pngURL.path) {
-                        audioWaveforms[index] = pngURL
-                    } else if fileManager.fileExists(atPath: jpgURL.path) {
-                        audioWaveforms[index] = jpgURL
+            var waveformChunks: [WaveformChunk] = []
+            var audioWaveformChunks: [Int: [WaveformChunk]] = [:]
+
+            if let contents = try? fileManager.contentsOfDirectory(at: assetDirectory, includingPropertiesForKeys: nil) {
+                for fileURL in contents {
+                    let filename = fileURL.lastPathComponent
+
+                    // Match pattern: waveform_chunk_{index}.png (default stream chunks)
+                    if filename.hasPrefix("waveform_chunk_") && filename.hasSuffix(".png") {
+                        let indexPart = filename
+                            .replacingOccurrences(of: "waveform_chunk_", with: "")
+                            .replacingOccurrences(of: ".png", with: "")
+                        if let chunkIndex = Int(indexPart) {
+                            let startTime = Double(chunkIndex) * chunkDurationSeconds
+                            let chunk = WaveformChunk(
+                                id: chunkIndex,
+                                url: fileURL,
+                                startTime: startTime,
+                                duration: chunkDurationSeconds  // Estimated; last chunk may be shorter
+                            )
+                            waveformChunks.append(chunk)
+                        }
+                    }
+                    // Match pattern: waveform_a{stream}_chunk_{index}.png (per-stream chunks)
+                    else if filename.hasPrefix("waveform_a") && filename.contains("_chunk_") && filename.hasSuffix(".png") {
+                        // Extract stream index and chunk index
+                        // Format: waveform_a{stream}_chunk_{index}.png
+                        let withoutPrefix = filename.replacingOccurrences(of: "waveform_a", with: "")
+                        let parts = withoutPrefix.split(separator: "_")
+                        if parts.count >= 3,
+                           let streamIndex = Int(parts[0]),
+                           parts[1] == "chunk",
+                           let chunkIndex = Int(parts[2].replacingOccurrences(of: ".png", with: "")) {
+                            let startTime = Double(chunkIndex) * chunkDurationSeconds
+                            let chunk = WaveformChunk(
+                                id: chunkIndex,
+                                url: fileURL,
+                                startTime: startTime,
+                                duration: chunkDurationSeconds
+                            )
+                            if audioWaveformChunks[streamIndex] == nil {
+                                audioWaveformChunks[streamIndex] = []
+                            }
+                            audioWaveformChunks[streamIndex]?.append(chunk)
+                        }
+                    }
+                    // Match pattern: waveform_a{index}.png or .jpg (legacy per-stream single waveforms)
+                    else if filename.hasPrefix("waveform_a") && !filename.contains("_chunk_") &&
+                            (filename.hasSuffix(".png") || filename.hasSuffix(".jpg")) {
+                        let indexPart = filename
+                            .replacingOccurrences(of: "waveform_a", with: "")
+                            .replacingOccurrences(of: ".png", with: "")
+                            .replacingOccurrences(of: ".jpg", with: "")
+                        if let index = Int(indexPart) {
+                            // Prefer .png over .jpg if both exist
+                            if audioWaveforms[index] == nil || filename.hasSuffix(".png") {
+                                audioWaveforms[index] = fileURL
+                            }
+                        }
                     }
                 }
             }
 
-            if rowURL == nil && thumbnailURLs.isEmpty && waveform == nil && audioWaveforms.isEmpty {
+            // Sort chunks by id
+            waveformChunks.sort { $0.id < $1.id }
+            for key in audioWaveformChunks.keys {
+                audioWaveformChunks[key]?.sort { $0.id < $1.id }
+            }
+
+            // Estimate total duration from chunk count (actual duration may vary)
+            let estimatedDuration = waveformChunks.isEmpty ? 0 : Double(waveformChunks.count) * chunkDurationSeconds
+
+            if rowURL == nil && thumbnailURLs.isEmpty && waveform == nil && audioWaveforms.isEmpty && waveformChunks.isEmpty {
                 return nil
             }
 
@@ -172,7 +318,10 @@ actor PreviewAssetGenerator {
                 rowThumbnail: rowURL,
                 thumbnails: thumbnailURLs,
                 waveform: waveform,
-                audioWaveforms: audioWaveforms
+                audioWaveforms: audioWaveforms,
+                waveformChunks: waveformChunks,
+                audioWaveformChunks: audioWaveformChunks,
+                totalDuration: estimatedDuration
             )
         } catch {
             logger.debug("Failed to load cached assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -254,7 +403,33 @@ actor PreviewAssetGenerator {
     }
 
     func generateAssets(for url: URL) async throws -> PreviewAssets {
+        // Check if there's already an in-progress generation for this URL
+        // If so, await the existing task instead of starting a duplicate
+        if let existingTask = inProgressGenerations[url] {
+            logger.info("Reusing in-progress asset generation for \(url.lastPathComponent, privacy: .public)")
+            return try await existingTask.value
+        }
+
         logger.info("Starting asset generation for \(url.lastPathComponent, privacy: .public)")
+
+        // Create a task for this generation and store it in the dictionary
+        let generationTask = Task<PreviewAssets, Error> {
+            try await self.performAssetGeneration(for: url)
+        }
+        inProgressGenerations[url] = generationTask
+
+        do {
+            let result = try await generationTask.value
+            inProgressGenerations.removeValue(forKey: url)
+            return result
+        } catch {
+            inProgressGenerations.removeValue(forKey: url)
+            throw error
+        }
+    }
+
+    /// Internal implementation of asset generation, called only once per URL
+    private func performAssetGeneration(for url: URL) async throws -> PreviewAssets {
         let accessGranted = startAccessingSecurityScope(for: url)
         defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
 
@@ -294,14 +469,47 @@ actor PreviewAssetGenerator {
         }
         let waveformMissing = existingWaveformURL == nil
 
-        if !rowThumbnailMissing && missingThumbnailIndices.isEmpty && !waveformMissing {
-            logger.info("All assets already cached")
-            return PreviewAssets(
-                rowThumbnail: rowThumbnailURL,
-                thumbnails: expectedThumbnailURLs,
-                waveform: existingWaveformURL,
-                audioWaveforms: existingPerStreamWaveforms
-            )
+        // Check for existing waveform chunks
+        var existingWaveformChunks: [WaveformChunk] = []
+        var existingPerStreamWaveformChunks: [Int: [WaveformChunk]] = [:]
+        if let contents = try? fileManager.contentsOfDirectory(at: assetDirectory, includingPropertiesForKeys: nil) {
+            for fileURL in contents {
+                let filename = fileURL.lastPathComponent
+                if filename.hasPrefix("waveform_chunk_") && filename.hasSuffix(".png") {
+                    let indexPart = filename
+                        .replacingOccurrences(of: "waveform_chunk_", with: "")
+                        .replacingOccurrences(of: ".png", with: "")
+                    if let chunkIndex = Int(indexPart) {
+                        let startTime = Double(chunkIndex) * chunkDurationSeconds
+                        let chunk = WaveformChunk(id: chunkIndex, url: fileURL, startTime: startTime, duration: chunkDurationSeconds)
+                        existingWaveformChunks.append(chunk)
+                    }
+                } else if filename.hasPrefix("waveform_a") && filename.contains("_chunk_") && filename.hasSuffix(".png") {
+                    let withoutPrefix = filename.replacingOccurrences(of: "waveform_a", with: "")
+                    let parts = withoutPrefix.split(separator: "_")
+                    if parts.count >= 3,
+                       let streamIndex = Int(parts[0]),
+                       parts[1] == "chunk",
+                       let chunkIndex = Int(parts[2].replacingOccurrences(of: ".png", with: "")) {
+                        let startTime = Double(chunkIndex) * chunkDurationSeconds
+                        let chunk = WaveformChunk(id: chunkIndex, url: fileURL, startTime: startTime, duration: chunkDurationSeconds)
+                        if existingPerStreamWaveformChunks[streamIndex] == nil {
+                            existingPerStreamWaveformChunks[streamIndex] = []
+                        }
+                        existingPerStreamWaveformChunks[streamIndex]?.append(chunk)
+                    }
+                }
+            }
+            existingWaveformChunks.sort { $0.id < $1.id }
+            for key in existingPerStreamWaveformChunks.keys {
+                existingPerStreamWaveformChunks[key]?.sort { $0.id < $1.id }
+            }
+        }
+
+        // We no longer check waveformMissing for early return since we're using chunks now
+        // Chunks need duration to determine if complete, so we always proceed to get duration
+        if !rowThumbnailMissing && missingThumbnailIndices.isEmpty {
+            // For now, continue to get duration to check chunk completion
         }
 
         logger.info("Row thumbnail missing: \(rowThumbnailMissing), filmstrip thumbnails missing: \(missingThumbnailIndices.count), waveform missing: \(waveformMissing)")
@@ -371,37 +579,45 @@ actor PreviewAssetGenerator {
             logger.info("Skipping filmstrip thumbnails for \(url.lastPathComponent, privacy: .public) because no video stream was detected")
         }
 
-        var metadata: VideoMetadata?
-        if waveformMissing || existingPerStreamWaveforms.isEmpty {
-            metadata = try? await VideoMetadataService.shared.metadata(for: url)
-        }
+        // Load metadata for waveform generation
+        let metadata = try? await VideoMetadataService.shared.metadata(for: url)
 
-        if waveformMissing {
+        // Calculate expected chunk count to determine if generation is needed
+        let expectedChunkCount = Int(ceil(duration / chunkDurationSeconds))
+        let chunksAreMissing = existingWaveformChunks.count < expectedChunkCount
+
+        // Generate chunked waveforms (replaces single-image waveform generation)
+        if chunksAreMissing {
             do {
-                try await generateWaveform(
+                try await generateChunkedWaveform(
                     url: url,
                     ffmpegPath: ffmpegPath,
-                    destination: waveformURL
+                    assetDirectory: assetDirectory,
+                    duration: duration,
+                    audioStreamIndex: 0,
+                    existingChunks: &existingWaveformChunks
                 )
-                existingWaveformURL = fileManager.fileExists(atPath: waveformURL.path) ? waveformURL : existingWaveformURL
             } catch {
-                logger.warning("Waveform generation failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                logger.warning("Chunked waveform generation failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
 
-        if existingPerStreamWaveforms.isEmpty, let metadata {
-            await generatePerStreamWaveforms(
-                url: url,
-                ffmpegPath: ffmpegPath,
-                assetDirectory: assetDirectory,
-                metadata: metadata,
-                fallbackWaveform: existingWaveformURL
-            )
-            metadata.audioStreams.enumerated().forEach { index, _ in
-                let customURL = assetDirectory.appendingPathComponent(waveformFilename(for: index), isDirectory: false)
-                if fileManager.fileExists(atPath: customURL.path) {
-                    existingPerStreamWaveforms[index] = customURL
-                }
+        // Generate per-stream chunked waveforms for files with multiple audio tracks
+        if let metadata, metadata.audioStreams.count > 1 {
+            // Check if per-stream chunks are missing
+            let perStreamChunksAreMissing = metadata.audioStreams.enumerated().contains { index, _ in
+                (existingPerStreamWaveformChunks[index]?.count ?? 0) < expectedChunkCount
+            }
+
+            if perStreamChunksAreMissing {
+                await generatePerStreamChunkedWaveforms(
+                    url: url,
+                    ffmpegPath: ffmpegPath,
+                    assetDirectory: assetDirectory,
+                    duration: duration,
+                    metadata: metadata,
+                    existingChunks: &existingPerStreamWaveformChunks
+                )
             }
         }
 
@@ -411,12 +627,15 @@ actor PreviewAssetGenerator {
             logger.warning("Only \(availableThumbnails.count) / \(expectedThumbnailURLs.count) filmstrip thumbnails available for \(url.lastPathComponent, privacy: .public)")
         }
         let generatedWaveformURL = existingWaveformURL
-        logger.info("Asset generation complete. Row thumbnail: \(generatedRowThumbnail != nil), filmstrip: \(availableThumbnails.count), waveform: \(generatedWaveformURL != nil)")
+        logger.info("Asset generation complete. Row thumbnail: \(generatedRowThumbnail != nil), filmstrip: \(availableThumbnails.count), waveform chunks: \(existingWaveformChunks.count)")
         return PreviewAssets(
             rowThumbnail: generatedRowThumbnail,
             thumbnails: availableThumbnails,
             waveform: generatedWaveformURL,
-            audioWaveforms: existingPerStreamWaveforms
+            audioWaveforms: existingPerStreamWaveforms,
+            waveformChunks: existingWaveformChunks,
+            audioWaveformChunks: existingPerStreamWaveformChunks,
+            totalDuration: duration
         )
     }
 
@@ -518,7 +737,8 @@ actor PreviewAssetGenerator {
 
         try await runProcess(
             executable: URL(fileURLWithPath: ffmpegPath),
-            arguments: arguments
+            arguments: arguments,
+            forURL: url
         )
     }
 
@@ -561,7 +781,8 @@ actor PreviewAssetGenerator {
                 "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1",
                 url.path
-            ]
+            ],
+            forURL: url
         ) { stdoutData, _ in
             guard
                 let string = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -619,7 +840,8 @@ actor PreviewAssetGenerator {
             do {
                 try await runProcess(
                     executable: URL(fileURLWithPath: ffmpegPath),
-                    arguments: arguments
+                    arguments: arguments,
+                    forURL: url
                 )
                 logger.debug("Generated thumbnail #\(index) for \(url.lastPathComponent, privacy: .public) at position \(position, privacy: .public)s")
             } catch {
@@ -655,7 +877,8 @@ actor PreviewAssetGenerator {
         do {
             try await runProcess(
                 executable: URL(fileURLWithPath: ffmpegPath),
-                arguments: primaryArguments
+                arguments: primaryArguments,
+                forURL: url
             )
             logger.debug("Waveform primary pipeline succeeded for \(url.lastPathComponent, privacy: .public)")
             return
@@ -682,7 +905,8 @@ actor PreviewAssetGenerator {
 
         try await runProcess(
             executable: URL(fileURLWithPath: ffmpegPath),
-            arguments: fallbackArguments
+            arguments: fallbackArguments,
+            forURL: url
         )
         logger.debug("Waveform fallback pipeline succeeded for \(url.lastPathComponent, privacy: .public)")
     }
@@ -696,25 +920,25 @@ actor PreviewAssetGenerator {
     ) async {
         guard metadata.audioStreams.count > 1 else { return }
 
-        await withTaskGroup(of: Void.self) { group in
-            for (index, stream) in metadata.audioStreams.enumerated() {
-                let destination = assetDirectory.appendingPathComponent(waveformFilename(for: index), isDirectory: false)
-                if fileManager.fileExists(atPath: destination.path) {
-                    continue
-                }
+        // Process waveforms sequentially to avoid spawning too many FFmpeg processes
+        // For files with many audio tracks (e.g., Interstellar with 10+ tracks),
+        // parallel generation would overwhelm the system
+        logger.info("Generating per-stream waveforms for \(metadata.audioStreams.count) audio tracks (sequential)")
 
-                group.addTask { [weak self, destination, stream, streamIndex = index] in
-                    guard let self else { return }
-                    await self.generateWaveformForStream(
-                        url: url,
-                        ffmpegPath: ffmpegPath,
-                        destination: destination,
-                        streamIndex: streamIndex,
-                        stream: stream,
-                        fallbackWaveform: fallbackWaveform
-                    )
-                }
+        for (index, stream) in metadata.audioStreams.enumerated() {
+            let destination = assetDirectory.appendingPathComponent(waveformFilename(for: index), isDirectory: false)
+            if fileManager.fileExists(atPath: destination.path) {
+                continue
             }
+
+            await generateWaveformForStream(
+                url: url,
+                ffmpegPath: ffmpegPath,
+                destination: destination,
+                streamIndex: index,
+                stream: stream,
+                fallbackWaveform: fallbackWaveform
+            )
         }
     }
 
@@ -750,6 +974,157 @@ actor PreviewAssetGenerator {
         }
     }
 
+    // MARK: - Chunked Waveform Generation
+
+    /// Calculates chunk parameters for a given duration
+    /// Returns array of (index, startTime, chunkDuration, pixelWidth) tuples
+    private func calculateChunkParameters(duration: Double) -> [(index: Int, start: Double, chunkDuration: Double, width: Int)] {
+        guard duration > 0 else { return [] }
+
+        let chunkCount = Int(ceil(duration / chunkDurationSeconds))
+        var chunks: [(index: Int, start: Double, chunkDuration: Double, width: Int)] = []
+
+        for i in 0..<chunkCount {
+            let start = Double(i) * chunkDurationSeconds
+            let end = min(start + chunkDurationSeconds, duration)
+            let thisChunkDuration = end - start
+
+            // Calculate proportional width (minimum 20px per chunk for visibility)
+            let proportionalWidth = Int((thisChunkDuration / duration) * Double(totalWaveformWidth))
+            let width = max(20, proportionalWidth)
+
+            chunks.append((index: i, start: start, chunkDuration: thisChunkDuration, width: width))
+        }
+
+        return chunks
+    }
+
+    /// Generates a single waveform chunk using FFmpeg with -ss and -t for time bounds
+    private func generateWaveformChunk(
+        url: URL,
+        ffmpegPath: String,
+        destination: URL,
+        audioStreamIndex: Int,
+        startTime: Double,
+        chunkDuration: Double,
+        width: Int
+    ) async throws {
+        // Use -ss before input for fast seeking, -t for duration limit
+        let filterChain = "[0:a:\(audioStreamIndex)]aformat=channel_layouts=mono,showwavespic=s=\(width)x\(chunkHeight):colors=FFFFFF,format=yuv420p[out]"
+
+        let arguments: [String] = [
+            "-hide_banner",
+            "-loglevel", "error",
+            "-ss", String(format: "%.3f", startTime),
+            "-t", String(format: "%.3f", chunkDuration),
+            "-i", url.path,
+            "-filter_complex", filterChain,
+            "-map", "[out]",
+            "-an",
+            "-frames:v", "1",
+            "-f", "image2",
+            "-c:v", "png",  // Use PNG for better quality
+            "-y",
+            destination.path
+        ]
+
+        try await runProcess(
+            executable: URL(fileURLWithPath: ffmpegPath),
+            arguments: arguments,
+            forURL: url
+        )
+    }
+
+    /// Generates chunked waveform for a media file, generating chunks sequentially
+    /// Updates existingChunks array as each chunk completes for progressive loading
+    func generateChunkedWaveform(
+        url: URL,
+        ffmpegPath: String,
+        assetDirectory: URL,
+        duration: Double,
+        audioStreamIndex: Int = 0,
+        existingChunks: inout [WaveformChunk]
+    ) async throws {
+        let chunkParams = calculateChunkParameters(duration: duration)
+        logger.info("Generating \(chunkParams.count) waveform chunks for \(url.lastPathComponent, privacy: .public) (duration: \(duration)s)")
+
+        for param in chunkParams {
+            try Task.checkCancellation()
+
+            let filename = audioStreamIndex == 0
+                ? waveformChunkFilename(chunkIndex: param.index)
+                : waveformChunkFilename(for: audioStreamIndex, chunkIndex: param.index)
+            let destination = assetDirectory.appendingPathComponent(filename, isDirectory: false)
+
+            // Skip if already exists (from previous partial generation)
+            if !fileManager.fileExists(atPath: destination.path) {
+                do {
+                    try await generateWaveformChunk(
+                        url: url,
+                        ffmpegPath: ffmpegPath,
+                        destination: destination,
+                        audioStreamIndex: audioStreamIndex,
+                        startTime: param.start,
+                        chunkDuration: param.chunkDuration,
+                        width: param.width
+                    )
+                    logger.debug("Generated waveform chunk \(param.index)/\(chunkParams.count) for \(url.lastPathComponent, privacy: .public)")
+                } catch {
+                    logger.warning("Failed to generate waveform chunk \(param.index) for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    // Continue with next chunk instead of failing entirely
+                    continue
+                }
+            }
+
+            // Add to existing chunks if file exists
+            if fileManager.fileExists(atPath: destination.path) {
+                let chunk = WaveformChunk(
+                    id: param.index,
+                    url: destination,
+                    startTime: param.start,
+                    duration: param.chunkDuration
+                )
+                // Avoid duplicates
+                if !existingChunks.contains(where: { $0.id == param.index }) {
+                    existingChunks.append(chunk)
+                    existingChunks.sort { $0.id < $1.id }
+                }
+            }
+        }
+    }
+
+    /// Generates chunked waveforms for all audio streams
+    func generatePerStreamChunkedWaveforms(
+        url: URL,
+        ffmpegPath: String,
+        assetDirectory: URL,
+        duration: Double,
+        metadata: VideoMetadata,
+        existingChunks: inout [Int: [WaveformChunk]]
+    ) async {
+        guard metadata.audioStreams.count > 1 else { return }
+
+        logger.info("Generating chunked waveforms for \(metadata.audioStreams.count) audio streams")
+
+        for (index, _) in metadata.audioStreams.enumerated() {
+            var streamChunks = existingChunks[index] ?? []
+
+            do {
+                try await generateChunkedWaveform(
+                    url: url,
+                    ffmpegPath: ffmpegPath,
+                    assetDirectory: assetDirectory,
+                    duration: duration,
+                    audioStreamIndex: index,
+                    existingChunks: &streamChunks
+                )
+                existingChunks[index] = streamChunks
+            } catch {
+                logger.warning("Failed to generate chunked waveform for stream \(index): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     /// HDR processing requirement types
     private enum HDRType {
         case none           // Standard SDR content
@@ -767,7 +1142,8 @@ actor PreviewAssetGenerator {
                 "-show_entries", "stream=codec_name,pix_fmt,color_space,color_primaries,color_transfer",
                 "-of", "default=noprint_wrappers=1",
                 url.path
-            ]
+            ],
+            forURL: url
         ) { stdoutData, _ in
             guard let output = String(data: stdoutData, encoding: .utf8) else { return .none }
             
@@ -855,7 +1231,8 @@ actor PreviewAssetGenerator {
 
         try await runProcess(
             executable: URL(fileURLWithPath: ffmpegPath),
-            arguments: arguments
+            arguments: arguments,
+            forURL: url
         )
     }
 
@@ -869,46 +1246,92 @@ actor PreviewAssetGenerator {
 
     private func runProcess(
         executable: URL,
-        arguments: [String]
+        arguments: [String],
+        forURL url: URL? = nil
     ) async throws {
-        try await runProcess(executable: executable, arguments: arguments) { (_: Data, _: Data) in () }
+        try await runProcess(executable: executable, arguments: arguments, forURL: url) { (_: Data, _: Data) in () }
+    }
+
+    private func trackProcess(_ process: Process, forURL url: URL? = nil) {
+        runningProcesses.insert(process)
+        if let url = url {
+            processesPerURL[url, default: []].insert(process)
+        }
+    }
+
+    private func untrackProcess(_ process: Process, forURL url: URL? = nil) {
+        runningProcesses.remove(process)
+        if let url = url {
+            processesPerURL[url]?.remove(process)
+            if processesPerURL[url]?.isEmpty == true {
+                processesPerURL.removeValue(forKey: url)
+            }
+        }
     }
 
     private func runProcess<T>(
         executable: URL,
         arguments: [String],
+        forURL url: URL? = nil,
         transform: @Sendable @escaping (Data, Data) -> T
     ) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            Task.detached(priority: .userInitiated) {
-                let process = Process()
-                process.executableURL = executable
-                process.arguments = arguments
+        // Check for cancellation before spawning a new process
+        try Task.checkCancellation()
 
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
+        // Debug: Log when FFmpeg/FFprobe processes are spawned
+        let execName = executable.lastPathComponent
+        let argsPreview = String(arguments.joined(separator: " ").prefix(200))
+        logger.info("🔧 Spawning \(execName, privacy: .public) process: \(argsPreview, privacy: .public)")
 
-                do {
-                    try process.run()
-                } catch {
-                    continuation.resume(throwing: error)
-                    return
+        // Create process on actor, track it, then run in detached task
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        trackProcess(process, forURL: url)
+
+        // Use withTaskCancellationHandler to terminate the process if the task is cancelled
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                Task.detached(priority: .userInitiated) { [weak self] in
+                    do {
+                        try process.run()
+                    } catch {
+                        await self?.untrackProcess(process, forURL: url)
+                        continuation.resume(throwing: error)
+                        return
+                    }
+
+                    process.waitUntilExit()
+                    await self?.untrackProcess(process, forURL: url)
+
+                    let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+                    // Check if process was terminated due to cancellation (signal 15 = SIGTERM)
+                    if process.terminationStatus == 15 || process.terminationReason == .uncaughtSignal {
+                        continuation.resume(throwing: CancellationError())
+                        return
+                    }
+
+                    if process.terminationStatus == 0 {
+                        let result = transform(stdoutData, stderrData)
+                        continuation.resume(returning: result)
+                    } else {
+                        let message = String(data: stderrData, encoding: .utf8) ?? "Unknown error"
+                        continuation.resume(throwing: PreviewAssetError.generationFailed(message))
+                    }
                 }
-
-                process.waitUntilExit()
-
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-                if process.terminationStatus == 0 {
-                    let result = transform(stdoutData, stderrData)
-                    continuation.resume(returning: result)
-                } else {
-                    let message = String(data: stderrData, encoding: .utf8) ?? "Unknown error"
-                    continuation.resume(throwing: PreviewAssetError.generationFailed(message))
-                }
+            }
+        } onCancel: {
+            // Terminate the process when the task is cancelled
+            if process.isRunning {
+                process.terminate()
             }
         }
     }

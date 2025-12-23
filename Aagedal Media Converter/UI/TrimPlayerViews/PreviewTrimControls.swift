@@ -41,6 +41,8 @@ struct PreviewTrimControls: View {
                     playbackTime: currentPlaybackTime,
                     thumbnails: controller.previewAssets?.thumbnails,
                     waveformURL: controller.currentWaveformURL,
+                    waveformChunks: controller.currentWaveformChunks,
+                    chunkTotalDuration: controller.totalDuration,
                     isLoading: controller.isLoadingPreviewAssets,
                     step: 0.1,
                     hideFilmstrip: false,
@@ -85,7 +87,8 @@ struct PreviewTrimControls: View {
             .font(.system(.subheadline, design: .monospaced))
             .foregroundColor(.accentColor)
             .help("Jump to trim start")
-
+            .padding(.trailing, 15)
+            
             // Current playback time - editable on double click
             if isEditingTimecode {
                 HStack(spacing: 4) {
@@ -93,7 +96,6 @@ struct PreviewTrimControls: View {
                     TextField("5.1, +10, or ..15", text: $timecodeInput)
                         .textFieldStyle(.plain)
                         .font(.system(.subheadline, design: .monospaced))
-                        .frame(width: 120)
                         .focused($isTimecodeFocused)
                         .onSubmit {
                             seekToTimecode()
@@ -102,16 +104,16 @@ struct PreviewTrimControls: View {
                             cancelTimecodeEdit()
                         }
                 }
-                .padding(.horizontal, 30)
+                .padding(.horizontal, 15)
             } else {
+                
                 HStack(spacing: 4) {
                     timecodeModePrefix
                     Label("\(formatTimecodeWithMode(seconds: currentPlaybackTime))", systemImage: "arrowtriangle.left.and.line.vertical.and.arrowtriangle.right")
                         .font(.system(.subheadline, design: .monospaced))
                         .frame(width: 120, alignment: .leading)
-                        .padding(0)
+                        .padding(.trailing, 25)
                 }
-                .padding(.horizontal, 30)
                 .onTapGesture(count: 2) {
                     startTimecodeEdit()
                 }
@@ -207,6 +209,7 @@ struct PreviewTrimControls: View {
             .disabled(item.trimStart == nil && item.trimEnd == nil)
             .help("Reset trim points")
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var audioTrackSelector: some View {
@@ -612,5 +615,6 @@ struct PreviewTrimControls: View {
             .contentShape(Rectangle())
             .onTapGesture { timecodeDisplayMode.toggle() }
             .help("Click or press T to cycle: REL TC → SRC TC → FRM")
+            .frame(width: 40)
     }
 }

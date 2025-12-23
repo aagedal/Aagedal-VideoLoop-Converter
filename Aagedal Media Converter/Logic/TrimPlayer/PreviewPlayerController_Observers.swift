@@ -331,8 +331,17 @@ extension PreviewPlayerController {
                             }
 
                             // Direct playback successful
-                            logger.debug("Direct AVPlayer playback ready")
+                            logger.debug("Direct AVPlayer playback ready, seeking to startTime=\(startTime)")
                             self.isReady = true
+
+                            // Seek to start time now that player is ready
+                            // The seek in preparePreview() happens before the player is ready, so we need to seek again here
+                            if let player = self.player {
+                                let seekTime = CMTime(seconds: startTime, preferredTimescale: 600)
+                                logger.debug("Seeking to \(seekTime.seconds) seconds")
+                                await player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                                logger.debug("Seek completed, currentTime=\(player.currentTime().seconds)")
+                            }
 
                             // Apply audio track selection now that tracks are loaded
                             self.applySelectedAudioTrack()
@@ -340,6 +349,15 @@ extension PreviewPlayerController {
                         } catch {
                             // If we can't load tracks, assume it's okay and let AVPlayer try
                             logger.debug("Could not verify video tracks, proceeding with playback")
+                            self.isReady = true
+
+                            // Still seek to start time
+                            if let player = self.player {
+                                let seekTime = CMTime(seconds: startTime, preferredTimescale: 600)
+                                await player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                            }
+
+                            self.applySelectedAudioTrack()
                         }
                     }
                     

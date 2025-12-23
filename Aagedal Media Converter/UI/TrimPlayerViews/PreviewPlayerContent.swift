@@ -280,6 +280,7 @@ private struct PlayerContainerView: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         private var monitor: Any?
+        private weak var attachedView: AVPlayerView?
         var showsPlaybackControls: Bool = false
         private let keyHandler: (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool
 
@@ -291,9 +292,19 @@ private struct PlayerContainerView: NSViewRepresentable {
         func attach(to playerView: AVPlayerView, controller: PreviewPlayerController) {
             playerView.player = controller.player
             controller.playerView = playerView
+            attachedView = playerView
 
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self = self else { return event }
+
+                // Only handle events if our window is the key window
+                // This prevents capturing events when fullscreen player is open
+                guard let view = self.attachedView,
+                      let window = view.window,
+                      window.isKeyWindow else {
+                    return event
+                }
+
                 guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return event }
                 let handled = self.keyHandler(characters, event.modifierFlags, event.specialKey)
                 return handled ? nil : event
