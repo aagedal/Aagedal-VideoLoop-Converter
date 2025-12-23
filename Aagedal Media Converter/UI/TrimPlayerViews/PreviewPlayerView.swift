@@ -425,10 +425,7 @@ struct PreviewPlayerView: View {
         if modifiers.contains(.command) {
             switch lowerKey {
             case "l":
-                // Only allow loop toggle when not using MPV
-                if !controller.useMPV {
-                    item.loopPlayback.toggle()
-                }
+                item.loopPlayback.toggle()
                 return true
             case "f":
                 controller.toggleFullscreen()

@@ -345,7 +345,6 @@ struct VideoFileListView: View {
             print(" Bookmark saved: \(bookmarkSaved)")
 
             let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
-            let durationSeconds = details.durationSeconds
             await MainActor.run {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].apply(details: details)
