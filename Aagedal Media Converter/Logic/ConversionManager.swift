@@ -470,6 +470,7 @@ actor ConversionManager: Sendable {
             additionalOutputArguments: mergeOutputArguments,
             isMuted: primaryInput.isMuted,
             expectedDuration: plan.totalDuration,
+            videoFrameRate: primaryInput.metadata?.videoStream?.frameRate?.value,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     for index in indices {
@@ -576,6 +577,57 @@ actor ConversionManager: Sendable {
     }
 
     // MARK: - Security-Scoped Resource Management
+
+    /// Ensures an input file is accessible, using security-scoped bookmarks if needed.
+    /// - Returns: true if the file is accessible, false otherwise
+    private func ensureInputFileAccessible(at url: URL) -> Bool {
+        let fileManager = FileManager.default
+
+        // First try: check if file is already accessible
+        if fileManager.isReadableFile(atPath: url.path) {
+            return true
+        }
+
+        // Second try: access via bookmark for this exact file
+        if let resolvedURL = SecurityScopedBookmarkManager.shared.resolveBookmark(for: url) {
+            if resolvedURL.startAccessingSecurityScopedResource() {
+                activeSecurityScopedURLs.insert(resolvedURL)
+                if fileManager.isReadableFile(atPath: url.path) {
+                    return true
+                }
+            }
+        }
+
+        // Third try: access via bookmark for parent directory
+        let parentURL = url.deletingLastPathComponent()
+        if let resolvedParent = SecurityScopedBookmarkManager.shared.resolveBookmark(for: parentURL) {
+            if resolvedParent.startAccessingSecurityScopedResource() {
+                activeSecurityScopedURLs.insert(resolvedParent)
+                if fileManager.isReadableFile(atPath: url.path) {
+                    return true
+                }
+            }
+        }
+
+        // Fourth try: try starting access on the URL directly (in case it was granted via NSOpenPanel)
+        if url.startAccessingSecurityScopedResource() {
+            activeSecurityScopedURLs.insert(url)
+            if fileManager.isReadableFile(atPath: url.path) {
+                return true
+            }
+        }
+
+        // Fifth try: try parent URL directly
+        if parentURL.startAccessingSecurityScopedResource() {
+            activeSecurityScopedURLs.insert(parentURL)
+            if fileManager.isReadableFile(atPath: url.path) {
+                return true
+            }
+        }
+
+        print("Failed to access input file with any access method: \(url.path)")
+        return false
+    }
 
     /// Ensures a directory exists and is accessible, using security-scoped bookmarks if needed.
     /// - Returns: true if the directory was created/accessible, false otherwise
@@ -911,6 +963,21 @@ actor ConversionManager: Sendable {
 
         let currentItem = droppedFiles.wrappedValue[idx]
         let inputURL = currentItem.url
+
+        // Ensure input file is accessible with security-scoped access
+        if !ensureInputFileAccessible(at: inputURL) {
+            print("Failed to access input file: \(inputURL.path)")
+            await MainActor.run {
+                droppedFiles.wrappedValue[idx].status = .failed
+                droppedFiles.wrappedValue[idx].progress = 0
+            }
+            await MainActor.run {
+                SoundManager.shared.playError()
+            }
+            await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
+            return
+        }
+
         let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
         let outputFileName = sanitizedBaseName + suffixPart
@@ -989,6 +1056,7 @@ actor ConversionManager: Sendable {
             waveformRequest: waveformRequest,
             synthesizedVideoRequest: synthesizedVideoRequest,
             isMuted: currentItem.isMuted,
+            videoFrameRate: currentItem.metadata?.videoStream?.frameRate?.value,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {

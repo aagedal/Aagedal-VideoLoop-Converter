@@ -77,7 +77,7 @@ enum FFMPEGCommandBuilder {
         additionalOutputArguments: [String]? = nil,
         isMuted: Bool = false
     ) async -> FFMPEGCommand {
-        var arguments = ["-y"]
+        var arguments = ["-y", "-nostdin", "-progress", "pipe:2"]
 
         let normalizedTrimStart = normalizedTrimPoint(trimStart)
         let normalizedTrimEnd = normalizedTrimPoint(trimEnd)

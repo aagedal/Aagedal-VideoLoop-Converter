@@ -90,18 +90,24 @@ struct AudioRoutingView: View {
 
             Divider()
 
-            // Mute toggle section
-            muteToggleSection
+            HStack {
+                // Mute toggle section
+                muteToggleSection
 
+                
+                
+                if config.hasAnyInputSurroundTracks && !item.isMuted {
+                    surroundWarningBanner
+                }
+            }.frame(height: 80)
+            
             Divider()
 
             if config.inputTracks.isEmpty {
                 emptyStateView
             } else {
                 // Surround audio warning banner
-                if config.hasAnyInputSurroundTracks && !item.isMuted {
-                    surroundWarningBanner
-                }
+
 
                 // Main content: split view
                 HStack(spacing: 0) {
@@ -122,7 +128,7 @@ struct AudioRoutingView: View {
             // Bottom toolbar
             bottomToolbar
         }
-        .frame(minWidth: 1000, idealWidth: 1300, minHeight: 700, idealHeight: 900)
+        .frame(minWidth: 1000, idealWidth: 1300, minHeight: 700, idealHeight: 1400)
         .onAppear {
             updateValidation()
         }
@@ -142,6 +148,20 @@ struct AudioRoutingView: View {
                     }
                     .keyboardShortcut(KeyEquivalent(Character("\(trackNum)")), modifiers: .command)
                 }
+
+                // CMD+Option+1...9 stereo toggle shortcuts for individual output tracks
+                ForEach(1...9, id: \.self) { trackNum in
+                    Button("") {
+                        toggleStereoForOutputTrack(position: trackNum - 1)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character("\(trackNum)")), modifiers: [.command, .option])
+                }
+
+                // CMD+Option+S toggle stereo for all surround tracks
+                Button("") {
+                    toggleStereoForAllSurroundTracks()
+                }
+                .keyboardShortcut("s", modifiers: [.command, .option])
             }
             .opacity(0)
             .frame(width: 0, height: 0)
@@ -426,7 +446,7 @@ struct AudioRoutingView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(minWidth: 550, maxWidth: .infinity)
         .padding(.vertical)
     }
     
@@ -765,6 +785,52 @@ struct AudioRoutingView: View {
                 updatedConfig.removeTrack(streamIndex)
             } else {
                 updatedConfig.addTrack(streamIndex)
+            }
+            configBinding.wrappedValue = updatedConfig
+        }
+    }
+
+    /// Toggle stereo downmix for a specific output track by its 0-based position (CMD+Option+1...9)
+    private func toggleStereoForOutputTrack(position: Int) {
+        // Don't allow toggling when muted
+        guard !item.isMuted else { return }
+
+        // Check if the position is valid
+        guard position >= 0 && position < config.outputTracks.count else { return }
+
+        let outputTrack = config.outputTracks[position]
+
+        // Only toggle if the track is surround
+        guard let trackInfo = config.trackInfo(for: outputTrack.streamIndex),
+              trackInfo.isSurround else { return }
+
+        withAnimation {
+            var updatedConfig = config
+            updatedConfig.toggleDownmix(for: outputTrack.id)
+            configBinding.wrappedValue = updatedConfig
+        }
+    }
+
+    /// Toggle stereo downmix for all surround output tracks at once (CMD+Option+S)
+    private func toggleStereoForAllSurroundTracks() {
+        // Don't allow toggling when muted
+        guard !item.isMuted else { return }
+
+        // Find all surround output tracks
+        let surroundOutputTracks = config.outputTracks.filter { outputTrack in
+            config.trackInfo(for: outputTrack.streamIndex)?.isSurround == true
+        }
+
+        guard !surroundOutputTracks.isEmpty else { return }
+
+        // Determine target state: if any surround track is NOT downmixed, enable all; otherwise disable all
+        let anyNotDownmixed = surroundOutputTracks.contains { !$0.downmixToStereo }
+        let targetDownmix = anyNotDownmixed
+
+        withAnimation {
+            var updatedConfig = config
+            for outputTrack in surroundOutputTracks {
+                updatedConfig.setDownmix(for: outputTrack.id, downmix: targetDownmix)
             }
             configBinding.wrappedValue = updatedConfig
         }
