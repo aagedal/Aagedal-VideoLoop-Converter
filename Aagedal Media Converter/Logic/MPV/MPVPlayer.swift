@@ -139,6 +139,9 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
         checkError(mpv_set_option_string(mpv, "input-vo-keyboard", "no"))
 
+        // Disable subtitles by default - user can enable via subtitle track selector
+        checkError(mpv_set_option_string(mpv, "sid", "no"))
+
         // macOS integration
         #if os(macOS)
         checkError(mpv_set_option_string(mpv, "input-media-keys", "no"))

@@ -301,6 +301,13 @@ enum FFMPEGCommandBuilder {
                 // Add use_metadata_tags to preserve custom QuickTime atoms (com.apple.*, com.atomos.*, org.smpte.*)
                 arguments.append(contentsOf: ["-movflags", "use_metadata_tags"])
             }
+
+            // When trimming with stream copy, input seeking (-ss before -i) can cause
+            // stream-level metadata (like language tags) to be lost. Explicitly map
+            // stream metadata from input to preserve audio/subtitle track languages.
+            if normalizedTrimStart != nil || normalizedTrimEnd != nil {
+                arguments.append(contentsOf: ["-map_metadata:s", "0:s"])
+            }
         }
 
         // Apply comment metadata AFTER all other arguments to ensure it's not stripped by -map_metadata -1
