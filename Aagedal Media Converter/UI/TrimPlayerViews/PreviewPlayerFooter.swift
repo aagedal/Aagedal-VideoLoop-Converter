@@ -54,18 +54,6 @@ struct PreviewPlayerFooter: View {
             Text("| Trimmed duration: \(TimecodeFormatter.formatTimeForDisplay(seconds: item.trimmedDuration, item: item, isDuration: true))")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-
-            if controller.fallbackPreviewRange != nil {
-                if controller.isLoadingChunk {
-                    Text("(loading chunk…)")
-                        .font(.caption)
-                        .foregroundColor(.orange.opacity(0.7))
-                } else if controller.loadedChunks.count > 1 {
-                    Text("(\(controller.loadedChunks.count) chunks loaded)")
-                        .font(.caption)
-                        .foregroundColor(.orange.opacity(0.7))
-                }
-            }
         }
         .multilineTextAlignment(.leading)
     }

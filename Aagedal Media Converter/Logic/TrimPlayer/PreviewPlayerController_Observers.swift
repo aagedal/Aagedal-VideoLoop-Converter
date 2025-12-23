@@ -41,51 +41,51 @@ extension PreviewPlayerController {
     }
 
     private func updateLoopBehavior() {
-        // VLC loop not yet implemented - will need playback end notification
+        // MPV loop is handled via installMPVTrimObserver
         guard videoItem.loopPlayback, let player else { return }
         player.actionAtItemEnd = .none
     }
-    
+
     func updatePlayerActionAtEnd() {
-        // VLC loop is handled via installVLCTrimObserver
+        // MPV loop is handled via installMPVTrimObserver
         player?.actionAtItemEnd = videoItem.loopPlayback ? .none : .pause
     }
-    
-    // MARK: - VLC Trim Observer
-    
-    func installVLCTrimObserver() {
-        removeVLCTrimObserver()
 
-        guard useVLC, vlcPlayer != nil else { return }
+    // MARK: - MPV Trim Observer
+
+    func installMPVTrimObserver() {
+        removeMPVTrimObserver()
+
+        guard useMPV, mpvPlayer != nil else { return }
 
         // Check playback position every 0.1 seconds
-        vlcTrimObserverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        mpvTrimObserverTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, let vlc = self.vlcPlayer else { return }
+                guard let self, let mpv = self.mpvPlayer else { return }
 
                 // Only loop if loopPlayback is enabled
                 guard self.videoItem.loopPlayback else { return }
 
-                let currentTime = vlc.timePos
+                let currentTime = mpv.timePos
                 let trimStart = self.videoItem.effectiveTrimStart
                 let trimEnd = self.videoItem.effectiveTrimEnd
                 let tolerance = 0.05
 
                 // If we've reached the end trim, seek back to start and continue playing
                 if currentTime >= trimEnd - tolerance {
-                    let wasPlaying = vlc.isPlaying
-                    vlc.seek(to: trimStart)
+                    let wasPlaying = mpv.isPlaying
+                    mpv.seek(to: trimStart)
                     if wasPlaying {
-                        vlc.play()
+                        mpv.play()
                     }
                 }
             }
         }
     }
-    
-    func removeVLCTrimObserver() {
-        vlcTrimObserverTimer?.invalidate()
-        vlcTrimObserverTimer = nil
+
+    func removeMPVTrimObserver() {
+        mpvTrimObserverTimer?.invalidate()
+        mpvTrimObserverTimer = nil
     }
     
     // MARK: - Time Observer (Trim Boundaries)
@@ -100,99 +100,9 @@ extension PreviewPlayerController {
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
 
-                // For composition-based fallback, still enforce trim boundaries if looping
-                if self.usePreviewFallback, self.composition != nil {
-                    let currentTime = time.seconds
-
-                    // Enforce trim boundaries when looping is enabled
-                    guard self.videoItem.loopPlayback else { return }
-
-                    let trimStart = self.videoItem.effectiveTrimStart
-                    let trimEnd = self.videoItem.effectiveTrimEnd
-                    let tolerance = 0.05
-
-                    // Keep playback within trim boundaries
-                    if currentTime < trimStart - tolerance {
-                        // Before trim start - load correct chunk and seek
-                        let targetChunk = Int(trimStart / self.chunkDuration)
-                        let wasPlaying = (self.player?.rate ?? 0) > 0
-                        if targetChunk != self.currentChunkIndex {
-                            self.loadChunkForTime(trimStart)
-                            if wasPlaying {
-                                self.player?.play()
-                            }
-                        } else {
-                            let startTime = CMTime(seconds: trimStart, preferredTimescale: 600)
-                            self.player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-                                guard finished && wasPlaying else { return }
-                                Task { @MainActor [weak self] in
-                                    self?.player?.play()
-                                }
-                            }
-                        }
-                    } else if currentTime >= trimEnd - tolerance {
-                        // At trim end - loop back to trim start
-                        let targetChunk = Int(trimStart / self.chunkDuration)
-                        let wasPlaying = (self.player?.rate ?? 0) > 0
-                        if targetChunk != self.currentChunkIndex {
-                            // Need to load different chunk for trim start
-                            self.loadChunkForTime(trimStart)
-                            if wasPlaying {
-                                self.player?.play()
-                            }
-                        } else {
-                            // Same chunk - just seek and continue playing
-                            let startTime = CMTime(seconds: trimStart, preferredTimescale: 600)
-                            self.player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-                                guard finished && wasPlaying else { return }
-                                Task { @MainActor [weak self] in
-                                    self?.player?.play()
-                                }
-                            }
-                        }
-                    }
-                    return
-                }
-                
-                // For legacy chunked fallback, check if we need to switch chunks
-                if self.usePreviewFallback, let previewRange = self.fallbackPreviewRange {
-                    let currentTime = time.seconds
-                    let chunkDuration = previewRange.upperBound - previewRange.lowerBound
-                    let isPlaying = (self.player?.rate ?? 0) > 0
-                    
-                    // Only auto-switch during playback, not when paused/stepping frames
-                    if isPlaying {
-                        // Check if we've crossed chunk boundaries (forward or backward)
-                        if currentTime >= chunkDuration - 1.0 {
-                            // Approaching end - load next chunk
-                            let nextChunkIndex = self.currentChunkIndex + 1
-                            let totalChunks = Int(ceil(self.videoItem.durationSeconds / self.chunkDuration))
-                            
-                            if nextChunkIndex < totalChunks && !self.isLoadingChunk {
-                                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                                    .info("Auto-switching to next chunk \(nextChunkIndex, privacy: .public) for continuous playback")
-                                self.loadChunkForTime(Double(nextChunkIndex) * self.chunkDuration)
-                                return
-                            }
-                        } else if currentTime < 1.0 && self.currentChunkIndex > 0 {
-                            // Near beginning while playing backward - check if should load previous chunk
-                            let absoluteTime = previewRange.lowerBound + currentTime
-                            let targetChunk = Int(absoluteTime / self.chunkDuration)
-                            
-                            if targetChunk < self.currentChunkIndex && !self.isLoadingChunk {
-                                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                                    .info("Auto-switching to previous chunk \(targetChunk, privacy: .public)")
-                                self.loadChunkForTime(Double(targetChunk) * self.chunkDuration)
-                                return
-                            }
-                        }
-                    }
-                    return
-                }
-
                 let currentTime = time.seconds
-                
-                // Only enforce trim boundaries when looping is enabled and not using fallback
+
+                // Only enforce trim boundaries when looping is enabled
                 guard self.videoItem.loopPlayback else { return }
 
                 let trimStart = self.videoItem.effectiveTrimStart
@@ -237,24 +147,7 @@ extension PreviewPlayerController {
                 guard let self = self else { return }
                 let currentTime = time.seconds
                 if currentTime.isFinite {
-                    // For composition-based playback, use composition time directly
-                    if self.usePreviewFallback, self.composition != nil {
-                        // Composition time is absolute across full audio duration
-                        self.currentPlaybackTime = currentTime
-                        
-                        // Check if we need to load a different video chunk
-                        let neededChunkIndex = Int(currentTime / self.chunkDuration)
-                        if neededChunkIndex != self.currentChunkIndex && !self.isLoadingChunk {
-                            self.loadChunkForTime(currentTime)
-                        }
-                    } else if self.usePreviewFallback, let range = self.fallbackPreviewRange {
-                        // Legacy chunk-based playback (fallback)
-                        let absoluteTime = range.lowerBound + currentTime
-                        self.currentPlaybackTime = absoluteTime
-                    } else {
-                        // Native playback
-                        self.currentPlaybackTime = currentTime
-                    }
+                    self.currentPlaybackTime = currentTime
                 }
             }
         }
@@ -371,33 +264,19 @@ extension PreviewPlayerController {
                         }
                     }
                     
-                    // Check if we should use chunk fallback (e.g. for APV, VVC) or VLC
-                    let codec = self.videoItem.metadata?.videoStream?.codec?.lowercased() ?? ""
-                    let codecLong = self.videoItem.metadata?.videoStream?.codecLongName?.lowercased() ?? ""
-
-                    if codec.contains("apv") || codecLong.contains("advanced professional video") {
-                        logger.info("AVPlayer failed and codec is APV. Attempting Chunk Fallback.")
-                        self.teardown(resetAudioSelection: false)
-                        self.fallbackToPreview(startTime: startTime)
-                    } else if codec.contains("vvc") || codec == "h266" || codecLong.contains("vvc") || codecLong.contains("h.266") {
-                        // VVC/H.266 uses chunk-based fallback (FFMPEG can decode VVC for chunks)
-                        logger.info("AVPlayer failed and codec is VVC/H.266. Attempting Chunk Fallback.")
-                        self.teardown(resetAudioSelection: false)
-                        self.fallbackToPreview(startTime: startTime)
-                    } else {
-                        // Try VLC for everything else
-                        logger.info("Attempting VLC playback as fallback")
-                        self.teardown(resetAudioSelection: false)
-                        self.setupVLC(url: self.videoItem.url, startTime: startTime)
-                    }
+                    // AVPlayer failed - use MPV for all unsupported codecs including APV and VVC
+                    // MPV with our custom-built FFmpeg has decoders for APV and VVC
+                    logger.info("Attempting MPV playback as fallback")
+                    self.teardown(resetAudioSelection: false)
+                    self.setupMPV(url: self.videoItem.url, startTime: startTime)
                     
                 case .readyToPlay:
                     let asset = item.asset
-                    
+
                     Task {
                         do {
                             let videoTracks = try await asset.loadTracks(withMediaType: .video)
-                            
+
                             if !videoTracks.isEmpty {
                                 // Check if video tracks have valid format descriptions
                                 var hasValidVideoFormat = false
@@ -408,16 +287,20 @@ extension PreviewPlayerController {
                                         break
                                     }
                                 }
-                                
+
                                 if !hasValidVideoFormat {
-                                    logger.warning("AVPlayer ready but video format invalid. Attempting VLC playback.")
+                                    logger.warning("AVPlayer ready but video format invalid. Attempting MPV playback.")
                                     self.teardown(resetAudioSelection: false)
-                                    self.setupVLC(url: self.videoItem.url, startTime: startTime)
+                                    self.setupMPV(url: self.videoItem.url, startTime: startTime)
                                     return
                                 }
-                                
-                                // Check for truly unsupported video codecs (like APV)
+
+                                // Check if video tracks are actually decodable by AVPlayer
+                                // This dynamically detects unsupported codecs (AV1, VVC, APV, etc.)
                                 for track in videoTracks {
+                                    let isDecodable = try await track.load(.isDecodable)
+
+                                    // Log codec info for debugging
                                     let formatDescriptions = try await track.load(.formatDescriptions) as [CMFormatDescription]
                                     for desc in formatDescriptions {
                                         let codec = CMFormatDescriptionGetMediaSubType(desc)
@@ -434,38 +317,47 @@ extension PreviewPlayerController {
                                         } else {
                                             codecString = String(format: "%08X", codec)
                                         }
-                                        
-                                        logger.debug("Video codec detected: '\(codecString)' (raw: \(codec))")
-                                        
-                                        // Check for truly unsupported codecs
-                                        // APV codecs use chunk fallback, VVC and other unsupported codecs use VLC
-                                        if codecString == "apv1" || codecString == "apvx" {
-                                            logger.warning("AVPlayer ready but codec '\(codecString)' unsupported. Attempting Chunk Fallback.")
-                                            self.teardown(resetAudioSelection: false)
-                                            self.fallbackToPreview(startTime: startTime)
-                                            return
-                                        }
 
-                                        // VVC (H.266) uses chunk-based fallback like APV (FFMPEG can decode it)
-                                        if codecString == "vvc1" || codecString == "vvi1" {
-                                            logger.warning("AVPlayer ready but codec '\(codecString)' (VVC/H.266) not supported. Attempting Chunk Fallback.")
-                                            self.teardown(resetAudioSelection: false)
-                                            self.fallbackToPreview(startTime: startTime)
-                                            return
-                                        }
+                                        logger.debug("Video codec detected: '\(codecString)' (raw: \(codec)), isDecodable: \(isDecodable)")
+                                    }
+
+                                    if !isDecodable {
+                                        logger.warning("AVPlayer ready but video track not decodable. Attempting MPV playback.")
+                                        self.teardown(resetAudioSelection: false)
+                                        self.setupMPV(url: self.videoItem.url, startTime: startTime)
+                                        return
                                     }
                                 }
                             }
-                            
+
                             // Direct playback successful
-                            logger.debug("Direct AVPlayer playback ready")
-                            
+                            logger.debug("Direct AVPlayer playback ready, seeking to startTime=\(startTime)")
+                            self.isReady = true
+
+                            // Seek to start time now that player is ready
+                            // The seek in preparePreview() happens before the player is ready, so we need to seek again here
+                            if let player = self.player {
+                                let seekTime = CMTime(seconds: startTime, preferredTimescale: 600)
+                                logger.debug("Seeking to \(seekTime.seconds) seconds")
+                                await player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                                logger.debug("Seek completed, currentTime=\(player.currentTime().seconds)")
+                            }
+
                             // Apply audio track selection now that tracks are loaded
                             self.applySelectedAudioTrack()
-                            
+
                         } catch {
                             // If we can't load tracks, assume it's okay and let AVPlayer try
                             logger.debug("Could not verify video tracks, proceeding with playback")
+                            self.isReady = true
+
+                            // Still seek to start time
+                            if let player = self.player {
+                                let seekTime = CMTime(seconds: startTime, preferredTimescale: 600)
+                                await player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                            }
+
+                            self.applySelectedAudioTrack()
                         }
                     }
                     

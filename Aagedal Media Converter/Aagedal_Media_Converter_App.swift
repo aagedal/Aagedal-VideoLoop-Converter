@@ -94,6 +94,12 @@ private extension Aagedal_Media_Converter_App {
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var isFirstActivation = true
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // Terminate any running FFmpeg/FFprobe processes spawned by preview asset generation
+        // This prevents orphaned processes when the app closes
+        PreviewAssetGenerator.shared.terminateAllProcessesSync()
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         // Ignore the first activation (app launch) to avoid conflict with default SwiftUI window creation
         if isFirstActivation {

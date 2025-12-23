@@ -77,7 +77,7 @@ enum FFMPEGCommandBuilder {
         additionalOutputArguments: [String]? = nil,
         isMuted: Bool = false
     ) async -> FFMPEGCommand {
-        var arguments = ["-y"]
+        var arguments = ["-y", "-nostdin", "-progress", "pipe:2"]
 
         let normalizedTrimStart = normalizedTrimPoint(trimStart)
         let normalizedTrimEnd = normalizedTrimPoint(trimEnd)
@@ -301,6 +301,13 @@ enum FFMPEGCommandBuilder {
                 // Add use_metadata_tags to preserve custom QuickTime atoms (com.apple.*, com.atomos.*, org.smpte.*)
                 arguments.append(contentsOf: ["-movflags", "use_metadata_tags"])
             }
+
+            // When trimming with stream copy, input seeking (-ss before -i) can cause
+            // stream-level metadata (like language tags) to be lost. Explicitly map
+            // stream metadata from input to preserve audio/subtitle track languages.
+            if normalizedTrimStart != nil || normalizedTrimEnd != nil {
+                arguments.append(contentsOf: ["-map_metadata:s", "0:s"])
+            }
         }
 
         // Apply comment metadata AFTER all other arguments to ensure it's not stripped by -map_metadata -1
@@ -430,7 +437,8 @@ extension FFMPEGCommandBuilder {
         let frameRateValue = max(1, Int(round(request.frameRate)))
 
         let channelLayout = request.style == .circle ? "mono" : "stereo"
-        var audioFilters = ["aformat=channel_layouts=\(channelLayout)"]
+        // Resample to 48kHz for broadcast format compatibility (MXF requires 48kHz)
+        var audioFilters = ["aresample=48000", "aformat=channel_layouts=\(channelLayout)"]
         if request.normalizeAudio {
             audioFilters.append("dynaudnorm=f=250:g=30:p=0.9")
         }
@@ -1220,13 +1228,14 @@ extension FFMPEGCommandBuilder {
 
         // Remove all existing audio mapping arguments from preset
         removeArgumentPair("-map", value: "0:a", from: &ffmpegArgs)
+        removeArgumentPair("-map", value: "0:a?", from: &ffmpegArgs)
 
-        // Also remove indexed audio maps if present
+        // Also remove indexed audio maps if present (0:a:0, 0:a:1, etc.)
         var index = 0
         while index < ffmpegArgs.count {
             if ffmpegArgs[index] == "-map",
                index + 1 < ffmpegArgs.count,
-               ffmpegArgs[index + 1].hasPrefix("0:a:") {
+               (ffmpegArgs[index + 1].hasPrefix("0:a:") || ffmpegArgs[index + 1] == "0:a" || ffmpegArgs[index + 1] == "0:a?") {
                 ffmpegArgs.remove(at: index)
                 ffmpegArgs.remove(at: index)
                 continue
@@ -1236,8 +1245,8 @@ extension FFMPEGCommandBuilder {
 
         // Ensure video is mapped if not already present
         if !hasVideoMap {
-            // Insert -map 0:v at the beginning
-            ffmpegArgs.insert(contentsOf: ["-map", "0:v"], at: 0)
+            // Insert -map 0:v:0 at the beginning (first video stream only to avoid cover art issues)
+            ffmpegArgs.insert(contentsOf: ["-map", "0:v:0"], at: 0)
             logger.debug("Added video mapping for audio routing")
         }
 

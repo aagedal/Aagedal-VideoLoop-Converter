@@ -20,6 +20,11 @@ struct MetadataSettingsView: View {
     @State private var isValidTimecode: Bool = true
     @State private var showCommentInfoPopover = false
     @FocusState private var isTextFieldFocused: Bool
+    @FocusState private var focusedCommentField: CommentField?
+
+    private enum CommentField: Hashable {
+        case prefix, suffix, datePrefix
+    }
 
     private enum TimecodeDefaultMode: String, CaseIterable, Identifiable {
         case preserveSource = "preserveSource"
@@ -156,17 +161,25 @@ struct MetadataSettingsView: View {
                     LabeledContent("Prefix") {
                         TextField("", text: $commentPrefix)
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedCommentField, equals: .prefix)
+                            .onSubmit { focusedCommentField = .suffix }
                     }
-                }.frame(width: 200)
+                }
 
+                Divider()
+                    .padding(.vertical, 4)
 
                 HStack{
                     LabeledContent("Suffix") {
                         TextField("", text: $commentSuffix)
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedCommentField, equals: .suffix)
+                            .onSubmit { focusedCommentField = .datePrefix }
                     }
-                }.frame(width: 200)
+                }
 
+                Divider()
+                    .padding(.vertical, 4)
                 
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -177,6 +190,9 @@ struct MetadataSettingsView: View {
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                
+                Divider()
+                    .padding(.vertical, 4)
 
                 HStack {
                     LabeledContent("Separator") {
@@ -189,11 +205,13 @@ struct MetadataSettingsView: View {
                             Text("None").tag("")
                         }
                         .pickerStyle(.menu)
-                        .frame(maxWidth: 220, alignment: .leading)
                     }
-                }.frame(width: 300)
-
-
+                }
+                
+                
+                Divider()
+                    .padding(.vertical, 4)
+                
                 HStack {
                     LabeledContent("Date format") {
                         Picker("", selection: $commentDateFormat) {
@@ -207,17 +225,22 @@ struct MetadataSettingsView: View {
                             Text("DD MMM YYYY (\(formattedDateExample("dd MMM yyyy")))").tag("dd MMM yyyy")
                         }
                         .pickerStyle(.menu)
-                        .frame(maxWidth: 280, alignment: .leading)
                     }
-                }.frame(width: 300)
+                }
+                
+                
+                Divider()
+                    .padding(.vertical, 4)
 
 
                 HStack {
                     LabeledContent("Date prefix") {
                         TextField("", text: $dateTagPrefix)
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedCommentField, equals: .datePrefix)
+                            .onSubmit { focusedCommentField = .prefix }
                     }
-                }.frame(width: 300)
+                }
 
 
                 Divider()

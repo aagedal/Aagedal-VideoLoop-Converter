@@ -63,11 +63,11 @@ struct PreviewPlayerContent: View {
                 .onReceive(controller.playbackTimePublisher) { time in
                     currentPlaybackTime = time
                 }
-            } else if controller.useVLC, let vlcPlayer = controller.vlcPlayer {
+            } else if controller.useMPV, let mpvPlayer = controller.mpvPlayer {
                 ZStack {
                     CheckerboardBackground()
-                    
-                    VLCVideoView(player: vlcPlayer, keyHandler: keyHandler)
+
+                    MPVVideoView(player: mpvPlayer, keyHandler: keyHandler)
                         .aspectRatio(playerAspectRatio, contentMode: .fit)
 
                     // Crop overlay
@@ -155,44 +155,8 @@ struct PreviewPlayerContent: View {
             }
             .padding(16)
             
-            // Center: Loading/buffering indicator
-            if controller.isLoadingChunk {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .scaleEffect(1.2)
-                        .tint(.white)
-                    
-                    Text("Loading...")
-                        .foregroundColor(.white)
-                }
-            }
-            
             if controller.isCapturingScreenshot {
                 dimOverlay(title: "Capturing Still…")
-            }
-            
-            if controller.isGeneratingFallbackPreview {
-                dimOverlay(
-                    title: "Generating Preview…",
-                    subtitle: "This format requires transcoding for playback"
-                )
-            }
-            
-            // Bottom: badges and controls (hide when crop mode is active)
-            if controller.fallbackPreviewRange != nil && !controller.isGeneratingFallbackPreview && !controller.isCropEnabled {
-                VStack {
-                    Spacer()
-                    HStack {
-                        fallbackBadge
-                        Spacer()
-                        if controller.showScreenshotOverlay {
-                            screenshotBadge
-                        }
-                        Spacer()
-                        toggleControlsButton
-                    }
-                }
             }
         }
     }
@@ -258,24 +222,6 @@ struct PreviewPlayerContent: View {
         .animation(.easeOut(duration: 0.2), value: controller.showScreenshotOverlay)
     }
 
-    private var fallbackBadge: some View {
-        HStack {
-            Image(systemName: "video.badge.waveform")
-                .font(.system(size: 11, weight: .medium))
-            Text("Low Quality Preview")
-                .font(.system(size: 11, weight: .medium))
-        }
-        .foregroundColor(.white)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.black.opacity(0.7))
-        )
-        .help("Unsupported format. Low quality preview files are generated.")
-        .padding(12)
-    }
-
     private var toggleControlsButton: some View {
         Button(action: togglePlaybackControls) {
             Image(systemName: showsPlaybackControls ? "slider.horizontal.below.rectangle" : "slider.horizontal.below.square.filled.and.square")
@@ -334,6 +280,7 @@ private struct PlayerContainerView: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         private var monitor: Any?
+        private weak var attachedView: AVPlayerView?
         var showsPlaybackControls: Bool = false
         private let keyHandler: (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool
 
@@ -345,9 +292,19 @@ private struct PlayerContainerView: NSViewRepresentable {
         func attach(to playerView: AVPlayerView, controller: PreviewPlayerController) {
             playerView.player = controller.player
             controller.playerView = playerView
+            attachedView = playerView
 
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self = self else { return event }
+
+                // Only handle events if our window is the key window
+                // This prevents capturing events when fullscreen player is open
+                guard let view = self.attachedView,
+                      let window = view.window,
+                      window.isKeyWindow else {
+                    return event
+                }
+
                 guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return event }
                 let handled = self.keyHandler(characters, event.modifierFlags, event.specialKey)
                 return handled ? nil : event

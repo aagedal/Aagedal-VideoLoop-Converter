@@ -68,15 +68,53 @@ enum AudioRoutingService {
         if let operation = config.channelOperation {
             return buildChannelOperationArguments(operation: operation, config: config)
         }
-        
+
+        // Check if any tracks need downmix
+        let needsDownmix = config.outputTracks.contains { $0.downmixToStereo }
+
+        if needsDownmix {
+            return buildDownmixArguments(config: config)
+        }
+
         // Otherwise use simple -map arguments
         var arguments: [String] = []
-        
-        for streamIndex in config.outputTrackIndices {
-            arguments.append(contentsOf: ["-map", "0:a:\(streamIndex)"])
+
+        for outputTrack in config.outputTracks {
+            arguments.append(contentsOf: ["-map", "0:a:\(outputTrack.streamIndex)"])
         }
-        
+
         logger.debug("Generated FFmpeg map arguments: \(arguments.joined(separator: " "))")
+        return arguments
+    }
+
+    /// Builds FFmpeg filter_complex arguments for per-track stereo downmix
+    /// - Parameter config: The audio routing configuration
+    /// - Returns: Array of FFmpeg arguments including filter_complex
+    private static func buildDownmixArguments(config: AudioRoutingConfig) -> [String] {
+        var filterParts: [String] = []
+        var mapArgs: [String] = []
+
+        for (index, outputTrack) in config.outputTracks.enumerated() {
+            let inputLabel = "[0:a:\(outputTrack.streamIndex)]"
+            let outputLabel = "[aout\(index)]"
+
+            if outputTrack.downmixToStereo {
+                // Use aresample with stereo channel layout for downmix
+                // This handles any input channel layout and produces stereo output
+                filterParts.append("\(inputLabel)aresample=ochl=stereo\(outputLabel)")
+            } else {
+                // Pass through without modification using anull filter
+                filterParts.append("\(inputLabel)anull\(outputLabel)")
+            }
+
+            mapArgs.append(contentsOf: ["-map", outputLabel])
+        }
+
+        let filterGraph = filterParts.joined(separator: ";")
+        var arguments = ["-filter_complex", filterGraph]
+        arguments.append(contentsOf: mapArgs)
+
+        logger.debug("Generated downmix filter_complex: \(filterGraph)")
         return arguments
     }
     
@@ -197,12 +235,24 @@ enum AudioRoutingService {
         default:
             break
         }
-        
+
         // Warn if all tracks are removed
         if config.outputTrackIndices.isEmpty {
             messages.append("Warning: No audio tracks selected. Output will have no audio.")
         }
-        
+
+        // Warn about surround audio tracks without downmix
+        let surroundWithoutDownmix = config.outputTracks.filter { outputTrack in
+            guard let info = config.trackInfo(for: outputTrack.streamIndex) else { return false }
+            return info.isSurround && !outputTrack.downmixToStereo
+        }
+
+        if !surroundWithoutDownmix.isEmpty {
+            let count = surroundWithoutDownmix.count
+            let trackWord = count == 1 ? "track has" : "tracks have"
+            messages.append("Warning: \(count) \(trackWord) surround audio. Some players (like QuickTime) may not play these correctly. Consider enabling stereo downmix for compatibility.")
+        }
+
         return messages
     }
     

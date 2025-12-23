@@ -383,6 +383,8 @@ struct ContentView: View {
         if response == .OK, let url = panel.url {
             // Ensure the directory exists
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            // Save a writable bookmark for persistent sandbox access
+            _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
             return url
         }
         return nil
@@ -417,7 +419,6 @@ struct ContentView: View {
             // Load details asynchronously in background
             Task(priority: .utility) {
                 let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let durationSeconds = details.durationSeconds
                 let metadata = await VideoFileUtils.fetchMetadata(for: url)
 
                 await MainActor.run {
@@ -426,14 +427,7 @@ struct ContentView: View {
                         self.droppedFiles[index].detailsLoaded = true
                         self.droppedFiles[index].metadata = metadata
 
-                        let effectiveDuration = self.droppedFiles[index].durationSeconds
-                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                        if durationForPrefetch > 0 {
-                            VideoFileUtils.prefetchPreviewAssets(
-                                for: url,
-                                durationSeconds: durationForPrefetch
-                            )
-                        }
+                        VideoFileUtils.prefetchPreviewAssets(for: url)
                     }
                 }
             }
@@ -671,7 +665,6 @@ struct ContentView: View {
             // Load details asynchronously in background
             Task(priority: .utility) {
                 let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let durationSeconds = details.durationSeconds
                 let metadata = await VideoFileUtils.fetchMetadata(for: url)
 
                 await MainActor.run {
@@ -680,14 +673,7 @@ struct ContentView: View {
                         self.droppedFiles[index].detailsLoaded = true
                         self.droppedFiles[index].metadata = metadata
 
-                        let effectiveDuration = self.droppedFiles[index].durationSeconds
-                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                        if durationForPrefetch > 0 {
-                            VideoFileUtils.prefetchPreviewAssets(
-                                for: url,
-                                durationSeconds: durationForPrefetch
-                            )
-                        }
+                        VideoFileUtils.prefetchPreviewAssets(for: url)
                     }
                 }
             }
@@ -787,10 +773,16 @@ struct ContentView: View {
     /// Validates output folder and starts conversion, prompting for folder if needed
     @MainActor
     private func startConversionWithValidation() async {
-        // Check if "save next to original" is enabled - if so, skip validation
+        // Check if "save next to original" is enabled
         let saveNextToOriginal = UserDefaults.standard.bool(forKey: AppConstants.saveNextToOriginalKey)
 
-        if !saveNextToOriginal {
+        if saveNextToOriginal {
+            // For "save next to original" mode, validate access to each unique output directory
+            let accessGranted = await validateSaveNextToOriginalAccess()
+            if !accessGranted {
+                return
+            }
+        } else {
             // Validate the current output folder is writable
             let isWritable = isOutputFolderWritable(currentOutputFolder)
 
@@ -811,6 +803,113 @@ struct ContentView: View {
         }
 
         await startConversion()
+    }
+
+    /// Validates that we have write access to all output directories when "save next to original" is enabled.
+    /// Prompts the user to grant access to directories we cannot write to.
+    /// - Returns: true if all directories are accessible, false if user cancelled
+    @MainActor
+    private func validateSaveNextToOriginalAccess() async -> Bool {
+        let waitingItems = droppedFiles.filter { $0.status == .waiting }
+        guard !waitingItems.isEmpty else { return true }
+
+        // Collect unique output directories
+        var uniqueDirectories = Set<URL>()
+        for item in waitingItems {
+            if let outputFolder = VideoFileUtils.resolveOutputFolder(
+                for: item.url,
+                defaultOutputFolder: currentOutputFolder.path,
+                preset: selectedPreset
+            ) {
+                uniqueDirectories.insert(URL(fileURLWithPath: outputFolder))
+            }
+        }
+
+        // Check each directory for write access
+        var directoriesNeedingAccess: [URL] = []
+        for directory in uniqueDirectories {
+            // First try: check if writable directly
+            if isOutputFolderWritable(directory) {
+                continue
+            }
+
+            // Second try: try to access via existing bookmark
+            if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: directory) {
+                if isOutputFolderWritable(directory) {
+                    // Keep the bookmark active - ConversionManager will stop accessing later
+                    continue
+                }
+                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: directory)
+            }
+
+            // Third try: try parent directory bookmark (for new subdirectories)
+            let parentDirectory = directory.deletingLastPathComponent()
+            if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: parentDirectory) {
+                // Try to create the directory now that we have parent access
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                if isOutputFolderWritable(directory) {
+                    // Save a bookmark for this directory too
+                    _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: directory)
+                    continue
+                }
+                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: parentDirectory)
+            }
+
+            // Directory needs user access
+            directoriesNeedingAccess.append(directory)
+        }
+
+        // Prompt user for access to inaccessible directories
+        for directory in directoriesNeedingAccess {
+            let granted = await promptForDirectoryAccess(directory)
+            if !granted {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /// Prompts the user to grant access to a directory via NSOpenPanel
+    /// - Returns: true if access was granted, false if user cancelled
+    @MainActor
+    private func promptForDirectoryAccess(_ directory: URL) async -> Bool {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Grant Access"
+        panel.message = "Please grant access to save files in:\n\(directory.path)"
+
+        // Try to start at the directory or its parent if it doesn't exist
+        if FileManager.default.fileExists(atPath: directory.path) {
+            panel.directoryURL = directory
+        } else {
+            panel.directoryURL = directory.deletingLastPathComponent()
+        }
+
+        let response = await withCheckedContinuation { continuation in
+            panel.begin { response in
+                continuation.resume(returning: response)
+            }
+        }
+
+        if response == .OK, let url = panel.url {
+            // User selected a folder - save a writable bookmark
+            _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
+
+            // If user selected a parent folder, also save bookmark for the target directory
+            if url != directory && directory.path.hasPrefix(url.path) {
+                // Start accessing the parent, then create and bookmark the target
+                if url.startAccessingSecurityScopedResource() {
+                    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: directory)
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            return true
+        }
+        return false
     }
 
     /// Checks if a folder exists and is writable
@@ -1291,7 +1390,6 @@ private struct ContentViewNotificationHandlers: ViewModifier {
 
             Task(priority: .utility) {
                 let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let durationSeconds = details.durationSeconds
                 let metadata = await VideoFileUtils.fetchMetadata(for: url)
 
                 await MainActor.run {
@@ -1299,15 +1397,7 @@ private struct ContentViewNotificationHandlers: ViewModifier {
                         droppedFiles[index].apply(details: details)
                         droppedFiles[index].detailsLoaded = true
                         droppedFiles[index].metadata = metadata
-
-                        let effectiveDuration = droppedFiles[index].durationSeconds
-                        let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                        if durationForPrefetch > 0 {
-                            VideoFileUtils.prefetchPreviewAssets(
-                                for: url,
-                                durationSeconds: durationForPrefetch
-                            )
-                        }
+                        VideoFileUtils.prefetchPreviewAssets(for: url)
                     }
                 }
             }
