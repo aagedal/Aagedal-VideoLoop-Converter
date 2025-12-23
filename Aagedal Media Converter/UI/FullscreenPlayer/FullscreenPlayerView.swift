@@ -11,12 +11,14 @@ import Carbon.HIToolbox
 struct FullscreenPlayerView: View {
     let item: VideoItem
     let onClose: () -> Void
+    let onCloseWithPosition: ((Double) -> Void)?
     let onPreviousItem: (@Sendable () -> Void)?
     let onNextItem: (@Sendable () -> Void)?
     let onOverlayVisibilityChanged: ((Bool) -> Void)?
     let onTimecodeDisplayModeChanged: ((TimecodeDisplayMode) -> Void)?
     let canGoToPrevious: Bool
     let canGoToNext: Bool
+    let startTime: Double?
 
     @StateObject private var controller: PreviewPlayerController
     @State private var itemState: VideoItem
@@ -24,8 +26,9 @@ struct FullscreenPlayerView: View {
     @State private var showOverlay: Bool
     @State private var isMouseIdle = false
     @State private var isHoveringControls = false
+    @State private var isHoveringRightEdge = false
     @State private var overlayHideTask: Task<Void, Never>?
-    @State private var lastMouseLocation: CGPoint?
+    @State private var isDraggingTimeline = false
 
     // Timecode display state
     @State private var timecodeDisplayMode: TimecodeDisplayMode
@@ -35,13 +38,15 @@ struct FullscreenPlayerView: View {
     @State private var pendingTimecodeCharacter: String?
     @FocusState private var isTimecodeFocused: Bool
 
-    private let rightEdgeHideThreshold: CGFloat = 50
+    private let rightEdgeWidth: CGFloat = 60
 
     init(
         item: VideoItem,
         initialOverlayHidden: Bool = false,
         initialTimecodeDisplayMode: TimecodeDisplayMode = .preferred,
+        startTime: Double? = nil,
         onClose: @escaping () -> Void,
+        onCloseWithPosition: ((Double) -> Void)? = nil,
         onPreviousItem: (@Sendable () -> Void)? = nil,
         onNextItem: (@Sendable () -> Void)? = nil,
         onOverlayVisibilityChanged: ((Bool) -> Void)? = nil,
@@ -51,12 +56,14 @@ struct FullscreenPlayerView: View {
     ) {
         self.item = item
         self.onClose = onClose
+        self.onCloseWithPosition = onCloseWithPosition
         self.onPreviousItem = onPreviousItem
         self.onNextItem = onNextItem
         self.onOverlayVisibilityChanged = onOverlayVisibilityChanged
         self.onTimecodeDisplayModeChanged = onTimecodeDisplayModeChanged
         self.canGoToPrevious = canGoToPrevious
         self.canGoToNext = canGoToNext
+        self.startTime = startTime
         self._itemState = State(initialValue: item)
         self._controller = StateObject(wrappedValue: PreviewPlayerController(videoItem: item))
         self._showOverlay = State(initialValue: !initialOverlayHidden)
@@ -138,16 +145,40 @@ struct FullscreenPlayerView: View {
                 if let error = controller.errorMessage {
                     errorOverlay(message: error)
                 }
+
+                // Right edge cursor-hide zone
+                HStack {
+                    Spacer()
+                    RightEdgeCursorHideZone { hovering in
+                        isHoveringRightEdge = hovering
+                        if hovering {
+                            // Hide overlay when entering right edge
+                            if !isHoveringControls, !isDraggingTimeline {
+                                overlayHideTask?.cancel()
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    showOverlay = false
+                                }
+                                onOverlayVisibilityChanged?(true)
+                            }
+                        } else {
+                            // Show overlay when leaving right edge
+                            showOverlay = true
+                            scheduleOverlayHide()
+                        }
+                    }
+                    .frame(width: rightEdgeWidth)
+                }
+                .allowsHitTesting(true)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-             .onContinuousHover { phase in
-                 switch phase {
-                 case .active(let location):
-                     handleMouseHover(location: location, in: geometry.size)
-                 case .ended:
-                     break
-                 }
-             }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    handleMouseHover()
+                case .ended:
+                    break
+                }
+            }
 
         }
         .background(
@@ -197,7 +228,9 @@ struct FullscreenPlayerView: View {
 
                 await MainActor.run {
                     controller.updateVideoItem(itemState)
-                    controller.preparePreview(startTime: itemState.effectiveTrimStart)
+                    // Use provided startTime if available, otherwise fall back to effectiveTrimStart
+                    let initialTime = startTime ?? itemState.effectiveTrimStart
+                    controller.preparePreview(startTime: initialTime)
                 }
             }
         }
@@ -205,11 +238,14 @@ struct FullscreenPlayerView: View {
             overlayHideTask?.cancel()
             overlayHideTask = nil
 
+            // Report final position before teardown
+            let finalPosition = controller.currentPlaybackTime
+            onCloseWithPosition?(finalPosition)
+
             Task { @MainActor in
                 controller.teardown()
             }
         }
-        .hideCursor(isMouseIdle)
     }
     
     // MARK: - Video Content
@@ -467,12 +503,15 @@ struct FullscreenPlayerView: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
-                     .onChanged { value in
-                         let fraction = max(0, min(1, value.location.x / geo.size.width))
-                         let targetTime = Double(fraction) * duration
-                         controller.seekTo(targetTime)
-                     }
-
+                    .onChanged { value in
+                        isDraggingTimeline = true
+                        let fraction = max(0, min(1, value.location.x / geo.size.width))
+                        let targetTime = Double(fraction) * duration
+                        controller.seekTo(targetTime)
+                    }
+                    .onEnded { _ in
+                        isDraggingTimeline = false
+                    }
             )
         }
         .frame(height: 14)
@@ -655,12 +694,12 @@ struct FullscreenPlayerView: View {
     private func scheduleOverlayHide() {
         overlayHideTask?.cancel()
 
-        guard !isHoveringControls else { return }
+        guard !isHoveringControls, !isDraggingTimeline else { return }
 
         overlayHideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
-            guard !isHoveringControls else { return }
+            guard !isHoveringControls, !isDraggingTimeline else { return }
 
             // Set cursor state immediately (not animatable)
             isMouseIdle = true
@@ -674,15 +713,16 @@ struct FullscreenPlayerView: View {
     }
 
     private func forceHideOverlay() {
+        // Don't hide while hovering controls or dragging the timeline
+        guard !isHoveringControls, !isDraggingTimeline else { return }
+
         overlayHideTask?.cancel()
         overlayHideTask = nil
 
-        // Set cursor state immediately (not animatable)
         isMouseIdle = true
 
         withAnimation(.easeOut(duration: 0.2)) {
             showOverlay = false
-            isHoveringControls = false
         }
         onOverlayVisibilityChanged?(true)
     }
@@ -705,21 +745,9 @@ struct FullscreenPlayerView: View {
         }
     }
 
-    private func handleMouseHover(location: CGPoint, in size: CGSize) {
-        let epsilon: CGFloat = 0.5
-        if let last = lastMouseLocation {
-            let dx = abs(last.x - location.x)
-            let dy = abs(last.y - location.y)
-            if dx < epsilon, dy < epsilon {
-                return
-            }
-        }
-        lastMouseLocation = location
-
-        if location.x >= size.width - rightEdgeHideThreshold {
-            forceHideOverlay()
-            return
-        }
+    private func handleMouseHover() {
+        // Don't show overlay if in right edge zone
+        guard !isHoveringRightEdge else { return }
 
         if !showOverlay {
             onOverlayVisibilityChanged?(false)
@@ -1011,6 +1039,77 @@ extension NSCursor {
         NSRect(origin: .zero, size: size).fill()
         image.unlockFocus()
         return NSCursor(image: image, hotSpot: NSPoint(x: 8, y: 8))
+    }
+}
+
+// MARK: - Right Edge Cursor Hide Zone
+
+private struct RightEdgeCursorHideZone: NSViewRepresentable {
+    let onHoverChanged: (Bool) -> Void
+
+    func makeNSView(context: Context) -> RightEdgeCursorHideNSView {
+        let view = RightEdgeCursorHideNSView()
+        view.onHoverChanged = onHoverChanged
+        return view
+    }
+
+    func updateNSView(_ nsView: RightEdgeCursorHideNSView, context: Context) {
+        nsView.onHoverChanged = onHoverChanged
+    }
+}
+
+private class RightEdgeCursorHideNSView: NSView {
+    var onHoverChanged: ((Bool) -> Void)?
+    private var trackingArea: NSTrackingArea?
+    private var isHovering = false
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+
+        let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect]
+        trackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        if let area = trackingArea {
+            addTrackingArea(area)
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovering = true
+        NSCursor.hide()
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovering = false
+        NSCursor.unhide()
+        onHoverChanged?(false)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            updateTrackingAreas()
+        }
+    }
+
+    override func removeFromSuperview() {
+        if isHovering {
+            NSCursor.unhide()
+            isHovering = false
+        }
+        super.removeFromSuperview()
+    }
+
+    deinit {
+        if isHovering {
+            NSCursor.unhide()
+        }
     }
 }
 
