@@ -20,6 +20,11 @@ struct MetadataSettingsView: View {
     @State private var isValidTimecode: Bool = true
     @State private var showCommentInfoPopover = false
     @FocusState private var isTextFieldFocused: Bool
+    @FocusState private var focusedCommentField: CommentField?
+
+    private enum CommentField: Hashable {
+        case prefix, suffix, datePrefix
+    }
 
     private enum TimecodeDefaultMode: String, CaseIterable, Identifiable {
         case preserveSource = "preserveSource"
@@ -156,6 +161,8 @@ struct MetadataSettingsView: View {
                     LabeledContent("Prefix") {
                         TextField("", text: $commentPrefix)
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedCommentField, equals: .prefix)
+                            .onSubmit { focusedCommentField = .suffix }
                     }
                 }
 
@@ -166,6 +173,8 @@ struct MetadataSettingsView: View {
                     LabeledContent("Suffix") {
                         TextField("", text: $commentSuffix)
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedCommentField, equals: .suffix)
+                            .onSubmit { focusedCommentField = .datePrefix }
                     }
                 }
 
@@ -228,6 +237,8 @@ struct MetadataSettingsView: View {
                     LabeledContent("Date prefix") {
                         TextField("", text: $dateTagPrefix)
                             .textFieldStyle(.roundedBorder)
+                            .focused($focusedCommentField, equals: .datePrefix)
+                            .onSubmit { focusedCommentField = .prefix }
                     }
                 }
 

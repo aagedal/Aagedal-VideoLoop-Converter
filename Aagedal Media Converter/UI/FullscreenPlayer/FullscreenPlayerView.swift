@@ -209,7 +209,7 @@ struct FullscreenPlayerView: View {
                 controller.teardown()
             }
         }
-        .cursor(isMouseIdle ? .hidden : .arrow)
+        .hideCursor(isMouseIdle)
     }
     
     // MARK: - Video Content
@@ -274,9 +274,9 @@ struct FullscreenPlayerView: View {
                             )
                     )
             }
-            
+
             Spacer()
-            
+
             // Close button
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")
@@ -288,6 +288,7 @@ struct FullscreenPlayerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .frame(maxWidth: 1200)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.black.opacity(0.6))
@@ -303,7 +304,7 @@ struct FullscreenPlayerView: View {
         VStack(spacing: 12) {
             // Timeline slider
             timelineSlider
-            
+
             // Playback controls
             HStack(spacing: 24) {
                 let currentTime = controller.currentPlaybackTime
@@ -344,6 +345,10 @@ struct FullscreenPlayerView: View {
                     audioTrackSelector
                 }
 
+                if !controller.subtitleTrackOptions.isEmpty {
+                    subtitleTrackSelector
+                }
+
                 // Speed indicator
                 if controller.currentPlaybackSpeed != 1.0 || controller.isReverseSimulating {
                     Text("\(String(format: "%.1fx", controller.currentPlaybackSpeed))")
@@ -368,6 +373,7 @@ struct FullscreenPlayerView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+        .frame(maxWidth: 1200)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.black.opacity(0.6))
@@ -562,6 +568,46 @@ struct FullscreenPlayerView: View {
         }
         .menuStyle(.borderlessButton)
         .help(controller.audioTrackOptions.isEmpty ? "No alternate audio tracks" : "Select audio track")
+    }
+
+    private var subtitleTrackSelector: some View {
+        Menu {
+            Button {
+                controller.selectSubtitleTrack(at: -1)
+            } label: {
+                HStack {
+                    Text("Off")
+                    Spacer()
+                    if controller.selectedSubtitleTrackOrderIndex < 0 {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            if !controller.subtitleTrackOptions.isEmpty {
+                Divider()
+
+                ForEach(controller.subtitleTrackOptions) { option in
+                    Button {
+                        controller.selectSubtitleTrack(at: option.position)
+                    } label: {
+                        HStack {
+                            Text(option.title)
+                            Spacer()
+                            if option.position == controller.selectedSubtitleTrackOrderIndex {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "captions.bubble.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.9))
+        }
+        .menuStyle(.borderlessButton)
+        .help("Select subtitle track")
     }
 
     private func handleKeyCommand(_ key: String, _ modifiersRaw: UInt, _ keyCode: UInt16) -> Bool {
@@ -902,44 +948,69 @@ struct FullscreenPlayerView: View {
 // MARK: - Cursor Modifier
 
 private struct CursorVisibilityModifier: ViewModifier {
-    let cursor: NSCursor
+    let isHidden: Bool
 
-    @State private var isPushed = false
+    @State private var isHovering = false
+    @State private var hasPushedCursor = false
 
     func body(content: Content) -> some View {
         content
             .onContinuousHover { phase in
                 switch phase {
                 case .active:
-                    if !isPushed {
-                        cursor.push()
-                        isPushed = true
+                    if !isHovering {
+                        isHovering = true
+                        pushCursor()
                     }
                 case .ended:
-                    if isPushed {
-                        NSCursor.pop()
-                        isPushed = false
+                    if isHovering {
+                        isHovering = false
+                        popCursor()
                     }
+                }
+            }
+            .onChange(of: isHidden) { _, _ in
+                // Cursor visibility changed while hovering - update the cursor
+                if isHovering {
+                    popCursor()
+                    pushCursor()
                 }
             }
             .onDisappear {
-                if isPushed {
-                    NSCursor.pop()
-                    isPushed = false
-                }
+                popCursor()
             }
+    }
+
+    private func pushCursor() {
+        let cursor = isHidden ? NSCursor.hidden : NSCursor.arrow
+        cursor.push()
+        hasPushedCursor = true
+    }
+
+    private func popCursor() {
+        if hasPushedCursor {
+            NSCursor.pop()
+            hasPushedCursor = false
+        }
     }
 }
 
 extension View {
-    func cursor(_ cursor: NSCursor) -> some View {
-        modifier(CursorVisibilityModifier(cursor: cursor))
+    func hideCursor(_ hide: Bool) -> some View {
+        modifier(CursorVisibilityModifier(isHidden: hide))
     }
 }
 
 extension NSCursor {
     static var hidden: NSCursor {
-        NSCursor(image: NSImage(size: NSSize(width: 1, height: 1)), hotSpot: .zero)
+        // Create a transparent cursor image
+        let size = NSSize(width: 16, height: 16)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.clear.set()
+        NSRect(origin: .zero, size: size).fill()
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: NSPoint(x: 8, y: 8))
     }
 }
 

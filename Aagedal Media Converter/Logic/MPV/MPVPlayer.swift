@@ -35,6 +35,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
     }
     @Published var isSeekable = false
     @Published var isBusy = false
+    @Published var isFileLoaded = false
     @Published var error: String?
 
     private var isInitialized = false
@@ -180,6 +181,9 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
             return
         }
 
+        // Reset file loaded state when loading a new file
+        isFileLoaded = false
+
         logger.info("Loading file: \(url.lastPathComponent), startTime: \(startTime), autostart: \(autostart)")
 
         startPaused = !autostart
@@ -281,11 +285,17 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
             components.append("#\(audioIndex)")
             audioIndex += 1
 
-            // Title or language
-            if let title = getString(titleKey), !title.isEmpty {
-                components.append(title)
-            } else if let lang = getString(langKey), !lang.isEmpty {
+            // Language (always show if available)
+            if let lang = getString(langKey), !lang.isEmpty {
                 components.append(lang.uppercased())
+            }
+
+            // Title (if different from language)
+            if let title = getString(titleKey), !title.isEmpty {
+                let lang = getString(langKey) ?? ""
+                if title.lowercased() != lang.lowercased() {
+                    components.append(title)
+                }
             }
 
             // Codec
@@ -373,11 +383,17 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
             components.append("#\(subIndex)")
             subIndex += 1
 
-            // Title or language
-            if let title = getString(titleKey), !title.isEmpty {
-                components.append(title)
-            } else if let lang = getString(langKey), !lang.isEmpty {
+            // Language (always show if available)
+            if let lang = getString(langKey), !lang.isEmpty {
                 components.append(lang.uppercased())
+            }
+
+            // Title (if different from language)
+            if let title = getString(titleKey), !title.isEmpty {
+                let lang = getString(langKey) ?? ""
+                if title.lowercased() != lang.lowercased() {
+                    components.append(title)
+                }
             }
 
             // Codec
@@ -517,6 +533,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                 case MPV_EVENT_FILE_LOADED:
                     DispatchQueue.main.async {
                         self.logger.info("MPV file loaded")
+                        self.isFileLoaded = true
                         // Seek to pending start time if set (workaround for loadfile start= issues)
                         if self.pendingSeekAfterLoad > 0 {
                             self.logger.info("Seeking to pending start time: \(self.pendingSeekAfterLoad)")

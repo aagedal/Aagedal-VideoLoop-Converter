@@ -19,6 +19,7 @@ struct MetadataComparisonView: View {
                         generalSection
                         videoSection
                         audioSection
+                        subtitleSection
                     }
                     .padding(.trailing, 24)
                 }
@@ -235,6 +236,11 @@ struct MetadataComparisonView: View {
             let stream = streams[streamIndex]
             return stream.codecLongName ?? stream.codec
         }
+        comparisonRow("Language") { item in
+            guard let streams = item.metadata?.audioStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].languageCode?.uppercased()
+        }
         comparisonRow("Profile") { item in
             guard let streams = item.metadata?.audioStreams,
                   streamIndex < streams.count else { return nil }
@@ -264,6 +270,74 @@ struct MetadataComparisonView: View {
             guard let streams = item.metadata?.audioStreams,
                   streamIndex < streams.count else { return nil }
             return formatBitRate(streams[streamIndex].bitRate)
+        }
+    }
+
+    // MARK: - Subtitle Section
+
+    private var subtitleSection: some View {
+        sectionView(title: "SUBTITLE") {
+            let maxStreams = items.compactMap { $0.metadata?.subtitleStreams.count }.max() ?? 0
+
+            if maxStreams == 0 {
+                comparisonRow("") { _ in "No subtitle stream detected." }
+            } else {
+                ForEach(0..<maxStreams, id: \.self) { streamIndex in
+                    if maxStreams > 1 {
+                        subtitleStreamHeader(streamIndex + 1)
+                    }
+
+                    subtitleStreamRows(streamIndex: streamIndex)
+                }
+            }
+        }
+    }
+
+    private func subtitleStreamHeader(_ streamNumber: Int) -> some View {
+        HStack(spacing: columnSpacing) {
+            Text("")
+                .frame(width: labelColumnWidth, alignment: .leading)
+
+            ForEach(items, id: \.id) { item in
+                let hasStream = (item.metadata?.subtitleStreams.count ?? 0) >= streamNumber
+                Text(hasStream ? "Stream \(streamNumber)" : "—")
+                    .font(.body)
+                    .fontWeight(.bold)
+                    .foregroundColor(.secondary)
+                    .frame(width: valueColumnWidth, alignment: .leading)
+            }
+        }
+        .padding(.top, streamNumber > 1 ? 12 : 0)
+        .padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    private func subtitleStreamRows(streamIndex: Int) -> some View {
+        comparisonRow("Codec") { item in
+            guard let streams = item.metadata?.subtitleStreams,
+                  streamIndex < streams.count else { return nil }
+            let stream = streams[streamIndex]
+            return stream.codecLongName ?? stream.codec
+        }
+        comparisonRow("Language") { item in
+            guard let streams = item.metadata?.subtitleStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].languageCode?.uppercased()
+        }
+        comparisonRow("Title") { item in
+            guard let streams = item.metadata?.subtitleStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].title
+        }
+        comparisonRow("Default") { item in
+            guard let streams = item.metadata?.subtitleStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].isDefault ? "Yes" : nil
+        }
+        comparisonRow("Forced") { item in
+            guard let streams = item.metadata?.subtitleStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].isForced ? "Yes" : nil
         }
     }
 

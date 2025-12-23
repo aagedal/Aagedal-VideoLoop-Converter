@@ -78,6 +78,22 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Escape", description: "Close editor"),
                 ])
 
+                // Crop Mode Shortcuts
+                ShortcutSection(title: "Crop Mode", shortcuts: [
+                    ShortcutItem(keys: "Cmd + 1", description: "Free aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 2", description: "21:9 aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 3", description: "16:9 aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 4", description: "3:2 aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 5", description: "4:3 aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 6", description: "1:1 (Square) aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 7", description: "3:4 aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 8", description: "2:3 aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 9", description: "9:16 (Vertical) aspect ratio"),
+                    ShortcutItem(keys: "Cmd + 0", description: "Reset crop"),
+                    ShortcutItem(keys: "Cmd + +", description: "Scale crop box larger"),
+                    ShortcutItem(keys: "Cmd + -", description: "Scale crop box smaller"),
+                ])
+
                 // Timeline Modifier Gestures
                 ShortcutSection(title: "Timeline Gestures (hold while dragging)", shortcuts: [
                     ShortcutItem(keys: "Cmd", description: "Range selection: click and drag to set in/out points"),

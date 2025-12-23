@@ -118,6 +118,7 @@ struct VideoMetadataView: View {
                             .padding(.bottom, 2)
                     }
                     infoRow("Codec", value: stream.codecLongName ?? stream.codec)
+                    infoRow("Language", value: stream.languageCode?.uppercased())
                     infoRow("Profile", value: stream.profile)
                     infoRow("Sample Rate", value: formatSampleRate(stream.sampleRate))
                     infoRow("Channels", value: stream.channels.map(String.init))

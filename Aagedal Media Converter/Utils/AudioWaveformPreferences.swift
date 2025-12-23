@@ -71,8 +71,13 @@ struct AudioWaveformPreferences {
 
     static func loadConfig() -> WaveformVideoConfig {
         let defaults = UserDefaults.standard
-        let resolutionValue = defaults.string(forKey: AppConstants.audioWaveformResolutionKey) ?? "1280x720"
-        let (width, height) = parseResolution(resolutionValue) ?? (1280, 720)
+
+        // Load aspect ratio and short edge, compute resolution
+        let aspectRatioRaw = defaults.string(forKey: AppConstants.audioWaveformAspectRatioKey) ?? AppConstants.defaultAudioWaveformAspectRatio
+        let aspectRatio = AspectRatio(rawValue: aspectRatioRaw) ?? .ratio16_9
+        let shortEdge = defaults.integer(forKey: AppConstants.audioWaveformShortEdgeKey)
+        let effectiveShortEdge = shortEdge > 0 ? shortEdge : AppConstants.defaultAudioWaveformShortEdge
+        let (width, height) = computeResolution(aspectRatio: aspectRatio, shortEdge: effectiveShortEdge)
 
         let background = sanitizeHex(defaults.string(forKey: AppConstants.audioWaveformBackgroundColorKey), fallback: "000000")
         let foreground = sanitizeHex(defaults.string(forKey: AppConstants.audioWaveformForegroundColorKey), fallback: "FFFFFF")
@@ -91,6 +96,31 @@ struct AudioWaveformPreferences {
             style: style,
             frameRate: frameRate
         )
+    }
+
+    /// Computes output resolution from aspect ratio and short edge
+    /// Short edge is always the height for landscape ratios, width for portrait ratios
+    static func computeResolution(aspectRatio: AspectRatio, shortEdge: Int) -> (Int, Int) {
+        guard let numericRatio = aspectRatio.numericRatio else {
+            // Free aspect ratio - default to 16:9
+            let width = Int(round(Double(shortEdge) * (16.0 / 9.0)))
+            return (makeEven(width), makeEven(shortEdge))
+        }
+
+        if numericRatio >= 1.0 {
+            // Landscape or square: short edge is height
+            let width = Int(round(Double(shortEdge) * numericRatio))
+            return (makeEven(width), makeEven(shortEdge))
+        } else {
+            // Portrait: short edge is width
+            let height = Int(round(Double(shortEdge) / numericRatio))
+            return (makeEven(shortEdge), makeEven(height))
+        }
+    }
+
+    /// Ensures dimension is even (required by video codecs)
+    private static func makeEven(_ value: Int) -> Int {
+        return (value / 2) * 2
     }
 
     static func parseResolution(_ value: String) -> (Int, Int)? {
