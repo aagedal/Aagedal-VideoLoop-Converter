@@ -45,12 +45,25 @@ final class MPVViewController: NSViewController {
         super.viewDidLayout()
 
         // Handle resize - matches demo's viewDidLayout
-        if let window = view.window {
-            let scale = window.screen?.backingScaleFactor ?? 2.0
-            let layerSize = view.bounds.size
+        guard let window = view.window else { return }
 
-            metalLayer.frame = CGRect(x: 0, y: 0, width: layerSize.width, height: layerSize.height)
-            metalLayer.drawableSize = CGSize(width: layerSize.width * scale, height: layerSize.height * scale)
+        let scale = window.screen?.backingScaleFactor ?? 2.0
+        let layerSize = view.bounds.size
+        let newDrawableSize = CGSize(width: layerSize.width * scale, height: layerSize.height * scale)
+
+        // Update layer frame
+        metalLayer.frame = CGRect(x: 0, y: 0, width: layerSize.width, height: layerSize.height)
+
+        // Only update drawable size if it actually changed
+        // The 1-pixel threshold avoids unnecessary updates from floating point imprecision
+        let currentSize = metalLayer.drawableSize
+        let sizeChanged = abs(currentSize.width - newDrawableSize.width) > 1 ||
+                         abs(currentSize.height - newDrawableSize.height) > 1
+
+        if sizeChanged && newDrawableSize.width > 1 && newDrawableSize.height > 1 {
+            metalLayer.drawableSize = newDrawableSize
+            // Force the layer to use the new size immediately
+            metalLayer.setNeedsDisplay()
         }
     }
 }

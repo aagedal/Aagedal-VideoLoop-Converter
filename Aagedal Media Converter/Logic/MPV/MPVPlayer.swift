@@ -46,6 +46,9 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
     private var pendingStartTime: Double = 0
     private var pendingAutostart: Bool = false
 
+    // Start time to seek to after file loads (workaround for loadfile start= parsing issue)
+    private var pendingSeekAfterLoad: Double = 0
+
     override init() {
         super.init()
     }
@@ -173,16 +176,15 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         logger.info("Loading file: \(url.lastPathComponent), startTime: \(startTime), autostart: \(autostart)")
 
         startPaused = !autostart
+        // Store start time to seek after file loads (loadfile start= has parsing issues with floats)
+        pendingSeekAfterLoad = startTime
 
         // Use commandString for simpler execution - escaping the path for the command parser
         // For local files, use the path; for remote, use the URL
         let path = url.isFileURL ? url.path : url.absoluteString
 
-        // Build command string with proper escaping
-        var cmd = "loadfile \"\(path.replacingOccurrences(of: "\"", with: "\\\""))\" replace"
-        if startTime > 0 {
-            cmd += " start=\(startTime)"
-        }
+        // Build command string with proper escaping (don't use start= option, seek after load instead)
+        let cmd = "loadfile \"\(path.replacingOccurrences(of: "\"", with: "\\\""))\" replace"
 
         logger.info("Executing loadfile: \(cmd)")
         commandString(cmd)
@@ -368,6 +370,12 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                 case MPV_EVENT_FILE_LOADED:
                     DispatchQueue.main.async {
                         self.logger.info("MPV file loaded")
+                        // Seek to pending start time if set (workaround for loadfile start= issues)
+                        if self.pendingSeekAfterLoad > 0 {
+                            self.logger.info("Seeking to pending start time: \(self.pendingSeekAfterLoad)")
+                            self.seek(to: self.pendingSeekAfterLoad)
+                            self.pendingSeekAfterLoad = 0
+                        }
                         // If we requested paused start, ensure we're paused
                         if self.startPaused {
                             self.setFlag(MPVProperty.pause, true)
