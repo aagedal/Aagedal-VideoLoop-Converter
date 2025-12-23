@@ -126,6 +126,10 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         // Enable HDR passthrough (EDR on macOS)
         checkError(mpv_set_option_string(mpv, "target-colorspace-hint", "yes"))
 
+        // Keep file open after EOF to prevent Vulkan context destruction
+        // This allows seeking back after playback ends
+        checkError(mpv_set_option_string(mpv, "keep-open", "yes"))
+
         // Disable features we don't need
         checkError(mpv_set_option_string(mpv, "ytdl", "no"))
         checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
@@ -223,7 +227,16 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
     }
 
     func seek(to time: TimeInterval) {
-        command("seek", args: [String(time), "absolute"])
+        // Clamp seek time to avoid EOF issues
+        // If seeking near or beyond end, clamp to slightly before end
+        var seekTime = time
+        if duration > 0 {
+            let maxSeekTime = max(0, duration - 0.05)  // Stay 50ms before end
+            seekTime = min(seekTime, maxSeekTime)
+        }
+        seekTime = max(0, seekTime)  // Don't seek before start
+
+        command("seek", args: [String(seekTime), "absolute"])
     }
 
     func seekRelative(_ time: TimeInterval) {
@@ -346,6 +359,15 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                         case MPVProperty.seekable:
                             if let value = UnsafePointer<Int>(OpaquePointer(property.data))?.pointee {
                                 DispatchQueue.main.async { self.isSeekable = value != 0 }
+                            }
+                        case MPVProperty.eofReached:
+                            if let value = UnsafePointer<Int>(OpaquePointer(property.data))?.pointee, value != 0 {
+                                // EOF reached - with keep-open=yes, player stays at last frame
+                                // Just ensure we're paused and update state
+                                DispatchQueue.main.async {
+                                    self.logger.info("EOF reached, pausing at last frame")
+                                    self.isPlaying = false
+                                }
                             }
                         default:
                             break
