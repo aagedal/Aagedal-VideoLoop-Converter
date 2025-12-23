@@ -17,19 +17,34 @@ final class SecurityScopedBookmarkManager: @unchecked Sendable {
     private init() {}
     
     func saveBookmark(for url: URL) -> Bool {
+        saveBookmark(for: url, readOnly: true)
+    }
+
+    /// Saves a security-scoped bookmark that allows both read and write access.
+    /// Use this for output folders where files need to be created.
+    func saveWritableBookmark(for url: URL) -> Bool {
+        saveBookmark(for: url, readOnly: false)
+    }
+
+    private func saveBookmark(for url: URL, readOnly: Bool) -> Bool {
         do {
             // Only save bookmarks for files that are not already accessible
             guard !url.startAccessingSecurityScopedResource() else {
                 url.stopAccessingSecurityScopedResource()
                 return true
             }
-            
+
+            var options: URL.BookmarkCreationOptions = [.withSecurityScope]
+            if readOnly {
+                options.insert(.securityScopeAllowOnlyReadAccess)
+            }
+
             let bookmarkData = try url.bookmarkData(
-                options: [.withSecurityScope, .securityScopeAllowOnlyReadAccess],
+                options: options,
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
-            
+
             var bookmarks = userDefaults.dictionary(forKey: bookmarksKey) ?? [String: Data]()
             bookmarks[url.absoluteString] = bookmarkData
             userDefaults.set(bookmarks, forKey: bookmarksKey)

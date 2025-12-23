@@ -130,6 +130,13 @@ final class PreviewPlayerController: ObservableObject {
     
     // MARK: - Preview Preparation
 
+    /// Check if the video has surround audio (any track with more than 2 channels)
+    /// QuickTime/AVPlayer doesn't handle surround audio well, so we use MPV for these files
+    private var hasSurroundAudio: Bool {
+        guard let audioStreams = videoItem.metadata?.audioStreams else { return false }
+        return audioStreams.contains { ($0.channels ?? 0) > 2 }
+    }
+
     func preparePreview(startTime: TimeInterval, resetAudioSelection: Bool = true) {
         teardown(resetAudioSelection: resetAudioSelection)
         isPreparing = true
@@ -140,6 +147,14 @@ final class PreviewPlayerController: ObservableObject {
         useMPV = false
 
         let url = videoItem.url
+
+        // Force MPV for surround audio files - AVPlayer/QuickTime doesn't handle them well
+        if hasSurroundAudio {
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .info("Surround audio detected, using MPV player for \(url.lastPathComponent)")
+            setupMPV(url: url, startTime: startTime)
+            return
+        }
 
         // Try AVPlayer directly first with security-scoped resource access
         

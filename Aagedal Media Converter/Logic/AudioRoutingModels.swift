@@ -75,20 +75,42 @@ struct AudioTrackInfo: Identifiable, Equatable, Sendable, Codable {
     /// Technical details for subtitle display
     var technicalDetails: String {
         var parts: [String] = []
-        
+
         if let codec = codecLongName ?? codec {
             parts.append(codec)
         }
-        
+
         if let sampleRate = sampleRate {
             parts.append("\(sampleRate) Hz")
         }
-        
+
         if let languageCode = languageCode {
             parts.append(languageCode.uppercased())
         }
-        
+
         return parts.joined(separator: " • ")
+    }
+
+    /// Returns true if this track has surround audio (more than 2 channels)
+    var isSurround: Bool {
+        guard let channels = channels else { return false }
+        return channels > 2
+    }
+}
+
+// MARK: - Output Track
+
+/// Represents a single output audio track with per-track options
+/// Allows the same input track to be added multiple times with different settings
+struct OutputTrack: Equatable, Sendable, Codable, Identifiable {
+    let id: UUID
+    let streamIndex: Int
+    var downmixToStereo: Bool
+
+    init(id: UUID = UUID(), streamIndex: Int, downmixToStereo: Bool = false) {
+        self.id = id
+        self.streamIndex = streamIndex
+        self.downmixToStereo = downmixToStereo
     }
 }
 
@@ -140,85 +162,168 @@ enum ChannelOperation: Equatable, Sendable, Codable {
 // MARK: - Audio Routing Configuration
 
 /// Audio routing configuration for a video item
-struct AudioRoutingConfig: Equatable, Sendable, Codable {
+struct AudioRoutingConfig: Equatable, Sendable {
     /// Source tracks available in the input file
     let inputTracks: [AudioTrackInfo]
-    
-    /// Selected output tracks in desired order (by stream index)
-    var outputTrackIndices: [Int]
-    
+
+    /// Selected output tracks in desired order (supports duplicates with per-track options)
+    var outputTracks: [OutputTrack]
+
     /// Optional channel-level operation (overrides simple track mapping)
     var channelOperation: ChannelOperation? = nil
-    
-    init(inputTracks: [AudioTrackInfo], outputTrackIndices: [Int]? = nil) {
+
+    init(inputTracks: [AudioTrackInfo], outputTracks: [OutputTrack]? = nil) {
         self.inputTracks = inputTracks
         // Default: include all tracks in original order
-        self.outputTrackIndices = outputTrackIndices ?? inputTracks.map(\.streamIndex)
+        self.outputTracks = outputTracks ?? inputTracks.map { OutputTrack(streamIndex: $0.streamIndex) }
     }
-    
-    /// Returns true if configuration differs from default (all tracks in order)
+
+    /// Backward-compatible initializer that takes stream indices
+    init(inputTracks: [AudioTrackInfo], outputTrackIndices: [Int]) {
+        self.inputTracks = inputTracks
+        self.outputTracks = outputTrackIndices.map { OutputTrack(streamIndex: $0) }
+    }
+
+    /// Computed property for backward compatibility - returns stream indices in order
+    var outputTrackIndices: [Int] {
+        outputTracks.map(\.streamIndex)
+    }
+
+    /// Returns true if configuration differs from default (all tracks in order, no downmix)
     var isCustomized: Bool {
         let defaultOrder = inputTracks.map(\.streamIndex)
-        return outputTrackIndices != defaultOrder || channelOperation != nil
+        let hasDownmix = outputTracks.contains { $0.downmixToStereo }
+        let hasDuplicates = outputTracks.count != Set(outputTrackIndices).count
+        return outputTrackIndices != defaultOrder || channelOperation != nil || hasDownmix || hasDuplicates
     }
-    
+
     /// Returns true if a channel operation is active
     var hasChannelOperation: Bool {
         channelOperation != nil
     }
-    
+
+    /// Returns true if any input track has surround audio (more than 2 channels)
+    var hasAnyInputSurroundTracks: Bool {
+        inputTracks.contains { $0.isSurround }
+    }
+
+    /// Returns true if any output track has surround audio without downmix
+    var hasOutputSurroundWithoutDownmix: Bool {
+        outputTracks.contains { outputTrack in
+            guard let info = trackInfo(for: outputTrack.streamIndex) else { return false }
+            return info.isSurround && !outputTrack.downmixToStereo
+        }
+    }
+
     /// Reset to default configuration (all tracks in original order, no operations)
     mutating func resetToDefault() {
-        outputTrackIndices = inputTracks.map(\.streamIndex)
+        outputTracks = inputTracks.map { OutputTrack(streamIndex: $0.streamIndex) }
         channelOperation = nil
     }
-    
-    /// Add a track to output by stream index
-    mutating func addTrack(_ streamIndex: Int) {
-        guard !outputTrackIndices.contains(streamIndex) else { return }
-        outputTrackIndices.append(streamIndex)
+
+    /// Add a track to output by stream index (allows duplicates)
+    mutating func addTrack(_ streamIndex: Int, downmixToStereo: Bool = false) {
+        outputTracks.append(OutputTrack(streamIndex: streamIndex, downmixToStereo: downmixToStereo))
         // Clear channel operation when manually adjusting tracks
         channelOperation = nil
     }
-    
-    /// Remove a track from output by stream index
+
+    /// Remove a track from output by its unique ID
+    mutating func removeTrack(id: UUID) {
+        outputTracks.removeAll { $0.id == id }
+        // Clear channel operation when manually adjusting tracks
+        channelOperation = nil
+    }
+
+    /// Remove a track from output by stream index (removes first occurrence only, for backward compatibility)
     mutating func removeTrack(_ streamIndex: Int) {
-        outputTrackIndices.removeAll { $0 == streamIndex }
+        if let index = outputTracks.firstIndex(where: { $0.streamIndex == streamIndex }) {
+            outputTracks.remove(at: index)
+        }
         // Clear channel operation when manually adjusting tracks
         channelOperation = nil
     }
-    
+
     /// Move a track from one position to another in output
     mutating func moveTrack(from sourceIndex: Int, to destinationIndex: Int) {
-        guard outputTrackIndices.indices.contains(sourceIndex),
-              outputTrackIndices.indices.contains(destinationIndex) else {
+        guard outputTracks.indices.contains(sourceIndex),
+              outputTracks.indices.contains(destinationIndex) else {
             return
         }
-        let track = outputTrackIndices.remove(at: sourceIndex)
-        outputTrackIndices.insert(track, at: destinationIndex)
+        let track = outputTracks.remove(at: sourceIndex)
+        outputTracks.insert(track, at: destinationIndex)
         // Clear channel operation when manually reordering tracks
         channelOperation = nil
     }
-    
+
+    /// Toggle downmix setting for a specific output track
+    mutating func toggleDownmix(for trackId: UUID) {
+        if let index = outputTracks.firstIndex(where: { $0.id == trackId }) {
+            outputTracks[index].downmixToStereo.toggle()
+        }
+    }
+
+    /// Set downmix setting for a specific output track
+    mutating func setDownmix(for trackId: UUID, downmix: Bool) {
+        if let index = outputTracks.firstIndex(where: { $0.id == trackId }) {
+            outputTracks[index].downmixToStereo = downmix
+        }
+    }
+
     /// Set a channel operation (clears any existing operation)
     mutating func setChannelOperation(_ operation: ChannelOperation) {
         channelOperation = operation
     }
-    
+
     /// Clear the active channel operation
     mutating func clearChannelOperation() {
         channelOperation = nil
     }
-    
+
     /// Get track info for a given stream index
     func trackInfo(for streamIndex: Int) -> AudioTrackInfo? {
         inputTracks.first { $0.streamIndex == streamIndex }
     }
-    
-    /// Get ordered output tracks with full info
-    var outputTracks: [AudioTrackInfo] {
-        outputTrackIndices.compactMap { index in
-            inputTracks.first { $0.streamIndex == index }
+
+    /// Get ordered output tracks with full info (for backward compatibility)
+    var outputTracksInfo: [AudioTrackInfo] {
+        outputTracks.compactMap { outputTrack in
+            inputTracks.first { $0.streamIndex == outputTrack.streamIndex }
         }
+    }
+}
+
+// MARK: - Codable Conformance with Migration Support
+
+extension AudioRoutingConfig: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case inputTracks
+        case outputTracks
+        case outputTrackIndices // Legacy key for backward compatibility
+        case channelOperation
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inputTracks = try container.decode([AudioTrackInfo].self, forKey: .inputTracks)
+        channelOperation = try container.decodeIfPresent(ChannelOperation.self, forKey: .channelOperation)
+
+        // Try new format first (outputTracks)
+        if let tracks = try? container.decode([OutputTrack].self, forKey: .outputTracks) {
+            outputTracks = tracks
+        } else if let indices = try? container.decode([Int].self, forKey: .outputTrackIndices) {
+            // Migrate from legacy format (outputTrackIndices as [Int])
+            outputTracks = indices.map { OutputTrack(streamIndex: $0) }
+        } else {
+            // Fallback: default to all input tracks
+            outputTracks = inputTracks.map { OutputTrack(streamIndex: $0.streamIndex) }
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(inputTracks, forKey: .inputTracks)
+        try container.encode(outputTracks, forKey: .outputTracks)
+        try container.encodeIfPresent(channelOperation, forKey: .channelOperation)
     }
 }

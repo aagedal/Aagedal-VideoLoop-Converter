@@ -481,11 +481,13 @@ struct GeneralSettingsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = URL(fileURLWithPath: outputFolder)
-        
+
         if panel.runModal() == .OK, let url = panel.url {
             // Ensure directory exists
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             outputFolder = url.path
+            // Save a writable bookmark for persistent sandbox access
+            _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
         }
     }
 
@@ -499,7 +501,7 @@ struct GeneralSettingsView: View {
         if panel.runModal() == .OK, let url = panel.url {
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             screenshotDirectoryPath = url.path
-            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+            _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
         }
     }
 
