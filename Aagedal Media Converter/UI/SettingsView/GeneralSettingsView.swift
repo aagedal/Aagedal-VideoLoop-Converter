@@ -60,38 +60,50 @@ struct GeneralSettingsView: View {
     private var outputFolderSection: some View {
         Section(header: Text("Output Location")) {
             VStack(alignment: .leading, spacing: 12) {
-                Toggle("Save encoded files next to original", isOn: $saveNextToOriginal)
-                    .toggleStyle(SwitchToggleStyle())
+                
+                HStack {
+                    Toggle("Save encoded files next to original", isOn: $saveNextToOriginal)
+                        .toggleStyle(SwitchToggleStyle())
+                }
+                
+                Divider()
+                    .padding(.vertical, 4)
 
                 if saveNextToOriginal {
                     // Subfolder options when saving next to original
                     VStack(alignment: .leading, spacing: 8) {
-                        Toggle("Place in subfolder", isOn: $saveNextToOriginalSubfolder)
-                            .toggleStyle(SwitchToggleStyle())
-                            .padding(.leading, 16)
+                        HStack {
+                            Toggle("Place in subfolder", isOn: $saveNextToOriginalSubfolder)
+                                .toggleStyle(SwitchToggleStyle())
+                                //.padding(.leading, 16)
+                        }
+
+                        Divider()
+                            .padding(.vertical, 4)
 
                         if saveNextToOriginalSubfolder {
                             VStack(alignment: .leading, spacing: 8) {
-                                Picker("Subfolder name:", selection: $saveNextToOriginalSubfolderMode) {
-                                    Text("Custom name").tag("custom")
-                                    Text("Use preset suffix").tag("presetSuffix")
+                                HStack {
+                                    Picker("Subfolder name:", selection: $saveNextToOriginalSubfolderMode) {
+                                        Text("Custom name").tag("custom")
+                                        Text("Use preset suffix").tag("presetSuffix")
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .padding(.top, 16)
+                                    
                                 }
-                                .pickerStyle(.radioGroup)
-                                .padding(.leading, 32)
-
+                                
                                 if saveNextToOriginalSubfolderMode == "custom" {
                                     HStack {
                                         Text("Folder name:")
-                                        TextField("Encoded", text: $saveNextToOriginalSubfolderName)
+                                        TextField("", text: $saveNextToOriginalSubfolderName)
                                             .textFieldStyle(.roundedBorder)
-                                            .frame(maxWidth: 200)
                                     }
-                                    .padding(.leading, 32)
+                                    .padding(.top, 10)
                                 } else {
                                     Text("Folder will be named using the preset suffix (e.g., \"loop\", \"tv\", \"prores\")")
-                                        .font(.caption)
+                                        .font(.callout)
                                         .foregroundColor(.secondary)
-                                        .padding(.leading, 32)
                                 }
                             }
                         }
@@ -223,6 +235,10 @@ struct GeneralSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("Play sound when encoding completes", isOn: $playSoundOnSuccess)
                     .toggleStyle(SwitchToggleStyle())
+                
+                Divider()
+                    .padding(.vertical, 4)
+                
                 Toggle("Play sound when an error occurs", isOn: $playSoundOnError)
                     .toggleStyle(SwitchToggleStyle())
             }
@@ -313,6 +329,9 @@ struct GeneralSettingsView: View {
                         .pickerStyle(.menu)
                         .frame(width: 120)
                     }
+                    
+                    Divider()
+                        .padding(.vertical, 4)
 
                     HStack {
                         Text("10-bit sources:")
@@ -326,6 +345,9 @@ struct GeneralSettingsView: View {
                         .frame(width: 120)
                     }
 
+                    Divider()
+                        .padding(.vertical, 4)
+                    
                     HStack {
                         Text(">10-bit sources:")
                             .frame(width: 120, alignment: .trailing)
@@ -459,11 +481,13 @@ struct GeneralSettingsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = URL(fileURLWithPath: outputFolder)
-        
+
         if panel.runModal() == .OK, let url = panel.url {
             // Ensure directory exists
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             outputFolder = url.path
+            // Save a writable bookmark for persistent sandbox access
+            _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
         }
     }
 
@@ -477,7 +501,7 @@ struct GeneralSettingsView: View {
         if panel.runModal() == .OK, let url = panel.url {
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             screenshotDirectoryPath = url.path
-            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+            _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
         }
     }
 

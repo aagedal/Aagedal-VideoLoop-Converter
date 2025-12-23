@@ -130,12 +130,13 @@ struct PixelCropRect: Equatable, Sendable, Codable {
 /// Common aspect ratios for crop constraints
 enum AspectRatio: String, CaseIterable, Identifiable, Sendable, Codable {
     case free = "Free"
-    case ratio16_9 = "16:9"
-    case ratio4_3 = "4:3"
-    case ratio3_2 = "3:2"
-    case ratio2_3 = "2:3"
-    case ratio1_1 = "1:1 (Square)"
     case ratio21_9 = "21:9"
+    case ratio16_9 = "16:9"
+    case ratio3_2 = "3:2"
+    case ratio4_3 = "4:3"
+    case ratio1_1 = "1:1 (Square)"
+    case ratio3_4 = "3:4"
+    case ratio2_3 = "2:3"
     case ratio9_16 = "9:16 (Vertical)"
 
     var id: String { rawValue }
@@ -146,12 +147,13 @@ enum AspectRatio: String, CaseIterable, Identifiable, Sendable, Codable {
     var numericRatio: Double? {
         switch self {
         case .free: return nil
-        case .ratio16_9: return 16.0 / 9.0
-        case .ratio4_3: return 4.0 / 3.0
-        case .ratio3_2: return 3.0 / 2.0
-        case .ratio2_3: return 2.0 / 3.0
-        case .ratio1_1: return 1.0
         case .ratio21_9: return 21.0 / 9.0
+        case .ratio16_9: return 16.0 / 9.0
+        case .ratio3_2: return 3.0 / 2.0
+        case .ratio4_3: return 4.0 / 3.0
+        case .ratio1_1: return 1.0
+        case .ratio3_4: return 3.0 / 4.0
+        case .ratio2_3: return 2.0 / 3.0
         case .ratio9_16: return 9.0 / 16.0
         }
     }

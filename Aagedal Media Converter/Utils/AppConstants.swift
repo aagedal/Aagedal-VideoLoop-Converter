@@ -85,6 +85,10 @@ enum AppConstants {
     static let audioWaveformDetailLevelKey = "audioWaveformDetailLevel"
     static let defaultAudioWaveformLineThickness = 2.0
     static let defaultAudioWaveformDetailLevel = 1.0
+    static let audioWaveformAspectRatioKey = "audioWaveformAspectRatio"
+    static let audioWaveformShortEdgeKey = "audioWaveformShortEdge"
+    static let defaultAudioWaveformAspectRatio = "ratio16_9"
+    static let defaultAudioWaveformShortEdge = 1080
     
     // Maximum thumbnail dimensions
     static let maxThumbnailSize = CGSize(width: 320, height: 320)

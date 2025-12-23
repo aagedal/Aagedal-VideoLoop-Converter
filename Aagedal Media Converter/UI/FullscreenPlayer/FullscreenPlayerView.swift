@@ -11,12 +11,14 @@ import Carbon.HIToolbox
 struct FullscreenPlayerView: View {
     let item: VideoItem
     let onClose: () -> Void
+    let onCloseWithPosition: ((Double) -> Void)?
     let onPreviousItem: (@Sendable () -> Void)?
     let onNextItem: (@Sendable () -> Void)?
     let onOverlayVisibilityChanged: ((Bool) -> Void)?
     let onTimecodeDisplayModeChanged: ((TimecodeDisplayMode) -> Void)?
     let canGoToPrevious: Bool
     let canGoToNext: Bool
+    let startTime: Double?
 
     @StateObject private var controller: PreviewPlayerController
     @State private var itemState: VideoItem
@@ -24,8 +26,9 @@ struct FullscreenPlayerView: View {
     @State private var showOverlay: Bool
     @State private var isMouseIdle = false
     @State private var isHoveringControls = false
+    @State private var isHoveringRightEdge = false
     @State private var overlayHideTask: Task<Void, Never>?
-    @State private var lastMouseLocation: CGPoint?
+    @State private var isDraggingTimeline = false
 
     // Timecode display state
     @State private var timecodeDisplayMode: TimecodeDisplayMode
@@ -35,13 +38,15 @@ struct FullscreenPlayerView: View {
     @State private var pendingTimecodeCharacter: String?
     @FocusState private var isTimecodeFocused: Bool
 
-    private let rightEdgeHideThreshold: CGFloat = 50
+    private let rightEdgeWidth: CGFloat = 60
 
     init(
         item: VideoItem,
         initialOverlayHidden: Bool = false,
         initialTimecodeDisplayMode: TimecodeDisplayMode = .preferred,
+        startTime: Double? = nil,
         onClose: @escaping () -> Void,
+        onCloseWithPosition: ((Double) -> Void)? = nil,
         onPreviousItem: (@Sendable () -> Void)? = nil,
         onNextItem: (@Sendable () -> Void)? = nil,
         onOverlayVisibilityChanged: ((Bool) -> Void)? = nil,
@@ -51,12 +56,14 @@ struct FullscreenPlayerView: View {
     ) {
         self.item = item
         self.onClose = onClose
+        self.onCloseWithPosition = onCloseWithPosition
         self.onPreviousItem = onPreviousItem
         self.onNextItem = onNextItem
         self.onOverlayVisibilityChanged = onOverlayVisibilityChanged
         self.onTimecodeDisplayModeChanged = onTimecodeDisplayModeChanged
         self.canGoToPrevious = canGoToPrevious
         self.canGoToNext = canGoToNext
+        self.startTime = startTime
         self._itemState = State(initialValue: item)
         self._controller = StateObject(wrappedValue: PreviewPlayerController(videoItem: item))
         self._showOverlay = State(initialValue: !initialOverlayHidden)
@@ -109,7 +116,7 @@ struct FullscreenPlayerView: View {
                             }
                     )
 
-                if showOverlay || isHoveringControls {
+                if showOverlay || isHoveringControls || isDraggingTimeline {
                     // Speed indicator (matches trim player)
                     VStack {
                         HStack {
@@ -130,7 +137,7 @@ struct FullscreenPlayerView: View {
                 }
                 
                 // Loading indicator
-                if controller.isPreparing || controller.isGeneratingFallbackPreview || controller.isLoadingChunk || controller.isGeneratingFallbackStill {
+                if controller.isPreparing {
                     loadingOverlay
                 }
                 
@@ -138,16 +145,37 @@ struct FullscreenPlayerView: View {
                 if let error = controller.errorMessage {
                     errorOverlay(message: error)
                 }
+
+                // Right edge cursor-hide zone - positioned at trailing edge only
+                RightEdgeCursorHideZone { hovering in
+                    isHoveringRightEdge = hovering
+                    if hovering {
+                        // Hide overlay when entering right edge
+                        if !isHoveringControls, !isDraggingTimeline {
+                            overlayHideTask?.cancel()
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                showOverlay = false
+                            }
+                            onOverlayVisibilityChanged?(true)
+                        }
+                    } else {
+                        // Show overlay when leaving right edge
+                        showOverlay = true
+                        scheduleOverlayHide()
+                    }
+                }
+                .frame(width: rightEdgeWidth, height: geometry.size.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
-             .onContinuousHover { phase in
-                 switch phase {
-                 case .active(let location):
-                     handleMouseHover(location: location, in: geometry.size)
-                 case .ended:
-                     break
-                 }
-             }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    handleMouseHover()
+                case .ended:
+                    break
+                }
+            }
 
         }
         .background(
@@ -186,6 +214,9 @@ struct FullscreenPlayerView: View {
                 scheduleOverlayHide()
             }
 
+            // Capture startTime immediately on appear to avoid any SwiftUI state issues
+            let capturedStartTime = startTime
+
             Task {
                 if itemState.metadata == nil {
                     if let metadata = await VideoFileUtils.fetchMetadata(for: itemState.url) {
@@ -197,7 +228,10 @@ struct FullscreenPlayerView: View {
 
                 await MainActor.run {
                     controller.updateVideoItem(itemState)
-                    controller.preparePreview(startTime: itemState.effectiveTrimStart)
+                    // Use provided startTime if available, otherwise fall back to effectiveTrimStart
+                    let initialTime = capturedStartTime ?? itemState.effectiveTrimStart
+                    NSLog("FullscreenPlayerView: startTime=\(String(describing: capturedStartTime)), effectiveTrimStart=\(itemState.effectiveTrimStart), using initialTime=\(initialTime)")
+                    controller.preparePreview(startTime: initialTime)
                 }
             }
         }
@@ -205,26 +239,24 @@ struct FullscreenPlayerView: View {
             overlayHideTask?.cancel()
             overlayHideTask = nil
 
+            // Report final position before teardown
+            let finalPosition = controller.currentPlaybackTime
+            onCloseWithPosition?(finalPosition)
+
             Task { @MainActor in
                 controller.teardown()
             }
         }
-        .cursor(isMouseIdle ? .hidden : .arrow)
     }
     
     // MARK: - Video Content
-    
+
     @ViewBuilder
     private var videoContent: some View {
-        if let still = controller.fallbackStillImage {
-            Image(nsImage: still)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let player = controller.player {
+        if let player = controller.player {
             FullscreenAVPlayerView(player: player)
-        } else if controller.useVLC, let vlcPlayer = controller.vlcPlayer {
-            FullscreenVLCView(player: vlcPlayer)
+        } else if controller.useMPV, let mpvPlayer = controller.mpvPlayer {
+            FullscreenMPVView(player: mpvPlayer)
         } else {
             Color.black
         }
@@ -279,9 +311,9 @@ struct FullscreenPlayerView: View {
                             )
                     )
             }
-            
+
             Spacer()
-            
+
             // Close button
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")
@@ -293,6 +325,7 @@ struct FullscreenPlayerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .frame(maxWidth: 1200)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.black.opacity(0.6))
@@ -308,7 +341,7 @@ struct FullscreenPlayerView: View {
         VStack(spacing: 12) {
             // Timeline slider
             timelineSlider
-            
+
             // Playback controls
             HStack(spacing: 24) {
                 let currentTime = controller.currentPlaybackTime
@@ -349,6 +382,10 @@ struct FullscreenPlayerView: View {
                     audioTrackSelector
                 }
 
+                if !controller.subtitleTrackOptions.isEmpty {
+                    subtitleTrackSelector
+                }
+
                 // Speed indicator
                 if controller.currentPlaybackSpeed != 1.0 || controller.isReverseSimulating {
                     Text("\(String(format: "%.1fx", controller.currentPlaybackSpeed))")
@@ -373,6 +410,7 @@ struct FullscreenPlayerView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
+        .frame(maxWidth: 1200)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.black.opacity(0.6))
@@ -443,7 +481,10 @@ struct FullscreenPlayerView: View {
     
     private var timelineSlider: some View {
         GeometryReader { geo in
-            let duration = max(itemState.durationSeconds, 0)
+            // Use itemState duration, falling back to MPV player duration if available
+            let duration = itemState.durationSeconds > 0
+                ? itemState.durationSeconds
+                : (controller.mpvPlayer?.duration ?? 0)
             let progress = duration > 0 ? controller.currentPlaybackTime / duration : 0
             
             ZStack(alignment: .leading) {
@@ -451,28 +492,6 @@ struct FullscreenPlayerView: View {
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white.opacity(0.28))
                     .frame(height: 4)
-
-                // Chunk availability overlay (orange = not yet rendered)
-                if controller.fallbackPreviewRange != nil, duration > 0 {
-                    let chunkDuration = controller.chunkDuration
-                    let totalChunks = Int(ceil(duration / chunkDuration))
-
-                    ForEach(0..<totalChunks, id: \.self) { chunkIndex in
-                        if !controller.loadedChunks.contains(chunkIndex) {
-                            let chunkStart = Double(chunkIndex) * chunkDuration
-                            let chunkEnd = min(Double(chunkIndex + 1) * chunkDuration, duration)
-
-                            let startX = CGFloat(chunkStart / duration) * geo.size.width
-                            let endX = CGFloat(chunkEnd / duration) * geo.size.width
-                            let width = max(0, endX - startX)
-
-                            Rectangle()
-                                .fill(Color.orange.opacity(0.35))
-                                .frame(width: width, height: 4)
-                                .offset(x: startX)
-                        }
-                    }
-                }
 
                 // Progress
                 RoundedRectangle(cornerRadius: 2)
@@ -488,12 +507,15 @@ struct FullscreenPlayerView: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
-                     .onChanged { value in
-                         let fraction = max(0, min(1, value.location.x / geo.size.width))
-                         let targetTime = Double(fraction) * duration
-                         controller.seekTo(targetTime)
-                     }
-
+                    .onChanged { value in
+                        isDraggingTimeline = true
+                        let fraction = max(0, min(1, value.location.x / geo.size.width))
+                        let targetTime = Double(fraction) * duration
+                        controller.seekTo(targetTime)
+                    }
+                    .onEnded { _ in
+                        isDraggingTimeline = false
+                    }
             )
         }
         .frame(height: 14)
@@ -550,15 +572,12 @@ struct FullscreenPlayerView: View {
 
     private var isPlaybackActive: Bool {
         if controller.isReverseSimulating { return true }
-        if controller.useVLC { return controller.vlcPlayer?.isPlaying ?? false }
+        if controller.useMPV { return controller.mpvPlayer?.isPlaying ?? false }
         return (controller.player?.rate ?? 0) != 0
     }
 
     private var isLowQualityPreview: Bool {
-        controller.fallbackPreviewRange != nil
-            || controller.isGeneratingFallbackPreview
-            || controller.isGeneratingFallbackStill
-            || controller.isLoadingChunk
+        false  // All playback now uses native AVPlayer or MPV
     }
 
     private var audioTrackSelector: some View {
@@ -592,6 +611,46 @@ struct FullscreenPlayerView: View {
         }
         .menuStyle(.borderlessButton)
         .help(controller.audioTrackOptions.isEmpty ? "No alternate audio tracks" : "Select audio track")
+    }
+
+    private var subtitleTrackSelector: some View {
+        Menu {
+            Button {
+                controller.selectSubtitleTrack(at: -1)
+            } label: {
+                HStack {
+                    Text("Off")
+                    Spacer()
+                    if controller.selectedSubtitleTrackOrderIndex < 0 {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            if !controller.subtitleTrackOptions.isEmpty {
+                Divider()
+
+                ForEach(controller.subtitleTrackOptions) { option in
+                    Button {
+                        controller.selectSubtitleTrack(at: option.position)
+                    } label: {
+                        HStack {
+                            Text(option.title)
+                            Spacer()
+                            if option.position == controller.selectedSubtitleTrackOrderIndex {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "captions.bubble.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.9))
+        }
+        .menuStyle(.borderlessButton)
+        .help("Select subtitle track")
     }
 
     private func handleKeyCommand(_ key: String, _ modifiersRaw: UInt, _ keyCode: UInt16) -> Bool {
@@ -639,12 +698,12 @@ struct FullscreenPlayerView: View {
     private func scheduleOverlayHide() {
         overlayHideTask?.cancel()
 
-        guard !isHoveringControls else { return }
+        guard !isHoveringControls, !isDraggingTimeline else { return }
 
         overlayHideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             guard !Task.isCancelled else { return }
-            guard !isHoveringControls else { return }
+            guard !isHoveringControls, !isDraggingTimeline else { return }
 
             // Set cursor state immediately (not animatable)
             isMouseIdle = true
@@ -658,15 +717,16 @@ struct FullscreenPlayerView: View {
     }
 
     private func forceHideOverlay() {
+        // Don't hide while hovering controls or dragging the timeline
+        guard !isHoveringControls, !isDraggingTimeline else { return }
+
         overlayHideTask?.cancel()
         overlayHideTask = nil
 
-        // Set cursor state immediately (not animatable)
         isMouseIdle = true
 
         withAnimation(.easeOut(duration: 0.2)) {
             showOverlay = false
-            isHoveringControls = false
         }
         onOverlayVisibilityChanged?(true)
     }
@@ -689,21 +749,9 @@ struct FullscreenPlayerView: View {
         }
     }
 
-    private func handleMouseHover(location: CGPoint, in size: CGSize) {
-        let epsilon: CGFloat = 0.5
-        if let last = lastMouseLocation {
-            let dx = abs(last.x - location.x)
-            let dy = abs(last.y - location.y)
-            if dx < epsilon, dy < epsilon {
-                return
-            }
-        }
-        lastMouseLocation = location
-
-        if location.x >= size.width - rightEdgeHideThreshold {
-            forceHideOverlay()
-            return
-        }
+    private func handleMouseHover() {
+        // Don't show overlay if in right edge zone
+        guard !isHoveringRightEdge else { return }
 
         if !showOverlay {
             onOverlayVisibilityChanged?(false)
@@ -932,44 +980,145 @@ struct FullscreenPlayerView: View {
 // MARK: - Cursor Modifier
 
 private struct CursorVisibilityModifier: ViewModifier {
-    let cursor: NSCursor
+    let isHidden: Bool
 
-    @State private var isPushed = false
+    @State private var isHovering = false
+    @State private var hasPushedCursor = false
 
     func body(content: Content) -> some View {
         content
             .onContinuousHover { phase in
                 switch phase {
                 case .active:
-                    if !isPushed {
-                        cursor.push()
-                        isPushed = true
+                    if !isHovering {
+                        isHovering = true
+                        pushCursor()
                     }
                 case .ended:
-                    if isPushed {
-                        NSCursor.pop()
-                        isPushed = false
+                    if isHovering {
+                        isHovering = false
+                        popCursor()
                     }
+                }
+            }
+            .onChange(of: isHidden) { _, _ in
+                // Cursor visibility changed while hovering - update the cursor
+                if isHovering {
+                    popCursor()
+                    pushCursor()
                 }
             }
             .onDisappear {
-                if isPushed {
-                    NSCursor.pop()
-                    isPushed = false
-                }
+                popCursor()
             }
+    }
+
+    private func pushCursor() {
+        let cursor = isHidden ? NSCursor.hidden : NSCursor.arrow
+        cursor.push()
+        hasPushedCursor = true
+    }
+
+    private func popCursor() {
+        if hasPushedCursor {
+            NSCursor.pop()
+            hasPushedCursor = false
+        }
     }
 }
 
 extension View {
-    func cursor(_ cursor: NSCursor) -> some View {
-        modifier(CursorVisibilityModifier(cursor: cursor))
+    func hideCursor(_ hide: Bool) -> some View {
+        modifier(CursorVisibilityModifier(isHidden: hide))
     }
 }
 
 extension NSCursor {
     static var hidden: NSCursor {
-        NSCursor(image: NSImage(size: NSSize(width: 1, height: 1)), hotSpot: .zero)
+        // Create a transparent cursor image
+        let size = NSSize(width: 16, height: 16)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        NSColor.clear.set()
+        NSRect(origin: .zero, size: size).fill()
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: NSPoint(x: 8, y: 8))
+    }
+}
+
+// MARK: - Right Edge Cursor Hide Zone
+
+private struct RightEdgeCursorHideZone: NSViewRepresentable {
+    let onHoverChanged: (Bool) -> Void
+
+    func makeNSView(context: Context) -> RightEdgeCursorHideNSView {
+        let view = RightEdgeCursorHideNSView()
+        view.onHoverChanged = onHoverChanged
+        return view
+    }
+
+    func updateNSView(_ nsView: RightEdgeCursorHideNSView, context: Context) {
+        nsView.onHoverChanged = onHoverChanged
+    }
+}
+
+private class RightEdgeCursorHideNSView: NSView {
+    var onHoverChanged: ((Bool) -> Void)?
+    private var trackingArea: NSTrackingArea?
+    private var isHovering = false
+
+    // Allow clicks to pass through while keeping tracking areas active
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+
+        let options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect]
+        trackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        if let area = trackingArea {
+            addTrackingArea(area)
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovering = true
+        NSCursor.hide()
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        isHovering = false
+        NSCursor.unhide()
+        onHoverChanged?(false)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            updateTrackingAreas()
+        }
+    }
+
+    override func removeFromSuperview() {
+        if isHovering {
+            NSCursor.unhide()
+            isHovering = false
+        }
+        super.removeFromSuperview()
+    }
+
+    deinit {
+        if isHovering {
+            NSCursor.unhide()
+        }
     }
 }
 
@@ -989,24 +1138,6 @@ private struct FullscreenAVPlayerView: NSViewRepresentable {
     
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
         nsView.player = player
-    }
-}
-
-// MARK: - VLC View
-
-private struct FullscreenVLCView: NSViewRepresentable {
-    let player: VLCPlayer
-    
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.black.cgColor
-        player.mediaPlayer.drawable = view
-        return view
-    }
-    
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // No updates needed
     }
 }
 

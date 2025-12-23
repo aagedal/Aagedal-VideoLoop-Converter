@@ -39,6 +39,7 @@ struct VideoMetadataView: View {
                     generalSection
                     videoSection
                     audioSection
+                    subtitleSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -117,6 +118,7 @@ struct VideoMetadataView: View {
                             .padding(.bottom, 2)
                     }
                     infoRow("Codec", value: stream.codecLongName ?? stream.codec)
+                    infoRow("Language", value: stream.languageCode?.uppercased())
                     infoRow("Profile", value: stream.profile)
                     infoRow("Sample Rate", value: formatSampleRate(stream.sampleRate))
                     infoRow("Channels", value: stream.channels.map(String.init))
@@ -126,6 +128,37 @@ struct VideoMetadataView: View {
                 }
             } else {
                 Text("No audio stream detected.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var subtitleSection: some View {
+        section(title: "Subtitles") {
+            if let subtitleStreams = metadata?.subtitleStreams, !subtitleStreams.isEmpty {
+                ForEach(subtitleStreams.indices, id: \.self) { index in
+                    let stream = subtitleStreams[index]
+                    if subtitleStreams.count > 1 {
+                        Text("Stream \(index + 1)")
+                            .font(.body)
+                            .fontWeight(.bold)
+                            .foregroundColor(.secondary)
+                            .padding(.top, index > 0 ? 12 : 0)
+                            .padding(.bottom, 2)
+                    }
+                    infoRow("Codec", value: stream.codecLongName ?? stream.codec)
+                    infoRow("Language", value: stream.languageCode?.uppercased())
+                    infoRow("Title", value: stream.title)
+                    if stream.isDefault {
+                        infoRow("Default", value: "Yes")
+                    }
+                    if stream.isForced {
+                        infoRow("Forced", value: "Yes")
+                    }
+                }
+            } else {
+                Text("No subtitle stream detected.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }

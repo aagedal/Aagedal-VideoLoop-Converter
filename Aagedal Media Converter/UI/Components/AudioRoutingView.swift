@@ -55,20 +55,28 @@ struct AudioRoutingView: View {
     // MARK: - Channel Operation Detection
     
     private var canMergeToStereo: Bool {
-        let monoTracks = config.outputTracks.filter { $0.channels == 1 }
+        let monoTracks = config.outputTracks.filter { outputTrack in
+            config.trackInfo(for: outputTrack.streamIndex)?.channels == 1
+        }
         return monoTracks.count >= 2 && config.channelOperation == nil
     }
-    
+
     private var canSplitToMono: Bool {
-        return config.outputTracks.count == 1 &&
-               config.outputTracks.first?.channels == 2 &&
-               config.channelOperation == nil
+        guard config.outputTracks.count == 1,
+              let firstTrack = config.outputTracks.first,
+              let trackInfo = config.trackInfo(for: firstTrack.streamIndex) else {
+            return false
+        }
+        return trackInfo.channels == 2 && config.channelOperation == nil
     }
-    
+
     private var canSwapChannels: Bool {
-        return config.outputTracks.count == 1 &&
-               config.outputTracks.first?.channels == 2 &&
-               config.channelOperation == nil
+        guard config.outputTracks.count == 1,
+              let firstTrack = config.outputTracks.first,
+              let trackInfo = config.trackInfo(for: firstTrack.streamIndex) else {
+            return false
+        }
+        return trackInfo.channels == 2 && config.channelOperation == nil
     }
     
     private var hasActiveOperation: Bool {
@@ -82,14 +90,25 @@ struct AudioRoutingView: View {
 
             Divider()
 
-            // Mute toggle section
-            muteToggleSection
+            HStack {
+                // Mute toggle section
+                muteToggleSection
 
+                
+                
+                if config.hasAnyInputSurroundTracks && !item.isMuted {
+                    surroundWarningBanner
+                }
+            }.frame(height: 80)
+            
             Divider()
 
             if config.inputTracks.isEmpty {
                 emptyStateView
             } else {
+                // Surround audio warning banner
+
+
                 // Main content: split view
                 HStack(spacing: 0) {
                     // Left panel: Input tracks
@@ -109,7 +128,7 @@ struct AudioRoutingView: View {
             // Bottom toolbar
             bottomToolbar
         }
-        .frame(minWidth: 700, idealWidth: 900, minHeight: 500, idealHeight: 600)
+        .frame(minWidth: 1000, idealWidth: 1300, minHeight: 700, idealHeight: 1400)
         .onAppear {
             updateValidation()
         }
@@ -129,6 +148,20 @@ struct AudioRoutingView: View {
                     }
                     .keyboardShortcut(KeyEquivalent(Character("\(trackNum)")), modifiers: .command)
                 }
+
+                // CMD+Option+1...9 stereo toggle shortcuts for individual output tracks
+                ForEach(1...9, id: \.self) { trackNum in
+                    Button("") {
+                        toggleStereoForOutputTrack(position: trackNum - 1)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character("\(trackNum)")), modifiers: [.command, .option])
+                }
+
+                // CMD+Option+S toggle stereo for all surround tracks
+                Button("") {
+                    toggleStereoForAllSurroundTracks()
+                }
+                .keyboardShortcut("s", modifiers: [.command, .option])
             }
             .opacity(0)
             .frame(width: 0, height: 0)
@@ -223,22 +256,55 @@ struct AudioRoutingView: View {
     }
     
     // MARK: - Empty State
-    
+
     private var emptyStateView: some View {
         VStack(spacing: 16) {
             Image(systemName: "speaker.slash.fill")
                 .font(.system(size: 48))
                 .foregroundColor(.secondary)
-            
+
             Text("No Audio Tracks")
                 .font(.title3)
                 .fontWeight(.medium)
-            
+
             Text("This file does not contain any audio tracks.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Surround Warning Banner
+
+    private var surroundWarningBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "speaker.wave.3.fill")
+                .font(.title3)
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Surround Audio Detected")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                Text("Some players (like QuickTime) may not play surround audio. Enable \"Stereo\" on tracks to downmix for compatibility.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.orange.opacity(0.1))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+        )
+        .padding(.horizontal)
+        .padding(.top, 8)
     }
     
     // MARK: - Input Tracks Panel
@@ -263,31 +329,56 @@ struct AudioRoutingView: View {
     }
     
     private func inputTrackRow(_ track: AudioTrackInfo) -> some View {
-        let isSelected = config.outputTrackIndices.contains(track.streamIndex)
-        
+        let isInOutput = config.outputTrackIndices.contains(track.streamIndex)
+
         return HStack(spacing: 12) {
-            // Track icon
-            Image(systemName: channelIcon(for: track.channels))
-                .font(.title3)
-                .foregroundColor(.accentColor)
-                .frame(width: 32)
-            
+            // Track icon with surround indicator
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: channelIcon(for: track.channels))
+                    .font(.title3)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 32)
+
+                // Surround indicator badge
+                if track.isSurround {
+                    Image(systemName: "speaker.wave.3.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                        .offset(x: 4, y: 4)
+                }
+            }
+
             // Track info
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.displayLabel)
-                    .font(.body)
-                    .fontWeight(.medium)
-                
+                HStack(spacing: 6) {
+                    Text(track.displayLabel)
+                        .font(.body)
+                        .fontWeight(.medium)
+
+                    if track.isSurround {
+                        Text("Surround")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Color.orange.opacity(0.15))
+                            )
+                    }
+                }
+
                 if !track.technicalDetails.isEmpty {
                     Text(track.technicalDetails)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
-            
+
             Spacer()
-            
-            // Add button
+
+            // Add button (always enabled - allows duplicates)
             Button {
                 withAnimation {
                     var updatedConfig = config
@@ -297,11 +388,10 @@ struct AudioRoutingView: View {
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.title3)
-                    .foregroundColor(isSelected ? .secondary : .accentColor)
+                    .foregroundColor(.accentColor)
             }
             .buttonStyle(.plain)
-            .disabled(isSelected)
-            .help(isSelected ? "Track already in output" : "Add track to output")
+            .help("Add track to output")
         }
         .padding(12)
         .background(
@@ -310,27 +400,27 @@ struct AudioRoutingView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.gray.opacity(0.2), lineWidth: 1)
+                .stroke(isInOutput ? Color.accentColor.opacity(0.3) : Color.gray.opacity(0.2), lineWidth: 1)
         )
     }
     
     // MARK: - Output Tracks Panel
-    
+
     private var outputTracksPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Output Tracks")
                     .font(.headline)
-                
+
                 Spacer()
-                
-                Text("\(config.outputTrackIndices.count) track\(config.outputTrackIndices.count == 1 ? "" : "s")")
+
+                Text("\(config.outputTracks.count) track\(config.outputTracks.count == 1 ? "" : "s")")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
             .padding(.horizontal)
-            
-            if config.outputTrackIndices.isEmpty {
+
+            if config.outputTracks.isEmpty {
                 VStack(spacing: 12) {
                     Spacer()
                     Image(systemName: "waveform.slash")
@@ -348,22 +438,22 @@ struct AudioRoutingView: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
-                        ForEach(Array(config.outputTrackIndices.enumerated()), id: \.offset) { index, streamIndex in
-                            if let track = config.trackInfo(for: streamIndex) {
-                                outputTrackRow(track, position: index)
-                            }
+                        ForEach(Array(config.outputTracks.enumerated()), id: \.element.id) { index, outputTrack in
+                            outputTrackRow(outputTrack, position: index)
                         }
                     }
                     .padding(.horizontal)
                 }
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(minWidth: 550, maxWidth: .infinity)
         .padding(.vertical)
     }
     
-    private func outputTrackRow(_ track: AudioTrackInfo, position: Int) -> some View {
-        HStack(spacing: 12) {
+    private func outputTrackRow(_ outputTrack: OutputTrack, position: Int) -> some View {
+        let trackInfo = config.trackInfo(for: outputTrack.streamIndex)
+
+        return HStack(spacing: 12) {
             // Position indicator
             Text("\(position + 1)")
                 .font(.caption)
@@ -371,32 +461,102 @@ struct AudioRoutingView: View {
                 .foregroundColor(.white)
                 .frame(width: 24, height: 24)
                 .background(Circle().fill(Color.accentColor))
-            
-            // Track icon
-            Image(systemName: channelIcon(for: track.channels))
-                .font(.body)
-                .foregroundColor(.primary)
-            
+
+            // Track icon with surround/downmix indicator
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: channelIcon(for: trackInfo?.channels))
+                    .font(.body)
+                    .foregroundColor(.primary)
+
+                // Show stereo badge if downmixing, or surround badge if surround without downmix
+                if outputTrack.downmixToStereo {
+                    Image(systemName: "2.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.green)
+                        .offset(x: 4, y: 4)
+                } else if trackInfo?.isSurround == true {
+                    Image(systemName: "speaker.wave.3.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                        .offset(x: 4, y: 4)
+                }
+            }
+
             // Track info
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.displayLabel)
-                    .font(.body)
-                    .fontWeight(.medium)
-                
-                if !track.technicalDetails.isEmpty {
-                    Text(track.technicalDetails)
+                HStack(spacing: 6) {
+                    Text(trackInfo?.displayLabel ?? "Track \(outputTrack.streamIndex + 1)")
+                        .font(.body)
+                        .fontWeight(.medium)
+
+                    // Downmix status badge
+                    if outputTrack.downmixToStereo {
+                        Text("→ Stereo")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Color.green.opacity(0.15))
+                            )
+                    } else if trackInfo?.isSurround == true {
+                        Text("Surround")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.orange)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(Color.orange.opacity(0.15))
+                            )
+                    }
+                }
+
+                if let details = trackInfo?.technicalDetails, !details.isEmpty {
+                    Text(details)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
-            
+
             Spacer()
-            
+
+            // Stereo downmix toggle (only for surround tracks)
+            if trackInfo?.isSurround == true {
+                Button {
+                    withAnimation {
+                        var updatedConfig = config
+                        updatedConfig.toggleDownmix(for: outputTrack.id)
+                        configBinding.wrappedValue = updatedConfig
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: outputTrack.downmixToStereo ? "checkmark.circle.fill" : "circle")
+                            .font(.caption)
+                        Text("Stereo")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(outputTrack.downmixToStereo ? Color.green.opacity(0.15) : Color.gray.opacity(0.1))
+                    )
+                    .foregroundColor(outputTrack.downmixToStereo ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+                .help(outputTrack.downmixToStereo ? "Keep original surround audio" : "Downmix to stereo for compatibility")
+            }
+
             // Remove button
             Button {
                 withAnimation {
                     var updatedConfig = config
-                    updatedConfig.removeTrack(track.streamIndex)
+                    updatedConfig.removeTrack(id: outputTrack.id)
                     configBinding.wrappedValue = updatedConfig
                 }
             } label: {
@@ -417,7 +577,7 @@ struct AudioRoutingView: View {
                 .stroke(Color.gray.opacity(0.2), lineWidth: 1)
         )
         .onDrag {
-            NSItemProvider(object: "\(track.streamIndex)" as NSString)
+            NSItemProvider(object: outputTrack.id.uuidString as NSString)
         }
         .onDrop(of: [.text], delegate: OutputTrackDropDelegate(
             position: position,
@@ -536,9 +696,11 @@ struct AudioRoutingView: View {
                                 title: "Merge to Stereo",
                                 icon: "waveform.badge.plus"
                             ) {
-                                let monoTracks = config.outputTracks.filter { $0.channels == 1 }
+                                let monoTracks = config.outputTracks.filter { outputTrack in
+                                    config.trackInfo(for: outputTrack.streamIndex)?.channels == 1
+                                }
                                 let indices = monoTracks.prefix(2).map(\.streamIndex)
-                                
+
                                 withAnimation {
                                     var updatedConfig = config
                                     updatedConfig.setChannelOperation(.mergeToStereo(trackIndices: Array(indices)))
@@ -628,6 +790,52 @@ struct AudioRoutingView: View {
         }
     }
 
+    /// Toggle stereo downmix for a specific output track by its 0-based position (CMD+Option+1...9)
+    private func toggleStereoForOutputTrack(position: Int) {
+        // Don't allow toggling when muted
+        guard !item.isMuted else { return }
+
+        // Check if the position is valid
+        guard position >= 0 && position < config.outputTracks.count else { return }
+
+        let outputTrack = config.outputTracks[position]
+
+        // Only toggle if the track is surround
+        guard let trackInfo = config.trackInfo(for: outputTrack.streamIndex),
+              trackInfo.isSurround else { return }
+
+        withAnimation {
+            var updatedConfig = config
+            updatedConfig.toggleDownmix(for: outputTrack.id)
+            configBinding.wrappedValue = updatedConfig
+        }
+    }
+
+    /// Toggle stereo downmix for all surround output tracks at once (CMD+Option+S)
+    private func toggleStereoForAllSurroundTracks() {
+        // Don't allow toggling when muted
+        guard !item.isMuted else { return }
+
+        // Find all surround output tracks
+        let surroundOutputTracks = config.outputTracks.filter { outputTrack in
+            config.trackInfo(for: outputTrack.streamIndex)?.isSurround == true
+        }
+
+        guard !surroundOutputTracks.isEmpty else { return }
+
+        // Determine target state: if any surround track is NOT downmixed, enable all; otherwise disable all
+        let anyNotDownmixed = surroundOutputTracks.contains { !$0.downmixToStereo }
+        let targetDownmix = anyNotDownmixed
+
+        withAnimation {
+            var updatedConfig = config
+            for outputTrack in surroundOutputTracks {
+                updatedConfig.setDownmix(for: outputTrack.id, downmix: targetDownmix)
+            }
+            configBinding.wrappedValue = updatedConfig
+        }
+    }
+
     private func channelIcon(for channels: Int?) -> String {
         guard let channels else { return "waveform" }
         switch channels {
@@ -652,23 +860,23 @@ struct OutputTrackDropDelegate: DropDelegate {
     let position: Int
     @Binding var config: AudioRoutingConfig
     let onUpdate: () -> Void
-    
+
     func performDrop(info: DropInfo) -> Bool {
         guard let itemProvider = info.itemProviders(for: [.text]).first else {
             return false
         }
-        
-        // Capture the current output track indices to avoid accessing binding in closure
-        let currentIndices = config.outputTrackIndices
-        
+
+        // Capture the current output tracks to avoid accessing binding in closure
+        let currentTracks = config.outputTracks
+
         itemProvider.loadItem(forTypeIdentifier: "public.text", options: nil) { data, error in
             guard let data = data as? Data,
-                  let streamIndexString = String(data: data, encoding: .utf8),
-                  let draggedStreamIndex = Int(streamIndexString),
-                  let sourceIndex = currentIndices.firstIndex(of: draggedStreamIndex) else {
+                  let uuidString = String(data: data, encoding: .utf8),
+                  let draggedId = UUID(uuidString: uuidString),
+                  let sourceIndex = currentTracks.firstIndex(where: { $0.id == draggedId }) else {
                 return
             }
-            
+
             DispatchQueue.main.async {
                 withAnimation {
                     config.moveTrack(from: sourceIndex, to: position)
@@ -676,7 +884,7 @@ struct OutputTrackDropDelegate: DropDelegate {
                 }
             }
         }
-        
+
         return true
     }
 }

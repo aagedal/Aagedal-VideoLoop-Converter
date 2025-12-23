@@ -422,6 +422,7 @@ enum CodecAudioFormat: String, CaseIterable, Identifiable {
     func ffmpegArgs(bitrate: String) -> [String] {
         switch self {
         case .aac:
+            // Preserve original channel layout - users can use per-track downmix in Audio Routing if needed
             return ["-c:a", "aac", "-b:a", bitrate]
         case .pcm16:
             return ["-c:a", "pcm_s16le"]
@@ -674,7 +675,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-level:v", "4.0",
                 "-c:a", "aac",
                 "-b:a", "128k",
-                "-map", "0:v",
+                "-map", "0:v:0",
                 "-map", "0:a",
                 "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
             ]
@@ -744,7 +745,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
             args += [
                 "-vf", scaleFilter,
-                "-map", "0:v"
+                "-map", "0:v:0"
             ]
             args += audioFormat.ffmpegArgs(bitrate: audioBitrate.ffmpegValue)
             args += ["-map", "0:a?"]
@@ -815,7 +816,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
             args += [
                 "-vf", scaleFilter,
-                "-map", "0:v"
+                "-map", "0:v:0"
             ]
             args += audioFormat.ffmpegArgs(bitrate: audioBitrate.ffmpegValue)
             args += ["-map", "0:a?"]
@@ -863,7 +864,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-preset", "\(presetValue)",
                 "-pix_fmt", "yuv420p10le",
                 "-vf", scaleFilter,
-                "-map", "0:v"
+                "-map", "0:v:0"
             ]
             args += audioFormat.ffmpegArgs(bitrate: audioBitrate.ffmpegValue)
             args += ["-map", "0:a?"]
@@ -897,7 +898,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-profile:v", "main42210",
                 "-tag:v", "hvc1",
                 "-c:a", "pcm_s24le",
-                "-map", "0:v",
+                "-map", "0:v:0",
                 "-map", "0:a"
             ]
 
@@ -975,7 +976,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-bf", "0", // No B-frames
                 "-profile:v", "high422",
                 "-level:v", "4.1",
-                "-map", "0:v",
+                "-map", "0:v:0",
                 "-map", "0:a?",  // Map all audio streams (? makes it optional if no audio)
                 "-c:a", "pcm_s24le",
                 "-ac", "\(channelCount)"  // Force output to N channels, ffmpeg handles mapping
@@ -1096,7 +1097,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
             args += [
                 "-vf", scaleFilter,
-                "-map", "0:v",
+                "-map", "0:v:0",
                 "-c:a", "pcm_s24le",
                 "-map", "0:a"
             ]
@@ -1112,7 +1113,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-profile:v", profile.ffmpegProfileName,
                 "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1",
                 "-c:a", "pcm_s24le",
-                "-map", "0:v",
+                "-map", "0:v:0",
                 "-map", "0:a"
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")

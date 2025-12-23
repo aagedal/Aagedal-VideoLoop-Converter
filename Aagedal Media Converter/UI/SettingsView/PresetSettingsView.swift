@@ -1005,6 +1005,14 @@ struct PresetsSettingsView: View {
     }
 
     private func setSelectedPresetAsDefault() {
+        // Ensure the preset is visible/active before setting as default
+        if let slot = selectedPreset.customSlotIndex {
+            // Custom preset: activate it
+            setCustomPresetActive(true, slot: slot)
+        } else {
+            // Built-in preset: make it visible
+            visibilityBinding(for: selectedPreset).wrappedValue = true
+        }
         storedDefaultPresetRawValue = selectedPreset.rawValue
     }
 

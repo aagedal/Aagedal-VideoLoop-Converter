@@ -41,9 +41,9 @@ struct PreviewTrimControls: View {
                     playbackTime: currentPlaybackTime,
                     thumbnails: controller.previewAssets?.thumbnails,
                     waveformURL: controller.currentWaveformURL,
+                    waveformChunks: controller.currentWaveformChunks,
+                    chunkTotalDuration: controller.totalDuration,
                     isLoading: controller.isLoadingPreviewAssets,
-                    fallbackPreviewRange: controller.fallbackPreviewRange,
-                    loadedChunks: controller.loadedChunks,
                     step: 0.1,
                     hideFilmstrip: false,
                     compactMode: isCompactMode,
@@ -87,7 +87,8 @@ struct PreviewTrimControls: View {
             .font(.system(.subheadline, design: .monospaced))
             .foregroundColor(.accentColor)
             .help("Jump to trim start")
-
+            .padding(.trailing, 15)
+            
             // Current playback time - editable on double click
             if isEditingTimecode {
                 HStack(spacing: 4) {
@@ -95,7 +96,6 @@ struct PreviewTrimControls: View {
                     TextField("5.1, +10, or ..15", text: $timecodeInput)
                         .textFieldStyle(.plain)
                         .font(.system(.subheadline, design: .monospaced))
-                        .frame(width: 120)
                         .focused($isTimecodeFocused)
                         .onSubmit {
                             seekToTimecode()
@@ -104,15 +104,16 @@ struct PreviewTrimControls: View {
                             cancelTimecodeEdit()
                         }
                 }
-                .padding(.horizontal, 30)
+                .padding(.horizontal, 15)
             } else {
+                
                 HStack(spacing: 4) {
                     timecodeModePrefix
                     Label("\(formatTimecodeWithMode(seconds: currentPlaybackTime))", systemImage: "arrowtriangle.left.and.line.vertical.and.arrowtriangle.right")
                         .font(.system(.subheadline, design: .monospaced))
-                        .padding(0)
+                        .frame(width: 120, alignment: .leading)
+                        .padding(.trailing, 25)
                 }
-                .padding(.horizontal, 30)
                 .onTapGesture(count: 2) {
                     startTimecodeEdit()
                 }
@@ -184,7 +185,8 @@ struct PreviewTrimControls: View {
             }
 
             audioTrackSelector
-            
+            subtitleTrackSelector
+
             Toggle(isOn: $controller.isAudioMeterEnabled) {
                 Label("Audio Meter", systemImage: "waveform")
                     .labelStyle(.iconOnly)
@@ -207,6 +209,7 @@ struct PreviewTrimControls: View {
             .disabled(item.trimStart == nil && item.trimEnd == nil)
             .help("Reset trim points")
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var audioTrackSelector: some View {
@@ -240,6 +243,47 @@ struct PreviewTrimControls: View {
         .menuStyle(.borderlessButton)
         .disabled(controller.audioTrackOptions.count <= 1)
         .help(controller.audioTrackOptions.isEmpty ? "No alternate audio tracks" : "Select audio track")
+    }
+
+    private var subtitleTrackSelector: some View {
+        Menu {
+            // "Off" option to disable subtitles
+            Button {
+                controller.selectSubtitleTrack(at: -1)
+            } label: {
+                HStack {
+                    Text("Off")
+                    Spacer()
+                    if controller.selectedSubtitleTrackOrderIndex < 0 {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            if !controller.subtitleTrackOptions.isEmpty {
+                Divider()
+
+                ForEach(controller.subtitleTrackOptions) { option in
+                    Button {
+                        controller.selectSubtitleTrack(at: option.position)
+                    } label: {
+                        HStack {
+                            Text(option.title)
+                            Spacer()
+                            if option.position == controller.selectedSubtitleTrackOrderIndex {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Select subtitle track", systemImage: "captions.bubble.fill")
+                .labelStyle(.iconOnly)
+        }
+        .menuStyle(.borderlessButton)
+        .disabled(controller.subtitleTrackOptions.isEmpty)
+        .help(controller.subtitleTrackOptions.isEmpty ? "No subtitle tracks" : "Select subtitle track")
     }
 
     // MARK: - Timecode Input Helpers
@@ -539,16 +583,11 @@ struct PreviewTrimControls: View {
     // MARK: - Helper Properties
 
     private var isLoopDisabled: Bool {
-        // Disable loop when using fallback preview modes (VLC or chunk-based)
-        controller.useVLC || controller.usePreviewFallback
+        false
     }
 
     private var loopButtonTooltip: String {
-        if isLoopDisabled {
-            return "Loop is not available for this video format"
-        } else {
-            return "Loop playback (⌘L)"
-        }
+        "Loop playback (⌘L)"
     }
     
     // MARK: - Timecode Formatting with Mode
@@ -576,5 +615,6 @@ struct PreviewTrimControls: View {
             .contentShape(Rectangle())
             .onTapGesture { timecodeDisplayMode.toggle() }
             .help("Click or press T to cycle: REL TC → SRC TC → FRM")
+            .frame(width: 40)
     }
 }

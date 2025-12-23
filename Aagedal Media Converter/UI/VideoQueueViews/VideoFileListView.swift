@@ -345,7 +345,6 @@ struct VideoFileListView: View {
             print(" Bookmark saved: \(bookmarkSaved)")
 
             let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
-            let durationSeconds = details.durationSeconds
             await MainActor.run {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].apply(details: details)
@@ -359,15 +358,7 @@ struct VideoFileListView: View {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].metadata = metadata
                     print(" Updated video item with metadata: \(self.droppedFiles[index].name)")
-
-                    let effectiveDuration = self.droppedFiles[index].durationSeconds
-                    let durationForPrefetch = effectiveDuration > 0 ? effectiveDuration : durationSeconds
-                    if durationForPrefetch > 0 {
-                        VideoFileUtils.prefetchPreviewAssets(
-                            for: url,
-                            durationSeconds: durationForPrefetch
-                        )
-                    }
+                    VideoFileUtils.prefetchPreviewAssets(for: url)
                 }
             }
         }
@@ -984,7 +975,18 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 
                 // Option+I: Open Metadata Info (single or multiple selection for comparison)
                 // Note: CMD+I is used for Import, so we use Option+I instead
+                // Skip if we're in a sheet (trim view uses Option+I to clear trim start)
                 if hasOption && !hasCommand && !hasShift && !hasControl && event.keyCode == kVK_ANSI_I {
+                    // Check if the key window IS a sheet (has a sheetParent) or HAS a sheet attached
+                    let isInSheet = MainActor.assumeIsolated {
+                        if let keyWindow = NSApp.keyWindow {
+                            return keyWindow.sheetParent != nil || keyWindow.attachedSheet != nil
+                        }
+                        return false
+                    }
+                    if isInSheet {
+                        return event  // Pass through to let the sheet handle it
+                    }
                     self.onMetadata()
                     return nil
                 }
