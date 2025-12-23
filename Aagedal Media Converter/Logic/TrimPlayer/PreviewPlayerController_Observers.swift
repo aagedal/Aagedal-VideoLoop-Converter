@@ -100,99 +100,9 @@ extension PreviewPlayerController {
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
 
-                // For composition-based fallback, still enforce trim boundaries if looping
-                if self.usePreviewFallback, self.composition != nil {
-                    let currentTime = time.seconds
-
-                    // Enforce trim boundaries when looping is enabled
-                    guard self.videoItem.loopPlayback else { return }
-
-                    let trimStart = self.videoItem.effectiveTrimStart
-                    let trimEnd = self.videoItem.effectiveTrimEnd
-                    let tolerance = 0.05
-
-                    // Keep playback within trim boundaries
-                    if currentTime < trimStart - tolerance {
-                        // Before trim start - load correct chunk and seek
-                        let targetChunk = Int(trimStart / self.chunkDuration)
-                        let wasPlaying = (self.player?.rate ?? 0) > 0
-                        if targetChunk != self.currentChunkIndex {
-                            self.loadChunkForTime(trimStart)
-                            if wasPlaying {
-                                self.player?.play()
-                            }
-                        } else {
-                            let startTime = CMTime(seconds: trimStart, preferredTimescale: 600)
-                            self.player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-                                guard finished && wasPlaying else { return }
-                                Task { @MainActor [weak self] in
-                                    self?.player?.play()
-                                }
-                            }
-                        }
-                    } else if currentTime >= trimEnd - tolerance {
-                        // At trim end - loop back to trim start
-                        let targetChunk = Int(trimStart / self.chunkDuration)
-                        let wasPlaying = (self.player?.rate ?? 0) > 0
-                        if targetChunk != self.currentChunkIndex {
-                            // Need to load different chunk for trim start
-                            self.loadChunkForTime(trimStart)
-                            if wasPlaying {
-                                self.player?.play()
-                            }
-                        } else {
-                            // Same chunk - just seek and continue playing
-                            let startTime = CMTime(seconds: trimStart, preferredTimescale: 600)
-                            self.player?.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-                                guard finished && wasPlaying else { return }
-                                Task { @MainActor [weak self] in
-                                    self?.player?.play()
-                                }
-                            }
-                        }
-                    }
-                    return
-                }
-                
-                // For legacy chunked fallback, check if we need to switch chunks
-                if self.usePreviewFallback, let previewRange = self.fallbackPreviewRange {
-                    let currentTime = time.seconds
-                    let chunkDuration = previewRange.upperBound - previewRange.lowerBound
-                    let isPlaying = (self.player?.rate ?? 0) > 0
-                    
-                    // Only auto-switch during playback, not when paused/stepping frames
-                    if isPlaying {
-                        // Check if we've crossed chunk boundaries (forward or backward)
-                        if currentTime >= chunkDuration - 1.0 {
-                            // Approaching end - load next chunk
-                            let nextChunkIndex = self.currentChunkIndex + 1
-                            let totalChunks = Int(ceil(self.videoItem.durationSeconds / self.chunkDuration))
-                            
-                            if nextChunkIndex < totalChunks && !self.isLoadingChunk {
-                                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                                    .info("Auto-switching to next chunk \(nextChunkIndex, privacy: .public) for continuous playback")
-                                self.loadChunkForTime(Double(nextChunkIndex) * self.chunkDuration)
-                                return
-                            }
-                        } else if currentTime < 1.0 && self.currentChunkIndex > 0 {
-                            // Near beginning while playing backward - check if should load previous chunk
-                            let absoluteTime = previewRange.lowerBound + currentTime
-                            let targetChunk = Int(absoluteTime / self.chunkDuration)
-                            
-                            if targetChunk < self.currentChunkIndex && !self.isLoadingChunk {
-                                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                                    .info("Auto-switching to previous chunk \(targetChunk, privacy: .public)")
-                                self.loadChunkForTime(Double(targetChunk) * self.chunkDuration)
-                                return
-                            }
-                        }
-                    }
-                    return
-                }
-
                 let currentTime = time.seconds
-                
-                // Only enforce trim boundaries when looping is enabled and not using fallback
+
+                // Only enforce trim boundaries when looping is enabled
                 guard self.videoItem.loopPlayback else { return }
 
                 let trimStart = self.videoItem.effectiveTrimStart
@@ -237,24 +147,7 @@ extension PreviewPlayerController {
                 guard let self = self else { return }
                 let currentTime = time.seconds
                 if currentTime.isFinite {
-                    // For composition-based playback, use composition time directly
-                    if self.usePreviewFallback, self.composition != nil {
-                        // Composition time is absolute across full audio duration
-                        self.currentPlaybackTime = currentTime
-                        
-                        // Check if we need to load a different video chunk
-                        let neededChunkIndex = Int(currentTime / self.chunkDuration)
-                        if neededChunkIndex != self.currentChunkIndex && !self.isLoadingChunk {
-                            self.loadChunkForTime(currentTime)
-                        }
-                    } else if self.usePreviewFallback, let range = self.fallbackPreviewRange {
-                        // Legacy chunk-based playback (fallback)
-                        let absoluteTime = range.lowerBound + currentTime
-                        self.currentPlaybackTime = absoluteTime
-                    } else {
-                        // Native playback
-                        self.currentPlaybackTime = currentTime
-                    }
+                    self.currentPlaybackTime = currentTime
                 }
             }
         }

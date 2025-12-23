@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Controller for video preview playback, trimming, and screenshot capture.
-// Extensions: +Screenshot, +FallbackPreview, +Observers
+// Extensions: +Screenshot, +Observers
 
 import SwiftUI
 import AppKit
@@ -60,35 +60,14 @@ final class PreviewPlayerController: ObservableObject {
     }
     @Published var isLoadingPreviewAssets = false
     @Published var isCapturingScreenshot = false
-    @Published var isGeneratingFallbackPreview = false
-    @Published var fallbackPreviewRange: ClosedRange<Double>?
-    @Published var loadedChunks: Set<Int> = []
-    @Published var fallbackStillImage: NSImage?
-    @Published var fallbackStillTime: Double?
-    @Published var isGeneratingFallbackStill = false
-    @Published var isLoadingChunk = false
-    @Published var pendingChunkTime: Double?
-    @Published var loadingChunkIndex: Int?
     @Published var audioTrackOptions: [AudioTrackOption] = []
     @Published var isCropEnabled: Bool = false
 
-    // MARK: - Configuration
-
-    let chunkDuration: TimeInterval = 2.0
-    let previewMaxShortEdge: Int = 720
-    var currentChunkIndex: Int = 0
-    var chunkDurations: [Int: TimeInterval] = [:]
-    var appliedChunks: Set<Int> = []
-    
     // MARK: - State
-    
+
     var videoItem: VideoItem
-    var mp4Session: MP4PreviewSession?
     var preparationTask: Task<Void, Never>?
-    var chunkLoadTask: Task<Void, Never>?
-    var chunkPreloadTask: Task<Void, Never>?
     var previewAssetTask: Task<Void, Never>?
-    var fallbackStillTask: Task<Void, Never>?
     var loopObserver: Any?
     var timeObserver: Any?
     var playbackTimeObserver: Any?
@@ -97,14 +76,8 @@ final class PreviewPlayerController: ObservableObject {
     weak var playbackTimeObserverOwner: AVPlayer?
     weak var audioSyncObserverOwner: AVPlayer?
     var playerItemStatusObserver: Any?
-    var fullAudioTrackURLs: [URL] = []
     var hasSecurityScope = false
-    var usePreviewFallback = false
-    var composition: AVMutableComposition?
-    var compositionVideoTrack: AVMutableCompositionTrack?
-    var compositionAudioTracks: [AVMutableCompositionTrack] = []
     weak var playerView: AVPlayerView?
-    var previewAudioStreamIndices: [Int] = []
     var selectedAudioTrackOrderIndex: Int = 0
     
     // MARK: - Audio Monitoring
@@ -113,12 +86,6 @@ final class PreviewPlayerController: ObservableObject {
     // MARK: - MPV State
     var mpvPlayer: MPVPlayer?
     var useMPV = false
-
-    /// Codecs that require chunk-based fallback (not supported by AVPlayer or MPV)
-    /// Note: APV and VVC removed - now supported by MPV with custom-built FFmpeg decoders
-    private static let chunkFallbackCodecs: Set<String> = [
-        // Future codecs can be added here if needed
-    ]
 
     // MARK: - Initialization
     
@@ -150,41 +117,15 @@ final class PreviewPlayerController: ObservableObject {
     
     // MARK: - Preview Preparation
 
-    /// Checks if the video codec requires chunk-based fallback (not supported by AVPlayer)
-    /// Returns true if chunk fallback should be used, false if AVPlayer should be tried first
-    private func requiresChunkFallback(for item: VideoItem) -> Bool {
-        // Check cached metadata first (instant if available)
-        if let codec = item.metadata?.videoStream?.codec?.lowercased() {
-            // Check against known codecs requiring chunk fallback
-            for fallbackCodec in Self.chunkFallbackCodecs {
-                if codec.contains(fallbackCodec) {
-                    return true
-                }
-            }
-        }
-
-        return false  // Unknown or no metadata - try AVPlayer first, async detection will catch it
-    }
-
     func preparePreview(startTime: TimeInterval, resetAudioSelection: Bool = true) {
         teardown(resetAudioSelection: resetAudioSelection)
         isPreparing = true
         errorMessage = nil
         isLoadingPreviewAssets = true
         previewAssets = nil
-        usePreviewFallback = false
         useMPV = false
 
-        let currentItem = videoItem
-        let url = currentItem.url
-
-        // Check if this codec requires chunk-based fallback before creating AVPlayer
-        if requiresChunkFallback(for: currentItem) {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .info("Detected codec requiring chunk fallback from metadata - using fallback preview directly")
-            fallbackToPreview(startTime: startTime)
-            return  // Skip AVPlayer creation entirely
-        }
+        let url = videoItem.url
 
         // Try AVPlayer directly first with security-scoped resource access
         
@@ -204,17 +145,17 @@ final class PreviewPlayerController: ObservableObject {
         installPlayerItemStatusObserver(for: playerItem, startTime: startTime)
         
         self.isPreparing = false
-        refreshAudioTrackOptions(for: currentItem, playerItem: playerItem)
-        
+        refreshAudioTrackOptions(for: videoItem, playerItem: playerItem)
+
         // Seek to start time but remain paused (don't auto-play)
         let seekTime = CMTime(seconds: startTime, preferredTimescale: 600)
         player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
-        
+
         installLoopObserver(for: playerItem)
         installTimeObserver(for: player)
         installPlaybackTimeObserver(for: player)
         updatePlayerActionAtEnd()
-        loadPreviewAssets(for: currentItem.url)
+        loadPreviewAssets(for: videoItem.url)
         
         // Audio monitoring is handled globally by UniversalAudioMeterService
     }
@@ -475,10 +416,6 @@ final class PreviewPlayerController: ObservableObject {
                     mediaGroup = nil
                 }
 
-                if !orderedIndices.isEmpty {
-                    self.previewAudioStreamIndices = orderedIndices
-                }
-
                 self.buildAudioTrackOptions(metadata: metadata, orderedIndices: orderedIndices, mediaGroup: mediaGroup)
             }
 
@@ -678,101 +615,61 @@ final class PreviewPlayerController: ObservableObject {
     }
 
     func applySelectedAudioTrackToCurrentPlayerItem() {
-        if usePreviewFallback {
-            // Fallback preview (chunk based) - rebuild composition with new audio track
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .info("applySelectedAudioTrackToCurrentPlayerItem: usePreviewFallback=true, calling rebuildComposition()")
-            Task { @MainActor in
-                await self.rebuildComposition()
-            }
-        } else {
-            // AVPlayer
-            guard let playerItem = player?.currentItem else { return }
-            
-            Task { @MainActor [weak self, weak playerItem] in
-                guard let self, let playerItem else { return }
-                
-                // 1. Try to load media selection group first (for alternate tracks)
-                var mediaGroup: AVMediaSelectionGroup?
-                do {
-                    mediaGroup = try await playerItem.asset.loadMediaSelectionGroup(for: .audible)
-                } catch {
-                    Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("Failed to load audible group: \(error)")
-                }
-                
-                // 2. Build options (this populates self.audioTrackOptions)
-                self.buildAudioTrackOptions(metadata: self.videoItem.metadata, orderedIndices: [], mediaGroup: mediaGroup)
-                
-                guard !self.audioTrackOptions.isEmpty else { return }
-                
-                let desiredPosition = min(max(self.selectedAudioTrackOrderIndex, 0), self.audioTrackOptions.count - 1)
-                let selectedOption = self.audioTrackOptions[desiredPosition]
-                
-                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                    .debug("Applying audio selection: position=\(desiredPosition), option=\(selectedOption.title)")
+        guard let playerItem = player?.currentItem else { return }
 
-                // 3. Strategy A: If we have a valid media group and option index, try using select()
-                // This works for mutually exclusive tracks (e.g. languages)
-                if let mediaGroup, let mappedIndex = selectedOption.mediaOptionIndex, mediaGroup.options.indices.contains(mappedIndex) {
-                    let avOption = mediaGroup.options[mappedIndex]
-                    if playerItem.currentMediaSelection.selectedMediaOption(in: mediaGroup) != avOption {
-                        playerItem.select(avOption, in: mediaGroup)
-                        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Selected media option via group")
-                        return // Done if successful
-                    }
+        Task { @MainActor [weak self, weak playerItem] in
+            guard let self, let playerItem else { return }
+
+            // 1. Try to load media selection group first (for alternate tracks)
+            var mediaGroup: AVMediaSelectionGroup?
+            do {
+                mediaGroup = try await playerItem.asset.loadMediaSelectionGroup(for: .audible)
+            } catch {
+                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("Failed to load audible group: \(error)")
+            }
+
+            // 2. Build options (this populates self.audioTrackOptions)
+            self.buildAudioTrackOptions(metadata: self.videoItem.metadata, orderedIndices: [], mediaGroup: mediaGroup)
+
+            guard !self.audioTrackOptions.isEmpty else { return }
+
+            let desiredPosition = min(max(self.selectedAudioTrackOrderIndex, 0), self.audioTrackOptions.count - 1)
+            let selectedOption = self.audioTrackOptions[desiredPosition]
+
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .debug("Applying audio selection: position=\(desiredPosition), option=\(selectedOption.title)")
+
+            // 3. Strategy A: If we have a valid media group and option index, try using select()
+            // This works for mutually exclusive tracks (e.g. languages)
+            if let mediaGroup, let mappedIndex = selectedOption.mediaOptionIndex, mediaGroup.options.indices.contains(mappedIndex) {
+                let avOption = mediaGroup.options[mappedIndex]
+                if playerItem.currentMediaSelection.selectedMediaOption(in: mediaGroup) != avOption {
+                    playerItem.select(avOption, in: mediaGroup)
+                    Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Selected media option via group")
+                    return // Done if successful
                 }
-                
-                // 4. Strategy B: Direct track enabling/disabling
-                // This handles cases where tracks are not in a group (e.g. multi-channel recording)
-                // We iterate through all tracks in the player item.
-                
-                let tracks = playerItem.tracks
-                var audioTracks: [AVPlayerItemTrack] = []
-                
-                for track in tracks {
-                    if track.assetTrack?.mediaType == .audio {
-                        audioTracks.append(track)
-                    }
+            }
+
+            // 4. Strategy B: Direct track enabling/disabling
+            // This handles cases where tracks are not in a group (e.g. multi-channel recording)
+            let tracks = playerItem.tracks
+            var audioTracks: [AVPlayerItemTrack] = []
+
+            for track in tracks {
+                if track.assetTrack?.mediaType == .audio {
+                    audioTracks.append(track)
                 }
-                
-                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Found \(audioTracks.count) audio tracks in player item")
-                
-                if !audioTracks.isEmpty {
-                    // We need to map our 'selectedOption' to one of these tracks.
-                    // If we built options from metadata, 'streamIndex' should match the asset track index?
-                    // Or we can just assume the order matches if we built options sequentially.
-                    
-                    // Let's try to match by index first
-                    // The 'streamIndex' in AudioTrackOption comes from metadata or order.
-                    
-                    // If we have metadata, we can try to match the assetTrack.trackID?
-                    // But AVPlayerItemTrack wraps an AVAssetTrack.
-                    
-                    // Simplest robust approach: Enable ONE, disable OTHERS.
-                    // Which one? The one at 'desiredPosition' if we assume 1:1 mapping between our options and playerItem.tracks.
-                    // NOTE: This assumes our `buildAudioTrackOptions` created one option per track in the same order.
-                    
-                    // If we have fewer options than tracks (e.g. some filtered out), this might be tricky.
-                    // But usually we show all.
-                    
-                    Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("applySelectedAudioTrackToCurrentPlayerItem: usePreviewFallback=\(self.usePreviewFallback)")
-                
-                    if usePreviewFallback {
-                        // For fallback preview, we rebuild the composition with the selected audio track
-                        // This avoids issues with AVMutableAudioMix on compositions
-                        Task { @MainActor in
-                            await self.rebuildComposition()
-                        }
-                        return
-                    }
-                    
-                    for (index, track) in audioTracks.enumerated() {
-                        let shouldEnable = (index == desiredPosition)
-                        if track.isEnabled != shouldEnable {
-                            track.isEnabled = shouldEnable
-                            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                                .debug("Set track \(index) enabled: \(shouldEnable)")
-                        }
+            }
+
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Found \(audioTracks.count) audio tracks in player item")
+
+            if !audioTracks.isEmpty {
+                for (index, track) in audioTracks.enumerated() {
+                    let shouldEnable = (index == desiredPosition)
+                    if track.isEnabled != shouldEnable {
+                        track.isEnabled = shouldEnable
+                        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                            .debug("Set track \(index) enabled: \(shouldEnable)")
                     }
                 }
             }
@@ -796,16 +693,10 @@ final class PreviewPlayerController: ObservableObject {
     func teardown(resetAudioSelection: Bool = true) {
         preparationTask?.cancel()
         preparationTask = nil
-        chunkLoadTask?.cancel()
-        chunkLoadTask = nil
-        chunkPreloadTask?.cancel()
-        chunkPreloadTask = nil
         previewAssetTask?.cancel()
         previewAssetTask = nil
-        fallbackStillTask?.cancel()
-        fallbackStillTask = nil
         player?.pause()
-        
+
         // Release security-scoped resource only if we acquired it
         if hasSecurityScope {
             let url = videoItem.url
@@ -814,13 +705,9 @@ final class PreviewPlayerController: ObservableObject {
             url.stopAccessingSecurityScopedResource()
             hasSecurityScope = false
         }
-        
+
         player = nil
-        if let session = mp4Session {
-            mp4Session = nil
-            Task { await session.cancel(); await session.cleanup() }
-        }
-        
+
         if let mpv = mpvPlayer {
             mpv.stop()
             mpvPlayer = nil
@@ -828,35 +715,16 @@ final class PreviewPlayerController: ObservableObject {
         useMPV = false
 
         isPreparing = false
-        isGeneratingFallbackPreview = false
-        isLoadingChunk = false
-        loadingChunkIndex = nil
-        isGeneratingFallbackStill = false
-        fallbackPreviewRange = nil
-        loadedChunks = []
-        currentChunkIndex = 0
-        chunkDurations.removeAll()
-        fallbackStillImage = nil
-        fallbackStillTime = nil
         removeLoopObserver()
         removeTimeObserver()
         removePlaybackTimeObserver()
         removePlayerItemStatusObserver()
-        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("teardown called. Resetting usePreviewFallback (was \(self.usePreviewFallback))")
-        usePreviewFallback = false
-        composition = nil
-        compositionVideoTrack = nil
-        compositionAudioTracks = []
-        fullAudioTrackURLs = []
-        pendingChunkTime = nil
-        appliedChunks.removeAll()
-        previewAudioStreamIndices = []
         if resetAudioSelection {
             selectedAudioTrackOrderIndex = 0
         }
         audioTrackOptions = []
         currentWaveformURL = nil
-        
+
         // Stop audio monitoring
         isAudioMeterEnabled = false
     }
@@ -896,55 +764,8 @@ final class PreviewPlayerController: ObservableObject {
             mpv.seek(to: time)
             return
         }
-        
+
         guard let player else { return }
-        
-        // If using composition-based fallback (continuous audio)
-        if usePreviewFallback, composition != nil {
-            let targetChunk = Int(time / chunkDuration)
-            
-            // Load chunk if needed (triggers in background)
-            if targetChunk != currentChunkIndex && !isLoadingChunk {
-                loadChunkForTime(time)
-            }
-            
-            // Seek to absolute time in composition (audio continues)
-            let cmTime = CMTime(seconds: time, preferredTimescale: 600)
-            player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-            return
-        }
-        
-        // If using legacy fallback preview with chunks (old system)
-        if usePreviewFallback {
-            let targetChunk = Int(time / chunkDuration)
-            
-            // Check if we need to load a different chunk (forward OR backward)
-            if targetChunk != currentChunkIndex {
-                // Load the chunk for this time
-                loadChunkForTime(time)
-                //scheduleQuickStillIfNeeded(for: time)
-                return
-            }
-            
-            // Same chunk - check if within range
-            if let range = fallbackPreviewRange {
-                if time >= range.lowerBound && time <= range.upperBound {
-                    // Within current chunk range - seek to relative position
-                    let timeInChunk = time - range.lowerBound
-                    let cmTime = CMTime(seconds: timeInChunk, preferredTimescale: 600)
-                    player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
-                    return
-                } else {
-                    // Outside chunk range but same chunk index (at edge) - generate still
-                    generateFallbackStillIfNeeded(for: time)
-                    //scheduleQuickStillIfNeeded(for: time)
-                    player.pause()
-                    return
-                }
-            }
-        }
-        
-        // Not using fallback - seek normally
         let cmTime = CMTime(seconds: time, preferredTimescale: 600)
         player.seek(to: cmTime, toleranceBefore: .zero, toleranceAfter: .zero)
     }
@@ -956,124 +777,6 @@ final class PreviewPlayerController: ObservableObject {
         // - User drags the playhead (set by UI)
         // - User seeks with keyboard (updated before seeking)
         return currentPlaybackTime
-    }
-    
-    func isChunkAvailable(for time: Double) -> Bool {
-        let chunkIndex = Int(time / chunkDuration)
-        if loadedChunks.contains(chunkIndex) {
-            return true
-        }
-        if let range = fallbackPreviewRange, range.contains(time) {
-            return true
-        }
-        return false
-    }
-    
-    func restoreCachedChunkState(from cacheDirectory: URL) async {
-        let fileManager = FileManager.default
-        var chunkIndices = Set<Int>()
-        let chunksDirectory = cacheDirectory.appendingPathComponent("chunks", isDirectory: true)
-        if fileManager.fileExists(atPath: chunksDirectory.path),
-           let chunkContents = try? fileManager.contentsOfDirectory(at: chunksDirectory, includingPropertiesForKeys: nil) {
-            for url in chunkContents {
-                let name = url.lastPathComponent
-                if let chunk = parseIndex(in: name, prefix: "preview_chunk_", suffix: ".mp4") {
-                    if await validatePreviewFile(at: url) {
-                        chunkIndices.insert(chunk)
-                        if let duration = await loadDuration(for: url) {
-                            chunkDurations[chunk] = duration
-                        }
-                    } else {
-                        try? fileManager.removeItem(at: url)
-                    }
-                }
-            }
-        }
-
-        // Backwards compatibility: older caches stored chunk/section files at the root of cacheDirectory
-        if let legacyContents = try? fileManager.contentsOfDirectory(at: cacheDirectory, includingPropertiesForKeys: nil) {
-            for url in legacyContents where url.hasDirectoryPath == false {
-                let name = url.lastPathComponent
-                if let chunk = parseIndex(in: name, prefix: "preview_chunk_", suffix: ".mp4") {
-                    if await validatePreviewFile(at: url) {
-                        chunkIndices.insert(chunk)
-                        if let duration = await loadDuration(for: url) {
-                            chunkDurations[chunk] = duration
-                        }
-                    } else {
-                        try? fileManager.removeItem(at: url)
-                    }
-                }
-            }
-        }
-
-        loadedChunks = chunkIndices
-        updateFallbackCoverageRange()
-    }
-
-    func updateFallbackCoverageRange() {
-        guard !loadedChunks.isEmpty else {
-            fallbackPreviewRange = nil
-            return
-        }
-
-        let sortedChunks = loadedChunks.sorted()
-        guard let firstIndex = sortedChunks.first else {
-            fallbackPreviewRange = nil
-            return
-        }
-
-        let rangeStart = Double(firstIndex) * chunkDuration
-        var rangeEnd = rangeStart + (chunkDurations[firstIndex] ?? chunkDuration)
-        var previousIndex = firstIndex
-
-        for index in sortedChunks.dropFirst() {
-            if index != previousIndex + 1 {
-                break
-            }
-
-            let chunkStart = Double(index) * chunkDuration
-            let chunkEnd = chunkStart + (chunkDurations[index] ?? chunkDuration)
-            rangeEnd = max(rangeEnd, chunkEnd)
-            previousIndex = index
-        }
-
-        let newRange = rangeStart...rangeEnd
-        fallbackPreviewRange = newRange
-    }
-
-    private func loadDuration(for url: URL) async -> TimeInterval? {
-        let asset = AVURLAsset(url: url)
-        do {
-            let duration = try await asset.load(.duration)
-            guard duration.seconds.isFinite, duration.seconds > 0 else { return nil }
-            return duration.seconds
-        } catch {
-            return nil
-        }
-    }
-
-    private func parseIndex(in name: String, prefix: String, suffix: String) -> Int? {
-        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
-        let start = name.index(name.startIndex, offsetBy: prefix.count)
-        let end = name.index(name.endIndex, offsetBy: -suffix.count)
-        guard start <= end else { return nil }
-        return Int(name[start..<end])
-    }
-
-    private func validatePreviewFile(at url: URL) async -> Bool {
-        let asset = AVURLAsset(url: url)
-        do {
-            let tracks = try await asset.loadTracks(withMediaType: .video)
-            guard !tracks.isEmpty else { throw MP4PreviewSession.PreviewError.outputMissing }
-            let duration = try await asset.load(.duration)
-            guard duration.seconds.isFinite, duration.seconds > 0 else { throw MP4PreviewSession.PreviewError.outputMissing }
-            return true
-        } catch {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .warning("Discarding invalid cached preview file \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            return false
-        }
     }
     
     func toggleFullscreen() {

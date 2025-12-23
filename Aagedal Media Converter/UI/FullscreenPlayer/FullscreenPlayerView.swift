@@ -130,7 +130,7 @@ struct FullscreenPlayerView: View {
                 }
                 
                 // Loading indicator
-                if controller.isPreparing || controller.isGeneratingFallbackPreview || controller.isLoadingChunk || controller.isGeneratingFallbackStill {
+                if controller.isPreparing {
                     loadingOverlay
                 }
                 
@@ -213,15 +213,10 @@ struct FullscreenPlayerView: View {
     }
     
     // MARK: - Video Content
-    
+
     @ViewBuilder
     private var videoContent: some View {
-        if let still = controller.fallbackStillImage {
-            Image(nsImage: still)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let player = controller.player {
+        if let player = controller.player {
             FullscreenAVPlayerView(player: player)
         } else if controller.useMPV, let mpvPlayer = controller.mpvPlayer {
             FullscreenMPVView(player: mpvPlayer)
@@ -452,28 +447,6 @@ struct FullscreenPlayerView: View {
                     .fill(Color.white.opacity(0.28))
                     .frame(height: 4)
 
-                // Chunk availability overlay (orange = not yet rendered)
-                if controller.fallbackPreviewRange != nil, duration > 0 {
-                    let chunkDuration = controller.chunkDuration
-                    let totalChunks = Int(ceil(duration / chunkDuration))
-
-                    ForEach(0..<totalChunks, id: \.self) { chunkIndex in
-                        if !controller.loadedChunks.contains(chunkIndex) {
-                            let chunkStart = Double(chunkIndex) * chunkDuration
-                            let chunkEnd = min(Double(chunkIndex + 1) * chunkDuration, duration)
-
-                            let startX = CGFloat(chunkStart / duration) * geo.size.width
-                            let endX = CGFloat(chunkEnd / duration) * geo.size.width
-                            let width = max(0, endX - startX)
-
-                            Rectangle()
-                                .fill(Color.orange.opacity(0.35))
-                                .frame(width: width, height: 4)
-                                .offset(x: startX)
-                        }
-                    }
-                }
-
                 // Progress
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white)
@@ -555,10 +528,7 @@ struct FullscreenPlayerView: View {
     }
 
     private var isLowQualityPreview: Bool {
-        controller.fallbackPreviewRange != nil
-            || controller.isGeneratingFallbackPreview
-            || controller.isGeneratingFallbackStill
-            || controller.isLoadingChunk
+        false  // All playback now uses native AVPlayer or MPV
     }
 
     private var audioTrackSelector: some View {

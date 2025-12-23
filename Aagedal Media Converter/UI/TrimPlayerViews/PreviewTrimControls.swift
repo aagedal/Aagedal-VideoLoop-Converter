@@ -42,8 +42,6 @@ struct PreviewTrimControls: View {
                     thumbnails: controller.previewAssets?.thumbnails,
                     waveformURL: controller.currentWaveformURL,
                     isLoading: controller.isLoadingPreviewAssets,
-                    fallbackPreviewRange: controller.fallbackPreviewRange,
-                    loadedChunks: controller.loadedChunks,
                     step: 0.1,
                     hideFilmstrip: false,
                     compactMode: isCompactMode,
@@ -539,8 +537,8 @@ struct PreviewTrimControls: View {
     // MARK: - Helper Properties
 
     private var isLoopDisabled: Bool {
-        // Disable loop when using fallback preview modes (MPV or chunk-based)
-        controller.useMPV || controller.usePreviewFallback
+        // Disable loop when using MPV fallback
+        controller.useMPV
     }
 
     private var loopButtonTooltip: String {
