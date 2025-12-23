@@ -272,11 +272,11 @@ extension PreviewPlayerController {
                     
                 case .readyToPlay:
                     let asset = item.asset
-                    
+
                     Task {
                         do {
                             let videoTracks = try await asset.loadTracks(withMediaType: .video)
-                            
+
                             if !videoTracks.isEmpty {
                                 // Check if video tracks have valid format descriptions
                                 var hasValidVideoFormat = false
@@ -287,16 +287,20 @@ extension PreviewPlayerController {
                                         break
                                     }
                                 }
-                                
+
                                 if !hasValidVideoFormat {
                                     logger.warning("AVPlayer ready but video format invalid. Attempting MPV playback.")
                                     self.teardown(resetAudioSelection: false)
                                     self.setupMPV(url: self.videoItem.url, startTime: startTime)
                                     return
                                 }
-                                
-                                // Check for truly unsupported video codecs (like APV)
+
+                                // Check if video tracks are actually decodable by AVPlayer
+                                // This dynamically detects unsupported codecs (AV1, VVC, APV, etc.)
                                 for track in videoTracks {
+                                    let isDecodable = try await track.load(.isDecodable)
+
+                                    // Log codec info for debugging
                                     let formatDescriptions = try await track.load(.formatDescriptions) as [CMFormatDescription]
                                     for desc in formatDescriptions {
                                         let codec = CMFormatDescriptionGetMediaSubType(desc)
@@ -313,28 +317,25 @@ extension PreviewPlayerController {
                                         } else {
                                             codecString = String(format: "%08X", codec)
                                         }
-                                        
-                                        logger.debug("Video codec detected: '\(codecString)' (raw: \(codec))")
 
-                                        // Check for unsupported codecs - use MPV for APV and VVC
-                                        // Our custom-built MPV/FFmpeg has decoders for these codecs
-                                        if codecString == "apv1" || codecString == "apvx" ||
-                                           codecString == "vvc1" || codecString == "vvi1" {
-                                            logger.warning("AVPlayer ready but codec '\(codecString)' unsupported. Attempting MPV playback.")
-                                            self.teardown(resetAudioSelection: false)
-                                            self.setupMPV(url: self.videoItem.url, startTime: startTime)
-                                            return
-                                        }
+                                        logger.debug("Video codec detected: '\(codecString)' (raw: \(codec)), isDecodable: \(isDecodable)")
+                                    }
+
+                                    if !isDecodable {
+                                        logger.warning("AVPlayer ready but video track not decodable. Attempting MPV playback.")
+                                        self.teardown(resetAudioSelection: false)
+                                        self.setupMPV(url: self.videoItem.url, startTime: startTime)
+                                        return
                                     }
                                 }
                             }
-                            
+
                             // Direct playback successful
                             logger.debug("Direct AVPlayer playback ready")
-                            
+
                             // Apply audio track selection now that tracks are loaded
                             self.applySelectedAudioTrack()
-                            
+
                         } catch {
                             // If we can't load tracks, assume it's okay and let AVPlayer try
                             logger.debug("Could not verify video tracks, proceeding with playback")

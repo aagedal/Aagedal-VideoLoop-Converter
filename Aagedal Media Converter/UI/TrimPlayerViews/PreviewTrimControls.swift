@@ -108,6 +108,7 @@ struct PreviewTrimControls: View {
                     timecodeModePrefix
                     Label("\(formatTimecodeWithMode(seconds: currentPlaybackTime))", systemImage: "arrowtriangle.left.and.line.vertical.and.arrowtriangle.right")
                         .font(.system(.subheadline, design: .monospaced))
+                        .frame(width: 120, alignment: .leading)
                         .padding(0)
                 }
                 .padding(.horizontal, 30)
