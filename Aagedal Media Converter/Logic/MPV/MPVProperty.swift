@@ -27,4 +27,8 @@ struct MPVProperty {
     static let mute = "mute"
     static let aid = "aid"
     static let trackListCount = "track-list/count"
+
+    // Subtitles
+    static let sid = "sid"
+    static let subVisibility = "sub-visibility"
 }
