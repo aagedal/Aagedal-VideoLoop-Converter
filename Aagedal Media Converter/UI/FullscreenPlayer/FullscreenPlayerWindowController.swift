@@ -28,6 +28,12 @@ final class FullscreenPlayerWindowController {
     // Timecode display mode preserved across video switches
     private var currentTimecodeDisplayMode: TimecodeDisplayMode = .preferred
 
+    // Callback to notify when fullscreen player closes with final position
+    private var onCloseWithPosition: ((Double) -> Void)?
+
+    // Reference to current player view to get final position
+    private var currentPlayerView: FullscreenPlayerView?
+
     private init() {}
     
     /// Opens a fullscreen player for the given video item
@@ -130,6 +136,103 @@ final class FullscreenPlayerWindowController {
         openFullscreenPlayer(for: item, on: screen)
     }
 
+    /// Opens fullscreen player from trim view with position synchronization
+    /// - Parameters:
+    ///   - item: The video item to play
+    ///   - startTime: The starting playback position
+    ///   - onCloseWithPosition: Callback invoked when player closes with final position
+    func openFullscreenPlayerFromTrimView(
+        for item: VideoItem,
+        startTime: Double,
+        onCloseWithPosition: @escaping (Double) -> Void
+    ) {
+        // Store the callback
+        self.onCloseWithPosition = onCloseWithPosition
+
+        // Close any existing fullscreen player
+        dismissWindow()
+
+        // Clear queue since we're opening from trim view (single item context)
+        queue = []
+        currentIndex = 0
+
+        let targetScreen = NSScreen.main ?? NSScreen.screens.first!
+        currentScreen = targetScreen
+
+        // Create a borderless fullscreen window
+        let window = NSWindow(
+            contentRect: targetScreen.frame,
+            styleMask: [.titled, .fullSizeContentView, .resizable],
+            backing: .buffered,
+            defer: false,
+            screen: targetScreen
+        )
+
+        window.level = .normal
+        window.isOpaque = true
+        window.backgroundColor = .black
+        window.collectionBehavior = [.fullScreenPrimary, .managed]
+        window.isReleasedWhenClosed = false
+        window.acceptsMouseMovedEvents = true
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+
+        // Reset state when opening fresh
+        isOverlayHidden = false
+        currentTimecodeDisplayMode = .preferred
+
+        // Create the SwiftUI view with position callbacks
+        let playerView = FullscreenPlayerView(
+            item: item,
+            initialOverlayHidden: false,
+            initialTimecodeDisplayMode: currentTimecodeDisplayMode,
+            startTime: startTime,
+            onClose: { [weak self] in
+                self?.closeFullscreenPlayer()
+            },
+            onCloseWithPosition: { [weak self] position in
+                self?.onCloseWithPosition?(position)
+            },
+            onPreviousItem: nil,
+            onNextItem: nil,
+            onOverlayVisibilityChanged: { [weak self] isHidden in
+                MainActor.assumeIsolated { self?.isOverlayHidden = isHidden }
+            },
+            onTimecodeDisplayModeChanged: { [weak self] mode in
+                MainActor.assumeIsolated { self?.currentTimecodeDisplayMode = mode }
+            },
+            canGoToPrevious: false,
+            canGoToNext: false
+        )
+
+        let hostingView = NSHostingView(rootView: playerView)
+        hostingView.frame = window.contentView?.bounds ?? targetScreen.frame
+        hostingView.autoresizingMask = [.width, .height]
+
+        window.contentView = hostingView
+
+        // Store references
+        self.currentWindow = window
+        self.hostingView = hostingView
+
+        shouldCloseAfterExitFullscreen = false
+        exitFullscreenObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didExitFullScreenNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated {
+                guard self.shouldCloseAfterExitFullscreen else { return }
+                self.dismissWindow()
+            }
+        }
+
+        // Enter fullscreen mode
+        window.makeKeyAndOrderFront(nil)
+        window.toggleFullScreen(nil)
+    }
+
     /// Navigate to the previous item in the queue
     func goToPreviousItem() {
         guard !queue.isEmpty else { return }
@@ -219,6 +322,9 @@ final class FullscreenPlayerWindowController {
         currentWindow?.close()
         currentWindow = nil
         hostingView = nil
+
+        // Clear the position callback after window is dismissed
+        onCloseWithPosition = nil
     }
     
     /// Returns true if a fullscreen player is currently open

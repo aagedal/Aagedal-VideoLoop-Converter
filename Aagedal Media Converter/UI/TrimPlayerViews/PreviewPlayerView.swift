@@ -79,7 +79,7 @@ struct PreviewPlayerView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-        .frame(minWidth: 920, idealWidth: 1080, minHeight: 640, idealHeight: 720)
+        .frame(minWidth: 1000, idealWidth: 1200, minHeight: 700, idealHeight: 800)
         .background(Color(NSColor.windowBackgroundColor))
         .background(KeyboardHandler(onCommandA: {
             controller.isAudioMeterEnabled.toggle()
@@ -170,6 +170,25 @@ struct PreviewPlayerView: View {
                 }
             } catch {
                 NSLog("Screenshot capture failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func openFullscreenPlayer() {
+        // Pause the trim player before opening fullscreen
+        controller.pause()
+
+        // Get current playback position
+        let currentPosition = currentPlaybackTime
+
+        // Open fullscreen player with position sync
+        FullscreenPlayerWindowController.shared.openFullscreenPlayerFromTrimView(
+            for: item,
+            startTime: currentPosition
+        ) { [weak controller] finalPosition in
+            // When fullscreen closes, sync position back to trim player
+            Task { @MainActor in
+                controller?.seekTo(finalPosition)
             }
         }
     }
@@ -428,7 +447,7 @@ struct PreviewPlayerView: View {
                 item.loopPlayback.toggle()
                 return true
             case "f":
-                controller.toggleFullscreen()
+                openFullscreenPlayer()
                 return true
             case "s":
                 // CMD+S: Capture screenshot
