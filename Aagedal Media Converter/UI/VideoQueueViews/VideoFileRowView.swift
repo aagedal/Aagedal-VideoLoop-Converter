@@ -389,13 +389,30 @@ struct VideoFileRowView: View {
         }
     }
 
+    /// Check if file has surround audio (any track with more than 2 channels)
+    private var hasSurroundAudio: Bool {
+        guard let audioStreams = file.metadata?.audioStreams else { return false }
+        return audioStreams.contains { ($0.channels ?? 0) > 2 }
+    }
+
     @ViewBuilder
     private var audioRoutingBadge: some View {
         if file.isMuted {
             // Show red muted badge when item is muted (icon only)
             badgeView(icon: "speaker.slash.fill", text: "", color: .red)
         } else if let config = file.audioRoutingConfig, config.isCustomized {
-            badgeView(icon: "hifispeaker.2", text: "\(config.outputTrackIndices.count)")
+            // Show track count badge with downmix indicator if any tracks are being downmixed
+            let hasDownmix = config.outputTracks.contains { $0.downmixToStereo }
+            if hasDownmix {
+                badgeView(icon: "hifispeaker.2", text: "→2ch", color: .green)
+            } else if config.hasOutputSurroundWithoutDownmix {
+                badgeView(icon: "speaker.wave.3.fill", text: "\(config.outputTracks.count)", color: .orange)
+            } else {
+                badgeView(icon: "hifispeaker.2", text: "\(config.outputTracks.count)")
+            }
+        } else if hasSurroundAudio {
+            // Show surround warning badge when no custom routing but file has surround audio
+            badgeView(icon: "speaker.wave.3.fill", text: "", color: .orange)
         }
     }
 

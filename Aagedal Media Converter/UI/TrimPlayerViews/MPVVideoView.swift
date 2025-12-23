@@ -88,7 +88,7 @@ struct MPVVideoView: NSViewControllerRepresentable {
         Coordinator(keyHandler: keyHandler)
     }
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, @unchecked Sendable {
         private var monitor: Any?
         private let keyHandler: (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool
         weak var viewController: MPVViewController?
@@ -102,9 +102,11 @@ struct MPVVideoView: NSViewControllerRepresentable {
 
                 // Only handle events if our window is the key window
                 // This prevents capturing events when fullscreen player is open
-                guard let vc = self.viewController,
-                      let window = vc.view.window,
-                      window.isKeyWindow else {
+                // NSEvent monitors always run on the main thread, so we can safely assume main actor isolation
+                let isKeyWindow = MainActor.assumeIsolated {
+                    self.viewController?.view.window?.isKeyWindow ?? false
+                }
+                guard isKeyWindow else {
                     return event
                 }
 

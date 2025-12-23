@@ -39,6 +39,8 @@ actor ConversionManager: Sendable {
     private var progressStream: AsyncStream<Double>?
     // Periodic task that yields overall progress every few seconds while converting
     private var progressTimerTask: Task<Void, Never>?
+    // Track URLs that have active security-scoped access during conversion
+    private var activeSecurityScopedURLs: Set<URL> = []
     private struct MergePlan {
         let itemIDs: [UUID]
         let listFileURL: URL
@@ -142,9 +144,13 @@ actor ConversionManager: Sendable {
 
         let resolvedOutputFolder = VideoFileUtils.resolveOutputFolder(for: firstItem.url, defaultOutputFolder: outputFolder, preset: preset) ?? outputFolder
 
-        // Ensure the output directory exists
+        // Ensure the output directory exists with proper security-scoped access
         let resolvedOutputFolderURL = URL(fileURLWithPath: resolvedOutputFolder)
-        try? FileManager.default.createDirectory(at: resolvedOutputFolderURL, withIntermediateDirectories: true)
+        guard ensureDirectoryAccessible(at: resolvedOutputFolderURL) else {
+            mergeLogger.error("Failed to access output directory for merge: \(resolvedOutputFolder)")
+            cleanupTemporaryFiles(temporaryFiles)
+            return nil
+        }
 
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
         let baseOutputURL = URL(fileURLWithPath: resolvedOutputFolder)
@@ -568,7 +574,83 @@ actor ConversionManager: Sendable {
         progressTimerTask?.cancel()
         progressTimerTask = nil
     }
-    
+
+    // MARK: - Security-Scoped Resource Management
+
+    /// Ensures a directory exists and is accessible, using security-scoped bookmarks if needed.
+    /// - Returns: true if the directory was created/accessible, false otherwise
+    private func ensureDirectoryAccessible(at url: URL) -> Bool {
+        let fileManager = FileManager.default
+
+        // First try: direct access (works if we already have permission)
+        do {
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+            return true
+        } catch {
+            // Continue to try with bookmark access
+        }
+
+        // Second try: access via bookmark for this exact directory
+        if let resolvedURL = SecurityScopedBookmarkManager.shared.resolveBookmark(for: url) {
+            if resolvedURL.startAccessingSecurityScopedResource() {
+                activeSecurityScopedURLs.insert(resolvedURL)
+                do {
+                    try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+                    return true
+                } catch {
+                    // Failed even with bookmark access
+                }
+            }
+        }
+
+        // Third try: access via bookmark for parent directory
+        let parentURL = url.deletingLastPathComponent()
+        if let resolvedParent = SecurityScopedBookmarkManager.shared.resolveBookmark(for: parentURL) {
+            if resolvedParent.startAccessingSecurityScopedResource() {
+                activeSecurityScopedURLs.insert(resolvedParent)
+                do {
+                    try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+                    return true
+                } catch {
+                    // Failed even with parent bookmark access
+                }
+            }
+        }
+
+        // Fourth try: try starting access on the URL directly (in case it was granted via NSOpenPanel)
+        if url.startAccessingSecurityScopedResource() {
+            activeSecurityScopedURLs.insert(url)
+            do {
+                try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+                return true
+            } catch {
+                // Failed even with direct access
+            }
+        }
+
+        // Fifth try: try parent URL directly
+        if parentURL.startAccessingSecurityScopedResource() {
+            activeSecurityScopedURLs.insert(parentURL)
+            do {
+                try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+                return true
+            } catch {
+                // Failed even with parent access
+            }
+        }
+
+        print("Failed to create directory with any access method: \(url.path)")
+        return false
+    }
+
+    /// Releases all security-scoped resource access acquired during conversion
+    private func releaseAllSecurityScopedAccess() {
+        for url in activeSecurityScopedURLs {
+            url.stopAccessingSecurityScopedResource()
+        }
+        activeSecurityScopedURLs.removeAll()
+    }
+
     func isConvertingStatus() -> Bool {
         return isConverting
     }
@@ -807,6 +889,7 @@ actor ConversionManager: Sendable {
             self.isConverting = false
             progressContinuation?.yield(1.0)
             stopProgressTimer()
+            releaseAllSecurityScopedAccess()
             return
         }
         
@@ -833,9 +916,20 @@ actor ConversionManager: Sendable {
         let outputFileName = sanitizedBaseName + suffixPart
         let resolvedOutputFolder = VideoFileUtils.resolveOutputFolder(for: inputURL, defaultOutputFolder: outputFolder, preset: preset) ?? outputFolder
 
-        // Ensure the output directory exists
+        // Ensure the output directory exists with proper security-scoped access
         let resolvedOutputFolderURL = URL(fileURLWithPath: resolvedOutputFolder)
-        try? FileManager.default.createDirectory(at: resolvedOutputFolderURL, withIntermediateDirectories: true)
+        guard ensureDirectoryAccessible(at: resolvedOutputFolderURL) else {
+            print("Failed to access output directory: \(resolvedOutputFolder)")
+            await MainActor.run {
+                droppedFiles.wrappedValue[idx].status = .failed
+                droppedFiles.wrappedValue[idx].progress = 0
+            }
+            await MainActor.run {
+                SoundManager.shared.playError()
+            }
+            await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
+            return
+        }
 
         let outputURL = URL(fileURLWithPath: resolvedOutputFolder).appendingPathComponent(outputFileName)
 
@@ -1010,6 +1104,7 @@ actor ConversionManager: Sendable {
             conversionQueue[idx].status = .cancelled
         }
         stopProgressTimer()
+        releaseAllSecurityScopedAccess()
     }
     
     /// Cancels a single video item without aborting the entire queue
@@ -1054,6 +1149,7 @@ actor ConversionManager: Sendable {
         }
         progressContinuation?.yield(0.0)
         stopProgressTimer()
+        releaseAllSecurityScopedAccess()
     }
     
     // Convert duration string ("hh:mm:ss" or "mm:ss" or "ss") to seconds

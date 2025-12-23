@@ -1221,13 +1221,14 @@ extension FFMPEGCommandBuilder {
 
         // Remove all existing audio mapping arguments from preset
         removeArgumentPair("-map", value: "0:a", from: &ffmpegArgs)
+        removeArgumentPair("-map", value: "0:a?", from: &ffmpegArgs)
 
-        // Also remove indexed audio maps if present
+        // Also remove indexed audio maps if present (0:a:0, 0:a:1, etc.)
         var index = 0
         while index < ffmpegArgs.count {
             if ffmpegArgs[index] == "-map",
                index + 1 < ffmpegArgs.count,
-               ffmpegArgs[index + 1].hasPrefix("0:a:") {
+               (ffmpegArgs[index + 1].hasPrefix("0:a:") || ffmpegArgs[index + 1] == "0:a" || ffmpegArgs[index + 1] == "0:a?") {
                 ffmpegArgs.remove(at: index)
                 ffmpegArgs.remove(at: index)
                 continue
@@ -1237,8 +1238,8 @@ extension FFMPEGCommandBuilder {
 
         // Ensure video is mapped if not already present
         if !hasVideoMap {
-            // Insert -map 0:v at the beginning
-            ffmpegArgs.insert(contentsOf: ["-map", "0:v"], at: 0)
+            // Insert -map 0:v:0 at the beginning (first video stream only to avoid cover art issues)
+            ffmpegArgs.insert(contentsOf: ["-map", "0:v:0"], at: 0)
             logger.debug("Added video mapping for audio routing")
         }
 

@@ -457,7 +457,7 @@ actor PreviewAssetGenerator {
         let missingThumbnailIndices: [Int] = hasVideoStream ? expectedThumbnailURLs.enumerated().compactMap { index, url in
             fileManager.fileExists(atPath: url.path) ? nil : index
         } : []
-        var existingWaveformURL = [waveformURL, legacyWaveformURL].first { fileManager.fileExists(atPath: $0.path) }
+        let existingWaveformURL = [waveformURL, legacyWaveformURL].first { fileManager.fileExists(atPath: $0.path) }
         var existingPerStreamWaveforms: [Int: URL] = [:]
         if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
             metadata.audioStreams.enumerated().forEach { index, _ in
