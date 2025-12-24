@@ -942,6 +942,13 @@ private struct TimelineKeyTrackerView: NSViewRepresentable {
             super.viewDidMoveToWindow()
 
             if window != nil {
+                // Initialize from current modifier state immediately
+                // This prevents "sticky" modifiers when CMD+T opens the view with CMD held
+                let currentFlags = NSEvent.modifierFlags
+                isCommandKeyPressed?.wrappedValue = currentFlags.contains(.command)
+                isShiftKeyPressed?.wrappedValue = currentFlags.contains(.shift)
+                isOptionKeyPressed?.wrappedValue = currentFlags.contains(.option)
+
                 // Monitor modifier flags for Command, Shift, and Option
                 flagsChangedMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
                     Task { @MainActor in

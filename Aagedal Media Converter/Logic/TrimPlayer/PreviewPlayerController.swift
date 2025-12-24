@@ -137,6 +137,24 @@ final class PreviewPlayerController: ObservableObject {
         return audioStreams.contains { ($0.channels ?? 0) > 2 }
     }
 
+    /// Check if the video codec is ProRes (any variant including RAW)
+    /// ProRes files handle surround audio correctly in AVPlayer, unlike other codecs
+    private var hasProResVideoCodec: Bool {
+        guard let videoStream = videoItem.metadata?.videoStreams.first,
+              let codec = videoStream.codec?.lowercased() else { return false }
+
+        // ProRes variants (including ProRes RAW) handle surround audio correctly in AVPlayer
+        // Other codecs like HEVC may have silent audio with certain surround layouts (e.g., 5.1 side AAC)
+        let proresCodecs = [
+            "prores", "prores_ks",           // ProRes (all profiles)
+            "ap4h", "ap4x",                   // ProRes 4444 / 4444 XQ
+            "apcn", "apch", "apcs", "apco",   // ProRes 422 variants
+            "aprn", "aprh",                   // ProRes RAW / RAW HQ
+        ]
+
+        return proresCodecs.contains { codec.contains($0) }
+    }
+
     func preparePreview(startTime: TimeInterval, resetAudioSelection: Bool = true) {
         teardown(resetAudioSelection: resetAudioSelection)
         isPreparing = true
@@ -148,10 +166,11 @@ final class PreviewPlayerController: ObservableObject {
 
         let url = videoItem.url
 
-        // Force MPV for surround audio files - AVPlayer/QuickTime doesn't handle them well
-        if hasSurroundAudio {
+        // Force MPV for surround audio files - but not for ProRes
+        // ProRes handles surround audio correctly, other codecs (HEVC, H.264) may have silent audio
+        if hasSurroundAudio && !hasProResVideoCodec {
             Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .info("Surround audio detected, using MPV player for \(url.lastPathComponent)")
+                .info("Surround audio detected with non-ProRes codec, using MPV player for \(url.lastPathComponent)")
             setupMPV(url: url, startTime: startTime)
             return
         }
