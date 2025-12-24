@@ -167,9 +167,15 @@ struct VideoMetadata: Equatable, Sendable {
         let isForced: Bool
     }
 
-    let videoStream: VideoStream?
+    let videoStreams: [VideoStream]
     let audioStreams: [AudioStream]
     let subtitleStreams: [SubtitleStream]
+
+    /// Returns the primary video stream (first non-cover-art stream)
+    /// Use this for operations that need a single stream (crop, aspect ratio, codec detection)
+    var primaryVideoStream: VideoStream? {
+        videoStreams.first
+    }
 
     func isDefaultAudioStream(index: Int) -> Bool {
         guard audioStreams.indices.contains(index) else { return false }
@@ -358,9 +364,11 @@ actor VideoMetadataService {
     }
 
     private func buildMetadata(format: FFprobeResponse.Format?, videoStreams: [FFprobeResponse.Stream], audioStreams: [FFprobeResponse.Stream], subtitleStreams: [FFprobeResponse.Stream]) throws -> VideoMetadata {
-        let primaryVideoStream = videoStreams.first { stream in
+        // Filter to actual video streams (exclude cover art/attached pictures)
+        let filteredVideoStreams = videoStreams.filter { stream in
             stream.codecType == "video" && stream.disposition?.attachedPic != 1
         }
+        let primaryVideoStream = filteredVideoStreams.first
 
         let filteredAudioStreams = audioStreams.filter { $0.codecType == "audio" }
 
@@ -387,7 +395,8 @@ actor VideoMetadataService {
             return nil
         }()
 
-        let video = primaryVideoStream.map { stream -> VideoMetadata.VideoStream in
+        // Map all video streams (not just primary)
+        let video = filteredVideoStreams.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
             let hasAlpha = stream.pixFmt.map { hasAlphaChannel(pixelFormat: $0) } ?? false
             // Use bitsPerRawSample if available, otherwise extract from pixel format
@@ -460,7 +469,7 @@ actor VideoMetadataService {
             comment: formatComment,
             timecode: timecode,
             frameCount: frameCount,
-            videoStream: video,
+            videoStreams: video,
             audioStreams: audio,
             subtitleStreams: subtitles
         )
@@ -682,29 +691,30 @@ private struct FFprobeResponse: Decodable {
     func toVideoMetadata() -> VideoMetadata {
         let formatMetadata = format
 
-        // Find first video stream that is NOT an attached picture (cover art)
-        let videoStream = streams.first { stream in
+        // Filter to actual video streams (exclude cover art/attached pictures)
+        let filteredVideoStreams = streams.filter { stream in
             stream.codecType == "video" && stream.disposition?.attachedPic != 1
         }
-        
+        let primaryVideoStream = filteredVideoStreams.first
+
         // Get all audio streams
         let audioStreams = streams.filter { $0.codecType == "audio" }
 
-        let formatComment = formatMetadata?.tags?.comment ?? videoStream?.tags?.comment
+        let formatComment = formatMetadata?.tags?.comment ?? primaryVideoStream?.tags?.comment
 
         // Extract timecode from format tags or video stream tags
-        let timecode = formatMetadata?.tags?.timecode ?? videoStream?.tags?.timecode
+        let timecode = formatMetadata?.tags?.timecode ?? primaryVideoStream?.tags?.timecode
 
         // Extract frame count from video stream, or calculate from duration and frame rate
         let frameCount: Int? = {
             // First try direct nb_frames from stream
-            if let nbFrames = videoStream?.nbFrames, let count = Int(nbFrames) {
+            if let nbFrames = primaryVideoStream?.nbFrames, let count = Int(nbFrames) {
                 return count
             }
             // Fallback: calculate from duration and frame rate (common for MXF files)
             if let durationStr = formatMetadata?.duration,
                let duration = Double(durationStr),
-               let frameRateStr = videoStream?.avgFrameRate ?? videoStream?.rFrameRate,
+               let frameRateStr = primaryVideoStream?.avgFrameRate ?? primaryVideoStream?.rFrameRate,
                let frameRate = VideoMetadata.FrameRate(frameRateString: frameRateStr),
                let fps = frameRate.value,
                fps > 0 {
@@ -713,7 +723,8 @@ private struct FFprobeResponse: Decodable {
             return nil
         }()
 
-        let video = videoStream.map { stream -> VideoMetadata.VideoStream in
+        // Map all video streams (not just primary)
+        let video = filteredVideoStreams.map { stream -> VideoMetadata.VideoStream in
             let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
             let hasAlpha = stream.pixFmt.map { hasAlphaChannel(pixelFormat: $0) } ?? false
             // Use bitsPerRawSample if available, otherwise extract from pixel format
@@ -789,7 +800,7 @@ private struct FFprobeResponse: Decodable {
             comment: formatComment,
             timecode: timecode,
             frameCount: frameCount,
-            videoStream: video,
+            videoStreams: video,
             audioStreams: audio,
             subtitleStreams: subtitles
         )

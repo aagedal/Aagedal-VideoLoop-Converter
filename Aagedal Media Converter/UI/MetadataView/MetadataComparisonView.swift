@@ -16,9 +16,13 @@ struct MetadataComparisonView: View {
                 ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 24) {
                         fileNamesRow
+                        Divider()
                         generalSection
+                        Divider()
                         videoSection
+                        Divider()
                         audioSection
+                        Divider()
                         subtitleSection
                     }
                     .padding(.trailing, 24)
@@ -129,63 +133,141 @@ struct MetadataComparisonView: View {
 
     private var videoSection: some View {
         sectionView(title: "VIDEO") {
-            comparisonRow("Codec") { item in
-                item.metadata?.videoStream?.codecLongName ?? item.metadata?.videoStream?.codec
+            // Find max number of video streams across all items
+            let maxStreams = items.compactMap { $0.metadata?.videoStreams.count }.max() ?? 0
+
+            if maxStreams == 0 {
+                comparisonRow("") { _ in "No video stream detected." }
+            } else {
+                ForEach(0..<maxStreams, id: \.self) { streamIndex in
+                    if maxStreams > 1 {
+                        videoStreamHeader(streamIndex + 1)
+                    }
+
+                    videoStreamRows(streamIndex: streamIndex)
+                }
             }
-            comparisonRow("Profile") { item in
-                item.metadata?.videoStream?.profile
+        }
+    }
+
+    private func videoStreamHeader(_ streamNumber: Int) -> some View {
+        HStack(spacing: columnSpacing) {
+            Text("")
+                .frame(width: labelColumnWidth, alignment: .leading)
+
+            ForEach(items, id: \.id) { item in
+                let hasStream = (item.metadata?.videoStreams.count ?? 0) >= streamNumber
+                Text(hasStream ? "Stream \(streamNumber)" : "—")
+                    .font(.body)
+                    .fontWeight(.bold)
+                    .foregroundColor(.secondary)
+                    .frame(width: valueColumnWidth, alignment: .leading)
             }
-            comparisonRow("Resolution") { item in
-                item.videoResolutionDescription
+        }
+        .padding(.top, streamNumber > 1 ? 12 : 0)
+        .padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    private func videoStreamRows(streamIndex: Int) -> some View {
+        comparisonRow("Codec") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            let stream = streams[streamIndex]
+            return stream.codecLongName ?? stream.codec
+        }
+        comparisonRow("Profile") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].profile
+        }
+        comparisonRow("Resolution") { item in
+            if streamIndex == 0 {
+                return item.videoResolutionDescription
             }
-            comparisonRow("Display Aspect") { item in
-                item.metadata?.videoStream?.displayAspectRatio?.stringValue
-            }
-            comparisonRow("Pixel Aspect") { item in
-                item.metadata?.videoStream?.pixelAspectRatio?.stringValue
-            }
-            comparisonRow("Frame Rate") { item in
-                formattedFrameRate(item.metadata?.videoStream?.frameRate)
-            }
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count,
+                  let width = streams[streamIndex].width,
+                  let height = streams[streamIndex].height else { return nil }
+            return "\(width) × \(height)"
+        }
+        comparisonRow("Display Aspect") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].displayAspectRatio?.stringValue
+        }
+        comparisonRow("Pixel Aspect") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].pixelAspectRatio?.stringValue
+        }
+        comparisonRow("Frame Rate") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return formattedFrameRate(streams[streamIndex].frameRate)
+        }
+        if streamIndex == 0 {
             comparisonRow("Frame Count") { item in
                 item.metadata?.frameCount.map(String.init)
             }
             comparisonRow("Timecode") { item in
                 item.metadata?.timecode
             }
-            comparisonRow("Bit Depth") { item in
-                item.metadata?.videoStream?.bitDepth.map { "\($0)-bit" }
-            }
-            comparisonRow("Chroma Subsampling") { item in
-                item.metadata?.videoStream?.chromaSubsampling
-            }
-            comparisonRow("Chroma Resolution") { item in
-                item.metadata?.videoStream?.chromaResolutionDescription
-            }
-            comparisonRow("Pixel Format") { item in
-                item.metadata?.videoStream?.pixelFormat
-            }
-            comparisonRow("Alpha Channel") { item in
-                item.metadata?.videoStream.map { $0.hasAlpha ? "Yes" : "No" }
-            }
-            comparisonRow("Color Primaries") { item in
-                item.metadata?.videoStream?.colorPrimaries
-            }
-            comparisonRow("Color Transfer") { item in
-                item.metadata?.videoStream?.colorTransfer
-            }
-            comparisonRow("Color Space") { item in
-                item.metadata?.videoStream?.colorSpace
-            }
-            comparisonRow("Color Range") { item in
-                item.metadata?.videoStream?.colorRange
-            }
-            comparisonRow("Chroma Location") { item in
-                item.metadata?.videoStream?.chromaLocation
-            }
-            comparisonRow("Scan Type") { item in
-                formattedScanType(item.metadata?.videoStream)
-            }
+        }
+        comparisonRow("Bit Depth") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].bitDepth.map { "\($0)-bit" }
+        }
+        comparisonRow("Chroma Subsampling") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].chromaSubsampling
+        }
+        comparisonRow("Chroma Resolution") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].chromaResolutionDescription
+        }
+        comparisonRow("Pixel Format") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].pixelFormat
+        }
+        comparisonRow("Alpha Channel") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].hasAlpha ? "Yes" : "No"
+        }
+        comparisonRow("Color Primaries") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].colorPrimaries
+        }
+        comparisonRow("Color Transfer") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].colorTransfer
+        }
+        comparisonRow("Color Space") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].colorSpace
+        }
+        comparisonRow("Color Range") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].colorRange
+        }
+        comparisonRow("Chroma Location") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].chromaLocation
+        }
+        comparisonRow("Scan Type") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return formattedScanType(streams[streamIndex])
         }
     }
 

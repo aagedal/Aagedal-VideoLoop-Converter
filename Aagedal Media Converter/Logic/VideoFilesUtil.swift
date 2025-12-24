@@ -129,7 +129,7 @@ struct VideoFileUtils: Sendable {
 
         if !hasVideoStream {
             if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
-                hasVideoStream = metadata.videoStream != nil
+                hasVideoStream = !metadata.videoStreams.isEmpty
                 Logger().debug("FFprobe detected video stream: \(hasVideoStream) for \(fileName)")
             }
         }
@@ -616,12 +616,12 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     }
 
     var videoDisplayAspectRatio: Double? {
-        if let ratioValue = metadata?.videoStream?.displayAspectRatio?.doubleValue {
+        if let ratioValue = metadata?.primaryVideoStream?.displayAspectRatio?.doubleValue {
             return ratioValue
         }
         if
-            let width = metadata?.videoStream?.width,
-            let height = metadata?.videoStream?.height,
+            let width = metadata?.primaryVideoStream?.width,
+            let height = metadata?.primaryVideoStream?.height,
             width > 0,
             height > 0
         {
@@ -631,7 +631,7 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     }
 
     var videoResolutionDescription: String? {
-        guard let width = metadata?.videoStream?.width, let height = metadata?.videoStream?.height else {
+        guard let width = metadata?.primaryVideoStream?.width, let height = metadata?.primaryVideoStream?.height else {
             return nil
         }
         return "\(width) × \(height)"

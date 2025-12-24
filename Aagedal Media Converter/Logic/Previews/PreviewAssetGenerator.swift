@@ -1355,7 +1355,7 @@ actor PreviewAssetGenerator {
 
         // Fallback to FFprobe via VideoMetadataService for formats AVFoundation struggles with
         if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
-            let hasVideo = metadata.videoStream != nil
+            let hasVideo = !metadata.videoStreams.isEmpty
             logger.debug("FFprobe detected video stream: \(hasVideo) for \(url.lastPathComponent, privacy: .public)")
             return hasVideo
         }

@@ -162,7 +162,7 @@ struct TimecodeFormatter {
     /// - Parameter item: The video item
     /// - Returns: Frame rate in fps, defaults to 30 if not available
     static func effectiveFrameRate(for item: VideoItem) -> Double {
-        if let frameRate = item.metadata?.videoStream?.frameRate?.value, frameRate > 0 {
+        if let frameRate = item.metadata?.primaryVideoStream?.frameRate?.value, frameRate > 0 {
             return frameRate
         }
         // Default to 30fps for audio-only or unknown

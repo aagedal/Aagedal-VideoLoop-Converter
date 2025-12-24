@@ -412,7 +412,7 @@ struct TimecodeView: View {
 
     private func getMaxFramesFromMetadata() -> Int {
         // Get frame rate from source video metadata
-        guard let frameRate = item.metadata?.videoStream?.frameRate?.value else {
+        guard let frameRate = item.metadata?.primaryVideoStream?.frameRate?.value else {
             // Default to 30 fps if unknown (common for video)
             return 30
         }

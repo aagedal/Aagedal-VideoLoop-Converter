@@ -154,7 +154,7 @@ extension PreviewPlayerController {
 
         let captureTime = getCurrentTime() ?? videoItem.effectiveTrimStart
 
-        let parameters = screenshotParameters(for: videoItem.metadata?.videoStream)
+        let parameters = screenshotParameters(for: videoItem.metadata?.primaryVideoStream)
         let sanitizedBaseName = FileNameProcessor.processFileName(videoItem.url.deletingPathExtension().lastPathComponent)
         let timestamp = Self.screenshotDateFormatter.string(from: Date())
         let timeComponent = String(format: "%.3f", captureTime).replacingOccurrences(of: ".", with: "-")
@@ -226,7 +226,7 @@ extension PreviewPlayerController {
         filterComponents.append("scale=iw*sar:ih")
         
         // Check if source is interlaced and needs deinterlacing
-        if let videoStream = videoItem.metadata?.videoStream,
+        if let videoStream = videoItem.metadata?.primaryVideoStream,
            let fieldOrder = videoStream.fieldOrder?.lowercased(),
            fieldOrder != "progressive" && fieldOrder != "unknown" {
             // Source is interlaced, apply bwdif deinterlacer for still capture
@@ -242,7 +242,7 @@ extension PreviewPlayerController {
             arguments += ["-pix_fmt", pixelFormat]
         }
 
-        appendColorArguments(from: videoItem.metadata?.videoStream, to: &arguments)
+        appendColorArguments(from: videoItem.metadata?.primaryVideoStream, to: &arguments)
 
         arguments += parameters.codecArguments
 
