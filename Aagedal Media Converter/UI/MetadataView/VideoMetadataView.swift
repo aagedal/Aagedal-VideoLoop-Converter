@@ -37,8 +37,11 @@ struct VideoMetadataView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     generalSection
+                    Divider()
                     videoSection
+                    Divider()
                     audioSection
+                    Divider()
                     subtitleSection
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -76,26 +79,43 @@ struct VideoMetadataView: View {
 
     private var videoSection: some View {
         section(title: "Video") {
-            if let stream = metadata?.videoStream {
-                infoRow("Codec", value: stream.codecLongName ?? stream.codec)
-                infoRow("Profile", value: stream.profile)
-                infoRow("Resolution", value: item.videoResolutionDescription)
-                infoRow("Display Aspect", value: stream.displayAspectRatio?.stringValue)
-                infoRow("Pixel Aspect", value: stream.pixelAspectRatio?.stringValue)
-                infoRow("Frame Rate", value: formattedFrameRate(stream.frameRate))
-                infoRow("Frame Count", value: metadata?.frameCount.map(String.init))
-                infoRow("Timecode", value: metadata?.timecode)
-                infoRow("Bit Depth", value: stream.bitDepth.map { "\($0)-bit" })
-                infoRow("Chroma Subsampling", value: stream.chromaSubsampling)
-                infoRow("Chroma Resolution", value: stream.chromaResolutionDescription)
-                infoRow("Pixel Format", value: stream.pixelFormat)
-                infoRow("Alpha Channel", value: stream.hasAlpha ? "Yes" : "No")
-                infoRow("Color Primaries", value: stream.colorPrimaries)
-                infoRow("Color Transfer", value: stream.colorTransfer)
-                infoRow("Color Space", value: stream.colorSpace)
-                infoRow("Color Range", value: stream.colorRange)
-                infoRow("Chroma Location", value: stream.chromaLocation)
-                infoRow("Scan Type", value: formattedScanType(stream))
+            if let videoStreams = metadata?.videoStreams, !videoStreams.isEmpty {
+                ForEach(videoStreams.indices, id: \.self) { index in
+                    let stream = videoStreams[index]
+                    if videoStreams.count > 1 {
+                        Text("Stream \(index + 1)")
+                            .font(.body)
+                            .fontWeight(.bold)
+                            .foregroundColor(.secondary)
+                            .padding(.top, index > 0 ? 12 : 0)
+                            .padding(.bottom, 2)
+                    }
+                    infoRow("Codec", value: stream.codecLongName ?? stream.codec)
+                    infoRow("Profile", value: stream.profile)
+                    if index == 0 {
+                        infoRow("Resolution", value: item.videoResolutionDescription)
+                    } else if let width = stream.width, let height = stream.height {
+                        infoRow("Resolution", value: "\(width) × \(height)")
+                    }
+                    infoRow("Display Aspect", value: stream.displayAspectRatio?.stringValue)
+                    infoRow("Pixel Aspect", value: stream.pixelAspectRatio?.stringValue)
+                    infoRow("Frame Rate", value: formattedFrameRate(stream.frameRate))
+                    if index == 0 {
+                        infoRow("Frame Count", value: metadata?.frameCount.map(String.init))
+                        infoRow("Timecode", value: metadata?.timecode)
+                    }
+                    infoRow("Bit Depth", value: stream.bitDepth.map { "\($0)-bit" })
+                    infoRow("Chroma Subsampling", value: stream.chromaSubsampling)
+                    infoRow("Chroma Resolution", value: stream.chromaResolutionDescription)
+                    infoRow("Pixel Format", value: stream.pixelFormat)
+                    infoRow("Alpha Channel", value: stream.hasAlpha ? "Yes" : "No")
+                    infoRow("Color Primaries", value: stream.colorPrimaries)
+                    infoRow("Color Transfer", value: stream.colorTransfer)
+                    infoRow("Color Space", value: stream.colorSpace)
+                    infoRow("Color Range", value: stream.colorRange)
+                    infoRow("Chroma Location", value: stream.chromaLocation)
+                    infoRow("Scan Type", value: formattedScanType(stream))
+                }
             } else {
                 Text("No video stream detected.")
                     .font(.subheadline)

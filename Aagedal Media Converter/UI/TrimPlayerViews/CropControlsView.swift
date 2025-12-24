@@ -30,11 +30,11 @@ struct CropControlsView: View {
     }
 
     private var sourceWidth: Int {
-        item.metadata?.videoStream?.width ?? 1920
+        item.metadata?.primaryVideoStream?.width ?? 1920
     }
 
     private var sourceHeight: Int {
-        item.metadata?.videoStream?.height ?? 1080
+        item.metadata?.primaryVideoStream?.height ?? 1080
     }
 
     /// The video's display aspect ratio (accounting for pixel aspect ratio / PAR)

@@ -470,7 +470,7 @@ actor ConversionManager: Sendable {
             additionalOutputArguments: mergeOutputArguments,
             isMuted: primaryInput.isMuted,
             expectedDuration: plan.totalDuration,
-            videoFrameRate: primaryInput.metadata?.videoStream?.frameRate?.value,
+            videoFrameRate: primaryInput.metadata?.primaryVideoStream?.frameRate?.value,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     for index in indices {
@@ -736,39 +736,53 @@ actor ConversionManager: Sendable {
 
         guard let firstItem = waitingItems.first,
               let referenceMetadata = resolvedMetadata[firstItem.id],
-              let referenceVideo = referenceMetadata.videoStream else {
+              !referenceMetadata.videoStreams.isEmpty else {
             mergeLogger.debug("Merge incompatible: reference clip missing video track")
             return .missingVideoTrack
         }
 
+        let referenceVideoStreams = referenceMetadata.videoStreams
         let referenceAudio = referenceMetadata.audioStreams.first
 
         logMetadataSummary(for: waitingItems, metadata: resolvedMetadata)
 
         for item in waitingItems {
-            guard let metadata = resolvedMetadata[item.id], let video = metadata.videoStream else {
+            guard let metadata = resolvedMetadata[item.id], !metadata.videoStreams.isEmpty else {
                 mergeLogger.debug("Merge incompatible: \(item.name, privacy: .public) missing video track")
                 return .missingVideoTrack
             }
 
-            if !stringsEqual(video.codec, referenceVideo.codec) {
-                mergeLogger.debug("Merge incompatible: video codec mismatch \(item.name, privacy: .public) \(video.codec ?? "unknown", privacy: .public) vs \(referenceVideo.codec ?? "unknown", privacy: .public)")
-                return .videoCodecMismatch(item)
+            // Check that video stream count matches
+            if metadata.videoStreams.count != referenceVideoStreams.count {
+                mergeLogger.debug("Merge incompatible: video stream count mismatch for \(item.name, privacy: .public) \(metadata.videoStreams.count) vs \(referenceVideoStreams.count)")
+                // If both have at least one video stream, report as codec mismatch; otherwise missing track
+                if metadata.primaryVideoStream != nil && !referenceVideoStreams.isEmpty {
+                    return .videoCodecMismatch(item)
+                }
+                return .missingVideoTrack
             }
 
-            if video.width != referenceVideo.width || video.height != referenceVideo.height {
-                mergeLogger.debug("Merge incompatible: resolution mismatch for \(item.name, privacy: .public) \(video.width ?? 0)x\(video.height ?? 0) vs \(referenceVideo.width ?? 0)x\(referenceVideo.height ?? 0)")
-                return .resolutionMismatch(item, expected: referenceVideo)
-            }
+            // Compare all video streams
+            for (index, (video, referenceVideo)) in zip(metadata.videoStreams, referenceVideoStreams).enumerated() {
+                if !stringsEqual(video.codec, referenceVideo.codec) {
+                    mergeLogger.debug("Merge incompatible: video codec mismatch in stream \(index) \(item.name, privacy: .public) \(video.codec ?? "unknown", privacy: .public) vs \(referenceVideo.codec ?? "unknown", privacy: .public)")
+                    return .videoCodecMismatch(item)
+                }
 
-            if !ratiosEqual(video.pixelAspectRatio, referenceVideo.pixelAspectRatio) {
-                mergeLogger.debug("Merge incompatible: pixel aspect mismatch for \(item.name, privacy: .public) \(video.pixelAspectRatio?.stringValue ?? "n/a", privacy: .public) vs \(referenceVideo.pixelAspectRatio?.stringValue ?? "n/a", privacy: .public)")
-                return .pixelAspectMismatch(item)
-            }
+                if video.width != referenceVideo.width || video.height != referenceVideo.height {
+                    mergeLogger.debug("Merge incompatible: resolution mismatch in stream \(index) for \(item.name, privacy: .public) \(video.width ?? 0)x\(video.height ?? 0) vs \(referenceVideo.width ?? 0)x\(referenceVideo.height ?? 0)")
+                    return .resolutionMismatch(item, expected: referenceVideo)
+                }
 
-            if !frameRatesEqual(video.frameRate, referenceVideo.frameRate) {
-                mergeLogger.debug("Merge incompatible: frame rate mismatch for \(item.name, privacy: .public) \(video.frameRate?.stringValue ?? "n/a", privacy: .public) vs \(referenceVideo.frameRate?.stringValue ?? "n/a", privacy: .public)")
-                return .frameRateMismatch(item)
+                if !ratiosEqual(video.pixelAspectRatio, referenceVideo.pixelAspectRatio) {
+                    mergeLogger.debug("Merge incompatible: pixel aspect mismatch in stream \(index) for \(item.name, privacy: .public) \(video.pixelAspectRatio?.stringValue ?? "n/a", privacy: .public) vs \(referenceVideo.pixelAspectRatio?.stringValue ?? "n/a", privacy: .public)")
+                    return .pixelAspectMismatch(item)
+                }
+
+                if !frameRatesEqual(video.frameRate, referenceVideo.frameRate) {
+                    mergeLogger.debug("Merge incompatible: frame rate mismatch in stream \(index) for \(item.name, privacy: .public) \(video.frameRate?.stringValue ?? "n/a", privacy: .public) vs \(referenceVideo.frameRate?.stringValue ?? "n/a", privacy: .public)")
+                    return .frameRateMismatch(item)
+                }
             }
 
             switch (referenceAudio, metadata.audioStreams.first) {
@@ -801,10 +815,10 @@ actor ConversionManager: Sendable {
     private func logMetadataSummary(for items: [VideoItem], metadata: [UUID: VideoMetadata]) {
         for item in items {
             guard let data = metadata[item.id] else { continue }
-            let video = data.videoStream
+            let video = data.primaryVideoStream
             let audio = data.audioStreams.first
             mergeLogger.debug(
-                "Clip \(item.name, privacy: .public): videoCodec=\(video?.codec ?? "none", privacy: .public) resolution=\(video?.width ?? 0)x\(video?.height ?? 0) par=\(video?.pixelAspectRatio?.stringValue ?? "n/a", privacy: .public) frameRate=\(video?.frameRate?.stringValue ?? "n/a", privacy: .public) audioCodec=\(audio?.codec ?? "none", privacy: .public) channels=\(self.describeInt(audio?.channels), privacy: .public) sampleRate=\(self.describeInt(audio?.sampleRate), privacy: .public)"
+                "Clip \(item.name, privacy: .public): videoStreams=\(data.videoStreams.count) videoCodec=\(video?.codec ?? "none", privacy: .public) resolution=\(video?.width ?? 0)x\(video?.height ?? 0) par=\(video?.pixelAspectRatio?.stringValue ?? "n/a", privacy: .public) frameRate=\(video?.frameRate?.stringValue ?? "n/a", privacy: .public) audioCodec=\(audio?.codec ?? "none", privacy: .public) channels=\(self.describeInt(audio?.channels), privacy: .public) sampleRate=\(self.describeInt(audio?.sampleRate), privacy: .public)"
             )
         }
     }
@@ -1056,7 +1070,7 @@ actor ConversionManager: Sendable {
             waveformRequest: waveformRequest,
             synthesizedVideoRequest: synthesizedVideoRequest,
             isMuted: currentItem.isMuted,
-            videoFrameRate: currentItem.metadata?.videoStream?.frameRate?.value,
+            videoFrameRate: currentItem.metadata?.primaryVideoStream?.frameRate?.value,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {

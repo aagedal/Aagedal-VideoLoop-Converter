@@ -140,7 +140,7 @@ final class PreviewPlayerController: ObservableObject {
     /// Check if the video codec is ProRes (any variant including RAW)
     /// ProRes files handle surround audio correctly in AVPlayer, unlike other codecs
     private var hasProResVideoCodec: Bool {
-        guard let videoStream = videoItem.metadata?.videoStreams.first,
+        guard let videoStream = videoItem.metadata?.primaryVideoStream,
               let codec = videoStream.codec?.lowercased() else { return false }
 
         // ProRes variants (including ProRes RAW) handle surround audio correctly in AVPlayer
@@ -427,7 +427,7 @@ final class PreviewPlayerController: ObservableObject {
     
     func seekByFrames(_ frameCount: Int) {
         // Calculate seconds per frame from video metadata
-        if let frameRate = videoItem.metadata?.videoStream?.frameRate,
+        if let frameRate = videoItem.metadata?.primaryVideoStream?.frameRate,
            let frameRateValue = frameRate.value, frameRateValue > 0 {
             let secondsPerFrame = 1.0 / frameRateValue
             seek(by: Double(frameCount) * secondsPerFrame)

@@ -46,8 +46,8 @@ struct PreviewPlayerContent: View {
                                 get: { item.cropConfig ?? CropConfig(normalizedRect: .fullFrame) },
                                 set: { item.cropConfig = $0.isActive ? $0 : nil }
                             ),
-                            sourceWidth: item.metadata?.videoStream?.width ?? 1920,
-                            sourceHeight: item.metadata?.videoStream?.height ?? 1080,
+                            sourceWidth: item.metadata?.primaryVideoStream?.width ?? 1920,
+                            sourceHeight: item.metadata?.primaryVideoStream?.height ?? 1080,
                             videoAspectRatio: Double(playerAspectRatio),
                             isEnabled: true
                         )
@@ -77,8 +77,8 @@ struct PreviewPlayerContent: View {
                                 get: { item.cropConfig ?? CropConfig(normalizedRect: .fullFrame) },
                                 set: { item.cropConfig = $0.isActive ? $0 : nil }
                             ),
-                            sourceWidth: item.metadata?.videoStream?.width ?? 1920,
-                            sourceHeight: item.metadata?.videoStream?.height ?? 1080,
+                            sourceWidth: item.metadata?.primaryVideoStream?.width ?? 1920,
+                            sourceHeight: item.metadata?.primaryVideoStream?.height ?? 1080,
                             videoAspectRatio: Double(playerAspectRatio),
                             isEnabled: true
                         )

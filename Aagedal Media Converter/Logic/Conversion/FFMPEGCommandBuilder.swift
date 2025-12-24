@@ -193,9 +193,9 @@ enum FFMPEGCommandBuilder {
            preset.outputsVideoTrack,
            preset.appliesCrop {
             if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL),
-               let width = metadata.videoStream?.width,
-               let height = metadata.videoStream?.height {
-                
+               let width = metadata.primaryVideoStream?.width,
+               let height = metadata.primaryVideoStream?.height {
+
                 // Calculate effective Pixel Aspect Ratio (PAR)
                 // We use a robust detection strategy:
                 // 1. Calculate PAR derived from DAR (Display Aspect Ratio). This is usually the ground truth for playback.
@@ -204,8 +204,8 @@ enum FFMPEGCommandBuilder {
                 // 4. If explicit PAR contradicts DAR (e.g. PAR=1 vs DAR=16:9 for 1440 width), use DAR-derived PAR.
                 // 5. Default to 1.0.
                 let effectivePAR: Double
-                let darValues = metadata.videoStream?.displayAspectRatio?.doubleValue
-                let parValues = metadata.videoStream?.pixelAspectRatio?.doubleValue
+                let darValues = metadata.primaryVideoStream?.displayAspectRatio?.doubleValue
+                let parValues = metadata.primaryVideoStream?.pixelAspectRatio?.doubleValue
                 
                 if let dar = darValues, dar > 0, height > 0 {
                     let resolutionAspect = Double(width) / Double(height)
@@ -618,7 +618,7 @@ extension FFMPEGCommandBuilder {
             if let sourceTimecode = sourceMetadata.timecode,
                let trimOffset = trimStart,
                trimOffset > 0,
-               let frameRate = sourceMetadata.videoStream?.frameRate?.value {
+               let frameRate = sourceMetadata.primaryVideoStream?.frameRate?.value {
                 timecodeValue = offsetTimecode(sourceTimecode, bySeconds: trimOffset, frameRate: frameRate)
             } else {
                 timecodeValue = sourceMetadata.timecode
@@ -1083,7 +1083,7 @@ extension FFMPEGCommandBuilder {
 
         let isInterlaced: Bool
         if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL) {
-            isInterlaced = metadata.videoStream?.isInterlaced ?? false
+            isInterlaced = metadata.primaryVideoStream?.isInterlaced ?? false
         } else {
             isInterlaced = false
         }
