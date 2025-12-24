@@ -139,6 +139,11 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         checkError(mpv_set_option_string(mpv, "input-default-bindings", "no"))
         checkError(mpv_set_option_string(mpv, "input-vo-keyboard", "no"))
 
+        // Disable built-in Lua scripts (stats, console, osc, etc.)
+        // We have our own SwiftUI controls - don't need MPV's Lua-based UI
+        // This also avoids LuaJIT code signing issues in notarized builds
+        checkError(mpv_set_option_string(mpv, "load-scripts", "no"))
+
         // Disable subtitles by default - user can enable via subtitle track selector
         checkError(mpv_set_option_string(mpv, "sid", "no"))
 
