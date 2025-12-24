@@ -284,8 +284,8 @@ Esc to close the overlay (settings are automatically saved)
 ---
 
 ## Known issues
-– Lagging scrolling when many items are queued. Seems to maybe be an issue with SwiftUI.
-- Chunk based fallback player sometimes fail to load.
+- Lagging scrolling when many items are queued. Seems to maybe be an issue with SwiftUI.
+- Some UI differences in the trim view if using macOS 15 (renders correctly in macOS 26)
 
 ---
 
