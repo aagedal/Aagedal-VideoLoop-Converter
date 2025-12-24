@@ -1,6 +1,6 @@
 # Aagedal Media Converter
 
-A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE and VLCKit under the hood and written entirely in Swift / SwiftUI.
+A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE and MPV under the hood and written entirely in Swift / SwiftUI.
 
 Completely free and open source. Sandboxed, private and local. (An optional update checker is activated by default, but it can be turned off.)
 
@@ -21,7 +21,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 ```
 
 ### Manual download
-[Latest version (3.1.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.1.0/Aagedal-Media-Converter_3-1-0.zip)
+[Latest version (3.3.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.3.0/Aagedal-Media-Converter_3-3-0.zip)
 
 
 ---
@@ -57,8 +57,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 - Common NLE shortcuts like JKL and arrow keys
 - A simple audio meter (CMD + A)
 - Uses native macOS player for compatible files, for smooth playback even in reverse
-- Invisible fallback to VLCKit player for files not supported by macOS natively (though reverse playback is less reliable)
-- A second fallback for VVC and APV files, using FFMPEG to generate cached chunks to allow previews without encoding the entire file. With automatic cache deletion.
+- Invisible fallback to MPVKit player for files not supported by macOS natively (though reverse playback is less reliable)
 
 
 ### Quick adjustments
@@ -291,19 +290,12 @@ Esc to close the overlay (settings are automatically saved)
 ---
 
 ## Future ideas (under consideration, no promises)
-1. Add a range selector mode to the trim view, so that a single drag with the mouse will select both in and out points.
-2. Add a sorting function, to sort queued items by name or creation date. Useful for the merge feature. 
-3. Add keyboard shortcuts for every single feature, as to make the app completely usable without a mouse?
-4. Add/adjust presets: MXF OP1a AVC-Intra, AV1, Animated Still (with GIF/AVIF/APNG/JPEG XL preset setting)
-5. Add more preset settings: PAL/NTSC selector for the TV presets, Rewrap with setting to keep or change container
-6. yt-dlp video downloader with built in yt-dlp updater
-7. Add option to download whisper binary + model for transcribing audio to srt.
-8. Per item preset adjustment? (probably not, since its possible to open more than one window and do different presets per window
-9. Replace VLCKit with mpv? Or otherwise remove the need for the chunk based fallback player. (I already tried, but failed to make it work.)
-10. Save/export queue with settings as json
-11. Import/Export app settings as json/yaml
-12. Auto upload to server after export? RCLONE?
-13. Metadata comparison view
+1. yt-dlp video downloader with built in yt-dlp updater
+2. Add option to download whisper binary + model for transcribing audio to srt.
+3. Per item preset adjustment?
+4. Save/export encoding queue with settings as json/yaml
+5. Import/Export app settings as json/yaml
+6. Auto upload to server after export? RCLONE?
 
 
 
