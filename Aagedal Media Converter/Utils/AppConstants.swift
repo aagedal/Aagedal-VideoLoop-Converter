@@ -390,6 +390,34 @@ enum AppConstants {
     static let preferredTimecodeDisplayModeKey = "preferredTimecodeDisplayMode"
     static let defaultPreferredTimecodeDisplayMode = "relative" // relative, source, frames
 
+    // yt-dlp settings
+    static let ytdlpToolsDirectory: URL = {
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let toolsDir = supportDir
+            .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
+            .appendingPathComponent("tools", isDirectory: true)
+        try? FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
+        return toolsDir
+    }()
+
+    static let ytdlpVersionKey = "ytdlpInstalledVersion"
+    static let ytdlpLastUpdateCheckKey = "ytdlpLastUpdateCheck"
+    static let ytdlpGitHubReleasesURL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+    static let ytdlpMacOSAssetName = "yt-dlp_macos"
+
+    // Custom binary paths (no longer need security-scoped bookmarks without sandbox)
+    static let ytdlpCustomPathKey = "ytdlpCustomPath"
+    static let customFFmpegPathKey = "customFFmpegPath"
+    static let customFFprobePathKey = "customFFprobePath"
+
+    // Legacy keys (for migration)
+    static let ytdlpUserPathBookmarkKey = "ytdlpUserPathBookmark"
+    static let ytdlpUserPathKey = "ytdlpUserPath"
+
+    // Download history
+    static let downloadHistoryKey = "downloadHistory"
+    static let downloadHistoryMaxItems = 10
+
     // Output location settings
     static let saveNextToOriginalKey = "saveNextToOriginal"
     static let saveNextToOriginalSubfolderKey = "saveNextToOriginalSubfolder"

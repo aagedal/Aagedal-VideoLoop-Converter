@@ -55,8 +55,8 @@ actor FFMPEGConverter {
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool) -> Void
     ) async {
-        guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
-            print("FFMPEG binary not found in bundle")
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+            print("FFMPEG binary not found")
             completion(false)
             return
         }
@@ -73,18 +73,23 @@ actor FFMPEGConverter {
         }
 
         // Add file extension based on preset
-        let outputFileURL = outputURL.appendingPathExtension(preset.outputExtension(for: inputURL))
+        var outputFileURL = outputURL.appendingPathExtension(preset.outputExtension(for: inputURL))
 
-        // Remove existing file if it exists
-        if fileManager.fileExists(atPath: outputFileURL.path) {
-            do {
-                try fileManager.removeItem(at: outputFileURL)
-            } catch {
-                print("Failed to remove existing file: \(error)")
-                completion(false)
-                return
-            }
+        // CRITICAL: Ensure we never overwrite the source file
+        if outputFileURL.standardizedFileURL == inputURL.standardizedFileURL {
+            // Add "_encoded" suffix to prevent overwriting source
+            let baseName = outputURL.lastPathComponent
+            let safeOutputURL = outputDir.appendingPathComponent(baseName + "_encoded")
+                .appendingPathExtension(preset.outputExtension(for: inputURL))
+            print("⚠️ Safety check: Would have overwritten input file. Changed output to: \(safeOutputURL.lastPathComponent)")
+            outputFileURL = safeOutputURL
         }
+
+        // Ensure unique output path (don't overwrite existing files)
+        outputFileURL = FileSafetyUtils.uniqueOutputURL(outputFileURL, notOverwriting: inputURL)
+
+        // Register this file as created by the app (for safe deletion later if needed)
+        FileSafetyUtils.registerCreatedFile(outputFileURL)
 
         // Check if we need audio pre-processing for AVC-Intra with audio-only files
         // This creates a temp file with mono-split audio channels first

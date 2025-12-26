@@ -145,7 +145,7 @@ extension PreviewPlayerController {
             throw ScreenshotError.videoUnavailable
         }
 
-        guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             throw ScreenshotError.ffmpegMissing
         }
 

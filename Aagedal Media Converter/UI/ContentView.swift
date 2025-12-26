@@ -14,6 +14,7 @@ import Carbon.HIToolbox
 
 
 struct ContentView: View {
+    @Environment(\.openSettings) private var openSettings
     @State private var droppedFiles: [VideoItem] = []
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path {
         didSet {
@@ -89,7 +90,9 @@ struct ContentView: View {
     @StateObject private var updateChecker = UpdateChecker.shared
     @State private var showUpdateNotification = false
     @State private var updateNotificationTask: Task<Void, Never>?
-    
+    @State private var showURLInputOverlay = false
+    @State private var showYTDLPNotConfiguredAlert = false
+
     // Keyboard shortcut sheet states - using optional UUID directly for item-based sheet presentation
     // When non-nil, the corresponding sheet is presented. Set to nil to dismiss.
     @State private var trimSheetItemID: UUID?
@@ -187,6 +190,9 @@ struct ContentView: View {
                         in: droppedFiles
                     )
                 }
+            },
+            onURLDrop: { urlString in
+                handleURLDownload(urlString)
             }
         )
     }
@@ -307,6 +313,9 @@ struct ContentView: View {
                 .task {
                     await startProgressUpdates()
                 }
+                .onAppear {
+                    setupScheduledDownloads()
+                }
                 .toolbar {
                     conversionToolbar
                 }
@@ -315,6 +324,63 @@ struct ContentView: View {
                 OverallProgressView(progress: overallProgress)
             }
         }
+        .overlay {
+            if showURLInputOverlay {
+                URLInputOverlay(
+                    isPresented: $showURLInputOverlay,
+                    onSubmit: { urlString in
+                        handleURLDownload(urlString)
+                    },
+                    onSchedule: { urlString, scheduledDate in
+                        handleScheduledDownload(urlString, at: scheduledDate)
+                    }
+                )
+            }
+        }
+        .alert("yt-dlp Not Available", isPresented: $showYTDLPNotConfiguredAlert) {
+            Button("Open Settings") {
+                openSettings()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("To download videos from URLs, you need yt-dlp. Install with Homebrew (brew install yt-dlp) or configure a custom path in Settings > Downloads.")
+        }
+    }
+
+    /// Handles URL download from the overlay
+    private func handleURLDownload(_ urlString: String) {
+        Task {
+            // Check if yt-dlp is configured
+            guard await DownloadManager.shared.isYTDLPConfigured() else {
+                showYTDLPNotConfiguredAlert = true
+                return
+            }
+
+            await DownloadManager.shared.startDownload(
+                url: urlString,
+                items: $droppedFiles,
+                outputFolder: currentOutputFolder
+            )
+        }
+    }
+
+    /// Handles scheduling a download for later
+    private func handleScheduledDownload(_ urlString: String, at date: Date) {
+        Task {
+            await DownloadManager.shared.scheduleDownload(
+                url: urlString,
+                at: date,
+                items: $droppedFiles,
+                outputFolder: currentOutputFolder
+            )
+        }
+    }
+
+    /// Sets up the download manager references for scheduled downloads
+    private func setupScheduledDownloads() {
+        // Store references in DownloadManager so scheduled downloads can access them
+        DownloadManager.shared.videoItems = $droppedFiles
+        DownloadManager.shared.outputFolder = currentOutputFolder
     }
 
     @ViewBuilder
@@ -357,7 +423,10 @@ struct ContentView: View {
             onResetAll: {
                 resetAllFiles()
             },
-            onToggleConversion: handleConversionToggle
+            onToggleConversion: handleConversionToggle,
+            onShowURLInput: {
+                showURLInputOverlay = true
+            }
         )
     }
 
@@ -747,7 +816,7 @@ struct ContentView: View {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    private func handleConversionToggle(optionKeyPressed: Bool) {
+    private func handleConversionToggle(_ optionKeyPressed: Bool) {
         Task { @MainActor in
             let currentlyConverting = await ConversionManager.shared.isConvertingStatus()
             isConverting = currentlyConverting
@@ -1024,6 +1093,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
     var onToggleMerge: () -> Void
     var onResetAll: () -> Void
     var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
+    var onShowURLInput: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -1031,7 +1101,8 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             onSelectOutputFolder: onSelectOutputFolder,
             onToggleMerge: onToggleMerge,
             onResetAll: onResetAll,
-            onToggleConversion: onToggleConversion
+            onToggleConversion: onToggleConversion,
+            onShowURLInput: onShowURLInput
         )
     }
     
@@ -1048,6 +1119,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         context.coordinator.onToggleMerge = onToggleMerge
         context.coordinator.onResetAll = onResetAll
         context.coordinator.onToggleConversion = onToggleConversion
+        context.coordinator.onShowURLInput = onShowURLInput
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -1060,6 +1132,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         var onToggleMerge: () -> Void
         var onResetAll: () -> Void
         var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
+        var onShowURLInput: () -> Void
         private var monitor: Any?
 
         init(
@@ -1067,13 +1140,15 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             onSelectOutputFolder: @escaping () -> Void,
             onToggleMerge: @escaping () -> Void,
             onResetAll: @escaping () -> Void,
-            onToggleConversion: @escaping (_ optionKeyPressed: Bool) -> Void
+            onToggleConversion: @escaping (_ optionKeyPressed: Bool) -> Void,
+            onShowURLInput: @escaping () -> Void
         ) {
             self.onToggleWatchFolder = onToggleWatchFolder
             self.onSelectOutputFolder = onSelectOutputFolder
             self.onToggleMerge = onToggleMerge
             self.onResetAll = onResetAll
             self.onToggleConversion = onToggleConversion
+            self.onShowURLInput = onShowURLInput
         }
         
         func install() {
@@ -1113,6 +1188,12 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
                 // Cmd+Return: Start/Stop Conversion
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_Return {
                     self.onToggleConversion(false)
+                    return nil
+                }
+
+                // Cmd+L: Show URL Input Overlay (L for Load)
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_L {
+                    self.onShowURLInput()
                     return nil
                 }
 
@@ -1338,6 +1419,8 @@ private struct ContentViewChangeHandlers: ViewModifier {
         } else {
             refreshExpectedOutputURLs(selectedPreset)
         }
+        // Keep DownloadManager in sync for scheduled downloads
+        DownloadManager.shared.outputFolder = updatedFolderURL
     }
 }
 
@@ -1443,3 +1526,4 @@ private struct ContentViewNotificationHandlers: ViewModifier {
         }
     }
 }
+

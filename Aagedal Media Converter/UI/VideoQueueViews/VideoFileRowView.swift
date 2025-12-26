@@ -19,6 +19,10 @@ struct VideoFileRowView: View {
     let onCancel: () -> Void
     let onDelete: () -> Void
     let onReset: (_ optionKeyPressed: Bool) -> Void
+    var onCancelDownload: (() -> Void)?
+    var onRetryDownload: (() -> Void)?
+    var onForceRedownload: (() -> Void)?
+    var onCancelScheduledDownload: (() -> Void)?
     /// Indicates if this row is selected in the list
     var isSelected: Bool = false
     var onCommentFocusChange: (UUID, Bool) -> Void = { _, _ in }
@@ -143,7 +147,35 @@ struct VideoFileRowView: View {
                                 // Action buttons (delete/reset) - right aligned
                                 HStack {
                                     Spacer()
-                                    if file.status == .converting {
+                                    if file.isDownloading {
+                                        Button(action: { onCancelDownload?() }) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.purple)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel download")
+                                    } else if file.scheduledDownloadTime != nil {
+                                        Button(action: { onCancelScheduledDownload?() }) {
+                                            Image(systemName: "clock.badge.xmark")
+                                                .foregroundColor(.cyan)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel scheduled download")
+                                    } else if file.fileAlreadyExistsPath != nil {
+                                        Button(action: { onForceRedownload?() }) {
+                                            Image(systemName: "arrow.down.circle.fill")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Redownload (overwrite existing file)")
+                                    } else if file.downloadError != nil {
+                                        Button(action: { onRetryDownload?() }) {
+                                            Image(systemName: "arrow.clockwise.circle")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Retry download")
+                                    } else if file.status == .converting {
                                         Button(action: onCancel) {
                                             Image(systemName: "xmark.circle")
                                                 .foregroundColor(.red)
@@ -175,10 +207,11 @@ struct VideoFileRowView: View {
                             }
                         }
 
-                        // Progress bar (always shown when converting)
-                        if file.status == .converting {
-                            ProgressView(value: file.progress)
+                        // Progress bar (shown when converting or downloading)
+                        if file.status == .converting || file.isDownloading {
+                            ProgressView(value: file.isDownloading ? file.downloadProgress : file.progress)
                                 .progressViewStyle(LinearProgressViewStyle())
+                                .tint(file.isDownloading ? .purple : .accentColor)
                         }
 
                         // Standard mode: duration and size line
@@ -206,7 +239,35 @@ struct VideoFileRowView: View {
 
                                 // Action buttons container with fixed width
                                 HStack(spacing: 4) {
-                                    if file.status == .converting {
+                                    if file.isDownloading {
+                                        Button(action: { onCancelDownload?() }) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.purple)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel download")
+                                    } else if file.scheduledDownloadTime != nil {
+                                        Button(action: { onCancelScheduledDownload?() }) {
+                                            Image(systemName: "clock.badge.xmark")
+                                                .foregroundColor(.cyan)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel scheduled download")
+                                    } else if file.fileAlreadyExistsPath != nil {
+                                        Button(action: { onForceRedownload?() }) {
+                                            Image(systemName: "arrow.down.circle.fill")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Redownload (overwrite existing file)")
+                                    } else if file.downloadError != nil {
+                                        Button(action: { onRetryDownload?() }) {
+                                            Image(systemName: "arrow.clockwise.circle")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Retry download")
+                                    } else if file.status == .converting {
                                         Button(action: onCancel) {
                                             Image(systemName: "xmark.circle")
                                                 .foregroundColor(.red)
@@ -230,7 +291,7 @@ struct VideoFileRowView: View {
                                         .help("Remove from list")
 
                                         FileResetButton(
-                                            isEnabled: file.status != .converting && file.status != .waiting,
+                                            isEnabled: file.status != .converting && file.status != .waiting && !file.isDownloading,
                                             onReset: onReset
                                         )
                                     }
@@ -882,6 +943,29 @@ struct VideoFileRowView: View {
     }
     
     private var progressText: String {
+        // Handle download states first
+        if file.isDownloading {
+            if let speed = file.downloadSpeed {
+                return "Downloading... \(speed)"
+            } else {
+                return "Downloading..."
+            }
+        }
+        if let scheduledTime = file.scheduledDownloadTime {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+            formatter.timeZone = .current  // Explicitly use local timezone
+            let timeString = formatter.string(from: scheduledTime)
+            return "Scheduled for \(timeString)"
+        }
+        if file.fileAlreadyExistsPath != nil {
+            return "File already exists - click to redownload"
+        }
+        if let error = file.downloadError {
+            return "Download failed: \(error)"
+        }
+
         switch file.status {
         case .waiting:
             return "Waiting"
@@ -899,8 +983,22 @@ struct VideoFileRowView: View {
             return "Failed"
         }
     }
-    
+
     private var statusColor: Color {
+        // Handle download states first
+        if file.isDownloading {
+            return .purple
+        }
+        if file.scheduledDownloadTime != nil {
+            return .cyan
+        }
+        if file.fileAlreadyExistsPath != nil {
+            return .orange
+        }
+        if file.downloadError != nil {
+            return .red
+        }
+
         switch file.status {
         case .done: return .green
         case .converting: return .blue

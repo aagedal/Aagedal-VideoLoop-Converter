@@ -224,7 +224,7 @@ actor VideoMetadataService {
             }
         }
 
-        guard let ffprobePath = Bundle.main.path(forResource: "ffprobe", ofType: nil) else {
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
             throw VideoMetadataError.ffprobeMissing
         }
 

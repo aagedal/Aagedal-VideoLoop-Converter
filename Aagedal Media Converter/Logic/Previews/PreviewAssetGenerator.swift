@@ -433,12 +433,12 @@ actor PreviewAssetGenerator {
         let accessGranted = startAccessingSecurityScope(for: url)
         defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
 
-        guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
-            logger.error("FFmpeg binary not found in bundle")
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+            logger.error("FFmpeg binary not found")
             throw PreviewAssetError.ffmpegBinaryMissing
         }
-        guard let ffprobePath = Bundle.main.path(forResource: "ffprobe", ofType: nil) else {
-            logger.error("FFprobe binary not found in bundle")
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
+            logger.error("FFprobe binary not found")
             throw PreviewAssetError.ffprobeBinaryMissing
         }
 
@@ -646,8 +646,8 @@ actor PreviewAssetGenerator {
         let accessGranted = startAccessingSecurityScope(for: url)
         defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
 
-        guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
-            logger.error("FFmpeg binary not found in bundle")
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+            logger.error("FFmpeg binary not found")
             throw PreviewAssetError.ffmpegBinaryMissing
         }
 
@@ -667,8 +667,8 @@ actor PreviewAssetGenerator {
         let hasVideoStream = await hasVideoStream(for: url)
 
         if hasVideoStream {
-            guard let ffprobePath = Bundle.main.path(forResource: "ffprobe", ofType: nil) else {
-                logger.error("FFprobe binary not found in bundle")
+            guard let ffprobePath = BinaryPathResolver.ffprobePath else {
+                logger.error("FFprobe binary not found")
                 throw PreviewAssetError.ffprobeBinaryMissing
             }
 

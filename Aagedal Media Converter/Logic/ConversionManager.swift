@@ -322,7 +322,7 @@ actor ConversionManager: Sendable {
     }
 
     private func prepareTrimmedClip(for item: VideoItem) async -> URL? {
-        guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             mergeLogger.error("FFmpeg binary not found while preparing trimmed clip for \(item.name, privacy: .public)")
             return nil
         }
