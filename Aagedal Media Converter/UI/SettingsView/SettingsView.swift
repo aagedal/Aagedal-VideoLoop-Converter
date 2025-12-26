@@ -13,6 +13,7 @@ struct SettingsView: View {
         case presets
         case waveform
         case watchFolder
+        case ytdlp
         case updates
         case shortcuts
     }
@@ -39,6 +40,10 @@ struct SettingsView: View {
                 .tabItem { Label("Watch Folder", systemImage: "eye.fill") }
                 .tag(SettingsTab.watchFolder)
 
+            YTDLPSettingsView()
+                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
+                .tag(SettingsTab.ytdlp)
+
             UpdateSettingsView()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(SettingsTab.updates)
@@ -63,10 +68,12 @@ struct SettingsView: View {
                     .keyboardShortcut("4", modifiers: .command)
                 Button("") { selectedTab = .watchFolder }
                     .keyboardShortcut("5", modifiers: .command)
-                Button("") { selectedTab = .updates }
+                Button("") { selectedTab = .ytdlp }
                     .keyboardShortcut("6", modifiers: .command)
-                Button("") { selectedTab = .shortcuts }
+                Button("") { selectedTab = .updates }
                     .keyboardShortcut("7", modifiers: .command)
+                Button("") { selectedTab = .shortcuts }
+                    .keyboardShortcut("8", modifiers: .command)
             }
             .frame(width: 0, height: 0)
             .opacity(0)

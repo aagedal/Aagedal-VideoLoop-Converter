@@ -97,7 +97,7 @@ struct VideoFileUtils: Sendable {
         var durationSec: Double = 0.0
         let asset = AVURLAsset(url: url)
 
-        if Bundle.main.path(forResource: "ffprobe", ofType: nil) != nil {
+        if BinaryPathResolver.ffprobePath != nil {
             Logger().info("Attempting to get duration using FFprobe for: \(fileName)")
             durationSec = await FFMPEGConverter.getVideoDuration(url: url) ?? 0.0
 
@@ -107,7 +107,7 @@ struct VideoFileUtils: Sendable {
                 Logger().warning("FFprobe returned 0 duration for \(fileName), falling back to AVFoundation")
             }
         } else {
-            Logger().info("FFprobe not found in bundle, using AVFoundation for \(fileName)")
+            Logger().info("FFprobe not found, using AVFoundation for \(fileName)")
         }
 
         if durationSec <= 0 {
@@ -184,8 +184,16 @@ struct VideoFileUtils: Sendable {
         let sanitizedBaseName = FileNameProcessor.processFileName(url.deletingPathExtension().lastPathComponent)
         let resolvedExtension = preset.outputExtension(for: url)
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
-        let outputFileName = sanitizedBaseName + suffixPart + "." + resolvedExtension
-        return URL(fileURLWithPath: resolvedOutputFolder).appendingPathComponent(outputFileName)
+
+        // Use FileSafetyUtils to prevent overwriting the input file
+        let outputFolderURL = URL(fileURLWithPath: resolvedOutputFolder)
+        return FileSafetyUtils.safeOutputURL(
+            inputURL: url,
+            outputFolder: outputFolderURL,
+            baseName: sanitizedBaseName,
+            suffix: suffixPart,
+            fileExtension: resolvedExtension
+        )
     }
 
     /// Resolves the output folder based on user preferences.
@@ -305,10 +313,10 @@ struct VideoFileUtils: Sendable {
         let fileName = url.lastPathComponent
         var duration: Double = 0.0
         
-        if Bundle.main.path(forResource: "ffprobe", ofType: nil) != nil {
+        if BinaryPathResolver.ffprobePath != nil {
             Logger().info("[getVideoDuration] Attempting FFprobe for: \(fileName)")
             let ffprobeDuration = await FFMPEGConverter.getVideoDuration(url: url)
-            
+
             if let ffprobeDuration = ffprobeDuration, ffprobeDuration > 0 {
                 duration = ffprobeDuration
                 Logger().info("[getVideoDuration] FFprobe success: \(duration) seconds for \(fileName)")
@@ -530,6 +538,32 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var outputFileSizeBytes: Int64? = nil
     /// Whether audio should be muted (removed) in the output
     var isMuted: Bool = false
+
+    // MARK: - yt-dlp Download State
+    /// Whether this item is currently being downloaded via yt-dlp
+    var isDownloading: Bool = false
+    /// Download progress (0.0 to 1.0)
+    var downloadProgress: Double = 0.0
+    /// Current download speed (e.g., "5.2 MiB/s")
+    var downloadSpeed: String? = nil
+    /// Error message if download failed
+    var downloadError: String? = nil
+    /// Path to existing file (when download skipped because file exists)
+    var fileAlreadyExistsPath: String? = nil
+    /// Original URL for yt-dlp download (for retry functionality)
+    var sourceURL: String? = nil
+    /// Scheduled time for download (nil = download immediately or already started)
+    var scheduledDownloadTime: Date? = nil
+
+    /// Whether this item is scheduled for future download
+    var isScheduledDownload: Bool {
+        scheduledDownloadTime != nil && !isDownloading
+    }
+
+    /// Whether this item can be encoded (not downloading, no error, not scheduled)
+    var isEncodable: Bool {
+        !isDownloading && downloadError == nil && scheduledDownloadTime == nil
+    }
 
     mutating func apply(details: VideoFileUtils.VideoItemDetails) {
         size = details.size

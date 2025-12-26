@@ -55,6 +55,7 @@ struct VideoFileListView: View {
     var onOpenMetadata: (([UUID]) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
+    var onURLDrop: ((String) -> Void)?
 
     @State private var isTargeted = false
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
@@ -158,8 +159,8 @@ struct VideoFileListView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showSortOverlay)
-        // Support file drops on entire view (empty or populated)
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+        // Support file drops and URL drops on entire view (empty or populated)
+        .onDrop(of: [.fileURL, .url, .plainText], isTargeted: $isTargeted) { providers in
             return handleDrop(providers: providers)
         }
         .overlay(alignment: .topLeading) {
@@ -223,28 +224,64 @@ struct VideoFileListView: View {
 
         for provider in providers {
             print(" Processing provider: \(provider)")
+
+            // First, try to load as plain text (for pasted/dropped URLs)
+            if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                do {
+                    let data = try await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil)
+                    var urlString: String?
+                    if let data = data as? Data {
+                        urlString = String(data: data, encoding: .utf8)
+                    } else if let string = data as? String {
+                        urlString = string
+                    }
+                    if let urlString = urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       DownloadManager.isValidURL(urlString),
+                       let url = URL(string: urlString),
+                       url.scheme == "http" || url.scheme == "https" {
+                        print(" Detected web URL from text: \(urlString)")
+                        onURLDrop?(urlString)
+                        continue
+                    }
+                } catch {
+                    print(" Error loading text: \(error)")
+                }
+            }
+
             // Use the proper API to load file URLs
             if provider.canLoadObject(ofClass: URL.self) {
                 print(" Provider can load URL")
-                _ = provider.loadObject(ofClass: URL.self) { url, error in
-                    if let error = error {
-                        print(" Error loading URL: \(error)")
-                        return
+                do {
+                    let loadedURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL?, Error>) in
+                        _ = provider.loadObject(ofClass: URL.self) { object, error in
+                            if let error = error {
+                                continuation.resume(throwing: error)
+                            } else {
+                                continuation.resume(returning: object)
+                            }
+                        }
                     }
-                    if let url = url {
+                    if let url = loadedURL {
                         print(" Loaded URL: \(url)")
-                        
+
+                        // Check if this is a web URL (for yt-dlp)
+                        if url.scheme == "http" || url.scheme == "https" {
+                            print(" Detected web URL: \(url.absoluteString)")
+                            onURLDrop?(url.absoluteString)
+                            continue
+                        }
+
                         // For drag and drop, the URL already has temporary access
                         // We need to start accessing the security-scoped resource immediately
                         let hasAccess = url.startAccessingSecurityScopedResource()
                         print(" Security-scoped access granted: \(hasAccess)")
-                        
-                        Task { @MainActor in
-                            await self.processFileURL(url, supportedExtensions: supportedExtensions, hasSecurityAccess: hasAccess)
-                        }
+
+                        await processFileURL(url, supportedExtensions: supportedExtensions, hasSecurityAccess: hasAccess)
                     } else {
-                        print(" Provider cannot load URL")
+                        print(" Provider returned nil URL")
                     }
+                } catch {
+                    print(" Error loading URL: \(error)")
                 }
             } else {
                 print(" Provider cannot load URL")
@@ -692,6 +729,20 @@ struct VideoFileListView: View {
             },
             onReset: { optionKeyPressed in
                 onReset(index, optionKeyPressed)
+            },
+            onCancelDownload: {
+                Task { await DownloadManager.shared.cancelDownload(itemID: file.wrappedValue.id) }
+            },
+            onRetryDownload: {
+                Task { await DownloadManager.shared.retryDownload(itemID: file.wrappedValue.id) }
+            },
+            onForceRedownload: {
+                Task { await DownloadManager.shared.forceRedownload(itemID: file.wrappedValue.id) }
+            },
+            onCancelScheduledDownload: {
+                ScheduledDownloadService.shared.cancelScheduledItem(itemID: file.wrappedValue.id)
+                // Remove the item from the queue
+                onDelete(IndexSet(integer: index))
             },
             isSelected: selection.contains(file.wrappedValue.id),
             onCommentFocusChange: { id, isFocused in
