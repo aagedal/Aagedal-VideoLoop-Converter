@@ -180,6 +180,8 @@ struct VideoFileListView: View {
                     onResetSelected: handleResetSelectedShortcut,
                     onDeselectAll: { selection.removeAll() },
                     onToggleMute: handleToggleMuteShortcut,
+                    onToggleUpload: handleToggleUploadShortcut,
+                    onToggleAutoEncode: handleToggleAutoEncodeShortcut,
                     onNavigateUp: { handleNavigateSelection(direction: .up) },
                     onNavigateDown: { handleNavigateSelection(direction: .down) },
                     onSort: handleSortShortcut
@@ -591,7 +593,39 @@ struct VideoFileListView: View {
             droppedFiles[index].isMuted.toggle()
         }
     }
-    
+
+    private func handleToggleUploadShortcut() {
+        // Works with single or multi-selection
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        // Only toggle if upload is configured
+        guard UploadManager.shared.isConfigured else { return }
+
+        for index in selectedIndices {
+            droppedFiles[index].uploadEnabled.toggle()
+        }
+    }
+
+    private func handleToggleAutoEncodeShortcut() {
+        // Works with single or multi-selection - only affects download items
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        for index in selectedIndices {
+            // Only toggle for items that are downloading or scheduled
+            if droppedFiles[index].isDownloading || droppedFiles[index].scheduledDownloadTime != nil {
+                droppedFiles[index].autoEncodeAfterDownload.toggle()
+            }
+        }
+    }
+
     private enum MoveDirection {
         case up, down
     }
@@ -842,6 +876,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onResetSelected: () -> Void
     var onDeselectAll: () -> Void
     var onToggleMute: () -> Void
+    var onToggleUpload: () -> Void
+    var onToggleAutoEncode: () -> Void
     // Navigation shortcuts (plain arrow keys)
     var onNavigateUp: () -> Void
     var onNavigateDown: () -> Void
@@ -864,6 +900,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onResetSelected: onResetSelected,
             onDeselectAll: onDeselectAll,
             onToggleMute: onToggleMute,
+            onToggleUpload: onToggleUpload,
+            onToggleAutoEncode: onToggleAutoEncode,
             onNavigateUp: onNavigateUp,
             onNavigateDown: onNavigateDown,
             onSort: onSort
@@ -892,6 +930,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onResetSelected = onResetSelected
         context.coordinator.onDeselectAll = onDeselectAll
         context.coordinator.onToggleMute = onToggleMute
+        context.coordinator.onToggleUpload = onToggleUpload
+        context.coordinator.onToggleAutoEncode = onToggleAutoEncode
         context.coordinator.onNavigateUp = onNavigateUp
         context.coordinator.onNavigateDown = onNavigateDown
         context.coordinator.onSort = onSort
@@ -916,6 +956,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onResetSelected: () -> Void
         var onDeselectAll: () -> Void
         var onToggleMute: () -> Void
+        var onToggleUpload: () -> Void
+        var onToggleAutoEncode: () -> Void
         var onNavigateUp: () -> Void
         var onNavigateDown: () -> Void
         var onSort: () -> Void
@@ -936,6 +978,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onResetSelected: @escaping () -> Void,
             onDeselectAll: @escaping () -> Void,
             onToggleMute: @escaping () -> Void,
+            onToggleUpload: @escaping () -> Void,
+            onToggleAutoEncode: @escaping () -> Void,
             onNavigateUp: @escaping () -> Void,
             onNavigateDown: @escaping () -> Void,
             onSort: @escaping () -> Void
@@ -954,6 +998,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onResetSelected = onResetSelected
             self.onDeselectAll = onDeselectAll
             self.onToggleMute = onToggleMute
+            self.onToggleUpload = onToggleUpload
+            self.onToggleAutoEncode = onToggleAutoEncode
             self.onNavigateUp = onNavigateUp
             self.onNavigateDown = onNavigateDown
             self.onSort = onSort
@@ -1081,6 +1127,18 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // Ctrl+M: Toggle mute on selected items
                 if hasControl && !hasCommand && !hasOption && !hasShift && event.keyCode == kVK_ANSI_M {
                     self.onToggleMute()
+                    return nil
+                }
+
+                // CMD+U: Toggle upload on selected items
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_U {
+                    self.onToggleUpload()
+                    return nil
+                }
+
+                // CMD+E: Toggle auto-encode on selected items (for download items)
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_E {
+                    self.onToggleAutoEncode()
                     return nil
                 }
 

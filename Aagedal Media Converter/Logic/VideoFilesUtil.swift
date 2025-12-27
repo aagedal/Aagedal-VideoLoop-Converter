@@ -89,6 +89,20 @@ struct VideoFileUtils: Sendable {
 
     static func loadDetails(for url: URL, outputFolder: String? = nil, preset: ExportPreset = .videoLoop) async -> VideoItemDetails {
         let fileName = url.lastPathComponent
+
+        // Skip if file doesn't exist (e.g., scheduled downloads)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print(" [loadDetails] ⏭️ Skipping - file doesn't exist: \(fileName)")
+            return VideoItemDetails(
+                size: 0,
+                duration: "",
+                durationSeconds: 0,
+                thumbnailData: nil,
+                outputURL: nil,
+                hasVideoStream: false
+            )
+        }
+
         print(" [loadDetails] ⏱️ Starting for: \(fileName)")
 
         // Compute size (cheap, but ensures we have up-to-date info)
@@ -154,6 +168,12 @@ struct VideoFileUtils: Sendable {
     /// Schedules generation of heavy preview assets (filmstrip thumbnails, waveform)
     /// after the lightweight metadata and row thumbnail are complete.
     static func prefetchPreviewAssets(for url: URL) {
+        // Skip if file doesn't exist (e.g., scheduled downloads)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print(" [prefetchPreviewAssets] ⏭️ Skipping - file doesn't exist: \(url.lastPathComponent)")
+            return
+        }
+
         Task.detached(priority: .background) {
             let fileName = url.lastPathComponent
             do {
@@ -235,8 +255,15 @@ struct VideoFileUtils: Sendable {
     /// This allows the UI to be responsive while heavy operations complete
     static func fetchMetadata(for url: URL) async -> VideoMetadata? {
         let fileName = url.lastPathComponent
+
+        // Skip if file doesn't exist (e.g., scheduled downloads)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print(" [fetchMetadata] ⏭️ Skipping - file doesn't exist: \(fileName)")
+            return nil
+        }
+
         let startTime = Date()
-        
+
         print(" [fetchMetadata] ⏱️ Starting for: \(fileName) at \(startTime)")
         
         // Fetch metadata with timeout
@@ -554,6 +581,25 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var sourceURL: String? = nil
     /// Scheduled time for download (nil = download immediately or already started)
     var scheduledDownloadTime: Date? = nil
+    /// Whether to automatically start encoding after download completes
+    var autoEncodeAfterDownload: Bool = false
+
+    // MARK: - Upload State
+    /// Whether upload is enabled for this item
+    var uploadEnabled: Bool = false
+    /// Current upload status
+    var uploadStatus: UploadStatus = .notQueued
+    /// Upload progress (0.0 to 1.0)
+    var uploadProgress: Double = 0.0
+    /// Upload speed (e.g., "5.2 MiB/s")
+    var uploadSpeed: String? = nil
+    /// Remote path where file was uploaded
+    var uploadedRemotePath: String? = nil
+
+    /// Whether this item is ready for upload (conversion done, upload enabled)
+    var isReadyForUpload: Bool {
+        status == .done && uploadEnabled && outputURL != nil
+    }
 
     /// Whether this item is scheduled for future download
     var isScheduledDownload: Bool {

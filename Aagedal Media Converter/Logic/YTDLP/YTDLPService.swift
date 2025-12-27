@@ -45,11 +45,12 @@ actor YTDLPService {
                 let stderrPipe = Pipe()
 
                 // Configure process for Homebrew Python or regular executable
+                // Note: --ignore-config prevents yt-dlp from reading user config files
                 // Note: --remote-components ejs:github is required for YouTube JS challenge solving
                 HomebrewPythonExecutor.configureProcess(
                     process,
                     scriptPath: ytdlpPath,
-                    arguments: ["--remote-components", "ejs:github", "-j", "--no-download", "--no-warnings", url]
+                    arguments: ["--ignore-config", "--remote-components", "ejs:github", "-j", "--no-download", "--no-warnings", url]
                 )
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
@@ -148,12 +149,20 @@ actor YTDLPService {
         process.currentDirectoryURL = outputFolder
 
         // Build arguments array
+        // Note: --ignore-config prevents yt-dlp from reading user config files
         // Note: --remote-components ejs:github is required for YouTube JS challenge solving
-        var args: [String] = ["--remote-components", "ejs:github"]
+        var args: [String] = ["--ignore-config", "--remote-components", "ejs:github"]
 
         // Add ffmpeg location if available
-        if let ffmpegPath = ffmpegPath {
-            args.append(contentsOf: ["--ffmpeg-location", ffmpegPath])
+        let resolvedFFmpegPath = BinaryPathResolver.ffmpegPath
+        print("[YTDLPService] Resolved ffmpeg path: \(resolvedFFmpegPath ?? "nil")")
+        if let ffmpegPath = resolvedFFmpegPath {
+            // yt-dlp needs the directory containing ffmpeg, not the binary itself
+            let ffmpegDir = (ffmpegPath as NSString).deletingLastPathComponent
+            print("[YTDLPService] Using ffmpeg dir: \(ffmpegDir)")
+            args.append(contentsOf: ["--ffmpeg-location", ffmpegDir])
+        } else {
+            print("[YTDLPService] WARNING: No ffmpeg path available for yt-dlp postprocessing")
         }
 
         args.append(contentsOf: [

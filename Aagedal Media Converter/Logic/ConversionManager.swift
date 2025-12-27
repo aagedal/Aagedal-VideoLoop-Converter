@@ -1155,8 +1155,15 @@ actor ConversionManager: Sendable {
                     print("📊 Final state - outputFileSizeBytes: \(droppedFiles.wrappedValue[idx].outputFileSizeBytes ?? -1)")
                     print("📊 Final state - formattedOutputSize: \(droppedFiles.wrappedValue[idx].formattedOutputSize ?? "nil")")
                     print("📊 Final state - status: \(droppedFiles.wrappedValue[idx].status)")
+
+                    // Trigger upload if enabled for this item
+                    if success && droppedFiles.wrappedValue[idx].uploadEnabled {
+                        Task {
+                            await UploadManager.shared.startUpload(itemID: fileId)
+                        }
+                    }
                 }
-                
+
                 // Only continue if conversion has not been cancelled
                 if await self.isConverting {
                     await self.convertNextFile(

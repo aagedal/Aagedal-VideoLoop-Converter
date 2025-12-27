@@ -381,6 +381,19 @@ struct ContentView: View {
         // Store references in DownloadManager so scheduled downloads can access them
         DownloadManager.shared.videoItems = $droppedFiles
         DownloadManager.shared.outputFolder = currentOutputFolder
+
+        // Store references in UploadManager for upload functionality
+        UploadManager.shared.videoItems = $droppedFiles
+
+        // Set up auto-encode callback for downloads
+        DownloadManager.shared.onAutoEncode = { [self] _ in
+            Task { @MainActor in
+                // Only start if not already converting
+                if !isConverting {
+                    await startConversion()
+                }
+            }
+        }
     }
 
     @ViewBuilder

@@ -11,7 +11,6 @@ struct URLInputOverlay: View {
     var onSchedule: ((String, Date) -> Void)?
 
     @State private var urlText = ""
-    @State private var showHistory = false
     @State private var history: [DownloadHistoryEntry] = []
     @State private var isScheduled = false
     @State private var scheduledDate = Self.defaultScheduleDate()
@@ -76,60 +75,73 @@ struct URLInputOverlay: View {
                         submit()
                     }
 
-                // Schedule toggle
-                if onSchedule != nil {
+                // Invalid URL warning
+                if !urlText.isEmpty && !DownloadManager.isValidURL(urlText) {
                     HStack {
+                        Label("Invalid URL", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Spacer()
+                    }
+                }
+
+                // Schedule toggle with date picker and action button
+                if onSchedule != nil {
+                    HStack(spacing: 12) {
                         Toggle(isOn: $isScheduled) {
-                            Label("Schedule for later", systemImage: "clock")
+                            Label("Schedule", systemImage: "clock")
                                 .font(.subheadline)
                         }
                         .toggleStyle(.checkbox)
 
+                        DatePicker(
+                            "",
+                            selection: $scheduledDate,
+                            in: minimumScheduleDate...,
+                            displayedComponents: [.date, .hourAndMinute]
+                        )
+                        .labelsHidden()
+                        .datePickerStyle(.compact)
+                        .frame(minWidth: 220)
+                        .disabled(!isScheduled)
+                        .opacity(isScheduled ? 1.0 : 0.5)
+
                         Spacer()
 
-                        if isScheduled {
-                            DatePicker(
-                                "",
-                                selection: $scheduledDate,
-                                in: minimumScheduleDate...,
-                                displayedComponents: [.date, .hourAndMinute]
-                            )
-                            .labelsHidden()
-                            .datePickerStyle(.compact)
-                            .frame(minWidth: 200)
+                        Button(isScheduled ? "Schedule" : "Download") {
+                            submit()
                         }
+                        .keyboardShortcut(.return, modifiers: [])
+                        .disabled(urlText.isEmpty || !DownloadManager.isValidURL(urlText))
+                        .buttonStyle(.borderedProminent)
                     }
                     .padding(.vertical, 4)
-                }
-
-                HStack {
-                    if !urlText.isEmpty && !DownloadManager.isValidURL(urlText) {
-                        Label("Invalid URL", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                } else {
+                    HStack {
+                        Spacer()
+                        Button("Download") {
+                            submit()
+                        }
+                        .keyboardShortcut(.return, modifiers: [])
+                        .disabled(urlText.isEmpty || !DownloadManager.isValidURL(urlText))
+                        .buttonStyle(.borderedProminent)
                     }
-
-                    Spacer()
-
-                    Button("Cancel") {
-                        isPresented = false
-                    }
-                    .keyboardShortcut(.escape, modifiers: [])
-
-                    Button(isScheduled ? "Schedule" : "Download") {
-                        submit()
-                    }
-                    .keyboardShortcut(.return, modifiers: [])
-                    .disabled(urlText.isEmpty || !DownloadManager.isValidURL(urlText))
-                    .buttonStyle(.borderedProminent)
                 }
 
                 // History section
                 if !history.isEmpty {
                     Divider()
-                        .padding(.top, 8)
+                        .padding(.top, 4)
 
-                    DisclosureGroup(isExpanded: $showHistory) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .foregroundStyle(.secondary)
+                            Text("Recent Downloads")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
                         ScrollView {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(history) { entry in
@@ -168,19 +180,11 @@ struct URLInputOverlay: View {
                             }
                         }
                         .frame(maxHeight: 150)
-                    } label: {
-                        HStack {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .foregroundStyle(.secondary)
-                            Text("Recent Downloads")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
                     }
                 }
             }
             .padding(20)
-            .frame(width: 500)
+            .frame(width: 540)
             .background(.regularMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .shadow(radius: 20)

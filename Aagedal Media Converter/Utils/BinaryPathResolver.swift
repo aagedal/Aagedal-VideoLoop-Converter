@@ -212,26 +212,44 @@ enum HomebrewPythonExecutor {
         )
     }
 
-    /// Path to the embedded Python in the app bundle
-    static var embeddedPythonPath: String? {
-        guard let resourcePath = Bundle.main.resourcePath else { return nil }
-        let pythonPath = resourcePath + "/EmbeddedPython/python/bin/python3"
-        return FileManager.default.fileExists(atPath: pythonPath) ? pythonPath : nil
+    /// Checks if a file is a Mach-O binary (standalone executable) vs a script
+    static func isStandaloneBinary(at path: String) -> Bool {
+        guard let data = FileManager.default.contents(atPath: path),
+              data.count >= 4 else {
+            return false
+        }
+
+        // Check for Mach-O magic numbers
+        let magic = data.prefix(4)
+        let machO64 = Data([0xCF, 0xFA, 0xED, 0xFE])  // 64-bit Mach-O
+        let machO32 = Data([0xCE, 0xFA, 0xED, 0xFE])  // 32-bit Mach-O
+        let fatBinary = Data([0xCA, 0xFE, 0xBA, 0xBE]) // Universal binary
+
+        return magic == machO64 || magic == machO32 || magic == fatBinary
     }
 
     /// Configures a Process to execute yt-dlp
-    /// Priority: 1) Embedded Python, 2) Homebrew detection with system Python fallback
+    /// Handles both standalone binaries (yt-dlp_macos) and Python scripts (Homebrew)
     static func configureProcess(_ process: Process, scriptPath: String, arguments: [String]) {
-        // First, try embedded Python (bundled with the app)
-        if let embeddedPython = embeddedPythonPath {
-            print("[HomebrewPythonExecutor] Using embedded Python: \(embeddedPython)")
-            process.executableURL = URL(fileURLWithPath: embeddedPython)
-            // Use -u for unbuffered stdout/stderr to ensure real-time progress output
-            process.arguments = ["-u", "-m", "yt_dlp"] + arguments
+        // Check if it's a standalone binary (like yt-dlp_macos from GitHub)
+        if isStandaloneBinary(at: scriptPath) {
+            print("[HomebrewPythonExecutor] Using standalone binary: \(scriptPath)")
+            process.executableURL = URL(fileURLWithPath: scriptPath)
+            process.arguments = arguments
+
+            // Add bundled ffmpeg to PATH so yt-dlp can find it for post-processing
+            var env = ProcessInfo.processInfo.environment
+            if let ffmpegPath = BinaryPathResolver.ffmpegPath {
+                let ffmpegDir = (ffmpegPath as NSString).deletingLastPathComponent
+                let currentPath = env["PATH"] ?? "/usr/bin:/bin"
+                env["PATH"] = ffmpegDir + ":" + currentPath
+                print("[HomebrewPythonExecutor] Added ffmpeg to PATH: \(ffmpegDir)")
+            }
+            process.environment = env
             return
         }
 
-        // Fall back to Homebrew detection with PYTHONPATH
+        // It's a Python script - try Homebrew detection with PYTHONPATH
         if let info = executionInfo(for: scriptPath) {
             // Try various system Pythons
             let cltPython = "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3"
@@ -254,12 +272,10 @@ enum HomebrewPythonExecutor {
             env["PYTHONPATH"] = info.sitePackages
             process.environment = env
         } else {
-            // Last resort - shell wrapper
-            print("[HomebrewPythonExecutor] Falling back to shell wrapper for: \(scriptPath)")
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            let escapedPath = scriptPath.replacingOccurrences(of: "'", with: "'\\''")
-            let escapedArgs = arguments.map { "'\($0.replacingOccurrences(of: "'", with: "'\\''"))'" }.joined(separator: " ")
-            process.arguments = ["-c", "'\(escapedPath)' \(escapedArgs)"]
+            // Last resort - try executing directly (may work for scripts with valid shebangs)
+            print("[HomebrewPythonExecutor] Executing directly: \(scriptPath)")
+            process.executableURL = URL(fileURLWithPath: scriptPath)
+            process.arguments = arguments
         }
     }
 }

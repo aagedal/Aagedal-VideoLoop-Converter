@@ -207,11 +207,11 @@ struct VideoFileRowView: View {
                             }
                         }
 
-                        // Progress bar (shown when converting or downloading)
-                        if file.status == .converting || file.isDownloading {
-                            ProgressView(value: file.isDownloading ? file.downloadProgress : file.progress)
+                        // Progress bar (shown when converting, downloading, or uploading)
+                        if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading {
+                            ProgressView(value: progressBarValue)
                                 .progressViewStyle(LinearProgressViewStyle())
-                                .tint(file.isDownloading ? .purple : .accentColor)
+                                .tint(progressBarColor)
                         }
 
                         // Standard mode: duration and size line
@@ -236,6 +236,31 @@ struct VideoFileRowView: View {
                                     .help("Input file size")
 
                                 Spacer()
+
+                                // Auto-encode toggle (for download items)
+                                if file.isDownloading || file.scheduledDownloadTime != nil {
+                                    Button {
+                                        file.autoEncodeAfterDownload.toggle()
+                                    } label: {
+                                        Image(systemName: file.autoEncodeAfterDownload ? "play.fill" : "play")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundColor(file.autoEncodeAfterDownload ? .green : .secondary)
+                                    .help(file.autoEncodeAfterDownload ? "Auto-encode enabled" : "Enable auto-encode after download")
+                                }
+
+                                // Upload toggle button
+                                Button {
+                                    file.uploadEnabled.toggle()
+                                } label: {
+                                    Image(systemName: file.uploadEnabled ? "icloud.and.arrow.up.fill" : "icloud.and.arrow.up")
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundColor(file.uploadEnabled ? .blue : .secondary)
+                                .disabled(!UploadManager.shared.isConfigured)
+                                .help(UploadManager.shared.isConfigured
+                                      ? (file.uploadEnabled ? "Upload enabled" : "Enable upload after conversion")
+                                      : "Configure upload in Settings > Upload")
 
                                 // Action buttons container with fixed width
                                 HStack(spacing: 4) {
@@ -336,7 +361,8 @@ struct VideoFileRowView: View {
         }
         .padding(.horizontal, 4)
         .sheet(isPresented: $showPreview) {
-            if showPreview {
+            // Don't show preview for scheduled downloads or items being downloaded
+            if showPreview && !file.isDownloading && file.scheduledDownloadTime == nil {
                 PreviewPlayerView(item: $file)
             }
         }
@@ -401,6 +427,7 @@ struct VideoFileRowView: View {
             .overlay(alignment: .topTrailing, content: { timecodeBadge })
             .overlay(alignment: .bottomLeading, content: { trimBadge })
             .overlay(alignment: .bottomTrailing, content: { cropBadge })
+            .overlay(alignment: .trailing, content: { uploadBadge })
             .overlay { if isThumbnailHovered { thumbnailHoverOverlay } }
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -508,6 +535,26 @@ struct VideoFileRowView: View {
     private var cropBadge: some View {
         if let cropConfig = file.cropConfig, cropConfig.isActive {
             badgeView(icon: "crop", text: "\(Int(cropConfig.normalizedRect.width * 100))%")
+        }
+    }
+
+    @ViewBuilder
+    private var uploadBadge: some View {
+        switch file.uploadStatus {
+        case .uploading:
+            badgeView(icon: "arrow.up.circle", text: "\(Int(file.uploadProgress * 100))%", color: .blue)
+        case .uploaded:
+            badgeView(icon: "checkmark.icloud.fill", text: "", color: .green)
+        case .failed:
+            badgeView(icon: "exclamationmark.icloud.fill", text: "", color: .red)
+        case .pending:
+            badgeView(icon: "clock.arrow.circlepath", text: "", color: .orange)
+        case .cancelled:
+            badgeView(icon: "xmark.icloud", text: "", color: .gray)
+        case .notQueued:
+            if file.uploadEnabled {
+                badgeView(icon: "icloud.and.arrow.up", text: "", color: .blue.opacity(0.7))
+            }
         }
     }
 
@@ -687,6 +734,35 @@ struct VideoFileRowView: View {
             .buttonStyle(.borderless)
             .foregroundColor(.secondary)
             .help("View metadata")
+
+            // Auto-encode toggle (for download items)
+            if file.isDownloading || file.scheduledDownloadTime != nil {
+                Button {
+                    file.autoEncodeAfterDownload.toggle()
+                } label: {
+                    Image(systemName: file.autoEncodeAfterDownload ? "play.fill" : "play")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(file.autoEncodeAfterDownload ? .green : .secondary)
+                .help(file.autoEncodeAfterDownload ? "Auto-encode enabled" : "Enable auto-encode after download")
+            }
+
+            // Upload toggle button
+            Button {
+                file.uploadEnabled.toggle()
+            } label: {
+                Image(systemName: file.uploadEnabled ? "icloud.and.arrow.up.fill" : "icloud.and.arrow.up")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(file.uploadEnabled ? .blue : .secondary)
+            .disabled(!UploadManager.shared.isConfigured)
+            .help(UploadManager.shared.isConfigured
+                  ? (file.uploadEnabled ? "Upload enabled" : "Enable upload after conversion")
+                  : "Configure upload in Settings > Upload")
         }
     }
 
@@ -1007,7 +1083,29 @@ struct VideoFileRowView: View {
         default: return .gray
         }
     }
-    
+
+    /// Progress bar value (0.0 to 1.0) based on current state
+    private var progressBarValue: Double {
+        if file.uploadStatus == .uploading {
+            return file.uploadProgress
+        } else if file.isDownloading {
+            return file.downloadProgress
+        } else {
+            return file.progress
+        }
+    }
+
+    /// Progress bar color based on current state
+    private var progressBarColor: Color {
+        if file.uploadStatus == .uploading {
+            return .cyan
+        } else if file.isDownloading {
+            return .purple
+        } else {
+            return .accentColor
+        }
+    }
+
     private func displayOutputFilename() -> String {
         if let outputURL = file.outputURL {
             return outputURL.lastPathComponent
