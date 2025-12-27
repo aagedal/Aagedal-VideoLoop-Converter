@@ -709,7 +709,12 @@ actor ConversionManager: Sendable {
 
     func evaluateMergeCompatibility(for items: [VideoItem], preset: ExportPreset) async -> MergeCompatibilityResult {
         lastMergeMetadata = [:]
-        let waitingItems = items.filter { $0.status == .waiting }
+        // Filter for waiting items, excluding downloads and scheduled downloads
+        let waitingItems = items.filter {
+            $0.status == .waiting &&
+            !$0.isDownloading &&
+            $0.scheduledDownloadTime == nil
+        }
         mergeLogger.debug("Evaluating merge compatibility for \(waitingItems.count) waiting clips")
         guard waitingItems.count >= 2 else {
             mergeLogger.debug("Merge incompatible: insufficient items (\(waitingItems.count))")

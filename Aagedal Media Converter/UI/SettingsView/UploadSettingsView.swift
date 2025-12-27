@@ -28,6 +28,12 @@ struct UploadSettingsView: View {
     @State private var password = ""
     @State private var hasStoredPassword = false
 
+    // Focus state for Tab navigation
+    private enum Field: Hashable {
+        case server, port, username, password, remotePath
+    }
+    @FocusState private var focusedField: Field?
+
     private enum TestResult {
         case success
         case failure(String)
@@ -111,6 +117,8 @@ struct UploadSettingsView: View {
                         .frame(width: 80, alignment: .trailing)
                     TextField("ftp.example.com", text: $server)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .server)
+                        .onSubmit { focusedField = .port }
                 }
 
                 // Port
@@ -120,6 +128,8 @@ struct UploadSettingsView: View {
                     TextField("21", value: $port, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
+                        .focused($focusedField, equals: .port)
+                        .onSubmit { focusedField = .username }
                     Spacer()
                 }
 
@@ -129,6 +139,8 @@ struct UploadSettingsView: View {
                         .frame(width: 80, alignment: .trailing)
                     TextField("username", text: $username)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .username)
+                        .onSubmit { focusedField = .password }
                 }
 
                 // Password
@@ -137,6 +149,8 @@ struct UploadSettingsView: View {
                         .frame(width: 80, alignment: .trailing)
                     SecureField(hasStoredPassword ? "••••••••" : "password", text: $password)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .password)
+                        .onSubmit { focusedField = .remotePath }
                         .onChange(of: password) { _, newValue in
                             if !newValue.isEmpty {
                                 savePassword()
@@ -155,6 +169,8 @@ struct UploadSettingsView: View {
                         .frame(width: 80, alignment: .trailing)
                     TextField("/uploads/videos", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .remotePath)
+                        .onSubmit { focusedField = nil }
                 }
 
                 // FTPS toggle

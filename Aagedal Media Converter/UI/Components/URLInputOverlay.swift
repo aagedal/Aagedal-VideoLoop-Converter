@@ -101,8 +101,7 @@ struct URLInputOverlay: View {
                             displayedComponents: [.date, .hourAndMinute]
                         )
                         .labelsHidden()
-                        .datePickerStyle(.compact)
-                        .frame(minWidth: 220)
+                        .datePickerStyle(.field)
                         .disabled(!isScheduled)
                         .opacity(isScheduled ? 1.0 : 0.5)
 

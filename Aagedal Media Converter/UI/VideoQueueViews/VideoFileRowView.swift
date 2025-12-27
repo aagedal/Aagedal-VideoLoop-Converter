@@ -259,7 +259,7 @@ struct VideoFileRowView: View {
                                 .foregroundColor(file.uploadEnabled ? .blue : .secondary)
                                 .disabled(!UploadManager.shared.isConfigured)
                                 .help(UploadManager.shared.isConfigured
-                                      ? (file.uploadEnabled ? "Upload enabled" : "Enable upload after conversion")
+                                      ? (file.uploadEnabled ? "Encoded file will upload automatically" : "Enable automatic upload after encoding")
                                       : "Configure upload in Settings > Upload")
 
                                 // Action buttons container with fixed width
@@ -761,7 +761,7 @@ struct VideoFileRowView: View {
             .foregroundColor(file.uploadEnabled ? .blue : .secondary)
             .disabled(!UploadManager.shared.isConfigured)
             .help(UploadManager.shared.isConfigured
-                  ? (file.uploadEnabled ? "Upload enabled" : "Enable upload after conversion")
+                  ? (file.uploadEnabled ? "Encoded file will upload automatically" : "Enable automatic upload after encoding")
                   : "Configure upload in Settings > Upload")
         }
     }

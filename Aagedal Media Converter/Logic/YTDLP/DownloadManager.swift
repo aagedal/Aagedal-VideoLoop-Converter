@@ -93,6 +93,9 @@ class DownloadManager {
 
     /// Starts a previously scheduled download (called by ScheduledDownloadService when time is reached)
     func startScheduledDownload(itemID: UUID) async {
+        let startTime = Date()
+        logger.info("[TIMING] startScheduledDownload entered")
+
         guard videoItems != nil, let folder = outputFolder else {
             logger.error("Cannot start scheduled download: videoItems or outputFolder not set")
             return
@@ -103,6 +106,9 @@ class DownloadManager {
             return
         }
 
+        let findItemElapsed = Date().timeIntervalSince(startTime)
+        logger.info("[TIMING] Found item in \(String(format: "%.3f", findItemElapsed))s")
+
         // Clear the scheduled time and mark as downloading
         updateItem(itemID) { item in
             item.scheduledDownloadTime = nil
@@ -110,6 +116,9 @@ class DownloadManager {
             item.name = "Fetching info..."
             item.downloadProgress = 0
         }
+
+        let setupElapsed = Date().timeIntervalSince(startTime)
+        logger.info("[TIMING] Item setup completed in \(String(format: "%.3f", setupElapsed))s, starting download task...")
 
         // Start download task
         let task = Task {
@@ -178,22 +187,29 @@ class DownloadManager {
 
     /// Performs the actual download
     private func performDownload(itemID: UUID, urlString: String, outputFolder: URL) async {
-        // Fetch metadata first
-        do {
-            logger.info("Fetching metadata for: \(urlString)")
-            let metadata = try await ytdlpService.fetchMetadata(url: urlString)
+        let downloadStartTime = Date()
+        logger.info("[TIMING] performDownload started at \(downloadStartTime)")
 
-            // Update item with metadata
-            updateItem(itemID) { item in
-                item.name = metadata.title
-                if let duration = metadata.duration {
-                    item.durationSeconds = duration
-                    item.duration = Self.formatDuration(duration)
-                }
+        // Start metadata fetch in parallel with download
+        // This allows the download to start immediately while we fetch metadata for display
+        let metadataTask = Task<YTDLPMetadata?, Never> {
+            do {
+                let metadataStartTime = Date()
+                logger.info("[TIMING] Fetching metadata in parallel for: \(urlString)")
+                let metadata = try await ytdlpService.fetchMetadata(url: urlString)
+                let metadataElapsed = Date().timeIntervalSince(metadataStartTime)
+                logger.info("[TIMING] Parallel metadata fetch completed in \(String(format: "%.2f", metadataElapsed))s")
+                return metadata
+            } catch {
+                logger.warning("[TIMING] Parallel metadata fetch failed: \(error.localizedDescription)")
+                return nil
             }
+        }
 
-            // Start the actual download
-            logger.info("Starting download for: \(metadata.title)")
+        // Start the actual download immediately (don't wait for metadata)
+        do {
+            let actualDownloadStartTime = Date()
+            logger.info("[TIMING] Starting download immediately for: \(urlString)")
 
             let result = try await ytdlpService.download(
                 url: urlString,
@@ -211,12 +227,32 @@ class DownloadManager {
             }
 
             // Download complete - update item
-            logger.info("Download complete: \(result.outputURL.path)")
+            let downloadElapsed = Date().timeIntervalSince(actualDownloadStartTime)
+            let totalElapsed = Date().timeIntervalSince(downloadStartTime)
+            logger.info("[TIMING] Download complete: \(result.outputURL.path)")
+            logger.info("[TIMING] Actual download took \(String(format: "%.2f", downloadElapsed))s, total elapsed: \(String(format: "%.2f", totalElapsed))s")
+
+            // Get metadata result (should be done by now since download typically takes longer)
+            let ytdlpMetadata = await metadataTask.value
+            let videoTitle = ytdlpMetadata?.title ?? result.outputURL.deletingPathExtension().lastPathComponent
+
+            // Update item name with metadata if available
+            if let metadata = ytdlpMetadata {
+                updateItem(itemID) { item in
+                    if item.name == "Fetching info..." || item.name.hasPrefix("Downloading") {
+                        item.name = metadata.title
+                    }
+                    if let duration = metadata.duration {
+                        item.durationSeconds = duration
+                        item.duration = Self.formatDuration(duration)
+                    }
+                }
+            }
 
             // Save to download history
             DownloadHistoryService.addEntry(
                 url: urlString,
-                title: metadata.title,
+                title: videoTitle,
                 outputFileName: result.outputURL.lastPathComponent
             )
 
@@ -267,6 +303,7 @@ class DownloadManager {
             }
 
         } catch let error as YTDLPError {
+            metadataTask.cancel()
             switch error {
             case .fileAlreadyExists(let path, let title):
                 logger.warning("File already exists: \(path)")
@@ -286,6 +323,7 @@ class DownloadManager {
                 }
             }
         } catch {
+            metadataTask.cancel()
             logger.error("Download failed: \(error.localizedDescription)")
 
             updateItem(itemID) { item in

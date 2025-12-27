@@ -95,12 +95,18 @@ class ScheduledDownloadService {
 
         for item in dueItems {
             let scheduledStr = formatter.string(from: item.scheduledTime)
-            logger.info("Starting scheduled download: \(item.itemID) (was scheduled for \(scheduledStr))")
+            let delay = now.timeIntervalSince(item.scheduledTime)
+            logger.info("[TIMING] Starting scheduled download: \(item.itemID) (was scheduled for \(scheduledStr), trigger delay: \(String(format: "%.1f", delay))s)")
             // Remove from scheduled list first
             scheduledItems.removeAll { $0.itemID == item.itemID }
             // Start the download via DownloadManager
+            let triggerTime = Date()
             Task {
                 await DownloadManager.shared.startScheduledDownload(itemID: item.itemID)
+                let elapsed = Date().timeIntervalSince(triggerTime)
+                await MainActor.run {
+                    self.logger.info("[TIMING] startScheduledDownload completed in \(String(format: "%.2f", elapsed))s")
+                }
             }
         }
     }
