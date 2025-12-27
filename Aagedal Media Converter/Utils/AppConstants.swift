@@ -418,6 +418,29 @@ enum AppConstants {
     static let downloadHistoryKey = "downloadHistory"
     static let downloadHistoryMaxItems = 10
 
+    // Download automation defaults
+    static let autoEncodeAfterDownloadKey = "autoEncodeAfterDownload"
+    static let autoUploadAfterDownloadKey = "autoUploadAfterDownload"
+
+    // MARK: - Upload Settings
+
+    // FTP/Upload configuration
+    static let uploadServerKey = "uploadServer"
+    static let uploadPortKey = "uploadPort"
+    static let uploadUsernameKey = "uploadUsername"
+    static let uploadRemotePathKey = "uploadRemotePath"
+    static let uploadUseFTPSKey = "uploadUseFTPS"
+    static let uploadDefaultEnabledKey = "uploadDefaultEnabled"
+    static let uploadRetryCountKey = "uploadRetryCount"
+    static let defaultUploadPort = 21
+    static let defaultUploadRetryCount = 3
+
+    // rclone binary management
+    static let rcloneVersionKey = "rcloneInstalledVersion"
+    static let rcloneLastUpdateCheckKey = "rcloneLastUpdateCheck"
+    static let rcloneGitHubReleasesURL = "https://api.github.com/repos/rclone/rclone/releases/latest"
+    static let rcloneCustomPathKey = "rcloneCustomPath"
+
     // Output location settings
     static let saveNextToOriginalKey = "saveNextToOriginal"
     static let saveNextToOriginalSubfolderKey = "saveNextToOriginalSubfolder"

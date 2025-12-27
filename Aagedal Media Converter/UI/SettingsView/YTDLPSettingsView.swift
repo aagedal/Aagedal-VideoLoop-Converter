@@ -18,9 +18,13 @@ struct YTDLPSettingsView: View {
     @State private var isDownloading = false
     @State private var downloadError: String?
 
+    @AppStorage(AppConstants.autoEncodeAfterDownloadKey) private var autoEncodeAfterDownload = false
+    @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
+
     var body: some View {
         Form {
             ytdlpSection
+            downloadAutomationSection
             ffmpegSection
             aboutSection
         }
@@ -233,6 +237,42 @@ struct YTDLPSettingsView: View {
             await MainActor.run {
                 isDownloading = false
             }
+        }
+    }
+
+    // MARK: - Download Automation Section
+
+    private var downloadAutomationSection: some View {
+        Section(header: Text("Download Automation")) {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle("Auto-encode after download", isOn: $autoEncodeAfterDownload)
+                    .toggleStyle(SwitchToggleStyle())
+
+                Text("When enabled, new downloads will automatically start encoding after the download completes.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Divider()
+
+                Toggle("Auto-upload after download", isOn: $autoUploadAfterDownload)
+                    .toggleStyle(SwitchToggleStyle())
+                    .disabled(!UploadManager.shared.isConfigured)
+
+                Text("When enabled, new downloads will be uploaded after encoding completes. Requires upload to be configured in Settings > Upload.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if !UploadManager.shared.isConfigured {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Upload not configured")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+            }
+            .padding(8)
         }
     }
 

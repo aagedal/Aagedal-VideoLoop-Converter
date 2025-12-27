@@ -24,6 +24,9 @@ class DownloadManager {
     /// Output folder for downloads
     var outputFolder: URL?
 
+    /// Callback to trigger encoding for a specific item (set by ContentView)
+    var onAutoEncode: ((UUID) -> Void)?
+
     private init() {}
 
     /// Starts a download using stored videoItems and outputFolder references
@@ -65,6 +68,10 @@ class DownloadManager {
         )
         item.sourceURL = urlString
         item.scheduledDownloadTime = scheduledTime
+
+        // Apply default automation settings
+        item.autoEncodeAfterDownload = UserDefaults.standard.bool(forKey: AppConstants.autoEncodeAfterDownloadKey)
+        item.uploadEnabled = UserDefaults.standard.bool(forKey: AppConstants.autoUploadAfterDownloadKey)
 
         let itemID = item.id
 
@@ -151,6 +158,10 @@ class DownloadManager {
         item.sourceURL = urlString
         item.downloadProgress = 0
 
+        // Apply default automation settings
+        item.autoEncodeAfterDownload = UserDefaults.standard.bool(forKey: AppConstants.autoEncodeAfterDownloadKey)
+        item.uploadEnabled = UserDefaults.standard.bool(forKey: AppConstants.autoUploadAfterDownloadKey)
+
         let itemID = item.id
 
         // Add to queue
@@ -228,6 +239,7 @@ class DownloadManager {
 
             // Trigger details and metadata loading for the downloaded file
             if let item = findItem(itemID) {
+                let shouldAutoEncode = item.autoEncodeAfterDownload
                 Task.detached {
                     // Load basic details (size, duration, thumbnail)
                     let details = await VideoFileUtils.loadDetails(for: item.url)
@@ -243,6 +255,12 @@ class DownloadManager {
                     await MainActor.run {
                         self.updateItem(itemID) { item in
                             item.metadata = metadata
+                        }
+
+                        // Trigger auto-encode if enabled
+                        if shouldAutoEncode {
+                            self.logger.info("Auto-encoding enabled for downloaded item: \(itemID)")
+                            self.onAutoEncode?(itemID)
                         }
                     }
                 }
@@ -408,6 +426,7 @@ class DownloadManager {
 
             // Trigger details and metadata loading for the downloaded file
             if let item = findItem(itemID) {
+                let shouldAutoEncode = item.autoEncodeAfterDownload
                 Task.detached {
                     // Load basic details (size, duration, thumbnail)
                     let details = await VideoFileUtils.loadDetails(for: item.url)
@@ -423,6 +442,12 @@ class DownloadManager {
                     await MainActor.run {
                         self.updateItem(itemID) { item in
                             item.metadata = metadata
+                        }
+
+                        // Trigger auto-encode if enabled
+                        if shouldAutoEncode {
+                            self.logger.info("Auto-encoding enabled for re-downloaded item: \(itemID)")
+                            self.onAutoEncode?(itemID)
                         }
                     }
                 }

@@ -224,16 +224,22 @@ actor YTDLPUpdateService {
         }
     }
 
-    /// Downloads and installs the latest yt-dlp release
+    /// Downloads and installs the latest yt-dlp release (without progress)
     func downloadUpdate() async throws {
+        try await downloadUpdate(progress: { _ in })
+    }
+
+    /// Downloads and installs the latest yt-dlp release
+    /// - Parameter progress: Callback for download progress (0.0 to 1.0)
+    func downloadUpdate(progress: @escaping @Sendable (Double) -> Void) async throws {
         guard let (version, downloadURL) = try await getLatestReleaseVersion() else {
             throw YTDLPUpdateError.assetNotFound
         }
 
         logger.info("Downloading yt-dlp \(version) from \(downloadURL)")
 
-        // Download the binary
-        let (tempURL, response) = try await URLSession.shared.download(from: downloadURL)
+        // Download the binary with progress tracking
+        let (tempURL, response) = try await downloadWithProgress(from: downloadURL, progress: progress)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             throw YTDLPUpdateError.downloadFailed
@@ -301,6 +307,41 @@ actor YTDLPUpdateService {
         }
     }
 
+    /// Downloads a file with progress tracking
+    private func downloadWithProgress(
+        from url: URL,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> (URL, URLResponse) {
+        let request = URLRequest(url: url)
+
+        let delegate = YTDLPDownloadProgressDelegate(progressHandler: progress)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = session.downloadTask(with: request) { tempURL, response, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let tempURL = tempURL, let response = response else {
+                    continuation.resume(throwing: YTDLPUpdateError.downloadFailed)
+                    return
+                }
+
+                // Move to a more permanent temp location
+                let persistentTemp = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                do {
+                    try FileManager.default.moveItem(at: tempURL, to: persistentTemp)
+                    continuation.resume(returning: (persistentTemp, response))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+            task.resume()
+        }
+    }
+
     /// Performs update check and downloads if available (called on app launch)
     func performUpdateCheckIfNeeded() async {
         // Check if we should check for updates (once per day)
@@ -329,6 +370,38 @@ actor YTDLPUpdateService {
         } catch {
             logger.error("yt-dlp update failed: \(error.localizedDescription)")
         }
+    }
+}
+
+// MARK: - Download Progress Delegate
+
+private final class YTDLPDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let progressHandler: @Sendable (Double) -> Void
+
+    init(progressHandler: @escaping @Sendable (Double) -> Void) {
+        self.progressHandler = progressHandler
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        DispatchQueue.main.async {
+            self.progressHandler(progress)
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        // Handled in the completion handler
     }
 }
 

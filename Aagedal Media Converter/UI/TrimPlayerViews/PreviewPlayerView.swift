@@ -91,6 +91,12 @@ struct PreviewPlayerView: View {
                 // Sync crop overlay with controls state
                 controller.isCropEnabled = true
             }
+
+            // Skip preview loading for scheduled downloads or items being downloaded
+            guard !item.isDownloading && item.scheduledDownloadTime == nil else {
+                return
+            }
+
             // Ensure metadata is loaded before preparing preview
             Task {
                 if item.metadata == nil {
