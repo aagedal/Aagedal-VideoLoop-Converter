@@ -422,6 +422,9 @@ enum AppConstants {
     static let autoEncodeAfterDownloadKey = "autoEncodeAfterDownload"
     static let autoUploadAfterDownloadKey = "autoUploadAfterDownload"
 
+    // yt-dlp authentication
+    static let ytdlpCookiesBrowserKey = "ytdlpCookiesBrowser"
+
     // MARK: - Upload Settings
 
     // FTP/Upload configuration

@@ -33,11 +33,18 @@ actor YTDLPService {
 
     /// Fetches video metadata without downloading
     func fetchMetadata(url: String) async throws -> YTDLPMetadata {
+        let startTime = Date()
+        logger.info("[TIMING] fetchMetadata started")
+
+        let pathResolveStart = Date()
         guard let ytdlpPath = await updateService.resolveYTDLPPath() else {
             throw YTDLPError.binaryNotFound
         }
+        let pathResolveElapsed = Date().timeIntervalSince(pathResolveStart)
+        logger.info("[TIMING] yt-dlp path resolved in \(String(format: "%.3f", pathResolveElapsed))s: \(ytdlpPath)")
 
         // Run process handling on a background thread to avoid blocking async context
+        let processStartTime = Date()
         let result: (data: Data, error: String?, exitCode: Int32) = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global().async {
                 let process = Process()
@@ -47,10 +54,20 @@ actor YTDLPService {
                 // Configure process for Homebrew Python or regular executable
                 // Note: --ignore-config prevents yt-dlp from reading user config files
                 // Note: --remote-components ejs:github is required for YouTube JS challenge solving
+                var arguments = ["--ignore-config", "--remote-components", "ejs:github"]
+
+                // Add browser cookies if configured
+                let cookiesBrowser = UserDefaults.standard.string(forKey: AppConstants.ytdlpCookiesBrowserKey) ?? ""
+                if !cookiesBrowser.isEmpty {
+                    arguments.append(contentsOf: ["--cookies-from-browser", cookiesBrowser])
+                }
+
+                arguments.append(contentsOf: ["-j", "--no-download", "--no-warnings", url])
+
                 HomebrewPythonExecutor.configureProcess(
                     process,
                     scriptPath: ytdlpPath,
-                    arguments: ["--ignore-config", "--remote-components", "ejs:github", "-j", "--no-download", "--no-warnings", url]
+                    arguments: arguments
                 )
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
@@ -97,7 +114,8 @@ actor YTDLPService {
             }
         }
 
-        logger.info("yt-dlp process exited with status: \(result.exitCode)")
+        let processElapsed = Date().timeIntervalSince(processStartTime)
+        logger.info("[TIMING] yt-dlp metadata process completed in \(String(format: "%.2f", processElapsed))s, exit status: \(result.exitCode)")
 
         guard result.exitCode == 0 else {
             let errorMessage = result.error ?? "Unknown error"
@@ -115,6 +133,9 @@ actor YTDLPService {
         let thumbnailURL = thumbnailURLString.flatMap { URL(string: $0) }
         let uploader = json["uploader"] as? String
         let description = json["description"] as? String
+
+        let totalElapsed = Date().timeIntervalSince(startTime)
+        logger.info("[TIMING] fetchMetadata completed in \(String(format: "%.2f", totalElapsed))s for: \(title)")
 
         return YTDLPMetadata(
             title: title,
@@ -138,9 +159,15 @@ actor YTDLPService {
         forceOverwrite: Bool = false,
         progress: @escaping @Sendable (Double, String?) -> Void
     ) async throws -> YTDLPDownloadResult {
+        let downloadStartTime = Date()
+        logger.info("[TIMING] download() started")
+
+        let pathResolveStart = Date()
         guard let ytdlpPath = await updateService.resolveYTDLPPath() else {
             throw YTDLPError.binaryNotFound
         }
+        let pathResolveElapsed = Date().timeIntervalSince(pathResolveStart)
+        logger.info("[TIMING] yt-dlp path resolved in \(String(format: "%.3f", pathResolveElapsed))s")
 
         let process = Process()
         let stderrPipe = Pipe()
@@ -154,8 +181,10 @@ actor YTDLPService {
         var args: [String] = ["--ignore-config", "--remote-components", "ejs:github"]
 
         // Add ffmpeg location if available
+        let ffmpegResolveStart = Date()
         let resolvedFFmpegPath = BinaryPathResolver.ffmpegPath
-        print("[YTDLPService] Resolved ffmpeg path: \(resolvedFFmpegPath ?? "nil")")
+        let ffmpegResolveElapsed = Date().timeIntervalSince(ffmpegResolveStart)
+        logger.info("[TIMING] ffmpeg path resolved in \(String(format: "%.3f", ffmpegResolveElapsed))s: \(resolvedFFmpegPath ?? "nil")")
         if let ffmpegPath = resolvedFFmpegPath {
             // yt-dlp needs the directory containing ffmpeg, not the binary itself
             let ffmpegDir = (ffmpegPath as NSString).deletingLastPathComponent
@@ -163,6 +192,13 @@ actor YTDLPService {
             args.append(contentsOf: ["--ffmpeg-location", ffmpegDir])
         } else {
             print("[YTDLPService] WARNING: No ffmpeg path available for yt-dlp postprocessing")
+        }
+
+        // Add browser cookies if configured
+        let cookiesBrowser = UserDefaults.standard.string(forKey: AppConstants.ytdlpCookiesBrowserKey) ?? ""
+        if !cookiesBrowser.isEmpty {
+            args.append(contentsOf: ["--cookies-from-browser", cookiesBrowser])
+            logger.info("[YTDLPService] Using cookies from browser: \(cookiesBrowser)")
         }
 
         args.append(contentsOf: [
@@ -290,9 +326,15 @@ actor YTDLPService {
             }
         }
 
+        let processSetupElapsed = Date().timeIntervalSince(downloadStartTime)
+        logger.info("[TIMING] Process setup completed in \(String(format: "%.3f", processSetupElapsed))s, starting download process...")
+
+        let processRunStart = Date()
         try process.run()
         process.waitUntilExit()
-        
+        let processRunElapsed = Date().timeIntervalSince(processRunStart)
+        logger.info("[TIMING] Download process completed in \(String(format: "%.2f", processRunElapsed))s")
+
         // Clean up
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         stdoutPipe.fileHandleForReading.readabilityHandler = nil

@@ -20,10 +20,12 @@ struct YTDLPSettingsView: View {
 
     @AppStorage(AppConstants.autoEncodeAfterDownloadKey) private var autoEncodeAfterDownload = false
     @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
+    @AppStorage(AppConstants.ytdlpCookiesBrowserKey) private var cookiesBrowser = ""
 
     var body: some View {
         Form {
             ytdlpSection
+            authenticationSection
             downloadAutomationSection
             ffmpegSection
             aboutSection
@@ -237,6 +239,52 @@ struct YTDLPSettingsView: View {
             await MainActor.run {
                 isDownloading = false
             }
+        }
+    }
+
+    // MARK: - Authentication Section
+
+    private var authenticationSection: some View {
+        Section(header: Text("Authentication")) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Use browser cookies to access age-restricted, private, or member-only content.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+
+                HStack {
+                    Text("Browser:")
+                        .frame(width: 60, alignment: .trailing)
+
+                    Picker("", selection: $cookiesBrowser) {
+                        Text("None").tag("")
+                        Divider()
+                        Text("Safari").tag("safari")
+                        Text("Chrome").tag("chrome")
+                        Text("Firefox").tag("firefox")
+                        Text("Edge").tag("edge")
+                        Text("Brave").tag("brave")
+                        Text("Opera").tag("opera")
+                        Text("Vivaldi").tag("vivaldi")
+                    }
+                    .labelsHidden()
+                    .frame(width: 150)
+                }
+
+                if !cookiesBrowser.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.blue)
+                        Text("yt-dlp will extract cookies from \(cookiesBrowser.capitalized) when downloading.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text("Note: The browser should be closed for best results. On macOS, you may need to grant Full Disk Access to the app in System Settings > Privacy & Security.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+            }
+            .padding(8)
         }
     }
 
