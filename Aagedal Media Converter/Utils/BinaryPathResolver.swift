@@ -52,6 +52,48 @@ enum BinaryPathResolver {
         Bundle.main.path(forResource: "mxf2raw", ofType: nil)
     }
 
+    // MARK: - ExifTool
+
+    /// Resolves the path to exiftool binary
+    /// Priority: custom path > downloaded > system (Homebrew)
+    static var exiftoolPath: String? {
+        // Check custom path first
+        if let customPath = UserDefaults.standard.string(forKey: AppConstants.exiftoolCustomPathKey),
+           !customPath.isEmpty,
+           FileManager.default.isExecutableFile(atPath: customPath) {
+            return customPath
+        }
+
+        // Check downloaded version in tools directory
+        let downloadedPath = AppConstants.ytdlpToolsDirectory
+            .appendingPathComponent("exiftool").path
+        if FileManager.default.isExecutableFile(atPath: downloadedPath) {
+            return downloadedPath
+        }
+
+        // Check system locations (Homebrew)
+        let systemPaths = [
+            "/opt/homebrew/bin/exiftool",
+            "/usr/local/bin/exiftool"
+        ]
+        for path in systemPaths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
+        }
+
+        return nil
+    }
+
+    /// Returns whether a custom exiftool path is configured
+    static var isUsingCustomExiftool: Bool {
+        guard let customPath = UserDefaults.standard.string(forKey: AppConstants.exiftoolCustomPathKey),
+              !customPath.isEmpty else {
+            return false
+        }
+        return FileManager.default.isExecutableFile(atPath: customPath)
+    }
+
     // MARK: - Version Info
 
     /// Gets the version of a binary by running it with --version
