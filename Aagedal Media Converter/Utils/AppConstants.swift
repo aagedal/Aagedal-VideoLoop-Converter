@@ -444,6 +444,17 @@ enum AppConstants {
     static let rcloneGitHubReleasesURL = "https://api.github.com/repos/rclone/rclone/releases/latest"
     static let rcloneCustomPathKey = "rcloneCustomPath"
 
+    // ExifTool binary management
+    static let exiftoolVersionKey = "exiftoolInstalledVersion"
+    static let exiftoolLastUpdateCheckKey = "exiftoolLastUpdateCheck"
+    static let exiftoolCustomPathKey = "exiftoolCustomPath"
+    static let exiftoolDownloadBaseURL = "https://exiftool.org/"
+    static let exiftoolVersionURL = "https://exiftool.org/ver.txt"
+
+    // C2PA (Content Authenticity) settings
+    static let c2paCheckEnabledKey = "c2paCheckEnabled"
+    static let defaultC2PACheckEnabled = true
+
     // Backend type selection
     static let uploadBackendTypeKey = "uploadBackendType"
 

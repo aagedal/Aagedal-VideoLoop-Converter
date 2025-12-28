@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MetadataSettingsView: View {
     @AppStorage(AppConstants.includeDateTagPreferenceKey) private var includeDateTagByDefault = false
@@ -16,11 +17,21 @@ struct MetadataSettingsView: View {
     @AppStorage(AppConstants.dateTagPrefixKey) private var dateTagPrefix = AppConstants.defaultDateTagPrefix
     @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
     @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
+    @AppStorage(AppConstants.c2paCheckEnabledKey) private var c2paCheckEnabled = AppConstants.defaultC2PACheckEnabled
 
     @State private var isValidTimecode: Bool = true
     @State private var showCommentInfoPopover = false
     @FocusState private var isTextFieldFocused: Bool
     @FocusState private var focusedCommentField: CommentField?
+
+    // ExifTool state
+    @State private var exiftoolStatus: ExifToolInstallationStatus = .notInstalled
+    @State private var exiftoolVersion: String?
+    @State private var exiftoolCustomPath: String = ""
+    @State private var isCheckingExifTool = false
+    @State private var isDownloadingExifTool = false
+    @State private var exiftoolDownloadProgress: Double = 0
+    @State private var exiftoolError: String?
 
     private enum CommentField: Hashable {
         case prefix, suffix, datePrefix
@@ -52,10 +63,15 @@ struct MetadataSettingsView: View {
             commentSection
             queueRowDisplaySection
             timecodeDefaultsSection
+            exiftoolSection
         }
         .formStyle(.grouped)
         .onAppear {
             isValidTimecode = validateTimecode(defaultTimecodeValue)
+        }
+        .task {
+            loadExifToolSettings()
+            await refreshExifToolStatus()
         }
     }
 
@@ -439,6 +455,299 @@ struct MetadataSettingsView: View {
                 }
             }
             .padding(8)
+        }
+    }
+
+    // MARK: - ExifTool Section
+
+    private var exiftoolSection: some View {
+        Section(header: Text("ExifTool (Extended Metadata)")) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Status
+                HStack {
+                    if isCheckingExifTool {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Checking...")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                    } else if exiftoolStatus.isAvailable {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text(exiftoolStatus.displayText)
+                            .font(.headline)
+                    } else {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("ExifTool not installed")
+                            .font(.headline)
+                    }
+
+                    Spacer()
+
+                    if let version = exiftoolVersion {
+                        Text("v\(version)")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Download/Update buttons
+                if !isDownloadingExifTool {
+                    HStack {
+                        if !exiftoolStatus.isAvailable {
+                            Button {
+                                downloadExifTool()
+                            } label: {
+                                Label("Download ExifTool", systemImage: "arrow.down.circle")
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else if case .downloaded = exiftoolStatus {
+                            Button {
+                                checkAndUpdateExifTool()
+                            } label: {
+                                Label("Check for Updates", systemImage: "arrow.clockwise")
+                            }
+                        }
+                    }
+                } else {
+                    HStack {
+                        ProgressView(value: exiftoolDownloadProgress)
+                            .frame(width: 100)
+                        Text("Downloading... \(Int(exiftoolDownloadProgress * 100))%")
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if let error = exiftoolError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(error == "Already up to date" ? .secondary : .red)
+                }
+
+                Divider()
+
+                // Custom path
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Custom ExifTool path (optional):")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    HStack {
+                        TextField("Leave empty to auto-download or use system", text: $exiftoolCustomPath)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+
+                        Button("Browse...") {
+                            selectExifToolBinary()
+                        }
+
+                        if !exiftoolCustomPath.isEmpty {
+                            Button(role: .destructive) {
+                                exiftoolCustomPath = ""
+                                saveExifToolPath()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                .onChange(of: exiftoolCustomPath) { _, _ in
+                    saveExifToolPath()
+                }
+
+                // Homebrew alternative
+                if !exiftoolStatus.isAvailable {
+                    Divider()
+
+                    DisclosureGroup("Alternative: Install via Homebrew") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("brew install exiftool")
+                                    .font(.system(.body, design: .monospaced))
+                                    .padding(8)
+                                    .background(Color(nsColor: .textBackgroundColor))
+                                    .cornerRadius(6)
+
+                                Button {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString("brew install exiftool", forType: .string)
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Copy to clipboard")
+                            }
+
+                            Text("ExifTool will be detected automatically from Homebrew paths.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 4)
+                    }
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                }
+
+                Divider()
+
+                // C2PA Settings
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $c2paCheckEnabled) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Check for C2PA metadata")
+                                .font(.subheadline.weight(.medium))
+                            Text("Automatically detect Content Authenticity (C2PA) credentials in imported files")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .toggleStyle(SwitchToggleStyle())
+                    .disabled(!exiftoolStatus.isAvailable)
+
+                    if !exiftoolStatus.isAvailable {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "info.circle")
+                                .foregroundColor(.blue)
+                                .font(.caption)
+                            Text("Install ExifTool to enable C2PA metadata detection")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                Divider()
+
+                // About ExifTool
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("ExifTool reads extended metadata that FFprobe doesn't support, such as C2PA content credentials, XMP data, and EXIF tags.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Link("Learn more about ExifTool", destination: URL(string: "https://exiftool.org")!)
+                        .font(.caption)
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    // MARK: - ExifTool Actions
+
+    private func loadExifToolSettings() {
+        if let customPath = UserDefaults.standard.string(forKey: AppConstants.exiftoolCustomPathKey) {
+            exiftoolCustomPath = customPath
+        }
+    }
+
+    private func saveExifToolPath() {
+        Task {
+            await ExifToolUpdateService.shared.saveCustomPath(exiftoolCustomPath.isEmpty ? nil : exiftoolCustomPath)
+            await refreshExifToolStatus()
+        }
+    }
+
+    private func refreshExifToolStatus() async {
+        await MainActor.run {
+            isCheckingExifTool = true
+        }
+
+        let status = await ExifToolUpdateService.shared.getInstallationStatus()
+        let version = await ExifToolUpdateService.shared.getCurrentVersion()
+
+        await MainActor.run {
+            exiftoolStatus = status
+            exiftoolVersion = version
+            isCheckingExifTool = false
+        }
+    }
+
+    private func downloadExifTool() {
+        isDownloadingExifTool = true
+        exiftoolDownloadProgress = 0
+        exiftoolError = nil
+
+        Task {
+            do {
+                try await ExifToolUpdateService.shared.downloadUpdate { progress in
+                    Task { @MainActor in
+                        exiftoolDownloadProgress = progress
+                    }
+                }
+                await refreshExifToolStatus()
+            } catch {
+                await MainActor.run {
+                    exiftoolError = error.localizedDescription
+                }
+            }
+            await MainActor.run {
+                isDownloadingExifTool = false
+            }
+        }
+    }
+
+    private func checkAndUpdateExifTool() {
+        isDownloadingExifTool = true
+        exiftoolDownloadProgress = 0
+        exiftoolError = nil
+
+        Task {
+            do {
+                let (hasUpdate, _, latestVersion) = try await ExifToolUpdateService.shared.checkForUpdates()
+                if hasUpdate {
+                    try await ExifToolUpdateService.shared.downloadUpdate { progress in
+                        Task { @MainActor in
+                            exiftoolDownloadProgress = progress
+                        }
+                    }
+                } else {
+                    await MainActor.run {
+                        exiftoolError = "Already up to date (v\(latestVersion))"
+                    }
+                    // Clear the message after a delay
+                    try? await Task.sleep(for: .seconds(3))
+                    await MainActor.run {
+                        if exiftoolError?.starts(with: "Already up to date") == true {
+                            exiftoolError = nil
+                        }
+                    }
+                }
+                await refreshExifToolStatus()
+            } catch {
+                await MainActor.run {
+                    exiftoolError = error.localizedDescription
+                }
+            }
+            await MainActor.run {
+                isDownloadingExifTool = false
+            }
+        }
+    }
+
+    private func selectExifToolBinary() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.title = "Select ExifTool binary"
+        panel.message = "Select exiftool from /opt/homebrew/bin/ (Apple Silicon) or /usr/local/bin/ (Intel)"
+        panel.prompt = "Select"
+        panel.allowedContentTypes = [.unixExecutable, .exe, .item]
+        panel.treatsFilePackagesAsDirectories = true
+        panel.showsHiddenFiles = false
+        panel.resolvesAliases = false
+
+        if FileManager.default.fileExists(atPath: "/opt/homebrew/bin") {
+            panel.directoryURL = URL(fileURLWithPath: "/opt/homebrew/bin")
+        } else if FileManager.default.fileExists(atPath: "/usr/local/bin") {
+            panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
+        }
+
+        if panel.runModal() == .OK, let url = panel.url {
+            exiftoolCustomPath = url.path
         }
     }
 
