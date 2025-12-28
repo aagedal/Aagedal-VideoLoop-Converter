@@ -283,10 +283,13 @@ struct ContentView: View {
                 scheduleAutoEncode: scheduleAutoEncode
             ))
             .onChange(of: droppedFiles) { _, _ in
-                if mergeClipsEnabled {
-                    refreshExpectedOutputURLs(for: selectedPreset)
+                // Defer to avoid modifying state during view update
+                Task { @MainActor in
+                    if mergeClipsEnabled {
+                        refreshExpectedOutputURLs(for: selectedPreset)
+                    }
+                    scheduleMergeCompatibilityEvaluation()
                 }
-                scheduleMergeCompatibilityEvaluation()
             }
             .modifier(ContentViewNotificationHandlers(
                 droppedFiles: $droppedFiles,
@@ -1339,22 +1342,23 @@ private struct ContentViewLifecycle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onAppear {
-                if !hasInitializedPreset {
-                    selectedPreset = ExportPreset(rawValue: storedDefaultPresetRawValue) ?? .videoLoop
-                    hasInitializedPreset = true
-                    hasUserChangedPreset = false
-                }
-                let storedFolderURL = URL(fileURLWithPath: outputFolder)
-                if storedFolderURL.path != currentOutputFolder.path {
-                    currentOutputFolder = storedFolderURL
-                } else {
-                    refreshExpectedOutputURLs(selectedPreset)
-                }
-                Task {
+                // Defer state changes to avoid modifying state during view update
+                Task { @MainActor in
+                    if !hasInitializedPreset {
+                        selectedPreset = ExportPreset(rawValue: storedDefaultPresetRawValue) ?? .videoLoop
+                        hasInitializedPreset = true
+                        hasUserChangedPreset = false
+                    }
+                    let storedFolderURL = URL(fileURLWithPath: outputFolder)
+                    if storedFolderURL.path != currentOutputFolder.path {
+                        currentOutputFolder = storedFolderURL
+                    } else {
+                        refreshExpectedOutputURLs(selectedPreset)
+                    }
                     isConverting = await ConversionManager.shared.isConvertingStatus()
+                    scheduleMergeCompatibilityEvaluation()
+                    updateChecker.checkForUpdatesIfNeeded()
                 }
-                scheduleMergeCompatibilityEvaluation()
-                updateChecker.checkForUpdatesIfNeeded()
             }
     }
 }
@@ -1398,10 +1402,14 @@ private struct ContentViewChangeHandlers: ViewModifier {
                 handleWatchFolderToggle(newValue)
             }
             .onChange(of: mergeClipsEnabled) { _, _ in
-                refreshExpectedOutputURLs(selectedPreset)
+                Task { @MainActor in
+                    refreshExpectedOutputURLs(selectedPreset)
+                }
             }
             .onChange(of: isConverting) { _, _ in
-                scheduleMergeCompatibilityEvaluation()
+                Task { @MainActor in
+                    scheduleMergeCompatibilityEvaluation()
+                }
             }
             .onChange(of: droppedFilesCount) { oldCount, newCount in
                 if watchFolderModeEnabled && newCount > oldCount {

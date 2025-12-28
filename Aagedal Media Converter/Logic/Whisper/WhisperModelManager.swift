@@ -156,16 +156,16 @@ actor WhisperModelManager {
     }
 
     /// Cleans up after download (success or failure)
-    private func cleanupDownload(for model: WhisperModel) {
+    private func cleanupDownload(for model: WhisperModel) async {
         downloadTasks.removeValue(forKey: model)
         progressHandlers.removeValue(forKey: model)
     }
 
     /// Cancels an ongoing model download
-    func cancelDownload(for model: WhisperModel) {
+    func cancelDownload(for model: WhisperModel) async {
         if let task = downloadTasks[model] {
             task.cancel()
-            cleanupDownload(for: model)
+            await cleanupDownload(for: model)
             logger.info("Cancelled download of model: \(model.displayName)")
         }
     }

@@ -480,7 +480,10 @@ struct VideoFileRowView: View {
         .task(id: file.thumbnailData) {
             // Decode thumbnail asynchronously off main thread
             guard let data = file.thumbnailData else {
-                cachedThumbnail = nil
+                // Defer state change to avoid modifying during view update
+                Task { @MainActor in
+                    cachedThumbnail = nil
+                }
                 return
             }
 
@@ -497,7 +500,10 @@ struct VideoFileRowView: View {
                 return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             }.value
 
-            cachedThumbnail = image
+            // Defer state change to avoid modifying during view update
+            Task { @MainActor in
+                cachedThumbnail = image
+            }
         }
         .onAppear {
             // Initialize local comment from file
