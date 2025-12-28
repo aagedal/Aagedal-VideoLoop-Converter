@@ -40,6 +40,18 @@ enum BinaryPathResolver {
         return Bundle.main.path(forResource: "ffprobe", ofType: nil)
     }
 
+    // MARK: - BMX Tools (MXF handling)
+
+    /// Resolves the path to bmxtranswrap binary (MXF transcoding)
+    static var bmxtranswrapPath: String? {
+        Bundle.main.path(forResource: "bmxtranswrap", ofType: nil)
+    }
+
+    /// Resolves the path to mxf2raw binary (MXF extraction/analysis)
+    static var mxf2rawPath: String? {
+        Bundle.main.path(forResource: "mxf2raw", ofType: nil)
+    }
+
     // MARK: - Version Info
 
     /// Gets the version of a binary by running it with --version

@@ -15,6 +15,7 @@ struct SettingsView: View {
         case watchFolder
         case ytdlp
         case upload
+        case whisper
         case updates
         case shortcuts
     }
@@ -49,6 +50,10 @@ struct SettingsView: View {
                 .tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
                 .tag(SettingsTab.upload)
 
+            WhisperSettingsView()
+                .tabItem { Label("Subtitles", systemImage: "captions.bubble") }
+                .tag(SettingsTab.whisper)
+
             UpdateSettingsView()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(SettingsTab.updates)
@@ -77,10 +82,12 @@ struct SettingsView: View {
                     .keyboardShortcut("6", modifiers: .command)
                 Button("") { selectedTab = .upload }
                     .keyboardShortcut("7", modifiers: .command)
-                Button("") { selectedTab = .updates }
+                Button("") { selectedTab = .whisper }
                     .keyboardShortcut("8", modifiers: .command)
-                Button("") { selectedTab = .shortcuts }
+                Button("") { selectedTab = .updates }
                     .keyboardShortcut("9", modifiers: .command)
+                Button("") { selectedTab = .shortcuts }
+                    .keyboardShortcut("0", modifiers: .command)
             }
             .frame(width: 0, height: 0)
             .opacity(0)

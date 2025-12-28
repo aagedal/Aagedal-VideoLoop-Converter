@@ -15,13 +15,33 @@ struct UploadConfig: Codable, Sendable, Equatable {
     var useFTPS: Bool
     var backendType: UploadBackendType
 
+    // SFTP-specific
+    var sftpKeyFilePath: String?
+
+    // SMB-specific
+    var smbShare: String?
+    var smbDomain: String?
+
+    // S3-specific
+    var s3Bucket: String?
+    var s3Region: String?
+    var s3Endpoint: String?
+    var s3AccessKeyID: String?
+
     init(
         server: String = "",
         port: Int = 21,
         username: String = "",
         remotePath: String = "/",
         useFTPS: Bool = false,
-        backendType: UploadBackendType = .ftp
+        backendType: UploadBackendType = .ftp,
+        sftpKeyFilePath: String? = nil,
+        smbShare: String? = nil,
+        smbDomain: String? = nil,
+        s3Bucket: String? = nil,
+        s3Region: String? = nil,
+        s3Endpoint: String? = nil,
+        s3AccessKeyID: String? = nil
     ) {
         self.server = server
         self.port = port
@@ -29,19 +49,57 @@ struct UploadConfig: Codable, Sendable, Equatable {
         self.remotePath = remotePath
         self.useFTPS = useFTPS
         self.backendType = backendType
+        self.sftpKeyFilePath = sftpKeyFilePath
+        self.smbShare = smbShare
+        self.smbDomain = smbDomain
+        self.s3Bucket = s3Bucket
+        self.s3Region = s3Region
+        self.s3Endpoint = s3Endpoint
+        self.s3AccessKeyID = s3AccessKeyID
     }
 
     /// Whether the configuration has minimum required fields filled
     var isConfigured: Bool {
-        !server.isEmpty && !username.isEmpty
+        switch backendType {
+        case .ftp, .sftp:
+            return !server.isEmpty && !username.isEmpty
+        case .smb:
+            return !server.isEmpty && !username.isEmpty && !(smbShare ?? "").isEmpty
+        case .s3:
+            return !(s3Bucket ?? "").isEmpty && !(s3AccessKeyID ?? "").isEmpty
+        case .gdrive:
+            return false // Not yet implemented
+        }
     }
 
     /// Builds the rclone remote path string
-    /// e.g., ":ftp:/uploads/videos"
+    /// e.g., ":ftp:/uploads/videos" or ":s3:bucket/folder"
     var rcloneRemotePath: String {
         let backend = backendType.rcloneBackendName
-        let path = remotePath.hasPrefix("/") ? remotePath : "/\(remotePath)"
-        return ":\(backend):\(path)"
+        switch backendType {
+        case .ftp, .sftp:
+            let path = remotePath.hasPrefix("/") ? remotePath : "/\(remotePath)"
+            return ":\(backend):\(path)"
+        case .smb:
+            // SMB format: :smb:share/path
+            let share = smbShare ?? ""
+            let path = remotePath.hasPrefix("/") ? String(remotePath.dropFirst()) : remotePath
+            if path.isEmpty {
+                return ":\(backend):\(share)"
+            }
+            return ":\(backend):\(share)/\(path)"
+        case .s3:
+            // S3 format: :s3:bucket/path
+            let bucket = s3Bucket ?? ""
+            let path = remotePath.hasPrefix("/") ? String(remotePath.dropFirst()) : remotePath
+            if path.isEmpty {
+                return ":\(backend):\(bucket)"
+            }
+            return ":\(backend):\(bucket)/\(path)"
+        case .gdrive:
+            let path = remotePath.hasPrefix("/") ? remotePath : "/\(remotePath)"
+            return ":\(backend):\(path)"
+        }
     }
 }
 
@@ -51,6 +109,7 @@ struct UploadConfig: Codable, Sendable, Equatable {
 enum UploadBackendType: String, Codable, CaseIterable, Sendable {
     case ftp = "ftp"
     case sftp = "sftp"
+    case smb = "smb"
     case s3 = "s3"
     case gdrive = "drive"
 
@@ -58,6 +117,7 @@ enum UploadBackendType: String, Codable, CaseIterable, Sendable {
         switch self {
         case .ftp: return "FTP"
         case .sftp: return "SFTP"
+        case .smb: return "SMB"
         case .s3: return "Amazon S3"
         case .gdrive: return "Google Drive"
         }
@@ -71,16 +131,36 @@ enum UploadBackendType: String, Codable, CaseIterable, Sendable {
     var iconName: String {
         switch self {
         case .ftp, .sftp: return "externaldrive.connected.to.line.below"
+        case .smb: return "externaldrive.fill.badge.person.crop"
         case .s3: return "cloud"
         case .gdrive: return "folder"
         }
     }
 
-    /// Whether this backend requires a password (vs OAuth)
+    /// Whether this backend requires a password (vs OAuth or key-based auth)
     var requiresPassword: Bool {
         switch self {
-        case .ftp, .sftp: return true
+        case .ftp, .smb: return true
+        case .sftp: return true  // Can also use SSH key, handled separately
         case .s3, .gdrive: return false
+        }
+    }
+
+    /// Default port for this backend
+    var defaultPort: Int {
+        switch self {
+        case .ftp: return AppConstants.defaultUploadPort  // 21
+        case .sftp: return AppConstants.defaultSFTPPort   // 22
+        case .smb: return AppConstants.defaultSMBPort     // 445
+        case .s3, .gdrive: return 0  // Not applicable
+        }
+    }
+
+    /// Whether this backend is currently implemented
+    var isImplemented: Bool {
+        switch self {
+        case .ftp, .sftp, .smb, .s3: return true
+        case .gdrive: return false
         }
     }
 }

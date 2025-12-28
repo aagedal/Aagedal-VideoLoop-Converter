@@ -28,6 +28,7 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Ctrl + S", description: "Sort queue (cycles: Name A→Z, Z→A, Date Old→New, New→Old)"),
                     ShortcutItem(keys: "Ctrl + M", description: "Toggle mute on selected items"),
                     ShortcutItem(keys: "Cmd + U", description: "Toggle upload after encoding"),
+                    ShortcutItem(keys: "Cmd + Option + U", description: "Upload source file immediately"),
                     ShortcutItem(keys: "Cmd + E", description: "Toggle auto-encode after download"),
                     ShortcutItem(keys: "Tab", description: "Focus next comment field"),
                     ShortcutItem(keys: "Shift + Tab", description: "Focus previous comment field"),

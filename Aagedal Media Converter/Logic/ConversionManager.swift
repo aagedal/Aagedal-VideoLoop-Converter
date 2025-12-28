@@ -1167,6 +1167,19 @@ actor ConversionManager: Sendable {
                             await UploadManager.shared.startUpload(itemID: fileId)
                         }
                     }
+
+                    // Trigger subtitle generation if enabled for this item
+                    if success && droppedFiles.wrappedValue[idx].subtitleEnabled {
+                        if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
+                            Task {
+                                await self.generateSubtitles(
+                                    for: fileId,
+                                    inputURL: outputURL,
+                                    droppedFiles: droppedFiles
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Only continue if conversion has not been cancelled
@@ -1304,5 +1317,84 @@ actor ConversionManager: Sendable {
         print("totalDuration: \(totalDuration) s, completedDuration: \(completedDuration) s, overallProgress: \(progress * 100)%")
         #endif
         progressContinuation?.yield(progress)
+    }
+
+    // MARK: - Subtitle Generation
+
+    /// Generates subtitles for a completed conversion
+    private func generateSubtitles(
+        for itemID: UUID,
+        inputURL: URL,
+        droppedFiles: Binding<[VideoItem]>
+    ) async {
+        // Get selected model and language from settings
+        let modelRaw = UserDefaults.standard.string(forKey: AppConstants.whisperModelKey) ?? AppConstants.defaultWhisperModel
+        let model = WhisperModel(rawValue: modelRaw) ?? .base
+        let language = UserDefaults.standard.string(forKey: AppConstants.whisperLanguageKey) ?? AppConstants.defaultWhisperLanguage
+
+        // Update status to pending
+        await MainActor.run {
+            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles.wrappedValue[idx].subtitleStatus = .pending
+            }
+        }
+
+        // Verify model is downloaded
+        guard WhisperModelManager.shared.isModelDownloaded(model) else {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed("Model not downloaded")
+                }
+            }
+            return
+        }
+
+        do {
+            let outputDir = inputURL.deletingLastPathComponent()
+
+            let srtURL = try await WhisperService.shared.generateSubtitles(
+                inputFile: inputURL,
+                outputDirectory: outputDir,
+                model: model,
+                language: language
+            ) { [weak self] whisperProgress in
+                Task { @MainActor in
+                    guard let _ = self else { return }
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        switch whisperProgress.stage {
+                        case .extractingAudio:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .extractingAudio
+                        case .transcribing:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .generating(progress: whisperProgress.percentage)
+                        case .complete:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                        case .failed(let error):
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error)
+                        default:
+                            break
+                        }
+                        droppedFiles.wrappedValue[idx].subtitleProgress = whisperProgress.percentage
+                    }
+                }
+            }
+
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                    droppedFiles.wrappedValue[idx].subtitleFilePath = srtURL
+                    droppedFiles.wrappedValue[idx].subtitleProgress = 1.0
+                }
+            }
+
+            print("📝 Subtitles generated: \(srtURL.lastPathComponent)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+            print("📝 Subtitle generation failed: \(error.localizedDescription)")
+        }
     }
 }

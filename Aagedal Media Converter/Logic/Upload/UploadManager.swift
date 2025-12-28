@@ -74,13 +74,16 @@ class UploadManager {
 
         logger.info("Upload config loaded: server=\(config.server), path=\(config.remotePath)")
 
-        guard let outputURL = videoItems?.wrappedValue[index].outputURL else {
-            logger.warning("Cannot start upload: no output file")
-            videoItems?.wrappedValue[index].uploadStatus = .failed("No output file")
+        let item = videoItems?.wrappedValue[index]
+        let isSourceUpload = item?.uploadSourceFile ?? false
+        guard let fileURL = item?.fileToUpload else {
+            let errorMsg = isSourceUpload ? "No source file" : "No output file"
+            logger.warning("Cannot start upload: \(errorMsg)")
+            videoItems?.wrappedValue[index].uploadStatus = .failed(errorMsg)
             return
         }
 
-        logger.info("Output file: \(outputURL.path)")
+        logger.info("\(isSourceUpload ? "Source" : "Output") file: \(fileURL.path)")
 
         // Cancel any existing upload task for this item
         uploadTasks[itemID]?.cancel()
@@ -98,12 +101,16 @@ class UploadManager {
 
             do {
                 let result = try await self.rcloneService.upload(
-                    localFile: outputURL,
+                    localFile: fileURL,
                     config: config
                 ) { [weak self] progress, speed in
+                    print("[UploadManager] Progress callback: \(Int(progress * 100))%, speed: \(speed ?? "nil")")
                     Task { @MainActor in
                         guard let self = self,
-                              let idx = self.findItemIndex(itemID) else { return }
+                              let idx = self.findItemIndex(itemID) else {
+                            print("[UploadManager] Could not find item \(itemID) for progress update")
+                            return
+                        }
                         self.videoItems?.wrappedValue[idx].uploadProgress = progress
                         self.videoItems?.wrappedValue[idx].uploadSpeed = speed
                     }
@@ -183,20 +190,50 @@ class UploadManager {
 
     /// Loads the current upload configuration from UserDefaults
     func loadUploadConfig() -> UploadConfig? {
+        // Read backend type
+        let backendTypeRaw = UserDefaults.standard.string(forKey: AppConstants.uploadBackendTypeKey) ?? "ftp"
+        let backendType = UploadBackendType(rawValue: backendTypeRaw) ?? .ftp
+
+        // Read common fields
         let server = UserDefaults.standard.string(forKey: AppConstants.uploadServerKey) ?? ""
         let port = UserDefaults.standard.integer(forKey: AppConstants.uploadPortKey)
         let username = UserDefaults.standard.string(forKey: AppConstants.uploadUsernameKey) ?? ""
         let remotePath = UserDefaults.standard.string(forKey: AppConstants.uploadRemotePathKey) ?? "/"
         let useFTPS = UserDefaults.standard.bool(forKey: AppConstants.uploadUseFTPSKey)
 
-        let config = UploadConfig(
+        // Create config with common fields
+        var config = UploadConfig(
             server: server,
-            port: port > 0 ? port : AppConstants.defaultUploadPort,
+            port: port > 0 ? port : backendType.defaultPort,
             username: username,
             remotePath: remotePath,
             useFTPS: useFTPS,
-            backendType: .ftp
+            backendType: backendType
         )
+
+        // Load backend-specific fields
+        switch backendType {
+        case .ftp:
+            // FTP uses common fields only
+            break
+
+        case .sftp:
+            config.sftpKeyFilePath = UserDefaults.standard.string(forKey: AppConstants.uploadSFTPKeyFileKey)
+
+        case .smb:
+            config.smbShare = UserDefaults.standard.string(forKey: AppConstants.uploadSMBShareKey)
+            config.smbDomain = UserDefaults.standard.string(forKey: AppConstants.uploadSMBDomainKey)
+
+        case .s3:
+            config.s3Bucket = UserDefaults.standard.string(forKey: AppConstants.uploadS3BucketKey)
+            config.s3Region = UserDefaults.standard.string(forKey: AppConstants.uploadS3RegionKey)
+            config.s3Endpoint = UserDefaults.standard.string(forKey: AppConstants.uploadS3EndpointKey)
+            config.s3AccessKeyID = UserDefaults.standard.string(forKey: AppConstants.uploadS3AccessKeyKey)
+
+        case .gdrive:
+            // Not yet implemented
+            break
+        }
 
         return config.isConfigured ? config : nil
     }

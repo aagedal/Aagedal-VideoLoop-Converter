@@ -91,6 +91,19 @@ actor FFMPEGConverter {
         // Register this file as created by the app (for safe deletion later if needed)
         FileSafetyUtils.registerCreatedFile(outputFileURL)
 
+        // For AVC-Intra MXF, FFmpeg outputs to temp file, then bmxtranswrap rewraps to OP1a
+        let needsBMXRewrap = preset == .tvAVCIntra
+        var ffmpegOutputURL = outputFileURL
+        var tempMXFURL: URL? = nil
+
+        if needsBMXRewrap {
+            // Create temp file for FFmpeg output
+            let tempDir = FileManager.default.temporaryDirectory
+            tempMXFURL = tempDir.appendingPathComponent("ffmpeg_mxf_\(UUID().uuidString).mxf")
+            ffmpegOutputURL = tempMXFURL!
+            Self.logger.info("AVC-Intra: FFmpeg will output to temp file for OP1a rewrap")
+        }
+
         // Check if we need audio pre-processing for AVC-Intra with audio-only files
         // This creates a temp file with mono-split audio channels first
         var effectiveInputURL = inputURL
@@ -123,7 +136,7 @@ actor FFMPEGConverter {
         // Build FFmpeg arguments
         let command = await FFMPEGCommandBuilder.buildCommand(
             inputURL: effectiveInputURL,
-            outputFileURL: outputFileURL,
+            outputFileURL: ffmpegOutputURL,  // Use temp file for AVC-Intra, final file otherwise
             preset: preset,
             comment: comment,
             includeDateTag: includeDateTag,
@@ -190,8 +203,12 @@ actor FFMPEGConverter {
 
         errorPipe.fileHandleForReading.readabilityHandler = errorReadabilityHandler
 
-        // Capture tempAudioURL as a constant for the closure
+        // Capture values for the closure
         let capturedTempAudioURL = tempAudioURL
+        let capturedTempMXFURL = tempMXFURL
+        let capturedFinalOutputURL = outputFileURL
+        let capturedNeedsBMXRewrap = needsBMXRewrap
+        let capturedInputBaseName = inputURL.deletingPathExtension().lastPathComponent
 
         process.terminationHandler = { [weak self] _ in
             // Stop the readability handler to prevent log spam after process ends
@@ -199,12 +216,49 @@ actor FFMPEGConverter {
 
             Task { [weak self] in
                 await self?.setCurrentProcess(nil)
-                let success = process.terminationStatus == 0
+                var success = process.terminationStatus == 0
                 print("✅ FFmpeg process terminated with status: \(process.terminationStatus) (success: \(success))")
                 if !success {
                     let collectedStderr = await stderrCollector.snapshot()
                     let stderrString = String(data: collectedStderr, encoding: .utf8) ?? "(unable to decode ffmpeg stderr)"
                     print("FFmpeg exited with code \(process.terminationStatus). Output:\n\(stderrString)\n-- end of ffmpeg log --")
+                }
+
+                // Run bmxtranswrap for AVC-Intra to ensure OP1a compliance
+                if success && capturedNeedsBMXRewrap, let tempMXF = capturedTempMXFURL {
+                    Self.logger.info("Running bmxtranswrap to rewrap MXF to OP1a format")
+                    progressUpdate(0.95, "Rewrapping to OP1a...")
+
+                    let bmxSuccess = await BMXService.shared.rewrapToOP1a(
+                        inputURL: tempMXF,
+                        outputURL: capturedFinalOutputURL,
+                        clipName: capturedInputBaseName,
+                        progress: { bmxProgress in
+                            // Map bmx progress to 95-100% range
+                            let overallProgress = 0.95 + (bmxProgress * 0.05)
+                            Task { @MainActor in
+                                progressUpdate(overallProgress, "Rewrapping to OP1a...")
+                            }
+                        }
+                    )
+
+                    if bmxSuccess {
+                        Self.logger.info("bmxtranswrap completed: \(capturedFinalOutputURL.lastPathComponent)")
+                    } else {
+                        Self.logger.error("bmxtranswrap failed, keeping FFmpeg output as fallback")
+                        // Copy temp file to final location as fallback
+                        do {
+                            try FileManager.default.copyItem(at: tempMXF, to: capturedFinalOutputURL)
+                            Self.logger.warning("Used FFmpeg MXF output as fallback (not OP1a compliant)")
+                        } catch {
+                            Self.logger.error("Failed to copy fallback MXF: \(error.localizedDescription)")
+                            success = false
+                        }
+                    }
+
+                    // Clean up temp MXF file
+                    try? FileManager.default.removeItem(at: tempMXF)
+                    Self.logger.debug("Cleaned up temp MXF file")
                 }
 
                 // Clean up temp audio file if it exists

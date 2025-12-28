@@ -181,6 +181,7 @@ struct VideoFileListView: View {
                     onDeselectAll: { selection.removeAll() },
                     onToggleMute: handleToggleMuteShortcut,
                     onToggleUpload: handleToggleUploadShortcut,
+                    onToggleSourceUpload: handleToggleSourceUploadShortcut,
                     onToggleAutoEncode: handleToggleAutoEncodeShortcut,
                     onNavigateUp: { handleNavigateSelection(direction: .up) },
                     onNavigateDown: { handleNavigateSelection(direction: .down) },
@@ -607,6 +608,35 @@ struct VideoFileListView: View {
 
         for index in selectedIndices {
             droppedFiles[index].uploadEnabled.toggle()
+            // Clear source upload when disabling upload
+            if !droppedFiles[index].uploadEnabled {
+                droppedFiles[index].uploadSourceFile = false
+            }
+        }
+    }
+
+    private func handleToggleSourceUploadShortcut() {
+        // Works with single or multi-selection - toggles source file upload
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        // Only toggle if upload is configured
+        guard UploadManager.shared.isConfigured else { return }
+
+        for index in selectedIndices {
+            droppedFiles[index].uploadSourceFile.toggle()
+            // Enable upload when enabling source upload
+            if droppedFiles[index].uploadSourceFile {
+                droppedFiles[index].uploadEnabled = true
+                // Start upload immediately for source files
+                let itemID = droppedFiles[index].id
+                Task {
+                    await UploadManager.shared.startUpload(itemID: itemID)
+                }
+            }
         }
     }
 
@@ -746,6 +776,85 @@ struct VideoFileListView: View {
         return resourceValues?.creationDate ?? Date.distantPast
     }
 
+    // MARK: - Transcribe Only (Option+click)
+
+    /// Generates subtitles directly from source file without encoding
+    private func transcribeOnly(itemID: UUID) async {
+        // Find the item
+        guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+
+        let inputURL = droppedFiles[index].url
+
+        // Get model from settings
+        let modelRaw = UserDefaults.standard.string(forKey: AppConstants.whisperModelKey) ?? "base"
+        let model = WhisperModel(rawValue: modelRaw) ?? .base
+
+        // Get language from settings
+        let language = UserDefaults.standard.string(forKey: AppConstants.whisperLanguageKey) ?? "auto"
+
+        // Check if model is downloaded
+        guard await WhisperModelManager.shared.isModelDownloaded(model) else {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .failed("Model '\(model.displayName)' not downloaded")
+                }
+            }
+            return
+        }
+
+        // Update status to pending
+        await MainActor.run {
+            if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].subtitleStatus = .pending
+            }
+        }
+
+        do {
+            let srtURL = try await WhisperService.shared.generateSubtitlesOnly(
+                inputFile: inputURL,
+                model: model,
+                language: language
+            ) { whisperProgress in
+                Task { @MainActor in
+                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        switch whisperProgress.stage {
+                        case .extractingAudio:
+                            self.droppedFiles[idx].subtitleStatus = .extractingAudio
+                        case .transcribing:
+                            self.droppedFiles[idx].subtitleStatus = .generating(progress: whisperProgress.percentage)
+                        case .complete:
+                            self.droppedFiles[idx].subtitleStatus = .completed
+                        case .failed(let error):
+                            self.droppedFiles[idx].subtitleStatus = .failed(error)
+                        default:
+                            break
+                        }
+                        self.droppedFiles[idx].subtitleProgress = whisperProgress.percentage
+                    }
+                }
+            }
+
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .completed
+                    droppedFiles[idx].subtitleFilePath = srtURL
+                    droppedFiles[idx].subtitleProgress = 1.0
+                }
+            }
+            print("📝 Transcribe-only completed: \(srtURL.lastPathComponent)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+            print("📝 Transcribe-only failed: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Row Builder
     @ViewBuilder
     private func cardRow(for index: Int) -> some View {
@@ -777,6 +886,11 @@ struct VideoFileListView: View {
                 ScheduledDownloadService.shared.cancelScheduledItem(itemID: file.wrappedValue.id)
                 // Remove the item from the queue
                 onDelete(IndexSet(integer: index))
+            },
+            onTranscribeOnly: {
+                Task {
+                    await transcribeOnly(itemID: file.wrappedValue.id)
+                }
             },
             isSelected: selection.contains(file.wrappedValue.id),
             onCommentFocusChange: { id, isFocused in
@@ -877,6 +991,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onDeselectAll: () -> Void
     var onToggleMute: () -> Void
     var onToggleUpload: () -> Void
+    var onToggleSourceUpload: () -> Void
     var onToggleAutoEncode: () -> Void
     // Navigation shortcuts (plain arrow keys)
     var onNavigateUp: () -> Void
@@ -901,6 +1016,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onDeselectAll: onDeselectAll,
             onToggleMute: onToggleMute,
             onToggleUpload: onToggleUpload,
+            onToggleSourceUpload: onToggleSourceUpload,
             onToggleAutoEncode: onToggleAutoEncode,
             onNavigateUp: onNavigateUp,
             onNavigateDown: onNavigateDown,
@@ -931,6 +1047,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onDeselectAll = onDeselectAll
         context.coordinator.onToggleMute = onToggleMute
         context.coordinator.onToggleUpload = onToggleUpload
+        context.coordinator.onToggleSourceUpload = onToggleSourceUpload
         context.coordinator.onToggleAutoEncode = onToggleAutoEncode
         context.coordinator.onNavigateUp = onNavigateUp
         context.coordinator.onNavigateDown = onNavigateDown
@@ -957,6 +1074,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onDeselectAll: () -> Void
         var onToggleMute: () -> Void
         var onToggleUpload: () -> Void
+        var onToggleSourceUpload: () -> Void
         var onToggleAutoEncode: () -> Void
         var onNavigateUp: () -> Void
         var onNavigateDown: () -> Void
@@ -979,6 +1097,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onDeselectAll: @escaping () -> Void,
             onToggleMute: @escaping () -> Void,
             onToggleUpload: @escaping () -> Void,
+            onToggleSourceUpload: @escaping () -> Void,
             onToggleAutoEncode: @escaping () -> Void,
             onNavigateUp: @escaping () -> Void,
             onNavigateDown: @escaping () -> Void,
@@ -999,6 +1118,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onDeselectAll = onDeselectAll
             self.onToggleMute = onToggleMute
             self.onToggleUpload = onToggleUpload
+            self.onToggleSourceUpload = onToggleSourceUpload
             self.onToggleAutoEncode = onToggleAutoEncode
             self.onNavigateUp = onNavigateUp
             self.onNavigateDown = onNavigateDown
@@ -1133,6 +1253,12 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // CMD+U: Toggle upload on selected items
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_U {
                     self.onToggleUpload()
+                    return nil
+                }
+
+                // CMD+Option+U: Toggle source file upload on selected items
+                if hasCommand && hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_U {
+                    self.onToggleSourceUpload()
                     return nil
                 }
 
