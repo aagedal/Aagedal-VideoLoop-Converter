@@ -36,16 +36,8 @@ actor RcloneService {
             throw UploadError.configurationMissing
         }
 
-        // Get password from Keychain
-        guard let password = try? KeychainCredentialManager.shared.getCredential(
-            server: config.server,
-            username: config.username
-        ) else {
-            throw UploadError.passwordNotFound
-        }
-
-        // Obscure the password for rclone
-        let obscuredPassword = try await obscurePassword(password, rclonePath: rclonePath)
+        // Build backend-specific arguments and get credentials
+        let backendArgs = try await buildBackendArguments(config: config, rclonePath: rclonePath)
 
         let process = Process()
         let stderrPipe = Pipe()
@@ -63,28 +55,7 @@ actor RcloneService {
         args.append(remoteDest)
 
         // Backend-specific options
-        switch config.backendType {
-        case .ftp:
-            args.append(contentsOf: [
-                "--ftp-host=\(config.server)",
-                "--ftp-port=\(config.port)",
-                "--ftp-user=\(config.username)",
-                "--ftp-pass=\(obscuredPassword)"
-            ])
-            if config.useFTPS {
-                args.append("--ftp-tls")
-            }
-        case .sftp:
-            args.append(contentsOf: [
-                "--sftp-host=\(config.server)",
-                "--sftp-port=\(config.port)",
-                "--sftp-user=\(config.username)",
-                "--sftp-pass=\(obscuredPassword)"
-            ])
-        case .s3, .gdrive:
-            // Future implementation
-            throw UploadError.uploadFailed("Backend \(config.backendType.displayName) not yet implemented")
-        }
+        args.append(contentsOf: backendArgs)
 
         // Progress options
         args.append(contentsOf: [
@@ -107,10 +78,18 @@ actor RcloneService {
         let state = UploadProgressState()
 
         logger.info("[rclone] Starting upload: \(localFile.lastPathComponent) -> \(config.rcloneRemotePath)")
-        logger.info("[rclone] Command: rclone \(args.joined(separator: " ").replacingOccurrences(of: obscuredPassword, with: "***"))")
+        // Log command with secrets masked
+        let sanitizedArgs = args.map { arg in
+            if arg.contains("-pass=") || arg.contains("-secret-access-key=") {
+                let prefix = arg.split(separator: "=").first ?? ""
+                return "\(prefix)=***"
+            }
+            return arg
+        }
+        logger.info("[rclone] Command: rclone \(sanitizedArgs.joined(separator: " "))")
 
         // Handle stderr for progress updates
-        stderrPipe.fileHandleForReading.readabilityHandler = { [self] handle in
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
 
@@ -120,26 +99,26 @@ actor RcloneService {
                     guard !trimmed.isEmpty else { continue }
 
                     // Log all rclone output for debugging
-                    logger.debug("[rclone stderr] \(trimmed)")
+                    print("[rclone stderr] \(trimmed)")
 
                     // Parse progress
                     if let uploadProgress = RcloneProgressParser.parse(trimmed) {
                         state.bytesTransferred = uploadProgress.bytesTransferred
-                        logger.info("[rclone] Progress: \(Int(uploadProgress.percentage * 100))% - \(uploadProgress.speed ?? "unknown speed")")
+                        print("[rclone] Progress parsed: \(Int(uploadProgress.percentage * 100))% - \(uploadProgress.speed ?? "?")")
                         progress(uploadProgress.percentage, uploadProgress.speed)
                     }
 
                     // Check for errors
                     if let error = RcloneProgressParser.parseError(trimmed) {
                         state.lastError = error
-                        logger.error("[rclone] Error detected: \(error)")
+                        print("[rclone] Error detected: \(error)")
                     }
                 }
             }
         }
 
         // Also check stdout
-        stdoutPipe.fileHandleForReading.readabilityHandler = { [self] handle in
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
 
@@ -149,10 +128,11 @@ actor RcloneService {
                     guard !trimmed.isEmpty else { continue }
 
                     // Log all rclone output for debugging
-                    logger.debug("[rclone stdout] \(trimmed)")
+                    print("[rclone stdout] \(trimmed)")
 
                     if let uploadProgress = RcloneProgressParser.parse(trimmed) {
                         state.bytesTransferred = uploadProgress.bytesTransferred
+                        print("[rclone] Progress parsed: \(Int(uploadProgress.percentage * 100))% - \(uploadProgress.speed ?? "?")")
                         progress(uploadProgress.percentage, uploadProgress.speed)
                     }
                 }
@@ -211,15 +191,8 @@ actor RcloneService {
             throw UploadError.configurationMissing
         }
 
-        // Get password from Keychain
-        guard let password = try? KeychainCredentialManager.shared.getCredential(
-            server: config.server,
-            username: config.username
-        ) else {
-            throw UploadError.passwordNotFound
-        }
-
-        let obscuredPassword = try await obscurePassword(password, rclonePath: rclonePath)
+        // Build backend-specific arguments
+        let backendArgs = try await buildBackendArguments(config: config, rclonePath: rclonePath)
 
         let process = Process()
         let stderrPipe = Pipe()
@@ -227,28 +200,7 @@ actor RcloneService {
         // Use rclone lsd to list directories (quick test)
         var args: [String] = ["lsd"]
         args.append(config.rcloneRemotePath)
-
-        switch config.backendType {
-        case .ftp:
-            args.append(contentsOf: [
-                "--ftp-host=\(config.server)",
-                "--ftp-port=\(config.port)",
-                "--ftp-user=\(config.username)",
-                "--ftp-pass=\(obscuredPassword)"
-            ])
-            if config.useFTPS {
-                args.append("--ftp-tls")
-            }
-        case .sftp:
-            args.append(contentsOf: [
-                "--sftp-host=\(config.server)",
-                "--sftp-port=\(config.port)",
-                "--sftp-user=\(config.username)",
-                "--sftp-pass=\(obscuredPassword)"
-            ])
-        case .s3, .gdrive:
-            throw UploadError.uploadFailed("Backend \(config.backendType.displayName) not yet implemented")
-        }
+        args.append(contentsOf: backendArgs)
 
         process.executableURL = URL(fileURLWithPath: rclonePath)
         process.arguments = args
@@ -267,7 +219,9 @@ actor RcloneService {
             let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             let errorMessage = String(data: errorData, encoding: .utf8) ?? "Unknown error"
 
-            if errorMessage.contains("530") || errorMessage.contains("Login") {
+            if errorMessage.contains("530") || errorMessage.contains("Login") ||
+               errorMessage.contains("LOGON_FAILURE") || errorMessage.contains("AccessDenied") ||
+               errorMessage.contains("InvalidAccessKeyId") {
                 throw UploadError.authenticationFailed
             }
             throw UploadError.connectionFailed(errorMessage.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -286,6 +240,108 @@ actor RcloneService {
     }
 
     // MARK: - Private Methods
+
+    /// Builds backend-specific rclone arguments
+    private func buildBackendArguments(config: UploadConfig, rclonePath: String) async throws -> [String] {
+        var args: [String] = []
+
+        switch config.backendType {
+        case .ftp:
+            // Get password from Keychain
+            guard let password = try? KeychainCredentialManager.shared.getCredential(
+                server: config.server,
+                username: config.username
+            ) else {
+                throw UploadError.passwordNotFound
+            }
+            let obscuredPassword = try await obscurePassword(password, rclonePath: rclonePath)
+
+            args.append(contentsOf: [
+                "--ftp-host=\(config.server)",
+                "--ftp-port=\(config.port)",
+                "--ftp-user=\(config.username)",
+                "--ftp-pass=\(obscuredPassword)"
+            ])
+            if config.useFTPS {
+                args.append("--ftp-tls")
+            }
+
+        case .sftp:
+            args.append(contentsOf: [
+                "--sftp-host=\(config.server)",
+                "--sftp-port=\(config.port)",
+                "--sftp-user=\(config.username)"
+            ])
+
+            // SFTP can use either SSH key file or password
+            if let keyFilePath = config.sftpKeyFilePath, !keyFilePath.isEmpty {
+                args.append("--sftp-key-file=\(keyFilePath)")
+            } else {
+                // Use password authentication
+                guard let password = try? KeychainCredentialManager.shared.getCredential(
+                    server: config.server,
+                    username: config.username
+                ) else {
+                    throw UploadError.passwordNotFound
+                }
+                let obscuredPassword = try await obscurePassword(password, rclonePath: rclonePath)
+                args.append("--sftp-pass=\(obscuredPassword)")
+            }
+
+        case .smb:
+            // Get password from Keychain
+            guard let password = try? KeychainCredentialManager.shared.getCredential(
+                server: config.server,
+                username: config.username
+            ) else {
+                throw UploadError.passwordNotFound
+            }
+            let obscuredPassword = try await obscurePassword(password, rclonePath: rclonePath)
+
+            args.append(contentsOf: [
+                "--smb-host=\(config.server)",
+                "--smb-port=\(config.port)",
+                "--smb-user=\(config.username)",
+                "--smb-pass=\(obscuredPassword)"
+            ])
+            if let domain = config.smbDomain, !domain.isEmpty {
+                args.append("--smb-domain=\(domain)")
+            }
+
+        case .s3:
+            // S3 uses access key ID and secret access key
+            guard let accessKeyID = config.s3AccessKeyID, !accessKeyID.isEmpty else {
+                throw UploadError.configurationMissing
+            }
+
+            // Get secret key from Keychain
+            guard let secretKey = try? KeychainCredentialManager.shared.getS3SecretKey(accessKeyID: accessKeyID) else {
+                throw UploadError.passwordNotFound
+            }
+
+            // Determine provider based on endpoint
+            if let endpoint = config.s3Endpoint, !endpoint.isEmpty {
+                args.append("--s3-provider=Other")
+                args.append("--s3-endpoint=\(endpoint)")
+            } else {
+                args.append("--s3-provider=AWS")
+            }
+
+            if let region = config.s3Region, !region.isEmpty {
+                args.append("--s3-region=\(region)")
+            }
+
+            args.append(contentsOf: [
+                "--s3-access-key-id=\(accessKeyID)",
+                "--s3-secret-access-key=\(secretKey)"
+            ])
+
+        case .gdrive:
+            throw UploadError.uploadFailed("Google Drive backend not yet implemented")
+        }
+
+        return args
+    }
 
     /// Obscures a password using rclone obscure
     private func obscurePassword(_ password: String, rclonePath: String) async throws -> String {

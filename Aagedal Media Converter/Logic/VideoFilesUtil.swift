@@ -587,6 +587,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     // MARK: - Upload State
     /// Whether upload is enabled for this item
     var uploadEnabled: Bool = false
+    /// Whether to upload the source file instead of encoded output
+    var uploadSourceFile: Bool = false
     /// Current upload status
     var uploadStatus: UploadStatus = .notQueued
     /// Upload progress (0.0 to 1.0)
@@ -596,9 +598,27 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     /// Remote path where file was uploaded
     var uploadedRemotePath: String? = nil
 
-    /// Whether this item is ready for upload (conversion done, upload enabled)
+    // MARK: - Subtitle Generation State
+    /// Whether subtitle generation is enabled for this item
+    var subtitleEnabled: Bool = false
+    /// Current subtitle generation status
+    var subtitleStatus: SubtitleStatus = .notQueued
+    /// Subtitle generation progress (0.0 to 1.0)
+    var subtitleProgress: Double = 0.0
+    /// Path to generated SRT file
+    var subtitleFilePath: URL? = nil
+
+    /// Whether this item is ready for upload (conversion done or source upload enabled)
     var isReadyForUpload: Bool {
-        status == .done && uploadEnabled && outputURL != nil
+        if uploadSourceFile {
+            return uploadEnabled
+        }
+        return status == .done && uploadEnabled && outputURL != nil
+    }
+
+    /// The file URL to upload (source or output depending on uploadSourceFile setting)
+    var fileToUpload: URL? {
+        uploadSourceFile ? url : outputURL
     }
 
     /// Whether this item is scheduled for future download

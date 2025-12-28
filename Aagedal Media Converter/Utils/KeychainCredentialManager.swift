@@ -131,10 +131,112 @@ final class KeychainCredentialManager: @unchecked Sendable {
         }
     }
 
+    // MARK: - S3 Secret Key Methods
+
+    /// Saves an S3 secret access key for the given access key ID
+    /// - Parameters:
+    ///   - accessKeyID: The AWS Access Key ID
+    ///   - secretKey: The AWS Secret Access Key to store
+    func saveS3SecretKey(accessKeyID: String, secretKey: String) throws {
+        guard !accessKeyID.isEmpty else {
+            throw KeychainError.invalidParameters
+        }
+
+        let account = buildS3AccountString(accessKeyID: accessKeyID)
+
+        // Delete existing credential first (if any)
+        try? deleteS3SecretKey(accessKeyID: accessKeyID)
+
+        guard let secretData = secretKey.data(using: .utf8) else {
+            throw KeychainError.encodingError
+        }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: secretData,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+        ]
+
+        let status = SecItemAdd(query as CFDictionary, nil)
+
+        guard status == errSecSuccess else {
+            throw KeychainError.saveFailed(status)
+        }
+    }
+
+    /// Retrieves an S3 secret access key for the given access key ID
+    /// - Parameter accessKeyID: The AWS Access Key ID
+    /// - Returns: The secret access key if found, nil otherwise
+    func getS3SecretKey(accessKeyID: String) throws -> String? {
+        guard !accessKeyID.isEmpty else {
+            throw KeychainError.invalidParameters
+        }
+
+        let account = buildS3AccountString(accessKeyID: accessKeyID)
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status == errSecItemNotFound {
+            return nil
+        }
+
+        guard status == errSecSuccess else {
+            throw KeychainError.retrieveFailed(status)
+        }
+
+        guard let data = result as? Data,
+              let secretKey = String(data: data, encoding: .utf8) else {
+            throw KeychainError.decodingError
+        }
+
+        return secretKey
+    }
+
+    /// Checks if an S3 secret key exists for the given access key ID
+    func hasS3SecretKey(accessKeyID: String) -> Bool {
+        guard let _ = try? getS3SecretKey(accessKeyID: accessKeyID) else {
+            return false
+        }
+        return true
+    }
+
+    /// Deletes a stored S3 secret key
+    /// - Parameter accessKeyID: The AWS Access Key ID
+    func deleteS3SecretKey(accessKeyID: String) throws {
+        let account = buildS3AccountString(accessKeyID: accessKeyID)
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account
+        ]
+
+        let status = SecItemDelete(query as CFDictionary)
+
+        if status != errSecSuccess && status != errSecItemNotFound {
+            throw KeychainError.deleteFailed(status)
+        }
+    }
+
     // MARK: - Private Methods
 
     private func buildAccountString(server: String, username: String) -> String {
         return "\(username)@\(server)"
+    }
+
+    private func buildS3AccountString(accessKeyID: String) -> String {
+        return "s3:\(accessKeyID)"
     }
 }
 

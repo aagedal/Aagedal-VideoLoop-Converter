@@ -444,6 +444,25 @@ enum AppConstants {
     static let rcloneGitHubReleasesURL = "https://api.github.com/repos/rclone/rclone/releases/latest"
     static let rcloneCustomPathKey = "rcloneCustomPath"
 
+    // Backend type selection
+    static let uploadBackendTypeKey = "uploadBackendType"
+
+    // SFTP-specific settings
+    static let uploadSFTPKeyFileKey = "uploadSFTPKeyFile"
+    static let uploadSFTPKeyFileBookmarkKey = "uploadSFTPKeyFileBookmark"
+    static let defaultSFTPPort = 22
+
+    // SMB-specific settings
+    static let uploadSMBShareKey = "uploadSMBShare"
+    static let uploadSMBDomainKey = "uploadSMBDomain"
+    static let defaultSMBPort = 445
+
+    // S3-specific settings
+    static let uploadS3BucketKey = "uploadS3Bucket"
+    static let uploadS3RegionKey = "uploadS3Region"
+    static let uploadS3EndpointKey = "uploadS3Endpoint"
+    static let uploadS3AccessKeyKey = "uploadS3AccessKey"
+
     // Output location settings
     static let saveNextToOriginalKey = "saveNextToOriginal"
     static let saveNextToOriginalSubfolderKey = "saveNextToOriginalSubfolder"
@@ -453,4 +472,31 @@ enum AppConstants {
     static let defaultSaveNextToOriginalSubfolder = false
     static let defaultSaveNextToOriginalSubfolderMode = "custom" // "custom" or "presetSuffix"
     static let defaultSaveNextToOriginalSubfolderName = "Encoded"
+
+    // MARK: - Whisper Settings
+
+    // Whisper binary management
+    static let whisperVersionKey = "whisperInstalledVersion"
+    static let whisperLastUpdateCheckKey = "whisperLastUpdateCheck"
+    static let whisperGitHubReleasesURL = "https://api.github.com/repos/ggerganov/whisper.cpp/releases/latest"
+    static let whisperCustomPathKey = "whisperCustomPath"
+
+    // Whisper model management
+    static let whisperModelKey = "whisperSelectedModel"
+    static let whisperModelsDirectory: URL = {
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let modelsDir = supportDir
+            .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
+            .appendingPathComponent("whisper-models", isDirectory: true)
+        try? FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        return modelsDir
+    }()
+    static let defaultWhisperModel = "base"
+
+    // Whisper generation settings
+    static let whisperDefaultEnabledKey = "whisperDefaultEnabled"
+    static let whisperLanguageKey = "whisperLanguage"
+    static let defaultWhisperLanguage = "auto"
+    static let whisperMaxLineLengthKey = "whisperMaxLineLength"
+    static let defaultWhisperMaxLineLength = 42  // Characters per subtitle line
 }

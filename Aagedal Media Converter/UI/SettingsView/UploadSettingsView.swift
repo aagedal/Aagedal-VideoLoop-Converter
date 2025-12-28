@@ -16,7 +16,10 @@ struct UploadSettingsView: View {
     @State private var isTesting = false
     @State private var testResult: TestResult?
 
-    // FTP Settings
+    // Backend selection
+    @AppStorage(AppConstants.uploadBackendTypeKey) private var selectedBackend = "ftp"
+
+    // Common Settings
     @AppStorage(AppConstants.uploadServerKey) private var server = ""
     @AppStorage(AppConstants.uploadPortKey) private var port = AppConstants.defaultUploadPort
     @AppStorage(AppConstants.uploadUsernameKey) private var username = ""
@@ -25,12 +28,32 @@ struct UploadSettingsView: View {
     @AppStorage(AppConstants.uploadDefaultEnabledKey) private var uploadDefaultEnabled = false
     @AppStorage(AppConstants.uploadRetryCountKey) private var retryCount = AppConstants.defaultUploadRetryCount
 
+    // SFTP-specific
+    @AppStorage(AppConstants.uploadSFTPKeyFileKey) private var sftpKeyFilePath = ""
+    @State private var useSFTPKeyAuth = false
+
+    // SMB-specific
+    @AppStorage(AppConstants.uploadSMBShareKey) private var smbShare = ""
+    @AppStorage(AppConstants.uploadSMBDomainKey) private var smbDomain = ""
+
+    // S3-specific
+    @AppStorage(AppConstants.uploadS3BucketKey) private var s3Bucket = ""
+    @AppStorage(AppConstants.uploadS3RegionKey) private var s3Region = "us-east-1"
+    @AppStorage(AppConstants.uploadS3EndpointKey) private var s3Endpoint = ""
+    @AppStorage(AppConstants.uploadS3AccessKeyKey) private var s3AccessKeyID = ""
+
+    // Password states
     @State private var password = ""
     @State private var hasStoredPassword = false
+    @State private var s3SecretKey = ""
+    @State private var hasStoredS3SecretKey = false
 
     // Focus state for Tab navigation
     private enum Field: Hashable {
         case server, port, username, password, remotePath
+        case smbShare, smbDomain
+        case s3Bucket, s3Region, s3Endpoint, s3AccessKey, s3SecretKey
+        case sftpKeyFile
     }
     @FocusState private var focusedField: Field?
 
@@ -39,16 +62,80 @@ struct UploadSettingsView: View {
         case failure(String)
     }
 
+    private var currentBackendType: UploadBackendType {
+        UploadBackendType(rawValue: selectedBackend) ?? .ftp
+    }
+
     var body: some View {
         Form {
             rcloneStatusSection
-            ftpServerSection
+            backendSelectorSection
+
+            // Show backend-specific sections
+            switch currentBackendType {
+            case .ftp:
+                ftpServerSection
+            case .sftp:
+                sftpServerSection
+            case .smb:
+                smbServerSection
+            case .s3:
+                s3Section
+            case .gdrive:
+                gdriveSection
+            }
+
             uploadBehaviorSection
             testConnectionSection
         }
         .formStyle(.grouped)
         .task {
             await loadInitialState()
+        }
+        .onChange(of: selectedBackend) { _, newValue in
+            // Reset port to default for the new backend
+            if let backend = UploadBackendType(rawValue: newValue) {
+                port = backend.defaultPort
+            }
+            // Clear test result when switching backends
+            testResult = nil
+        }
+    }
+
+    // MARK: - Backend Selector
+
+    private var backendSelectorSection: some View {
+        Section(header: Text("Upload Backend")) {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("Backend", selection: $selectedBackend) {
+                    Text("FTP").tag("ftp")
+                    Text("SFTP").tag("sftp")
+                    Text("SMB").tag("smb")
+                    Text("S3").tag("s3")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Text(backendDescription)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(8)
+        }
+    }
+
+    private var backendDescription: String {
+        switch currentBackendType {
+        case .ftp:
+            return "Upload to FTP servers with optional TLS encryption."
+        case .sftp:
+            return "Upload via SSH/SFTP with password or SSH key authentication."
+        case .smb:
+            return "Upload to Windows network shares (SMB/CIFS)."
+        case .s3:
+            return "Upload to Amazon S3 or S3-compatible storage services."
+        case .gdrive:
+            return "Upload to Google Drive (not yet implemented)."
         }
     }
 
@@ -100,7 +187,7 @@ struct UploadSettingsView: View {
                     }
                 }
 
-                Text("rclone is used for uploading files to FTP servers after conversion.")
+                Text("rclone is used for uploading files to remote servers after conversion.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -144,24 +231,7 @@ struct UploadSettingsView: View {
                 }
 
                 // Password
-                HStack {
-                    Text("Password:")
-                        .frame(width: 80, alignment: .trailing)
-                    SecureField(hasStoredPassword ? "••••••••" : "password", text: $password)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($focusedField, equals: .password)
-                        .onSubmit { focusedField = .remotePath }
-                        .onChange(of: password) { _, newValue in
-                            if !newValue.isEmpty {
-                                savePassword()
-                            }
-                        }
-                    if hasStoredPassword {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .help("Password saved in Keychain")
-                    }
-                }
+                passwordField
 
                 // Remote path
                 HStack {
@@ -182,6 +252,290 @@ struct UploadSettingsView: View {
                 }
             }
             .padding(8)
+        }
+    }
+
+    private var sftpServerSection: some View {
+        Section(header: Text("SFTP Server")) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Server hostname
+                HStack {
+                    Text("Server:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("sftp.example.com", text: $server)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .server)
+                        .onSubmit { focusedField = .port }
+                }
+
+                // Port
+                HStack {
+                    Text("Port:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("22", value: $port, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .focused($focusedField, equals: .port)
+                        .onSubmit { focusedField = .username }
+                    Spacer()
+                }
+
+                // Username
+                HStack {
+                    Text("Username:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("username", text: $username)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .username)
+                        .onSubmit { focusedField = useSFTPKeyAuth ? .sftpKeyFile : .password }
+                }
+
+                // Auth method toggle
+                HStack {
+                    Text("Auth:")
+                        .frame(width: 80, alignment: .trailing)
+                    Picker("Authentication", selection: $useSFTPKeyAuth) {
+                        Text("Password").tag(false)
+                        Text("SSH Key").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                    Spacer()
+                }
+
+                // Password or SSH key based on auth method
+                if useSFTPKeyAuth {
+                    // SSH Key file picker
+                    HStack {
+                        Text("Key File:")
+                            .frame(width: 80, alignment: .trailing)
+                        TextField("~/.ssh/id_rsa", text: $sftpKeyFilePath)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .sftpKeyFile)
+                        Button("Browse...") {
+                            selectSSHKeyFile()
+                        }
+                    }
+                } else {
+                    // Password
+                    passwordField
+                }
+
+                // Remote path
+                HStack {
+                    Text("Path:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("/uploads/videos", text: $remotePath)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .remotePath)
+                        .onSubmit { focusedField = nil }
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    private var smbServerSection: some View {
+        Section(header: Text("SMB Server (Windows Share)")) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Server hostname
+                HStack {
+                    Text("Server:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("server.local or 192.168.1.100", text: $server)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .server)
+                        .onSubmit { focusedField = .port }
+                }
+
+                // Port
+                HStack {
+                    Text("Port:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("445", value: $port, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 80)
+                        .focused($focusedField, equals: .port)
+                        .onSubmit { focusedField = .smbShare }
+                    Spacer()
+                }
+
+                // Share name
+                HStack {
+                    Text("Share:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("ShareName", text: $smbShare)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .smbShare)
+                        .onSubmit { focusedField = .username }
+                }
+
+                // Domain (optional)
+                HStack {
+                    Text("Domain:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("WORKGROUP (optional)", text: $smbDomain)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .smbDomain)
+                        .onSubmit { focusedField = .username }
+                }
+
+                // Username
+                HStack {
+                    Text("Username:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("username", text: $username)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .username)
+                        .onSubmit { focusedField = .password }
+                }
+
+                // Password
+                passwordField
+
+                // Remote path (within share)
+                HStack {
+                    Text("Path:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField("Videos/Uploads (within share)", text: $remotePath)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .remotePath)
+                        .onSubmit { focusedField = nil }
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    private var s3Section: some View {
+        Section(header: Text("Amazon S3 / S3-Compatible Storage")) {
+            VStack(alignment: .leading, spacing: 12) {
+                // Bucket name
+                HStack {
+                    Text("Bucket:")
+                        .frame(width: 100, alignment: .trailing)
+                    TextField("my-bucket-name", text: $s3Bucket)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .s3Bucket)
+                        .onSubmit { focusedField = .s3Region }
+                }
+
+                // Region
+                HStack {
+                    Text("Region:")
+                        .frame(width: 100, alignment: .trailing)
+                    Picker("", selection: $s3Region) {
+                        Text("us-east-1 (N. Virginia)").tag("us-east-1")
+                        Text("us-east-2 (Ohio)").tag("us-east-2")
+                        Text("us-west-1 (N. California)").tag("us-west-1")
+                        Text("us-west-2 (Oregon)").tag("us-west-2")
+                        Text("eu-west-1 (Ireland)").tag("eu-west-1")
+                        Text("eu-west-2 (London)").tag("eu-west-2")
+                        Text("eu-central-1 (Frankfurt)").tag("eu-central-1")
+                        Text("eu-north-1 (Stockholm)").tag("eu-north-1")
+                        Text("ap-northeast-1 (Tokyo)").tag("ap-northeast-1")
+                        Text("ap-southeast-1 (Singapore)").tag("ap-southeast-1")
+                        Text("ap-southeast-2 (Sydney)").tag("ap-southeast-2")
+                    }
+                    .labelsHidden()
+                    .frame(width: 200)
+                    Spacer()
+                }
+
+                // Custom endpoint (optional, for S3-compatible)
+                HStack {
+                    Text("Endpoint:")
+                        .frame(width: 100, alignment: .trailing)
+                    TextField("Leave empty for AWS (or enter custom endpoint)", text: $s3Endpoint)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .s3Endpoint)
+                }
+
+                Divider()
+
+                // Access Key ID
+                HStack {
+                    Text("Access Key:")
+                        .frame(width: 100, alignment: .trailing)
+                    TextField("AKIAIOSFODNN7EXAMPLE", text: $s3AccessKeyID)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .s3AccessKey)
+                        .onSubmit { focusedField = .s3SecretKey }
+                }
+
+                // Secret Access Key
+                HStack {
+                    Text("Secret Key:")
+                        .frame(width: 100, alignment: .trailing)
+                    SecureField(hasStoredS3SecretKey ? "••••••••" : "Secret Access Key", text: $s3SecretKey)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .s3SecretKey)
+                        .onChange(of: s3SecretKey) { _, newValue in
+                            if !newValue.isEmpty {
+                                saveS3SecretKey()
+                            }
+                        }
+                    if hasStoredS3SecretKey {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .help("Secret key saved in Keychain")
+                    }
+                }
+
+                Divider()
+
+                // Remote path (prefix/folder in bucket)
+                HStack {
+                    Text("Path/Prefix:")
+                        .frame(width: 100, alignment: .trailing)
+                    TextField("uploads/videos (optional prefix)", text: $remotePath)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .remotePath)
+                }
+
+                Text("Files will be uploaded to: s3://\(s3Bucket.isEmpty ? "bucket" : s3Bucket)/\(remotePath.isEmpty ? "" : remotePath + "/")<filename>")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(8)
+        }
+    }
+
+    private var gdriveSection: some View {
+        Section(header: Text("Google Drive")) {
+            VStack(alignment: .center, spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.largeTitle)
+                    .foregroundColor(.orange)
+                Text("Google Drive support is not yet implemented.")
+                    .foregroundColor(.secondary)
+                Text("Please use FTP, SFTP, SMB, or S3 for now.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(20)
+        }
+    }
+
+    private var passwordField: some View {
+        HStack {
+            Text("Password:")
+                .frame(width: 80, alignment: .trailing)
+            SecureField(hasStoredPassword ? "••••••••" : "password", text: $password)
+                .textFieldStyle(.roundedBorder)
+                .focused($focusedField, equals: .password)
+                .onSubmit { focusedField = .remotePath }
+                .onChange(of: password) { _, newValue in
+                    if !newValue.isEmpty {
+                        savePassword()
+                    }
+                }
+            if hasStoredPassword {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .help("Password saved in Keychain")
+            }
         }
     }
 
@@ -220,7 +574,7 @@ struct UploadSettingsView: View {
                             await testConnection()
                         }
                     }
-                    .disabled(isTesting || server.isEmpty || username.isEmpty || !hasStoredPassword)
+                    .disabled(isTesting || !isConfigurationComplete)
 
                     if isTesting {
                         ProgressView()
@@ -250,13 +604,47 @@ struct UploadSettingsView: View {
                     }
                 }
 
-                if server.isEmpty || username.isEmpty || !hasStoredPassword {
-                    Text("Enter server, username, and password to test the connection.")
+                if !isConfigurationComplete {
+                    Text(configurationHint)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
             .padding(8)
+        }
+    }
+
+    private var isConfigurationComplete: Bool {
+        switch currentBackendType {
+        case .ftp, .sftp:
+            if currentBackendType == .sftp && useSFTPKeyAuth {
+                return !server.isEmpty && !username.isEmpty && !sftpKeyFilePath.isEmpty
+            }
+            return !server.isEmpty && !username.isEmpty && hasStoredPassword
+        case .smb:
+            return !server.isEmpty && !username.isEmpty && !smbShare.isEmpty && hasStoredPassword
+        case .s3:
+            return !s3Bucket.isEmpty && !s3AccessKeyID.isEmpty && hasStoredS3SecretKey
+        case .gdrive:
+            return false
+        }
+    }
+
+    private var configurationHint: String {
+        switch currentBackendType {
+        case .ftp:
+            return "Enter server, username, and password to test the connection."
+        case .sftp:
+            if useSFTPKeyAuth {
+                return "Enter server, username, and select an SSH key file to test."
+            }
+            return "Enter server, username, and password to test the connection."
+        case .smb:
+            return "Enter server, share name, username, and password to test."
+        case .s3:
+            return "Enter bucket name, access key, and secret key to test."
+        case .gdrive:
+            return "Google Drive is not yet implemented."
         }
     }
 
@@ -266,13 +654,21 @@ struct UploadSettingsView: View {
         rcloneStatus = await RcloneUpdateService.shared.getInstallationStatus()
         rcloneVersion = await RcloneUpdateService.shared.getCurrentVersion()
 
-        // Check if password exists in Keychain
+        // Check if password exists in Keychain (for password-based backends)
         if !server.isEmpty && !username.isEmpty {
             hasStoredPassword = KeychainCredentialManager.shared.hasCredential(
                 server: server,
                 username: username
             )
         }
+
+        // Check if S3 secret key exists
+        if !s3AccessKeyID.isEmpty {
+            hasStoredS3SecretKey = KeychainCredentialManager.shared.hasS3SecretKey(accessKeyID: s3AccessKeyID)
+        }
+
+        // Set SFTP auth mode based on whether key file is configured
+        useSFTPKeyAuth = !sftpKeyFilePath.isEmpty
     }
 
     private func downloadRclone() async {
@@ -311,6 +707,35 @@ struct UploadSettingsView: View {
         }
     }
 
+    private func saveS3SecretKey() {
+        guard !s3AccessKeyID.isEmpty, !s3SecretKey.isEmpty else { return }
+
+        do {
+            try KeychainCredentialManager.shared.saveS3SecretKey(
+                accessKeyID: s3AccessKeyID,
+                secretKey: s3SecretKey
+            )
+            hasStoredS3SecretKey = true
+            s3SecretKey = "" // Clear after saving
+        } catch {
+            // Handle error silently
+        }
+    }
+
+    private func selectSSHKeyFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Select SSH Private Key"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh")
+        panel.showsHiddenFiles = true
+
+        if panel.runModal() == .OK, let url = panel.url {
+            sftpKeyFilePath = url.path
+        }
+    }
+
     private func testConnection() async {
         isTesting = true
         testResult = nil
@@ -328,5 +753,5 @@ struct UploadSettingsView: View {
 
 #Preview {
     UploadSettingsView()
-        .frame(width: 600, height: 500)
+        .frame(width: 600, height: 700)
 }

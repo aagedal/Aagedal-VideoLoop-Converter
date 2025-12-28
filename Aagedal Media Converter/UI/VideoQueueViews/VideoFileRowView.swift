@@ -23,6 +23,7 @@ struct VideoFileRowView: View {
     var onRetryDownload: (() -> Void)?
     var onForceRedownload: (() -> Void)?
     var onCancelScheduledDownload: (() -> Void)?
+    var onTranscribeOnly: (() -> Void)?
     /// Indicates if this row is selected in the list
     var isSelected: Bool = false
     var onCommentFocusChange: (UUID, Bool) -> Void = { _, _ in }
@@ -51,6 +52,72 @@ struct VideoFileRowView: View {
             ? "Merge enabled: this clip will be concatenated into a single output file."
             : "Clips are merge-compatible. Enable merge to export a single concatenated file."
     }
+
+    // Upload button computed properties
+    private var uploadIconName: String {
+        if file.uploadSourceFile {
+            return "arrow.up.doc.fill"  // Different icon for source file upload
+        } else if file.uploadEnabled {
+            return "icloud.and.arrow.up.fill"
+        } else {
+            return "icloud.and.arrow.up"
+        }
+    }
+
+    private var uploadIconColor: Color {
+        if file.uploadSourceFile {
+            return .orange  // Orange for source file upload
+        } else if file.uploadEnabled {
+            return .blue
+        } else {
+            return .secondary
+        }
+    }
+
+    private var uploadHelpText: String {
+        guard UploadManager.shared.isConfigured else {
+            return "Configure upload in Settings > Upload"
+        }
+        if file.uploadSourceFile {
+            return "Source file will upload immediately. Option+click to disable."
+        } else if file.uploadEnabled {
+            return "Encoded file will upload after encoding. Option+click to upload source file instead."
+        } else {
+            return "Enable upload after encoding. Option+click to upload source file immediately."
+        }
+    }
+
+    // Subtitle button computed properties
+    private var subtitleIconName: String {
+        file.subtitleEnabled ? "captions.bubble.fill" : "captions.bubble"
+    }
+
+    private var subtitleIconColor: Color {
+        file.subtitleEnabled ? .green : .secondary
+    }
+
+    private var subtitleHelpText: String {
+        let status = WhisperUpdateService.shared.getInstallationStatus()
+        guard status.isAvailable else {
+            return "Configure whisper.cpp in Settings > Subtitles"
+        }
+        let models = WhisperModelManager.shared.getDownloadedModels()
+        guard !models.isEmpty else {
+            return "Download a model in Settings > Subtitles"
+        }
+        if file.subtitleEnabled {
+            return "Subtitle generation enabled. SRT will be created after encoding. Option+click to generate SRT only (no encoding)."
+        } else {
+            return "Enable subtitle generation after encoding. Option+click to generate SRT only (no encoding)."
+        }
+    }
+
+    private var isSubtitleAvailable: Bool {
+        let status = WhisperUpdateService.shared.getInstallationStatus()
+        guard status.isAvailable else { return false }
+        return !WhisperModelManager.shared.getDownloadedModels().isEmpty
+    }
+
     @FocusState private var isCommentFieldFocused: Bool
     @State private var isThumbnailHovered = false
     @State private var showPreview = false
@@ -249,18 +316,47 @@ struct VideoFileRowView: View {
                                     .help(file.autoEncodeAfterDownload ? "Auto-encode enabled" : "Enable auto-encode after download")
                                 }
 
-                                // Upload toggle button
+                                // Upload toggle button (Option+click for source file upload)
                                 Button {
-                                    file.uploadEnabled.toggle()
+                                    if NSEvent.modifierFlags.contains(.option) {
+                                        // Option+click: toggle source file upload
+                                        file.uploadSourceFile.toggle()
+                                        if file.uploadSourceFile {
+                                            file.uploadEnabled = true
+                                            // Start upload immediately for source files
+                                            Task {
+                                                await UploadManager.shared.startUpload(itemID: file.id)
+                                            }
+                                        }
+                                    } else {
+                                        file.uploadEnabled.toggle()
+                                        if !file.uploadEnabled {
+                                            file.uploadSourceFile = false
+                                        }
+                                    }
                                 } label: {
-                                    Image(systemName: file.uploadEnabled ? "icloud.and.arrow.up.fill" : "icloud.and.arrow.up")
+                                    Image(systemName: uploadIconName)
                                 }
                                 .buttonStyle(.borderless)
-                                .foregroundColor(file.uploadEnabled ? .blue : .secondary)
+                                .foregroundColor(uploadIconColor)
                                 .disabled(!UploadManager.shared.isConfigured)
-                                .help(UploadManager.shared.isConfigured
-                                      ? (file.uploadEnabled ? "Encoded file will upload automatically" : "Enable automatic upload after encoding")
-                                      : "Configure upload in Settings > Upload")
+                                .help(uploadHelpText)
+
+                                // Subtitle toggle button (Option+click for transcribe-only)
+                                Button {
+                                    if NSEvent.modifierFlags.contains(.option) {
+                                        // Option+click: generate SRT only (no encoding)
+                                        onTranscribeOnly?()
+                                    } else {
+                                        file.subtitleEnabled.toggle()
+                                    }
+                                } label: {
+                                    Image(systemName: subtitleIconName)
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundColor(subtitleIconColor)
+                                .disabled(!isSubtitleAvailable)
+                                .help(subtitleHelpText)
 
                                 // Action buttons container with fixed width
                                 HStack(spacing: 4) {
@@ -749,20 +845,51 @@ struct VideoFileRowView: View {
                 .help(file.autoEncodeAfterDownload ? "Auto-encode enabled" : "Enable auto-encode after download")
             }
 
-            // Upload toggle button
+            // Upload toggle button (Option+click for source file upload)
             Button {
-                file.uploadEnabled.toggle()
+                if NSEvent.modifierFlags.contains(.option) {
+                    // Option+click: toggle source file upload
+                    file.uploadSourceFile.toggle()
+                    if file.uploadSourceFile {
+                        file.uploadEnabled = true
+                        // Start upload immediately for source files
+                        Task {
+                            await UploadManager.shared.startUpload(itemID: file.id)
+                        }
+                    }
+                } else {
+                    file.uploadEnabled.toggle()
+                    if !file.uploadEnabled {
+                        file.uploadSourceFile = false
+                    }
+                }
             } label: {
-                Image(systemName: file.uploadEnabled ? "icloud.and.arrow.up.fill" : "icloud.and.arrow.up")
+                Image(systemName: uploadIconName)
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.borderless)
-            .foregroundColor(file.uploadEnabled ? .blue : .secondary)
+            .foregroundColor(uploadIconColor)
             .disabled(!UploadManager.shared.isConfigured)
-            .help(UploadManager.shared.isConfigured
-                  ? (file.uploadEnabled ? "Encoded file will upload automatically" : "Enable automatic upload after encoding")
-                  : "Configure upload in Settings > Upload")
+            .help(uploadHelpText)
+
+            // Subtitle toggle button (compact, Option+click for transcribe-only)
+            Button {
+                if NSEvent.modifierFlags.contains(.option) {
+                    // Option+click: generate SRT only (no encoding)
+                    onTranscribeOnly?()
+                } else {
+                    file.subtitleEnabled.toggle()
+                }
+            } label: {
+                Image(systemName: subtitleIconName)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(subtitleIconColor)
+            .disabled(!isSubtitleAvailable)
+            .help(subtitleHelpText)
         }
     }
 
