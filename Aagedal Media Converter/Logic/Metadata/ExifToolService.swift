@@ -6,7 +6,7 @@ import Foundation
 import OSLog
 
 /// C2PA (Content Authenticity) metadata structure
-struct C2PAMetadata: Codable, Sendable {
+struct C2PAMetadata: Codable, Sendable, Equatable {
     let hasContentCredentials: Bool
     let claimGenerator: String?
     let manifestStore: String?

@@ -94,7 +94,7 @@ actor WhisperService {
         }
         let state = ProgressState()
 
-        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
 

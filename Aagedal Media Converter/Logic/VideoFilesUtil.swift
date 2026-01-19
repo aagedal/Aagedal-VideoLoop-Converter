@@ -12,6 +12,8 @@ import Cocoa
 import OSLog
 
 struct VideoFileUtils: Sendable {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "VideoFileUtils")
+
     struct VideoItemDetails: Sendable {
         let size: Int64
         let duration: String
@@ -87,12 +89,16 @@ struct VideoFileUtils: Sendable {
         }
     }
 
-    static func loadDetails(for url: URL, outputFolder: String? = nil, preset: ExportPreset = .videoLoop) async -> VideoItemDetails {
+    static func loadDetails(
+        for url: URL,
+        outputFolder: String? = nil,
+        preset: ExportPreset = .videoLoop,
+        generateRowThumbnailIfMissing: Bool = true
+    ) async -> VideoItemDetails {
         let fileName = url.lastPathComponent
 
         // Skip if file doesn't exist (e.g., scheduled downloads)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            print(" [loadDetails] ⏭️ Skipping - file doesn't exist: \(fileName)")
             return VideoItemDetails(
                 size: 0,
                 duration: "",
@@ -103,8 +109,6 @@ struct VideoFileUtils: Sendable {
             )
         }
 
-        print(" [loadDetails] ⏱️ Starting for: \(fileName)")
-
         // Compute size (cheap, but ensures we have up-to-date info)
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
 
@@ -112,23 +116,19 @@ struct VideoFileUtils: Sendable {
         let asset = AVURLAsset(url: url)
 
         if BinaryPathResolver.ffprobePath != nil {
-            Logger().info("Attempting to get duration using FFprobe for: \(fileName)")
+            logger.info("Attempting to get duration using FFprobe for: \(fileName, privacy: .public)")
             durationSec = await FFMPEGConverter.getVideoDuration(url: url) ?? 0.0
 
             if durationSec > 0 {
-                Logger().info("Successfully got duration from FFprobe: \(durationSec) seconds for \(fileName)")
+                logger.debug("FFprobe duration: \(durationSec, privacy: .public)s for \(fileName, privacy: .public)")
             } else {
-                Logger().warning("FFprobe returned 0 duration for \(fileName), falling back to AVFoundation")
+                logger.debug("FFprobe returned 0 duration for \(fileName, privacy: .public); falling back to AVFoundation")
             }
-        } else {
-            Logger().info("FFprobe not found, using AVFoundation for \(fileName)")
         }
 
         if durationSec <= 0 {
-            Logger().info("Using AVFoundation to get duration for: \(fileName)")
             let cmDuration = try? await asset.load(.duration)
             durationSec = CMTimeGetSeconds(cmDuration ?? CMTime.zero)
-            Logger().info("AVFoundation returned duration: \(durationSec) seconds for \(fileName)")
         }
 
         let durationString = formatDuration(seconds: durationSec)
@@ -138,23 +138,20 @@ struct VideoFileUtils: Sendable {
             let videoTracks = try await asset.loadTracks(withMediaType: .video)
             hasVideoStream = !videoTracks.isEmpty
         } catch {
-            Logger().debug("AVFoundation failed to inspect video tracks for \(fileName): \(error.localizedDescription). Falling back to FFprobe")
+            logger.debug("AVFoundation failed to inspect video tracks for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
 
         if !hasVideoStream {
             if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
                 hasVideoStream = !metadata.videoStreams.isEmpty
-                Logger().debug("FFprobe detected video stream: \(hasVideoStream) for \(fileName)")
+                logger.debug("FFprobe detected video stream: \(hasVideoStream, privacy: .public) for \(fileName, privacy: .public)")
             }
         }
 
-        print(" [loadDetails] Getting cached thumbnail for: \(fileName)")
-        let thumbnailData = await getCachedThumbnail(url: url)
-        print(" [loadDetails] Thumbnail obtained (nil: \(thumbnailData == nil))")
+        let thumbnailData = await getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generateRowThumbnailIfMissing)
 
         let outputURL = makeOutputURL(for: url, outputFolder: outputFolder, preset: preset)
 
-        print(" [loadDetails] ✅ Completed for: \(fileName)")
         return VideoItemDetails(
             size: size,
             duration: durationString,
@@ -258,59 +255,80 @@ struct VideoFileUtils: Sendable {
 
         // Skip if file doesn't exist (e.g., scheduled downloads)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            print(" [fetchMetadata] ⏭️ Skipping - file doesn't exist: \(fileName)")
             return nil
         }
 
-        let startTime = Date()
+        struct MetadataTimeout: Error {}
 
-        print(" [fetchMetadata] ⏱️ Starting for: \(fileName) at \(startTime)")
-        
-        // Fetch metadata with timeout
+        // Fetch metadata with timeout (VideoMetadataService also enforces an internal timeout)
         let metadata: VideoMetadata?
         do {
             metadata = try await withThrowingTaskGroup(of: VideoMetadata?.self) { group in
                 group.addTask {
-                    print(" [fetchMetadata] 🔄 Calling VideoMetadataService for: \(fileName)")
                     let result = try await VideoMetadataService.shared.metadata(for: url)
-                    let elapsed = Date().timeIntervalSince(startTime)
-                    print(" [fetchMetadata] ✅ VideoMetadataService returned after \(String(format: "%.2f", elapsed))s for: \(fileName)")
                     return result
                 }
                 
                 group.addTask {
-                    for i in 1...15 {
-                        try await Task.sleep(nanoseconds: 1_000_000_000)
-                        print(" [fetchMetadata] ⏳ Waiting... \(i)s elapsed for: \(fileName)")
-                    }
-                    print(" [fetchMetadata] ⏰ Timeout reached (15s) for: \(fileName)")
-                    throw CancellationError()
+                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    throw MetadataTimeout()
                 }
                 
                 let result = try await group.next()
                 group.cancelAll()
                 return result ?? nil
             }
-            let totalElapsed = Date().timeIntervalSince(startTime)
-            print(" [fetchMetadata] ✅ Metadata fetched successfully after \(String(format: "%.2f", totalElapsed))s for: \(fileName)")
-        } catch is CancellationError {
-            let totalElapsed = Date().timeIntervalSince(startTime)
-            Logger().warning("Metadata fetch timed out for \(fileName) after \(String(format: "%.2f", totalElapsed)) seconds")
-            print(" [fetchMetadata] ⏰ Metadata fetch timed out after \(String(format: "%.2f", totalElapsed))s for: \(fileName)")
+        } catch is MetadataTimeout {
+            logger.warning("Metadata fetch timed out for \(fileName, privacy: .public)")
             metadata = nil
         } catch {
-            let totalElapsed = Date().timeIntervalSince(startTime)
-            Logger().warning("Failed to fetch metadata for \(fileName): \(error.localizedDescription)")
-            print(" [fetchMetadata] ❌ Metadata fetch failed after \(String(format: "%.2f", totalElapsed))s: \(error.localizedDescription) for: \(fileName)")
+            logger.warning("Failed to fetch metadata for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             metadata = nil
         }
         
-        let totalElapsed = Date().timeIntervalSince(startTime)
-        print(" [fetchMetadata] 🏁 Completed for: \(fileName) after \(String(format: "%.2f", totalElapsed))s (metadata: \(metadata != nil))")
         return metadata
     }
-    // utility to format seconds into hh:mm:ss or mm:ss
-    private static func formatDuration(seconds: Double) -> String {
+    /// Fetches C2PA (Content Authenticity) metadata for a video item
+    /// This is done lazily when the user opens the metadata view
+    static func fetchC2PAMetadata(for url: URL) async -> C2PAMetadata? {
+        let fileName = url.lastPathComponent
+
+        // Skip if file doesn't exist
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print(" [fetchC2PAMetadata] ⏭️ Skipping - file doesn't exist: \(fileName)")
+            return nil
+        }
+
+        // Check if C2PA checking is enabled in settings
+        guard UserDefaults.standard.bool(forKey: AppConstants.c2paCheckEnabledKey) else {
+            print(" [fetchC2PAMetadata] ⏭️ C2PA checking disabled in settings")
+            return nil
+        }
+
+        // Check if ExifTool is available
+        guard ExifToolService.shared.isAvailable else {
+            print(" [fetchC2PAMetadata] ⏭️ ExifTool not available")
+            return nil
+        }
+
+        print(" [fetchC2PAMetadata] ⏱️ Checking C2PA for: \(fileName)")
+
+        do {
+            let c2paMetadata = try await ExifToolService.shared.getC2PAMetadata(for: url)
+            if c2paMetadata != nil {
+                print(" [fetchC2PAMetadata] ✅ Found C2PA metadata for: \(fileName)")
+            } else {
+                print(" [fetchC2PAMetadata] ℹ️ No C2PA metadata found for: \(fileName)")
+            }
+            return c2paMetadata
+        } catch {
+            print(" [fetchC2PAMetadata] ❌ Error fetching C2PA: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Utility to format seconds into hh:mm:ss or mm:ss
+    static func formatDuration(seconds: Double) -> String {
         let totalSeconds = Int(seconds)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
@@ -372,35 +390,32 @@ struct VideoFileUtils: Sendable {
     }
     
     /// Gets cached thumbnail or generates row thumbnail if needed (fast, no waveform)
-    static func getCachedThumbnail(url: URL) async -> Data? {
+    static func getCachedThumbnail(url: URL, generateRowThumbnailIfMissing: Bool = true) async -> Data? {
         let fileName = url.lastPathComponent
         do {
             // Get the asset directory where thumbnails are cached
             let assetDirectory = try await PreviewAssetGenerator.shared.getAssetDirectory(for: url)
-            print(" [getCachedThumbnail] Asset directory: \(assetDirectory.path)")
             
             // Try to load row thumbnail first (check both .png and legacy .jpg)
             let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.png")
             let legacyRowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.jpg")
             let rowURL = FileManager.default.fileExists(atPath: rowThumbnailURL.path) ? rowThumbnailURL :
                          (FileManager.default.fileExists(atPath: legacyRowThumbnailURL.path) ? legacyRowThumbnailURL : nil)
-            print(" [getCachedThumbnail] Row thumbnail exists: \(rowURL != nil)")
 
             if let rowURL = rowURL {
                 do {
                     let thumbnailData = try Data(contentsOf: rowURL)
-                    print(" [getCachedThumbnail] ✅ Loaded cached row thumbnail (\(thumbnailData.count) bytes) for: \(fileName)")
                     return thumbnailData
                 } catch {
-                    print(" [getCachedThumbnail] ❌ Failed to read row thumbnail: \(error.localizedDescription)")
+                    logger.debug("Failed to read row thumbnail for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
 
             // If row thumbnail doesn't exist, generate it now (fast, just the thumbnail)
-            print(" [getCachedThumbnail] 🔨 Generating row thumbnail on-demand for: \(fileName)")
-            if let thumbnailData = try? await PreviewAssetGenerator.shared.generateRowThumbnail(for: url) {
-                print(" [getCachedThumbnail] ✅ Generated row thumbnail (\(thumbnailData.count) bytes) for: \(fileName)")
-                return thumbnailData
+            if generateRowThumbnailIfMissing {
+                if let thumbnailData = try? await PreviewAssetGenerator.shared.generateRowThumbnail(for: url) {
+                    return thumbnailData
+                }
             }
 
             // Fallback to first filmstrip thumbnail if row thumbnail generation failed (check both .png and legacy .jpg)
@@ -408,22 +423,19 @@ struct VideoFileUtils: Sendable {
             let legacyFirstThumbnailURL = assetDirectory.appendingPathComponent("thumb_0.jpg")
             let filmstripURL = FileManager.default.fileExists(atPath: firstThumbnailURL.path) ? firstThumbnailURL :
                                (FileManager.default.fileExists(atPath: legacyFirstThumbnailURL.path) ? legacyFirstThumbnailURL : nil)
-            print(" [getCachedThumbnail] Filmstrip thumbnail exists: \(filmstripURL != nil)")
             
             if let filmstripURL = filmstripURL {
                 do {
                     let thumbnailData = try Data(contentsOf: filmstripURL)
-                    print(" [getCachedThumbnail] ✅ Loaded filmstrip thumbnail (\(thumbnailData.count) bytes) for: \(fileName)")
                     return thumbnailData
                 } catch {
-                    print(" [getCachedThumbnail] ❌ Failed to read filmstrip thumbnail: \(error.localizedDescription)")
+                    logger.debug("Failed to read filmstrip thumbnail for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
             
-            print(" [getCachedThumbnail] ⚠️ No thumbnails available for: \(fileName)")
             return nil
         } catch {
-            print(" [getCachedThumbnail] ❌ Error loading thumbnail for \(fileName): \(error.localizedDescription)")
+            logger.debug("Error loading thumbnail for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -563,6 +575,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var timecodeConfig: TimecodeConfig? = nil
     /// Stored output file size in bytes, set when conversion completes
     var outputFileSizeBytes: Int64? = nil
+    /// C2PA (Content Authenticity) metadata if present
+    var c2paMetadata: C2PAMetadata? = nil
     /// Whether audio should be muted (removed) in the output
     var isMuted: Bool = false
 
@@ -571,6 +585,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var isDownloading: Bool = false
     /// Download progress (0.0 to 1.0)
     var downloadProgress: Double = 0.0
+    /// Whether we've received any download progress from yt-dlp
+    var downloadHasProgress: Bool = false
     /// Current download speed (e.g., "5.2 MiB/s")
     var downloadSpeed: String? = nil
     /// Error message if download failed

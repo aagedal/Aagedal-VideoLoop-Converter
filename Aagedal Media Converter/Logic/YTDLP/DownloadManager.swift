@@ -115,6 +115,8 @@ class DownloadManager {
             item.isDownloading = true
             item.name = "Fetching info..."
             item.downloadProgress = 0
+            item.downloadHasProgress = false
+            item.downloadSpeed = nil
         }
 
         let setupElapsed = Date().timeIntervalSince(startTime)
@@ -166,6 +168,8 @@ class DownloadManager {
         item.isDownloading = true
         item.sourceURL = urlString
         item.downloadProgress = 0
+        item.downloadHasProgress = false
+        item.downloadSpeed = nil
 
         // Apply default automation settings
         item.autoEncodeAfterDownload = UserDefaults.standard.bool(forKey: AppConstants.autoEncodeAfterDownloadKey)
@@ -190,22 +194,6 @@ class DownloadManager {
         let downloadStartTime = Date()
         logger.info("[TIMING] performDownload started at \(downloadStartTime)")
 
-        // Start metadata fetch in parallel with download
-        // This allows the download to start immediately while we fetch metadata for display
-        let metadataTask = Task<YTDLPMetadata?, Never> {
-            do {
-                let metadataStartTime = Date()
-                logger.info("[TIMING] Fetching metadata in parallel for: \(urlString)")
-                let metadata = try await ytdlpService.fetchMetadata(url: urlString)
-                let metadataElapsed = Date().timeIntervalSince(metadataStartTime)
-                logger.info("[TIMING] Parallel metadata fetch completed in \(String(format: "%.2f", metadataElapsed))s")
-                return metadata
-            } catch {
-                logger.warning("[TIMING] Parallel metadata fetch failed: \(error.localizedDescription)")
-                return nil
-            }
-        }
-
         // Start the actual download immediately (don't wait for metadata)
         do {
             let actualDownloadStartTime = Date()
@@ -219,6 +207,7 @@ class DownloadManager {
                 Task { @MainActor in
                     self?.updateItem(itemID) { item in
                         item.downloadProgress = progress
+                        item.downloadHasProgress = true
                         item.downloadSpeed = speed
                         // Also update the main progress for the progress bar
                         item.progress = progress
@@ -232,22 +221,9 @@ class DownloadManager {
             logger.info("[TIMING] Download complete: \(result.outputURL.path)")
             logger.info("[TIMING] Actual download took \(String(format: "%.2f", downloadElapsed))s, total elapsed: \(String(format: "%.2f", totalElapsed))s")
 
-            // Get metadata result (should be done by now since download typically takes longer)
-            let ytdlpMetadata = await metadataTask.value
-            let videoTitle = ytdlpMetadata?.title ?? result.outputURL.deletingPathExtension().lastPathComponent
-
-            // Update item name with metadata if available
-            if let metadata = ytdlpMetadata {
-                updateItem(itemID) { item in
-                    if item.name == "Fetching info..." || item.name.hasPrefix("Downloading") {
-                        item.name = metadata.title
-                    }
-                    if let duration = metadata.duration {
-                        item.durationSeconds = duration
-                        item.duration = Self.formatDuration(duration)
-                    }
-                }
-            }
+            let videoTitle = result.title.isEmpty
+                ? result.outputURL.deletingPathExtension().lastPathComponent
+                : result.title
 
             // Save to download history
             DownloadHistoryService.addEntry(
@@ -303,7 +279,6 @@ class DownloadManager {
             }
 
         } catch let error as YTDLPError {
-            metadataTask.cancel()
             switch error {
             case .fileAlreadyExists(let path, let title):
                 logger.warning("File already exists: \(path)")
@@ -323,7 +298,6 @@ class DownloadManager {
                 }
             }
         } catch {
-            metadataTask.cancel()
             logger.error("Download failed: \(error.localizedDescription)")
 
             updateItem(itemID) { item in
@@ -366,6 +340,8 @@ class DownloadManager {
         updateItem(itemID) { item in
             item.isDownloading = true
             item.downloadProgress = 0
+            item.downloadHasProgress = false
+            item.downloadSpeed = nil
             item.downloadError = nil
             item.fileAlreadyExistsPath = nil
             item.status = .waiting
@@ -390,6 +366,8 @@ class DownloadManager {
         updateItem(itemID) { item in
             item.isDownloading = true
             item.downloadProgress = 0
+            item.downloadHasProgress = false
+            item.downloadSpeed = nil
             item.downloadError = nil
             item.fileAlreadyExistsPath = nil
             item.status = .waiting
@@ -404,22 +382,9 @@ class DownloadManager {
 
     /// Performs a forced download (overwrites existing files)
     private func performForceDownload(itemID: UUID, urlString: String, outputFolder: URL) async {
-        // Fetch metadata first
         do {
-            logger.info("Fetching metadata for force redownload: \(urlString)")
-            let metadata = try await ytdlpService.fetchMetadata(url: urlString)
-
-            // Update item with metadata
-            updateItem(itemID) { item in
-                item.name = metadata.title
-                if let duration = metadata.duration {
-                    item.durationSeconds = duration
-                    item.duration = Self.formatDuration(duration)
-                }
-            }
-
             // Start the actual download with force overwrite
-            logger.info("Starting forced download for: \(metadata.title)")
+            logger.info("Starting forced download for: \(urlString)")
 
             let result = try await ytdlpService.download(
                 url: urlString,
@@ -429,6 +394,7 @@ class DownloadManager {
                 Task { @MainActor in
                     self?.updateItem(itemID) { item in
                         item.downloadProgress = progress
+                        item.downloadHasProgress = true
                         item.downloadSpeed = speed
                         item.progress = progress
                     }
@@ -441,7 +407,9 @@ class DownloadManager {
             // Save to download history
             DownloadHistoryService.addEntry(
                 url: urlString,
-                title: metadata.title,
+                title: result.title.isEmpty
+                    ? result.outputURL.deletingPathExtension().lastPathComponent
+                    : result.title,
                 outputFileName: result.outputURL.lastPathComponent
             )
 

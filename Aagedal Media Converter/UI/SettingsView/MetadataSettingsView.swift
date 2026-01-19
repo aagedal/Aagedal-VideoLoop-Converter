@@ -733,7 +733,7 @@ struct MetadataSettingsView: View {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         panel.title = "Select ExifTool binary"
-        panel.message = "Select exiftool from /opt/homebrew/bin/ (Apple Silicon) or /usr/local/bin/ (Intel)"
+        panel.message = "Select exiftool from /opt/homebrew/bin/"
         panel.prompt = "Select"
         panel.allowedContentTypes = [.unixExecutable, .exe, .item]
         panel.treatsFilePackagesAsDirectories = true
@@ -742,8 +742,6 @@ struct MetadataSettingsView: View {
 
         if FileManager.default.fileExists(atPath: "/opt/homebrew/bin") {
             panel.directoryURL = URL(fileURLWithPath: "/opt/homebrew/bin")
-        } else if FileManager.default.fileExists(atPath: "/usr/local/bin") {
-            panel.directoryURL = URL(fileURLWithPath: "/usr/local/bin")
         }
 
         if panel.runModal() == .OK, let url = panel.url {

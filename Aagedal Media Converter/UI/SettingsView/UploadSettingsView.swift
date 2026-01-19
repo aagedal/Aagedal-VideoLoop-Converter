@@ -651,7 +651,7 @@ struct UploadSettingsView: View {
     // MARK: - Actions
 
     private func loadInitialState() async {
-        rcloneStatus = await RcloneUpdateService.shared.getInstallationStatus()
+        rcloneStatus = RcloneUpdateService.shared.getInstallationStatus()
         rcloneVersion = await RcloneUpdateService.shared.getCurrentVersion()
 
         // Check if password exists in Keychain (for password-based backends)
@@ -682,7 +682,7 @@ struct UploadSettingsView: View {
                     self.downloadProgress = progress
                 }
             }
-            rcloneStatus = await RcloneUpdateService.shared.getInstallationStatus()
+            rcloneStatus = RcloneUpdateService.shared.getInstallationStatus()
             rcloneVersion = await RcloneUpdateService.shared.getCurrentVersion()
         } catch {
             downloadError = error.localizedDescription

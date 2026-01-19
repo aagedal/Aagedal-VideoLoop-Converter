@@ -46,7 +46,6 @@ Temporary Items
 Packages/
 Package.pins
 Package.resolved
-*.xcodeproj
 
 # Fastlane
 fastlane/report.xml
@@ -57,10 +56,6 @@ fastlane/test_output
 # Local configuration files
 *.orig
 *.xcuserstate
-*.xcodeproj/*
-!*.xcodeproj/project.pbxproj
-!*.xcodeproj/xcshareddata/
-!*.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 
 # App specific
 *.log

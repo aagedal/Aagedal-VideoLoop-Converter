@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 
 struct YTDLPSettingsView: View {
     @State private var ytdlpVersion: String?
+    @State private var denoVersion: String?
     @State private var ffmpegVersion: String?
     @State private var ffprobeVersion: String?
     @State private var isCheckingVersions = false
@@ -18,6 +19,11 @@ struct YTDLPSettingsView: View {
     @State private var isDownloading = false
     @State private var downloadError: String?
 
+    @State private var denoStatus: DenoStatus = .checking
+    @State private var denoInstallationStatus: DenoInstallationStatus = .notInstalled
+    @State private var isDownloadingDeno = false
+    @State private var denoDownloadError: String?
+
     @AppStorage(AppConstants.autoEncodeAfterDownloadKey) private var autoEncodeAfterDownload = false
     @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
     @AppStorage(AppConstants.ytdlpCookiesBrowserKey) private var cookiesBrowser = ""
@@ -25,6 +31,7 @@ struct YTDLPSettingsView: View {
     var body: some View {
         Form {
             ytdlpSection
+            denoSection
             authenticationSection
             downloadAutomationSection
             ffmpegSection
@@ -40,6 +47,12 @@ struct YTDLPSettingsView: View {
     // MARK: - yt-dlp Status
 
     private enum YTDLPStatus {
+        case checking
+        case configured
+        case notAvailable
+    }
+
+    private enum DenoStatus {
         case checking
         case configured
         case notAvailable
@@ -190,6 +203,93 @@ struct YTDLPSettingsView: View {
         }
     }
 
+    private var denoSection: some View {
+        Section(header: Text("deno (JavaScript Runtime)")) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    switch denoStatus {
+                    case .checking:
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Checking...")
+                            .font(.headline)
+                            .foregroundColor(.secondary)
+                    case .configured:
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text(denoInstallationStatus.displayText)
+                            .font(.headline)
+                    case .notAvailable:
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("deno not installed")
+                            .font(.headline)
+                    }
+
+                    Spacer()
+
+                    if let version = denoVersion {
+                        Text("v\(version)")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+
+                    if isCheckingVersions {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    }
+                }
+
+                if !isDownloadingDeno {
+                    if denoStatus == .notAvailable {
+                        Button {
+                            downloadDeno()
+                        } label: {
+                            Label("Download deno", systemImage: "arrow.down.circle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        HStack {
+                            Button {
+                                downloadDeno()
+                            } label: {
+                                Label("Download deno", systemImage: "arrow.down.circle")
+                            }
+                            .help("Downloads a bundled copy and prefers it over the system runtime.")
+
+                            Button {
+                                checkAndUpdateDeno()
+                            } label: {
+                                Label("Check for Updates", systemImage: "arrow.clockwise")
+                            }
+                        }
+                    }
+                } else {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                        Text("Downloading...")
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if let error = denoDownloadError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+
+                Divider()
+
+                Text("deno provides the JavaScript runtime needed by yt-dlp to handle modern YouTube extraction challenges. It can be auto-downloaded on first use.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(8)
+        }
+    }
+
     // MARK: - Download Actions
 
     private func downloadYTDLP() {
@@ -238,6 +338,55 @@ struct YTDLPSettingsView: View {
             }
             await MainActor.run {
                 isDownloading = false
+            }
+        }
+    }
+
+    private func downloadDeno() {
+        isDownloadingDeno = true
+        denoDownloadError = nil
+        Task {
+            do {
+                try await YTDLPUpdateService.shared.downloadDenoUpdate()
+                await refreshVersions()
+            } catch {
+                await MainActor.run {
+                    denoDownloadError = error.localizedDescription
+                }
+            }
+            await MainActor.run {
+                isDownloadingDeno = false
+            }
+        }
+    }
+
+    private func checkAndUpdateDeno() {
+        isDownloadingDeno = true
+        denoDownloadError = nil
+        Task {
+            do {
+                let hasUpdate = await YTDLPUpdateService.shared.checkForDenoUpdates()
+                if hasUpdate {
+                    try await YTDLPUpdateService.shared.downloadDenoUpdate()
+                } else {
+                    await MainActor.run {
+                        denoDownloadError = "Already up to date"
+                    }
+                    try? await Task.sleep(for: .seconds(3))
+                    await MainActor.run {
+                        if denoDownloadError == "Already up to date" {
+                            denoDownloadError = nil
+                        }
+                    }
+                }
+                await refreshVersions()
+            } catch {
+                await MainActor.run {
+                    denoDownloadError = error.localizedDescription
+                }
+            }
+            await MainActor.run {
+                isDownloadingDeno = false
             }
         }
     }
@@ -497,7 +646,7 @@ struct YTDLPSettingsView: View {
 
         var message: String {
             switch self {
-            case .ytdlp: return "Select yt-dlp from /opt/homebrew/bin/ (Apple Silicon) or /usr/local/bin/ (Intel)"
+            case .ytdlp: return "Select yt-dlp from /opt/homebrew/bin/"
             case .ffmpeg: return "Select ffmpeg binary"
             case .ffprobe: return "Select ffprobe binary"
             }
@@ -507,8 +656,6 @@ struct YTDLPSettingsView: View {
             // For yt-dlp, prefer /opt/homebrew/bin where the symlink is
             if FileManager.default.fileExists(atPath: "/opt/homebrew/bin") {
                 return URL(fileURLWithPath: "/opt/homebrew/bin")
-            } else if FileManager.default.fileExists(atPath: "/usr/local/bin") {
-                return URL(fileURLWithPath: "/usr/local/bin")
             }
             return nil
         }
@@ -576,25 +723,32 @@ struct YTDLPSettingsView: View {
         await MainActor.run {
             isCheckingVersions = true
             ytdlpStatus = .checking
+            denoStatus = .checking
         }
 
         // Check yt-dlp status and installation status
         let resolvedPath = await YTDLPUpdateService.shared.resolveYTDLPPath()
         let status: YTDLPStatus = resolvedPath != nil ? .configured : .notAvailable
         let instStatus = await YTDLPUpdateService.shared.getInstallationStatus()
+        let denoInstStatus = await YTDLPUpdateService.shared.getDenoInstallationStatus()
+        let denoStatusValue: DenoStatus = denoInstStatus.isAvailable ? .configured : .notAvailable
 
         async let ytdlpVer = YTDLPUpdateService.shared.getCurrentVersion()
+        async let denoVer = YTDLPUpdateService.shared.getCurrentDenoVersion()
         async let ffmpegVer = BinaryPathResolver.getFFmpegVersion()
         async let ffprobeVer = BinaryPathResolver.getFFprobeVersion()
 
-        let (yt, ff, fp) = await (ytdlpVer, ffmpegVer, ffprobeVer)
+        let (yt, deno, ff, fp) = await (ytdlpVer, denoVer, ffmpegVer, ffprobeVer)
 
         await MainActor.run {
             ytdlpVersion = yt
+            denoVersion = deno
             ffmpegVersion = ff
             ffprobeVersion = fp
             ytdlpStatus = status
             installationStatus = instStatus
+            denoStatus = denoStatusValue
+            denoInstallationStatus = denoInstStatus
             isCheckingVersions = false
         }
     }
