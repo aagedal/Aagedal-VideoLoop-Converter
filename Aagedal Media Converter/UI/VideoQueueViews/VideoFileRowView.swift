@@ -97,25 +97,11 @@ struct VideoFileRowView: View {
     }
 
     private var subtitleHelpText: String {
-        let status = WhisperUpdateService.shared.getInstallationStatus()
-        guard status.isAvailable else {
-            return "Configure whisper.cpp in Settings > Subtitles"
-        }
-        let models = WhisperModelManager.shared.getDownloadedModels()
-        guard !models.isEmpty else {
-            return "Download a model in Settings > Subtitles"
-        }
         if file.subtitleEnabled {
             return "Subtitle generation enabled. SRT will be created after encoding. Option+click to generate SRT only (no encoding)."
         } else {
             return "Enable subtitle generation after encoding. Option+click to generate SRT only (no encoding)."
         }
-    }
-
-    private var isSubtitleAvailable: Bool {
-        let status = WhisperUpdateService.shared.getInstallationStatus()
-        guard status.isAvailable else { return false }
-        return !WhisperModelManager.shared.getDownloadedModels().isEmpty
     }
 
     @FocusState private var isCommentFieldFocused: Bool
@@ -276,9 +262,15 @@ struct VideoFileRowView: View {
 
                         // Progress bar (shown when converting, downloading, or uploading)
                         if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading {
-                            ProgressView(value: progressBarValue)
-                                .progressViewStyle(LinearProgressViewStyle())
-                                .tint(progressBarColor)
+                            if file.isDownloading && isDownloadPreparing {
+                                ProgressView()
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                    .tint(progressBarColor)
+                            } else {
+                                ProgressView(value: progressBarValue)
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                    .tint(progressBarColor)
+                            }
                         }
 
                         // Standard mode: duration and size line
@@ -355,7 +347,6 @@ struct VideoFileRowView: View {
                                 }
                                 .buttonStyle(.borderless)
                                 .foregroundColor(subtitleIconColor)
-                                .disabled(!isSubtitleAvailable)
                                 .help(subtitleHelpText)
 
                                 // Action buttons container with fixed width
@@ -478,12 +469,10 @@ struct VideoFileRowView: View {
             }
         }
         .task(id: file.thumbnailData) {
+            await Task.yield()
             // Decode thumbnail asynchronously off main thread
             guard let data = file.thumbnailData else {
-                // Defer state change to avoid modifying during view update
-                Task { @MainActor in
-                    cachedThumbnail = nil
-                }
+                await MainActor.run { cachedThumbnail = nil }
                 return
             }
 
@@ -500,10 +489,8 @@ struct VideoFileRowView: View {
                 return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             }.value
 
-            // Defer state change to avoid modifying during view update
-            Task { @MainActor in
-                cachedThumbnail = image
-            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run { cachedThumbnail = image }
         }
         .onAppear {
             // Initialize local comment from file
@@ -511,13 +498,15 @@ struct VideoFileRowView: View {
         }
         .onChange(of: file.comment) { _, newComment in
             // Sync local comment when file comment changes externally
-            if !isCommentFieldFocused {
+            // Guard against cycle: only sync if values differ
+            if !isCommentFieldFocused && localComment != newComment {
                 localComment = newComment
             }
         }
         .onChange(of: localComment) { _, newValue in
             // Sync local comment back to file when changed (only if not being deleted)
-            if !isBeingDeleted && isCommentFieldFocused && file.status == .waiting {
+            // Guard against cycle: only sync if values differ
+            if !isBeingDeleted && isCommentFieldFocused && file.status == .waiting && file.comment != newValue {
                 file.comment = newValue
             }
         }
@@ -894,7 +883,6 @@ struct VideoFileRowView: View {
             }
             .buttonStyle(.borderless)
             .foregroundColor(subtitleIconColor)
-            .disabled(!isSubtitleAvailable)
             .help(subtitleHelpText)
         }
     }
@@ -1154,6 +1142,9 @@ struct VideoFileRowView: View {
     private var progressText: String {
         // Handle download states first
         if file.isDownloading {
+            if isDownloadPreparing {
+                return "Preparing for download..."
+            }
             if let speed = file.downloadSpeed {
                 return "Downloading... \(speed)"
             } else {
@@ -1215,6 +1206,10 @@ struct VideoFileRowView: View {
         case .failed: return .red
         default: return .gray
         }
+    }
+
+    private var isDownloadPreparing: Bool {
+        file.isDownloading && !file.downloadHasProgress
     }
 
     /// Progress bar value (0.0 to 1.0) based on current state

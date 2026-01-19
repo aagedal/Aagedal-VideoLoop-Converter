@@ -138,7 +138,7 @@ class UploadManager {
                 }
             }
 
-            await MainActor.run {
+            _ = await MainActor.run {
                 self.uploadTasks.removeValue(forKey: itemID)
             }
         }

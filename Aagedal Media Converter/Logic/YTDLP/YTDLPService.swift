@@ -43,6 +43,8 @@ actor YTDLPService {
         let pathResolveElapsed = Date().timeIntervalSince(pathResolveStart)
         logger.info("[TIMING] yt-dlp path resolved in \(String(format: "%.3f", pathResolveElapsed))s: \(ytdlpPath)")
 
+        let denoPath = await updateService.ensureDenoInstalled()
+
         // Run process handling on a background thread to avoid blocking async context
         let processStartTime = Date()
         let result: (data: Data, error: String?, exitCode: Int32) = try await withCheckedThrowingContinuation { continuation in
@@ -55,6 +57,9 @@ actor YTDLPService {
                 // Note: --ignore-config prevents yt-dlp from reading user config files
                 // Note: --remote-components ejs:github is required for YouTube JS challenge solving
                 var arguments = ["--ignore-config", "--remote-components", "ejs:github"]
+                if let denoPath {
+                    arguments.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
+                }
 
                 // Add browser cookies if configured
                 let cookiesBrowser = UserDefaults.standard.string(forKey: AppConstants.ytdlpCookiesBrowserKey) ?? ""
@@ -179,6 +184,9 @@ actor YTDLPService {
         // Note: --ignore-config prevents yt-dlp from reading user config files
         // Note: --remote-components ejs:github is required for YouTube JS challenge solving
         var args: [String] = ["--ignore-config", "--remote-components", "ejs:github"]
+        if let denoPath = await updateService.ensureDenoInstalled() {
+            args.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
+        }
 
         // Add ffmpeg location if available
         let ffmpegResolveStart = Date()

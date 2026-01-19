@@ -1,0 +1,2636 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		17B524B2559B24713433EF64 /* RcloneUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 727051829930996EE4E50306 /* RcloneUpdateService.swift */; };
+		181720894631C3060AB2A6ED /* UploadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5443D834E6673C963291692B /* UploadManager.swift */; };
+		368E10B8236C2A48DA4BACC1 /* WhisperService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AE24C0F6CCD5518CB708EE9 /* WhisperService.swift */; };
+		45F2F0A1BD22030D423B87CA /* ExifToolUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3DCCC8792264565FC0C4AF4 /* ExifToolUpdateService.swift */; };
+		4A82CAA45E362E122405B09C /* WhisperModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A661B3187048E83E24FB0AB /* WhisperModels.swift */; };
+		515A407918750E4E62409DA5 /* BinaryPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */; };
+		59050FF1288247E2E02A60CA /* UploadModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BBC06DAF3F395A5C54B3064 /* UploadModels.swift */; };
+		6400227984B060FA08D0B79C /* WhisperUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F741F78E5BA1732D892656E /* WhisperUpdateService.swift */; };
+		69E06BBF03A135EC5011AF14 /* RcloneProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */; };
+		6FEB07F32A610D999000F78C /* mxf2raw in Resources */ = {isa = PBXBuildFile; fileRef = D8EBD41EE1711E209C16F57C /* mxf2raw */; };
+		76BD664F0B33ABE9B21F4135 /* ExifToolService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 795A68DEA8807C90745338E2 /* ExifToolService.swift */; };
+		7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */; };
+		8567742F36A93E24233F8006 /* YTDLPProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */; };
+		8D704F6D27B209AE39BB2423 /* UploadSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A560B1F81955A156AB0F1D /* UploadSettingsView.swift */; };
+		8E04BE122ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */; };
+		8E04BE152ED329FA005AD3D8 /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */; };
+		8E04BE1B2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */; };
+		8E08B2822EAA2871000148A8 /* WatchFolderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E08B2812EAA2871000148A8 /* WatchFolderManager.swift */; };
+		8E08B2842EAA3BFD000148A8 /* WatchFolderDurationUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E08B2832EAA3BFD000148A8 /* WatchFolderDurationUnit.swift */; };
+		8E09F7422EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E09F7412EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift */; };
+		8E09F7442EC762C200E129CD /* AudioWaveformPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E09F7432EC762C200E129CD /* AudioWaveformPreferences.swift */; };
+		8E0C32CB2E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */; };
+		8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */; };
+		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
+		8E1477472ECF453900C805AA /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477462ECF453900C805AA /* UpdateChecker.swift */; };
+		8E1477492ECF4DAB00C805AA /* UpdateNotificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */; };
+		8E14774B2ECF6BDE00C805AA /* UpdateSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */; };
+		8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */; };
+		8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */; };
+		8E2C6BBF2E084BC200A9379F /* SecurityScopedBookmarkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */; };
+		8E37A8C2E5334343AD98BD43 /* ShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E13CD4050F24D1788FD6C8C /* ShortcutsSettingsView.swift */; };
+		8E4DF26D2ECBACFC007B6277 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */; };
+		8E4DF26F2ECBAD35007B6277 /* PresetSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF26E2ECBAD30007B6277 /* PresetSettingsView.swift */; };
+		8E4DF2712ECBAD4B007B6277 /* WaveformSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2702ECBAD46007B6277 /* WaveformSettingsView.swift */; };
+		8E4DF2732ECBBE38007B6277 /* WatchFolderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2722ECBBE38007B6277 /* WatchFolderSettingsView.swift */; };
+		8E4DF2752ECBD3F2007B6277 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */; };
+		8E501CFD2EF1807000717373 /* done.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 8E0CA7A32C34160C00EA7C37 /* done.mp3 */; };
+		8E501CFE2EF1807000717373 /* error.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 8E0CA7A42C34160C00EA7C37 /* error.mp3 */; };
+		8E501D042EF2002000717373 /* FullscreenPlayerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E501D012EF2002000717373 /* FullscreenPlayerWindowController.swift */; };
+		8E501D052EF2002000717373 /* FullscreenPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E501D002EF2002000717373 /* FullscreenPlayerView.swift */; };
+		8E545D832C33FD4A0088C274 /* DragAndDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D822C33FD4A0088C274 /* DragAndDropView.swift */; };
+		8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D842C33FD610088C274 /* DocumentPickerView.swift */; };
+		8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */; };
+		8E545D892C34030C0088C274 /* VideoFileListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D882C34030C0088C274 /* VideoFileListView.swift */; };
+		8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */; };
+		8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D932C3412AE0088C274 /* ConversionManager.swift */; };
+		8E824ABA2EF8A9E1001A6B95 /* MPVKit-GPL in Frameworks */ = {isa = PBXBuildFile; productRef = 8E824AB92EF8A9E1001A6B95 /* MPVKit-GPL */; };
+		8E824ABF2EF8AB02001A6B95 /* MPVProperty.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E824ABD2EF8AB02001A6B95 /* MPVProperty.swift */; };
+		8E824AC02EF8AB02001A6B95 /* MPVMetalLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E824ABB2EF8AB02001A6B95 /* MPVMetalLayer.swift */; };
+		8E824AC12EF8AB02001A6B95 /* MPVPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E824ABC2EF8AB02001A6B95 /* MPVPlayer.swift */; };
+		8E824AC32EF8AB2C001A6B95 /* MPVVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E824AC22EF8AB2C001A6B95 /* MPVVideoView.swift */; };
+		8E824AC52EF8AB46001A6B95 /* FullscreenMPVView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E824AC42EF8AB46001A6B95 /* FullscreenMPVView.swift */; };
+		8E903F5F2E05642D0075E05C /* FileNameProcessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E903F5E2E05642D0075E05C /* FileNameProcessor.swift */; };
+		8E9B52552ED65156006E6A10 /* AudioRoutingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52542ED65156006E6A10 /* AudioRoutingModels.swift */; };
+		8E9B52572ED6516C006E6A10 /* AudioRoutingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */; };
+		8E9B52592ED65199006E6A10 /* AudioRoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */; };
+		8E9DBF1F2EE4781B00F352A1 /* TimecodeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */; };
+		8EBD10212EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */; };
+		8EBD10222EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD10202EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift */; };
+		8EBD10242EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */; };
+		8EC017D3E3FDF66B8DE02E57 /* BMXService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED542D049B53B34DBA25323 /* BMXService.swift */; };
+		8EC3DCDD2EF57F0600CD75BC /* RandomTips.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */; };
+		8EC9A6F12EC146C00082C67F /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EFBDA932EA58975005ADDCF /* AboutView.swift */; };
+		8EC9A6F72EC149010082C67F /* PreviewTrimControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A6F62EC149010082C67F /* PreviewTrimControls.swift */; };
+		8EC9A6F82EC149010082C67F /* PreviewPlayerFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A6F52EC149010082C67F /* PreviewPlayerFooter.swift */; };
+		8EC9A6FE2EC149140082C67F /* PreviewPlayerController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A6FC2EC149140082C67F /* PreviewPlayerController.swift */; };
+		8EC9A7012EC14CE90082C67F /* PreviewPlayerHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A6FF2EC14CE90082C67F /* PreviewPlayerHelpers.swift */; };
+		8EC9A7032EC14D590082C67F /* PreviewPlayerContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A7022EC14D590082C67F /* PreviewPlayerContent.swift */; };
+		8EC9A7072EC156EA0082C67F /* PreviewPlayerController_Screenshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A7062EC156EA0082C67F /* PreviewPlayerController_Screenshot.swift */; };
+		8EC9A7082EC156EA0082C67F /* PreviewPlayerController_Observers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A7052EC156EA0082C67F /* PreviewPlayerController_Observers.swift */; };
+		8ECEBC162ED766B500F1F67C /* CropModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC152ED766B500F1F67C /* CropModels.swift */; };
+		8ECEBC182ED766D200F1F67C /* CropService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC172ED766D200F1F67C /* CropService.swift */; };
+		8ECEBC1B2ED766F400F1F67C /* CropControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC192ED766F400F1F67C /* CropControlsView.swift */; };
+		8ECEBC1C2ED766F400F1F67C /* CropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */; };
+		8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */; };
+		8ECEBC202ED8782800F1F67C /* MetadataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */; };
+		8EE0BB9C2E0892B70096171D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9B2E0892B70096171D /* SettingsView.swift */; };
+		8EE0BB9E2E089F520096171D /* DockProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9D2E089F520096171D /* DockProgressView.swift */; };
+		8EE6EE9A2C31FC6B007B629D /* Aagedal_Media_Converter_App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE992C31FC6B007B629D /* Aagedal_Media_Converter_App.swift */; };
+		8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9B2C31FC6B007B629D /* ContentView.swift */; };
+		8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */; };
+		8EEE45182EBEA9F00049F017 /* PreviewPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE45172EBEA9F00049F017 /* PreviewPlayerView.swift */; };
+		8EEE451A2EBEBCB20049F017 /* RangeSlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE45192EBEBCB20049F017 /* RangeSlider.swift */; };
+		8EEE451C2EBF4BFD0049F017 /* PreviewAssetGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE451B2EBF4BFD0049F017 /* PreviewAssetGenerator.swift */; };
+		8EEE451E2EBF53550049F017 /* TrimTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE451D2EBF53550049F017 /* TrimTimelineView.swift */; };
+		8EEE45202EBF81FD0049F017 /* VideoMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE451F2EBF81FD0049F017 /* VideoMetadataService.swift */; };
+		8EEE45222EBF84420049F017 /* VideoMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE45212EBF84420049F017 /* VideoMetadataView.swift */; };
+		8EEE45232EBF84430049F017 /* MetadataComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE45242EBF84430049F017 /* MetadataComparisonView.swift */; };
+		8EEE452B2EC139000049F017 /* ExportPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452A2EC138FA0049F017 /* ExportPreset.swift */; };
+		8EEE452D2EC1390F0049F017 /* FFMPEGCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */; };
+		8EEE452F2EC139190049F017 /* FFMPEGProbeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452E2EC139120049F017 /* FFMPEGProbeService.swift */; };
+		8EEE45312EC139270049F017 /* FFMPEGProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE45302EC1391C0049F017 /* FFMPEGProgressParser.swift */; };
+		8EEE453B2EC13E8C0049F017 /* ConversionToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE453A2EC13E840049F017 /* ConversionToolbarView.swift */; };
+		8EEE453D2EC13E960049F017 /* OverallProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE453C2EC13E8F0049F017 /* OverallProgressView.swift */; };
+		8EEE453F2EC13EA00049F017 /* WatchFolderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE453E2EC13E9E0049F017 /* WatchFolderCoordinator.swift */; };
+		8EFBDA912EA56F8E005ADDCF /* ffprobe in Resources */ = {isa = PBXBuildFile; fileRef = 8EFBDA902EA56F8E005ADDCF /* ffprobe */; };
+		8EFBDA922EA56F8E005ADDCF /* ffmpeg in Resources */ = {isa = PBXBuildFile; fileRef = 8EFBDA8F2EA56F8E005ADDCF /* ffmpeg */; };
+		9CB662C7C4CE637DA85D46A2 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2285544DA98D92593F5F73 /* DownloadManager.swift */; };
+		A14336D5FE72B1741AE6C2E2 /* RcloneService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B40739097F270F27C5045E /* RcloneService.swift */; };
+		A7FDCC612BAD184830F774E4 /* WhisperSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */; };
+		B709DBE54F69E12A7484E1CE /* YTDLPSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */; };
+		BC6905B16FDDC57467098ECF /* KeychainCredentialManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */; };
+		CCF14EFA815D8DCCB62749E1 /* YTDLPUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */; };
+		DLHIST001SERV00000001 /* DownloadHistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DLHIST001SERV00000002 /* DownloadHistoryService.swift */; };
+		E22C3CB47572F41BA23EAF92 /* bmxtranswrap in Resources */ = {isa = PBXBuildFile; fileRef = 8488177BC5403EC6637A5C25 /* bmxtranswrap */; };
+		E69050ED114BBF6B493BE257 /* URLInputOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */; };
+		F88CB64509DD67D585EB71E6 /* WhisperModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */; };
+		FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B862E87364609527CEEC84 /* YTDLPService.swift */; };
+		FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPCRD00000002 /* FileImportCoordinator.swift */; };
+		FILEIMPMGR00000001 /* FileImportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPMGR00000002 /* FileImportManager.swift */; };
+		PRESET01MGR000000001 /* PresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PRESET01MGR000000002 /* PresetManager.swift */; };
+		SCHEDDL01SERV00000001 /* ScheduledDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */; };
+		VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = VIDITEMIDX00000002 /* VideoItemIndex.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8EE6EEAA2C31FC6F007B629D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8EE6EE8E2C31FC6B007B629D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8EE6EE952C31FC6B007B629D;
+			remoteInfo = "Aagedal VideoLoop Converter";
+		};
+		8EE6EEB42C31FC6F007B629D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8EE6EE8E2C31FC6B007B629D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8EE6EE952C31FC6B007B629D;
+			remoteInfo = "Aagedal VideoLoop Converter";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		608E2E35809FD3AAA29E3747 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8E1477562ECF959E00C805AA /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = YTDLPSettingsView.swift; sourceTree = "<group>"; };
+		0A661B3187048E83E24FB0AB /* WhisperModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModels.swift; sourceTree = "<group>"; };
+		0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BinaryPathResolver.swift; sourceTree = "<group>"; };
+		1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPProgressParser.swift; path = YTDLP/YTDLPProgressParser.swift; sourceTree = "<group>"; };
+		38A560B1F81955A156AB0F1D /* UploadSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UploadSettingsView.swift; path = "Aagedal Media Converter/UI/SettingsView/UploadSettingsView.swift"; sourceTree = "<group>"; };
+		45B40739097F270F27C5045E /* RcloneService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneService.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneService.swift"; sourceTree = "<group>"; };
+		4BBC06DAF3F395A5C54B3064 /* UploadModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UploadModels.swift; path = "Aagedal Media Converter/Logic/Upload/UploadModels.swift"; sourceTree = "<group>"; };
+		4F741F78E5BA1732D892656E /* WhisperUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperUpdateService.swift; sourceTree = "<group>"; };
+		5443D834E6673C963291692B /* UploadManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UploadManager.swift; path = "Aagedal Media Converter/Logic/Upload/UploadManager.swift"; sourceTree = "<group>"; };
+		5E2285544DA98D92593F5F73 /* DownloadManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DownloadManager.swift; path = YTDLP/DownloadManager.swift; sourceTree = "<group>"; };
+		66B862E87364609527CEEC84 /* YTDLPService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPService.swift; path = YTDLP/YTDLPService.swift; sourceTree = "<group>"; };
+		6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperSettingsView.swift; sourceTree = "<group>"; };
+		727051829930996EE4E50306 /* RcloneUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneUpdateService.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneUpdateService.swift"; sourceTree = "<group>"; };
+		795A68DEA8807C90745338E2 /* ExifToolService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExifToolService.swift; sourceTree = "<group>"; };
+		7AE24C0F6CCD5518CB708EE9 /* WhisperService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperService.swift; sourceTree = "<group>"; };
+		8488177BC5403EC6637A5C25 /* bmxtranswrap */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = bmxtranswrap; sourceTree = "<group>"; };
+		8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSpeedIndicator.swift; sourceTree = "<group>"; };
+		8E04BE132ED274D7005AD3D8 /* Aagedal-Media-Converter-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Aagedal-Media-Converter-Info.plist"; sourceTree = SOURCE_ROOT; };
+		8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
+		8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalAudioMeterService.swift; sourceTree = "<group>"; };
+		8E08B27E2EAA284A000148A8 /* WATCH_FOLDER_FEATURE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = WATCH_FOLDER_FEATURE.md; sourceTree = "<group>"; };
+		8E08B2812EAA2871000148A8 /* WatchFolderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderManager.swift; sourceTree = "<group>"; };
+		8E08B2832EAA3BFD000148A8 /* WatchFolderDurationUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderDurationUnit.swift; sourceTree = "<group>"; };
+		8E09F7412EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewCacheCleanupPolicy.swift; sourceTree = "<group>"; };
+		8E09F7432EC762C200E129CD /* AudioWaveformPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioWaveformPreferences.swift; sourceTree = "<group>"; };
+		8E0C32C72E09E58F00F22B21 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
+		8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToEncodeQueueIntent.swift; sourceTree = "<group>"; };
+		8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvertImmediatelyIntent.swift; sourceTree = "<group>"; };
+		8E0C32CE2E09F5E400F22B21 /* ffmpeg-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ffmpeg-LICENSE.txt"; sourceTree = "<group>"; };
+		8E0C32D12E09FDDC00F22B21 /* Aagedal Media Converter Debug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Aagedal Media Converter Debug.entitlements"; sourceTree = "<group>"; };
+		8E0CA7A32C34160C00EA7C37 /* done.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = done.mp3; sourceTree = "<group>"; };
+		8E0CA7A42C34160C00EA7C37 /* error.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = error.mp3; sourceTree = "<group>"; };
+		8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsingUtils.swift; sourceTree = "<group>"; };
+		8E13CD4050F24D1788FD6C8C /* ShortcutsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsView.swift; sourceTree = "<group>"; };
+		8E1477462ECF453900C805AA /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
+		8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateNotificationView.swift; sourceTree = "<group>"; };
+		8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSettingsView.swift; sourceTree = "<group>"; };
+		8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
+		8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileRowView.swift; sourceTree = "<group>"; };
+		8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopedBookmarkManager.swift; sourceTree = "<group>"; };
+		8E2CA2A52E09AA03008D93F1 /* readme.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = readme.md; sourceTree = "<group>"; };
+		8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
+		8E4DF26E2ECBAD30007B6277 /* PresetSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetSettingsView.swift; sourceTree = "<group>"; };
+		8E4DF2702ECBAD46007B6277 /* WaveformSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformSettingsView.swift; sourceTree = "<group>"; };
+		8E4DF2722ECBBE38007B6277 /* WatchFolderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderSettingsView.swift; sourceTree = "<group>"; };
+		8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
+		8E501D002EF2002000717373 /* FullscreenPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullscreenPlayerView.swift; sourceTree = "<group>"; };
+		8E501D012EF2002000717373 /* FullscreenPlayerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullscreenPlayerWindowController.swift; sourceTree = "<group>"; };
+		8E545D822C33FD4A0088C274 /* DragAndDropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragAndDropView.swift; sourceTree = "<group>"; };
+		8E545D842C33FD610088C274 /* DocumentPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPickerView.swift; sourceTree = "<group>"; };
+		8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFilesUtil.swift; sourceTree = "<group>"; };
+		8E545D882C34030C0088C274 /* VideoFileListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileListView.swift; sourceTree = "<group>"; };
+		8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGConverter.swift; sourceTree = "<group>"; };
+		8E545D932C3412AE0088C274 /* ConversionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionManager.swift; sourceTree = "<group>"; };
+		8E824ABB2EF8AB02001A6B95 /* MPVMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVMetalLayer.swift; sourceTree = "<group>"; };
+		8E824ABC2EF8AB02001A6B95 /* MPVPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayer.swift; sourceTree = "<group>"; };
+		8E824ABD2EF8AB02001A6B95 /* MPVProperty.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVProperty.swift; sourceTree = "<group>"; };
+		8E824AC22EF8AB2C001A6B95 /* MPVVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVVideoView.swift; sourceTree = "<group>"; };
+		8E824AC42EF8AB46001A6B95 /* FullscreenMPVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullscreenMPVView.swift; sourceTree = "<group>"; };
+		8E903F5E2E05642D0075E05C /* FileNameProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameProcessor.swift; sourceTree = "<group>"; };
+		8E9B52542ED65156006E6A10 /* AudioRoutingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingModels.swift; sourceTree = "<group>"; };
+		8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingView.swift; sourceTree = "<group>"; };
+		8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingService.swift; sourceTree = "<group>"; };
+		8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeFormatter.swift; sourceTree = "<group>"; };
+		8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_UITests.swift; sourceTree = "<group>"; };
+		8EBD10202EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_UITestsLaunchTests.swift; sourceTree = "<group>"; };
+		8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_Tests.swift; sourceTree = "<group>"; };
+		8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RandomTips.swift; sourceTree = "<group>"; };
+		8EC9A6F52EC149010082C67F /* PreviewPlayerFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerFooter.swift; sourceTree = "<group>"; };
+		8EC9A6F62EC149010082C67F /* PreviewTrimControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewTrimControls.swift; sourceTree = "<group>"; };
+		8EC9A6FC2EC149140082C67F /* PreviewPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerController.swift; sourceTree = "<group>"; };
+		8EC9A6FF2EC14CE90082C67F /* PreviewPlayerHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerHelpers.swift; sourceTree = "<group>"; };
+		8EC9A7022EC14D590082C67F /* PreviewPlayerContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerContent.swift; sourceTree = "<group>"; };
+		8EC9A7052EC156EA0082C67F /* PreviewPlayerController_Observers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerController_Observers.swift; sourceTree = "<group>"; };
+		8EC9A7062EC156EA0082C67F /* PreviewPlayerController_Screenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerController_Screenshot.swift; sourceTree = "<group>"; };
+		8ECEBC152ED766B500F1F67C /* CropModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropModels.swift; sourceTree = "<group>"; };
+		8ECEBC172ED766D200F1F67C /* CropService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropService.swift; sourceTree = "<group>"; };
+		8ECEBC192ED766F400F1F67C /* CropControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropControlsView.swift; sourceTree = "<group>"; };
+		8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropOverlayView.swift; sourceTree = "<group>"; };
+		8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeView.swift; sourceTree = "<group>"; };
+		8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataSettingsView.swift; sourceTree = "<group>"; };
+		8EE0BB9B2E0892B70096171D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		8EE0BB9D2E089F520096171D /* DockProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockProgressView.swift; sourceTree = "<group>"; };
+		8EE0BBBB2E0980560096171D /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		8EE6EE962C31FC6B007B629D /* Aagedal Media Converter.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Aagedal Media Converter.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8EE6EE992C31FC6B007B629D /* Aagedal_Media_Converter_App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_App.swift; sourceTree = "<group>"; };
+		8EE6EE9B2C31FC6B007B629D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8EE6EEA22C31FC6F007B629D /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		8EE6EEA92C31FC6F007B629D /* Aagedal Media ConverterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Aagedal Media ConverterTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8EE6EEB32C31FC6F007B629D /* Aagedal Media ConverterUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Aagedal Media ConverterUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8EEE45172EBEA9F00049F017 /* PreviewPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerView.swift; sourceTree = "<group>"; };
+		8EEE45192EBEBCB20049F017 /* RangeSlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangeSlider.swift; sourceTree = "<group>"; };
+		8EEE451B2EBF4BFD0049F017 /* PreviewAssetGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewAssetGenerator.swift; sourceTree = "<group>"; };
+		8EEE451D2EBF53550049F017 /* TrimTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrimTimelineView.swift; sourceTree = "<group>"; };
+		8EEE451F2EBF81FD0049F017 /* VideoMetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataService.swift; sourceTree = "<group>"; };
+		8EEE45212EBF84420049F017 /* VideoMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataView.swift; sourceTree = "<group>"; };
+		8EEE45242EBF84430049F017 /* MetadataComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataComparisonView.swift; sourceTree = "<group>"; };
+		8EEE452A2EC138FA0049F017 /* ExportPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPreset.swift; sourceTree = "<group>"; };
+		8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGCommandBuilder.swift; sourceTree = "<group>"; };
+		8EEE452E2EC139120049F017 /* FFMPEGProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGProbeService.swift; sourceTree = "<group>"; };
+		8EEE45302EC1391C0049F017 /* FFMPEGProgressParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGProgressParser.swift; sourceTree = "<group>"; };
+		8EEE453A2EC13E840049F017 /* ConversionToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionToolbarView.swift; sourceTree = "<group>"; };
+		8EEE453C2EC13E8F0049F017 /* OverallProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverallProgressView.swift; sourceTree = "<group>"; };
+		8EEE453E2EC13E9E0049F017 /* WatchFolderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderCoordinator.swift; sourceTree = "<group>"; };
+		8EF6370F2E086024001F2A90 /* Aagedal_Media_Converter.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Aagedal_Media_Converter.entitlements; sourceTree = "<group>"; };
+		8EFBDA8F2EA56F8E005ADDCF /* ffmpeg */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffmpeg; sourceTree = "<group>"; };
+		8EFBDA902EA56F8E005ADDCF /* ffprobe */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffprobe; sourceTree = "<group>"; };
+		8EFBDA932EA58975005ADDCF /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelManager.swift; sourceTree = "<group>"; };
+		ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = URLInputOverlay.swift; sourceTree = "<group>"; };
+		BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneProgressParser.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneProgressParser.swift"; sourceTree = "<group>"; };
+		D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KeychainCredentialManager.swift; path = "Aagedal Media Converter/Utils/KeychainCredentialManager.swift"; sourceTree = "<group>"; };
+		D8EBD41EE1711E209C16F57C /* mxf2raw */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = mxf2raw; sourceTree = "<group>"; };
+		DED542D049B53B34DBA25323 /* BMXService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BMXService.swift; sourceTree = "<group>"; };
+		DLHIST001SERV00000002 /* DownloadHistoryService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DownloadHistoryService.swift; path = YTDLP/DownloadHistoryService.swift; sourceTree = "<group>"; };
+		F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafetyUtils.swift; sourceTree = "<group>"; };
+		F3DCCC8792264565FC0C4AF4 /* ExifToolUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExifToolUpdateService.swift; sourceTree = "<group>"; };
+		FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPUpdateService.swift; path = YTDLP/YTDLPUpdateService.swift; sourceTree = "<group>"; };
+		FILEIMPCRD00000002 /* FileImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportCoordinator.swift; sourceTree = "<group>"; };
+		FILEIMPMGR00000002 /* FileImportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportManager.swift; sourceTree = "<group>"; };
+		PRESET01MGR000000002 /* PresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManager.swift; sourceTree = "<group>"; };
+		SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScheduledDownloadService.swift; path = YTDLP/ScheduledDownloadService.swift; sourceTree = "<group>"; };
+		VIDITEMIDX00000002 /* VideoItemIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoItemIndex.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8EE6EE932C31FC6B007B629D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8E824ABA2EF8A9E1001A6B95 /* MPVKit-GPL in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEA62C31FC6F007B629D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEB02C31FC6F007B629D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2B48C187D7A738BE42B8084A /* YTDLP */ = {
+			isa = PBXGroup;
+			children = (
+				DLHIST001SERV00000002 /* DownloadHistoryService.swift */,
+				5E2285544DA98D92593F5F73 /* DownloadManager.swift */,
+				SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */,
+				1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */,
+				66B862E87364609527CEEC84 /* YTDLPService.swift */,
+				FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */,
+			);
+			name = YTDLP;
+			sourceTree = "<group>";
+		};
+		2E8ED3F06E74CC10398BD3EB /* Metadata */ = {
+			isa = PBXGroup;
+			children = (
+				F3DCCC8792264565FC0C4AF4 /* ExifToolUpdateService.swift */,
+				795A68DEA8807C90745338E2 /* ExifToolService.swift */,
+			);
+			path = Metadata;
+			sourceTree = "<group>";
+		};
+		315DA4AB80009A356AD28221 /* Logic */ = {
+			isa = PBXGroup;
+			children = (
+				E5BC3FF570A3D2736C14E3C5 /* Upload */,
+			);
+			name = Logic;
+			sourceTree = "<group>";
+		};
+		506494D947BFD538DBD9DE52 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				FFA11E3BE380ADDD5426A11E /* SettingsView */,
+			);
+			name = UI;
+			sourceTree = "<group>";
+		};
+		8E08B27F2EAA284A000148A8 /* Documentation */ = {
+			isa = PBXGroup;
+			children = (
+				8E08B27E2EAA284A000148A8 /* WATCH_FOLDER_FEATURE.md */,
+			);
+			path = Documentation;
+			sourceTree = "<group>";
+		};
+		8E0C32CA2E09EC3B00F22B21 /* AppIntents */ = {
+			isa = PBXGroup;
+			children = (
+				8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */,
+				8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */,
+			);
+			path = AppIntents;
+			sourceTree = "<group>";
+		};
+		8E0C32D02E09FC5100F22B21 /* Licenses */ = {
+			isa = PBXGroup;
+			children = (
+				8E0C32CE2E09F5E400F22B21 /* ffmpeg-LICENSE.txt */,
+			);
+			path = Licenses;
+			sourceTree = "<group>";
+		};
+		8E0CA7A62C3416BD00EA7C37 /* Binaries */ = {
+			isa = PBXGroup;
+			children = (
+				8EFBDA8F2EA56F8E005ADDCF /* ffmpeg */,
+				8EFBDA902EA56F8E005ADDCF /* ffprobe */,
+				8488177BC5403EC6637A5C25 /* bmxtranswrap */,
+				D8EBD41EE1711E209C16F57C /* mxf2raw */,
+			);
+			path = Binaries;
+			sourceTree = "<group>";
+		};
+		8E0CA7A72C3416C800EA7C37 /* Sounds */ = {
+			isa = PBXGroup;
+			children = (
+				8E0CA7A32C34160C00EA7C37 /* done.mp3 */,
+				8E0CA7A42C34160C00EA7C37 /* error.mp3 */,
+			);
+			path = Sounds;
+			sourceTree = "<group>";
+		};
+		8E0CA7A82C3416EF00EA7C37 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				8EEE45392EC13E7C0049F017 /* Conversion */,
+				8EEE45372EC13AFA0049F017 /* VideoQueueViews */,
+				8EEE45362EC13AE90049F017 /* SettingsView */,
+				8EEE45352EC13ADA0049F017 /* MetadataView */,
+				8EEE45342EC13AB40049F017 /* AssistiveViews */,
+				8EEE45332EC13A830049F017 /* TrimPlayerViews */,
+				8EE6EE9B2C31FC6B007B629D /* ContentView.swift */,
+				8EC9A7002EC14CE90082C67F /* Components */,
+				8E501D022EF2002000717373 /* FullscreenPlayer */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		8E0CA7A92C34171300EA7C37 /* Logic */ = {
+			isa = PBXGroup;
+			children = (
+				8EEE45382EC13B670049F017 /* Previews */,
+				8EEE45322EC13A330049F017 /* WatchFolder */,
+				8E545D932C3412AE0088C274 /* ConversionManager.swift */,
+				8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */,
+				8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */,
+				8E903F5E2E05642D0075E05C /* FileNameProcessor.swift */,
+				8EEE451F2EBF81FD0049F017 /* VideoMetadataService.swift */,
+				8EEE45292EC137EA0049F017 /* Conversion */,
+				8EC9A6FD2EC149140082C67F /* TrimPlayer */,
+				PRESET01MGR000000003 /* Preset */,
+				IMPORT0GRP00000001 /* Import */,
+				8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */,
+				8E1477462ECF453900C805AA /* UpdateChecker.swift */,
+				8E9B52542ED65156006E6A10 /* AudioRoutingModels.swift */,
+				8ECEBC152ED766B500F1F67C /* CropModels.swift */,
+				8E824ABE2EF8AB02001A6B95 /* MPV */,
+				2B48C187D7A738BE42B8084A /* YTDLP */,
+				C81422EA5B9E8128A48C2E6A /* Whisper */,
+				2E8ED3F06E74CC10398BD3EB /* Metadata */,
+			);
+			path = Logic;
+			sourceTree = "<group>";
+		};
+		8E2C6BAE2E059AFC00A9379F /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */,
+				8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */,
+				8E09F7432EC762C200E129CD /* AudioWaveformPreferences.swift */,
+				8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */,
+				F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */,
+				0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */,
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
+		8E501D022EF2002000717373 /* FullscreenPlayer */ = {
+			isa = PBXGroup;
+			children = (
+				8E501D002EF2002000717373 /* FullscreenPlayerView.swift */,
+				8E501D012EF2002000717373 /* FullscreenPlayerWindowController.swift */,
+				8E824AC42EF8AB46001A6B95 /* FullscreenMPVView.swift */,
+			);
+			path = FullscreenPlayer;
+			sourceTree = "<group>";
+		};
+		8E824ABE2EF8AB02001A6B95 /* MPV */ = {
+			isa = PBXGroup;
+			children = (
+				8E824ABB2EF8AB02001A6B95 /* MPVMetalLayer.swift */,
+				8E824ABC2EF8AB02001A6B95 /* MPVPlayer.swift */,
+				8E824ABD2EF8AB02001A6B95 /* MPVProperty.swift */,
+			);
+			path = MPV;
+			sourceTree = "<group>";
+		};
+		8EC9A6FD2EC149140082C67F /* TrimPlayer */ = {
+			isa = PBXGroup;
+			children = (
+				8EC9A6FC2EC149140082C67F /* PreviewPlayerController.swift */,
+				8EC9A7052EC156EA0082C67F /* PreviewPlayerController_Observers.swift */,
+				8EC9A7062EC156EA0082C67F /* PreviewPlayerController_Screenshot.swift */,
+				8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */,
+			);
+			path = TrimPlayer;
+			sourceTree = "<group>";
+		};
+		8EC9A7002EC14CE90082C67F /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				8EC9A6FF2EC14CE90082C67F /* PreviewPlayerHelpers.swift */,
+				8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */,
+				8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */,
+				8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */,
+				8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */,
+				8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */,
+				ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		8EE0BBB92E0980090096171D /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				8EE6EE9F2C31FC6F007B629D /* Assets.xcassets */,
+				8EE0BBBB2E0980560096171D /* Localizable.xcstrings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		8EE6EE8D2C31FC6B007B629D = {
+			isa = PBXGroup;
+			children = (
+				8E0C32D02E09FC5100F22B21 /* Licenses */,
+				8EE6EE982C31FC6B007B629D /* Aagedal Media Converter */,
+				8EE6EEAC2C31FC6F007B629D /* Aagedal Media ConverterTests */,
+				8EE6EEB62C31FC6F007B629D /* Aagedal Media ConverterUITests */,
+				8EE6EE972C31FC6B007B629D /* Products */,
+				8E0C32C72E09E58F00F22B21 /* LICENSE */,
+				8E2CA2A52E09AA03008D93F1 /* readme.md */,
+				8E08B27F2EAA284A000148A8 /* Documentation */,
+				C2B27EE304EA98FE0019804D /* Aagedal Media Converter */,
+			);
+			sourceTree = "<group>";
+		};
+		8EE6EE972C31FC6B007B629D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8EE6EE962C31FC6B007B629D /* Aagedal Media Converter.app */,
+				8EE6EEA92C31FC6F007B629D /* Aagedal Media ConverterTests.xctest */,
+				8EE6EEB32C31FC6F007B629D /* Aagedal Media ConverterUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8EE6EE982C31FC6B007B629D /* Aagedal Media Converter */ = {
+			isa = PBXGroup;
+			children = (
+				8E04BE132ED274D7005AD3D8 /* Aagedal-Media-Converter-Info.plist */,
+				8E0C32D12E09FDDC00F22B21 /* Aagedal Media Converter Debug.entitlements */,
+				8EF6370F2E086024001F2A90 /* Aagedal_Media_Converter.entitlements */,
+				8E0CA7A92C34171300EA7C37 /* Logic */,
+				8E2C6BAE2E059AFC00A9379F /* Utils */,
+				8E0CA7A82C3416EF00EA7C37 /* UI */,
+				8E0CA7A72C3416C800EA7C37 /* Sounds */,
+				8E0CA7A62C3416BD00EA7C37 /* Binaries */,
+				8EE6EE992C31FC6B007B629D /* Aagedal_Media_Converter_App.swift */,
+				8EE6EEA12C31FC6F007B629D /* Preview Content */,
+				8EE0BBB92E0980090096171D /* Resources */,
+				8E0C32CA2E09EC3B00F22B21 /* AppIntents */,
+			);
+			path = "Aagedal Media Converter";
+			sourceTree = "<group>";
+		};
+		8EE6EEA12C31FC6F007B629D /* Preview Content */ = {
+			isa = PBXGroup;
+			children = (
+				8EE6EEA22C31FC6F007B629D /* Preview Assets.xcassets */,
+			);
+			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		8EE6EEAC2C31FC6F007B629D /* Aagedal Media ConverterTests */ = {
+			isa = PBXGroup;
+			children = (
+				8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */,
+			);
+			path = "Aagedal Media ConverterTests";
+			sourceTree = "<group>";
+		};
+		8EE6EEB62C31FC6F007B629D /* Aagedal Media ConverterUITests */ = {
+			isa = PBXGroup;
+			children = (
+				8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */,
+				8EBD10202EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift */,
+			);
+			path = "Aagedal Media ConverterUITests";
+			sourceTree = "<group>";
+		};
+		8EEE45292EC137EA0049F017 /* Conversion */ = {
+			isa = PBXGroup;
+			children = (
+				8EEE45302EC1391C0049F017 /* FFMPEGProgressParser.swift */,
+				8EEE452E2EC139120049F017 /* FFMPEGProbeService.swift */,
+				8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */,
+				8EEE452A2EC138FA0049F017 /* ExportPreset.swift */,
+				8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */,
+				8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */,
+				8ECEBC172ED766D200F1F67C /* CropService.swift */,
+				DED542D049B53B34DBA25323 /* BMXService.swift */,
+			);
+			path = Conversion;
+			sourceTree = "<group>";
+		};
+		8EEE45322EC13A330049F017 /* WatchFolder */ = {
+			isa = PBXGroup;
+			children = (
+				8E08B2812EAA2871000148A8 /* WatchFolderManager.swift */,
+				8E08B2832EAA3BFD000148A8 /* WatchFolderDurationUnit.swift */,
+			);
+			path = WatchFolder;
+			sourceTree = "<group>";
+		};
+		8EEE45332EC13A830049F017 /* TrimPlayerViews */ = {
+			isa = PBXGroup;
+			children = (
+				8EEE45172EBEA9F00049F017 /* PreviewPlayerView.swift */,
+				8EEE45192EBEBCB20049F017 /* RangeSlider.swift */,
+				8EEE451D2EBF53550049F017 /* TrimTimelineView.swift */,
+				8EC9A6F52EC149010082C67F /* PreviewPlayerFooter.swift */,
+				8EC9A6F62EC149010082C67F /* PreviewTrimControls.swift */,
+				8EC9A7022EC14D590082C67F /* PreviewPlayerContent.swift */,
+				8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */,
+				8ECEBC192ED766F400F1F67C /* CropControlsView.swift */,
+				8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */,
+				8E824AC22EF8AB2C001A6B95 /* MPVVideoView.swift */,
+			);
+			path = TrimPlayerViews;
+			sourceTree = "<group>";
+		};
+		8EEE45342EC13AB40049F017 /* AssistiveViews */ = {
+			isa = PBXGroup;
+			children = (
+				8EE0BB9D2E089F520096171D /* DockProgressView.swift */,
+				8EFBDA932EA58975005ADDCF /* AboutView.swift */,
+				8E545D842C33FD610088C274 /* DocumentPickerView.swift */,
+			);
+			path = AssistiveViews;
+			sourceTree = "<group>";
+		};
+		8EEE45352EC13ADA0049F017 /* MetadataView */ = {
+			isa = PBXGroup;
+			children = (
+				8EEE45242EBF84430049F017 /* MetadataComparisonView.swift */,
+				8EEE45212EBF84420049F017 /* VideoMetadataView.swift */,
+			);
+			path = MetadataView;
+			sourceTree = "<group>";
+		};
+		8EEE45362EC13AE90049F017 /* SettingsView */ = {
+			isa = PBXGroup;
+			children = (
+				8E4DF2702ECBAD46007B6277 /* WaveformSettingsView.swift */,
+				8E4DF26E2ECBAD30007B6277 /* PresetSettingsView.swift */,
+				8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */,
+				8EE0BB9B2E0892B70096171D /* SettingsView.swift */,
+				8E4DF2722ECBBE38007B6277 /* WatchFolderSettingsView.swift */,
+				8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */,
+				8E13CD4050F24D1788FD6C8C /* ShortcutsSettingsView.swift */,
+				8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */,
+				07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */,
+				6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */,
+			);
+			path = SettingsView;
+			sourceTree = "<group>";
+		};
+		8EEE45372EC13AFA0049F017 /* VideoQueueViews */ = {
+			isa = PBXGroup;
+			children = (
+				8E545D882C34030C0088C274 /* VideoFileListView.swift */,
+				8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */,
+				8E545D822C33FD4A0088C274 /* DragAndDropView.swift */,
+			);
+			path = VideoQueueViews;
+			sourceTree = "<group>";
+		};
+		8EEE45382EC13B670049F017 /* Previews */ = {
+			isa = PBXGroup;
+			children = (
+				8EEE451B2EBF4BFD0049F017 /* PreviewAssetGenerator.swift */,
+				8E09F7412EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift */,
+			);
+			path = Previews;
+			sourceTree = "<group>";
+		};
+		8EEE45392EC13E7C0049F017 /* Conversion */ = {
+			isa = PBXGroup;
+			children = (
+				8EEE453E2EC13E9E0049F017 /* WatchFolderCoordinator.swift */,
+				8EEE453C2EC13E8F0049F017 /* OverallProgressView.swift */,
+				8EEE453A2EC13E840049F017 /* ConversionToolbarView.swift */,
+			);
+			path = Conversion;
+			sourceTree = "<group>";
+		};
+		A02CB66B7658176492DA3619 /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */,
+			);
+			name = Utils;
+			sourceTree = "<group>";
+		};
+		C2B27EE304EA98FE0019804D /* Aagedal Media Converter */ = {
+			isa = PBXGroup;
+			children = (
+				315DA4AB80009A356AD28221 /* Logic */,
+				A02CB66B7658176492DA3619 /* Utils */,
+				506494D947BFD538DBD9DE52 /* UI */,
+			);
+			name = "Aagedal Media Converter";
+			sourceTree = "<group>";
+		};
+		C81422EA5B9E8128A48C2E6A /* Whisper */ = {
+			isa = PBXGroup;
+			children = (
+				0A661B3187048E83E24FB0AB /* WhisperModels.swift */,
+				4F741F78E5BA1732D892656E /* WhisperUpdateService.swift */,
+				A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */,
+				7AE24C0F6CCD5518CB708EE9 /* WhisperService.swift */,
+			);
+			path = Whisper;
+			sourceTree = "<group>";
+		};
+		E5BC3FF570A3D2736C14E3C5 /* Upload */ = {
+			isa = PBXGroup;
+			children = (
+				4BBC06DAF3F395A5C54B3064 /* UploadModels.swift */,
+				727051829930996EE4E50306 /* RcloneUpdateService.swift */,
+				BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */,
+				45B40739097F270F27C5045E /* RcloneService.swift */,
+				5443D834E6673C963291692B /* UploadManager.swift */,
+			);
+			name = Upload;
+			sourceTree = "<group>";
+		};
+		FFA11E3BE380ADDD5426A11E /* SettingsView */ = {
+			isa = PBXGroup;
+			children = (
+				38A560B1F81955A156AB0F1D /* UploadSettingsView.swift */,
+			);
+			name = SettingsView;
+			sourceTree = "<group>";
+		};
+		IMPORT0GRP00000001 /* Import */ = {
+			isa = PBXGroup;
+			children = (
+				FILEIMPCRD00000002 /* FileImportCoordinator.swift */,
+				FILEIMPMGR00000002 /* FileImportManager.swift */,
+				VIDITEMIDX00000002 /* VideoItemIndex.swift */,
+			);
+			path = Import;
+			sourceTree = "<group>";
+		};
+		PRESET01MGR000000003 /* Preset */ = {
+			isa = PBXGroup;
+			children = (
+				PRESET01MGR000000002 /* PresetManager.swift */,
+			);
+			path = Preset;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8EE6EE952C31FC6B007B629D /* Aagedal Media Converter */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8EE6EEBD2C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal Media Converter" */;
+			buildPhases = (
+				8EE6EE922C31FC6B007B629D /* Sources */,
+				8EE6EE932C31FC6B007B629D /* Frameworks */,
+				8EE6EE942C31FC6B007B629D /* Resources */,
+				8E1477562ECF959E00C805AA /* CopyFiles */,
+				608E2E35809FD3AAA29E3747 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Aagedal Media Converter";
+			productName = "Aagedal VideoLoop Converter";
+			productReference = 8EE6EE962C31FC6B007B629D /* Aagedal Media Converter.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8EE6EEA82C31FC6F007B629D /* Aagedal Media ConverterTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8EE6EEC02C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal Media ConverterTests" */;
+			buildPhases = (
+				8EE6EEA52C31FC6F007B629D /* Sources */,
+				8EE6EEA62C31FC6F007B629D /* Frameworks */,
+				8EE6EEA72C31FC6F007B629D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8EE6EEAB2C31FC6F007B629D /* PBXTargetDependency */,
+			);
+			name = "Aagedal Media ConverterTests";
+			productName = "Aagedal VideoLoop ConverterTests";
+			productReference = 8EE6EEA92C31FC6F007B629D /* Aagedal Media ConverterTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		8EE6EEB22C31FC6F007B629D /* Aagedal Media ConverterUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8EE6EEC32C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal Media ConverterUITests" */;
+			buildPhases = (
+				8EE6EEAF2C31FC6F007B629D /* Sources */,
+				8EE6EEB02C31FC6F007B629D /* Frameworks */,
+				8EE6EEB12C31FC6F007B629D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8EE6EEB52C31FC6F007B629D /* PBXTargetDependency */,
+			);
+			name = "Aagedal Media ConverterUITests";
+			productName = "Aagedal VideoLoop ConverterUITests";
+			productReference = 8EE6EEB32C31FC6F007B629D /* Aagedal Media ConverterUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8EE6EE8E2C31FC6B007B629D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					8EE6EE952C31FC6B007B629D = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					8EE6EEA82C31FC6F007B629D = {
+						CreatedOnToolsVersion = 16.0;
+						LastSwiftMigration = 2600;
+						TestTargetID = 8EE6EE952C31FC6B007B629D;
+					};
+					8EE6EEB22C31FC6F007B629D = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 8EE6EE952C31FC6B007B629D;
+					};
+				};
+			};
+			buildConfigurationList = 8EE6EE912C31FC6B007B629D /* Build configuration list for PBXProject "Aagedal Media Converter" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				nb,
+			);
+			mainGroup = 8EE6EE8D2C31FC6B007B629D;
+			packageReferences = (
+				8E824AE62EF8B66F001A6B95 /* XCLocalSwiftPackageReference "MPVKit" */,
+			);
+			productRefGroup = 8EE6EE972C31FC6B007B629D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8EE6EE952C31FC6B007B629D /* Aagedal Media Converter */,
+				8EE6EEA82C31FC6F007B629D /* Aagedal Media ConverterTests */,
+				8EE6EEB22C31FC6F007B629D /* Aagedal Media ConverterUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8EE6EE942C31FC6B007B629D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8E501CFD2EF1807000717373 /* done.mp3 in Resources */,
+				8E501CFE2EF1807000717373 /* error.mp3 in Resources */,
+				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
+				8EFBDA912EA56F8E005ADDCF /* ffprobe in Resources */,
+				8EFBDA922EA56F8E005ADDCF /* ffmpeg in Resources */,
+				E22C3CB47572F41BA23EAF92 /* bmxtranswrap in Resources */,
+				6FEB07F32A610D999000F78C /* mxf2raw in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEA72C31FC6F007B629D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEB12C31FC6F007B629D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8EE6EE922C31FC6B007B629D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8EC9A6F12EC146C00082C67F /* AboutView.swift in Sources */,
+				8E9B52552ED65156006E6A10 /* AudioRoutingModels.swift in Sources */,
+				8E04BE152ED329FA005AD3D8 /* AudioMeterView.swift in Sources */,
+				8E4DF2732ECBBE38007B6277 /* WatchFolderSettingsView.swift in Sources */,
+				8E1477472ECF453900C805AA /* UpdateChecker.swift in Sources */,
+				8E04BE1B2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift in Sources */,
+				8E9B52572ED6516C006E6A10 /* AudioRoutingView.swift in Sources */,
+				8EE0BB9C2E0892B70096171D /* SettingsView.swift in Sources */,
+				8E14774B2ECF6BDE00C805AA /* UpdateSettingsView.swift in Sources */,
+				8E37A8C2E5334343AD98BD43 /* ShortcutsSettingsView.swift in Sources */,
+				8E4DF26F2ECBAD35007B6277 /* PresetSettingsView.swift in Sources */,
+				8E9B52592ED65199006E6A10 /* AudioRoutingService.swift in Sources */,
+				8E501D042EF2002000717373 /* FullscreenPlayerWindowController.swift in Sources */,
+				8E501D052EF2002000717373 /* FullscreenPlayerView.swift in Sources */,
+				8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */,
+				8EEE451A2EBEBCB20049F017 /* RangeSlider.swift in Sources */,
+				8ECEBC162ED766B500F1F67C /* CropModels.swift in Sources */,
+				8EEE45222EBF84420049F017 /* VideoMetadataView.swift in Sources */,
+				8EEE45232EBF84430049F017 /* MetadataComparisonView.swift in Sources */,
+				8ECEBC182ED766D200F1F67C /* CropService.swift in Sources */,
+				8ECEBC202ED8782800F1F67C /* MetadataSettingsView.swift in Sources */,
+				8EE0BB9E2E089F520096171D /* DockProgressView.swift in Sources */,
+				8EEE453B2EC13E8C0049F017 /* ConversionToolbarView.swift in Sources */,
+				8EC9A7072EC156EA0082C67F /* PreviewPlayerController_Screenshot.swift in Sources */,
+				8EC9A7082EC156EA0082C67F /* PreviewPlayerController_Observers.swift in Sources */,
+				8ECEBC1B2ED766F400F1F67C /* CropControlsView.swift in Sources */,
+				8ECEBC1C2ED766F400F1F67C /* CropOverlayView.swift in Sources */,
+				8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */,
+				8E824AC32EF8AB2C001A6B95 /* MPVVideoView.swift in Sources */,
+				8EEE451E2EBF53550049F017 /* TrimTimelineView.swift in Sources */,
+				8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */,
+				8E2C6BBF2E084BC200A9379F /* SecurityScopedBookmarkManager.swift in Sources */,
+				8E9DBF1F2EE4781B00F352A1 /* TimecodeFormatter.swift in Sources */,
+				8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */,
+				8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */,
+				8EEE45182EBEA9F00049F017 /* PreviewPlayerView.swift in Sources */,
+				8EEE45312EC139270049F017 /* FFMPEGProgressParser.swift in Sources */,
+				8EC3DCDD2EF57F0600CD75BC /* RandomTips.swift in Sources */,
+				8E4DF26D2ECBACFC007B6277 /* GeneralSettingsView.swift in Sources */,
+				8E09F7422EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift in Sources */,
+				8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */,
+				8E824ABF2EF8AB02001A6B95 /* MPVProperty.swift in Sources */,
+				8E824AC02EF8AB02001A6B95 /* MPVMetalLayer.swift in Sources */,
+				8E824AC12EF8AB02001A6B95 /* MPVPlayer.swift in Sources */,
+				8E08B2842EAA3BFD000148A8 /* WatchFolderDurationUnit.swift in Sources */,
+				8EEE452B2EC139000049F017 /* ExportPreset.swift in Sources */,
+				8EEE452F2EC139190049F017 /* FFMPEGProbeService.swift in Sources */,
+				8E0C32CB2E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift in Sources */,
+				8E1477492ECF4DAB00C805AA /* UpdateNotificationView.swift in Sources */,
+				8EC9A7032EC14D590082C67F /* PreviewPlayerContent.swift in Sources */,
+				8E903F5F2E05642D0075E05C /* FileNameProcessor.swift in Sources */,
+				8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */,
+				8EC9A7012EC14CE90082C67F /* PreviewPlayerHelpers.swift in Sources */,
+				8E824AC52EF8AB46001A6B95 /* FullscreenMPVView.swift in Sources */,
+				8EC9A6FE2EC149140082C67F /* PreviewPlayerController.swift in Sources */,
+				8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */,
+				8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */,
+				8E04BE122ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift in Sources */,
+				8EEE453F2EC13EA00049F017 /* WatchFolderCoordinator.swift in Sources */,
+				8E08B2822EAA2871000148A8 /* WatchFolderManager.swift in Sources */,
+				8E545D832C33FD4A0088C274 /* DragAndDropView.swift in Sources */,
+				8EEE452D2EC1390F0049F017 /* FFMPEGCommandBuilder.swift in Sources */,
+				8EC9A6F72EC149010082C67F /* PreviewTrimControls.swift in Sources */,
+				8EC9A6F82EC149010082C67F /* PreviewPlayerFooter.swift in Sources */,
+				8E4DF2712ECBAD4B007B6277 /* WaveformSettingsView.swift in Sources */,
+				8EE6EE9A2C31FC6B007B629D /* Aagedal_Media_Converter_App.swift in Sources */,
+				8E09F7442EC762C200E129CD /* AudioWaveformPreferences.swift in Sources */,
+				8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */,
+				8EEE451C2EBF4BFD0049F017 /* PreviewAssetGenerator.swift in Sources */,
+				8E545D892C34030C0088C274 /* VideoFileListView.swift in Sources */,
+				8EEE453D2EC13E960049F017 /* OverallProgressView.swift in Sources */,
+				8EEE45202EBF81FD0049F017 /* VideoMetadataService.swift in Sources */,
+				8E4DF2752ECBD3F2007B6277 /* SoundManager.swift in Sources */,
+				9CB662C7C4CE637DA85D46A2 /* DownloadManager.swift in Sources */,
+				DLHIST001SERV00000001 /* DownloadHistoryService.swift in Sources */,
+				SCHEDDL01SERV00000001 /* ScheduledDownloadService.swift in Sources */,
+				8567742F36A93E24233F8006 /* YTDLPProgressParser.swift in Sources */,
+				FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */,
+				CCF14EFA815D8DCCB62749E1 /* YTDLPUpdateService.swift in Sources */,
+				E69050ED114BBF6B493BE257 /* URLInputOverlay.swift in Sources */,
+				B709DBE54F69E12A7484E1CE /* YTDLPSettingsView.swift in Sources */,
+				7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */,
+				515A407918750E4E62409DA5 /* BinaryPathResolver.swift in Sources */,
+				59050FF1288247E2E02A60CA /* UploadModels.swift in Sources */,
+				17B524B2559B24713433EF64 /* RcloneUpdateService.swift in Sources */,
+				69E06BBF03A135EC5011AF14 /* RcloneProgressParser.swift in Sources */,
+				A14336D5FE72B1741AE6C2E2 /* RcloneService.swift in Sources */,
+				181720894631C3060AB2A6ED /* UploadManager.swift in Sources */,
+				BC6905B16FDDC57467098ECF /* KeychainCredentialManager.swift in Sources */,
+				8D704F6D27B209AE39BB2423 /* UploadSettingsView.swift in Sources */,
+				4A82CAA45E362E122405B09C /* WhisperModels.swift in Sources */,
+				6400227984B060FA08D0B79C /* WhisperUpdateService.swift in Sources */,
+				F88CB64509DD67D585EB71E6 /* WhisperModelManager.swift in Sources */,
+				368E10B8236C2A48DA4BACC1 /* WhisperService.swift in Sources */,
+				A7FDCC612BAD184830F774E4 /* WhisperSettingsView.swift in Sources */,
+				8EC017D3E3FDF66B8DE02E57 /* BMXService.swift in Sources */,
+				45F2F0A1BD22030D423B87CA /* ExifToolUpdateService.swift in Sources */,
+				76BD664F0B33ABE9B21F4135 /* ExifToolService.swift in Sources */,
+				PRESET01MGR000000001 /* PresetManager.swift in Sources */,
+				VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */,
+				FILEIMPMGR00000001 /* FileImportManager.swift in Sources */,
+				FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEA52C31FC6F007B629D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8EBD10242EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8EE6EEAF2C31FC6F007B629D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8EBD10212EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift in Sources */,
+				8EBD10222EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8EE6EEAB2C31FC6F007B629D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8EE6EE952C31FC6B007B629D /* Aagedal Media Converter */;
+			targetProxy = 8EE6EEAA2C31FC6F007B629D /* PBXContainerItemProxy */;
+		};
+		8EE6EEB52C31FC6F007B629D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8EE6EE952C31FC6B007B629D /* Aagedal Media Converter */;
+			targetProxy = 8EE6EEB42C31FC6F007B629D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		8EE6EEBB2C31FC6F007B629D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 3R5QGG9DW6;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				EXCLUDED_ARCHS = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_COMPILATION_MODE = singlefile;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE = YES;
+				SWIFT_UPCOMING_FEATURE_DEPRECATE_APPLICATION_MAIN = YES;
+				SWIFT_UPCOMING_FEATURE_DISABLE_OUTWARD_ACTOR_ISOLATION = YES;
+				SWIFT_UPCOMING_FEATURE_FORWARD_TRAILING_CLOSURES = YES;
+				SWIFT_UPCOMING_FEATURE_GLOBAL_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_IMPLICIT_OPEN_EXISTENTIALS = YES;
+				SWIFT_UPCOMING_FEATURE_IMPORT_OBJC_FORWARD_DECLS = YES;
+				SWIFT_UPCOMING_FEATURE_INFER_SENDABLE_FROM_CAPTURES = YES;
+				SWIFT_UPCOMING_FEATURE_ISOLATED_DEFAULT_VALUES = YES;
+				SWIFT_UPCOMING_FEATURE_REGION_BASED_ISOLATION = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		8EE6EEBC2C31FC6F007B629D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 3R5QGG9DW6;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				EXCLUDED_ARCHS = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE = YES;
+				SWIFT_UPCOMING_FEATURE_DEPRECATE_APPLICATION_MAIN = YES;
+				SWIFT_UPCOMING_FEATURE_DISABLE_OUTWARD_ACTOR_ISOLATION = YES;
+				SWIFT_UPCOMING_FEATURE_FORWARD_TRAILING_CLOSURES = YES;
+				SWIFT_UPCOMING_FEATURE_GLOBAL_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_IMPLICIT_OPEN_EXISTENTIALS = YES;
+				SWIFT_UPCOMING_FEATURE_IMPORT_OBJC_FORWARD_DECLS = YES;
+				SWIFT_UPCOMING_FEATURE_INFER_SENDABLE_FROM_CAPTURES = YES;
+				SWIFT_UPCOMING_FEATURE_ISOLATED_DEFAULT_VALUES = YES;
+				SWIFT_UPCOMING_FEATURE_REGION_BASED_ISOLATION = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Release;
+		};
+		8EE6EEBE2C31FC6F007B629D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_ENTITLEMENTS = "Aagedal Media Converter/Aagedal Media Converter Debug.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 162;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+					"\"$(PROJECT_DIR)/Aagedal Media Converter/Frameworks\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Aagedal-Media-Converter-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Aagedal Media Converter";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 3.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = YES;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = YES;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		8EE6EEBF2C31FC6F007B629D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				AUTOMATION_APPLE_EVENTS = NO;
+				CODE_SIGN_ENTITLEMENTS = "Aagedal Media Converter/Aagedal_Media_Converter.entitlements";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 162;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+					"\"$(PROJECT_DIR)/Aagedal Media Converter/Frameworks\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Aagedal-Media-Converter-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Aagedal Media Converter";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Binaries",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 3.4.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = YES;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = YES;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8EE6EEC12C31FC6F007B629D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0Tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aagedal Media Converter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Aagedal Media Converter";
+			};
+			name = Debug;
+		};
+		8EE6EEC22C31FC6F007B629D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0Tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aagedal Media Converter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Aagedal Media Converter";
+			};
+			name = Release;
+		};
+		8EE6EEC42C31FC6F007B629D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0UITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "Aagedal VideoLoop Converter 2.0";
+			};
+			name = Debug;
+		};
+		8EE6EEC52C31FC6F007B629D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-VideoLoop-Converter-2-0UITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "Aagedal VideoLoop Converter 2.0";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8EE6EE912C31FC6B007B629D /* Build configuration list for PBXProject "Aagedal Media Converter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EE6EEBB2C31FC6F007B629D /* Debug */,
+				8EE6EEBC2C31FC6F007B629D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8EE6EEBD2C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal Media Converter" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EE6EEBE2C31FC6F007B629D /* Debug */,
+				8EE6EEBF2C31FC6F007B629D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8EE6EEC02C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal Media ConverterTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EE6EEC12C31FC6F007B629D /* Debug */,
+				8EE6EEC22C31FC6F007B629D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8EE6EEC32C31FC6F007B629D /* Build configuration list for PBXNativeTarget "Aagedal Media ConverterUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8EE6EEC42C31FC6F007B629D /* Debug */,
+				8EE6EEC52C31FC6F007B629D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		8E824AE62EF8B66F001A6B95 /* XCLocalSwiftPackageReference "MPVKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = MPVKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8E824AB92EF8A9E1001A6B95 /* MPVKit-GPL */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8E824AE62EF8B66F001A6B95 /* XCLocalSwiftPackageReference "MPVKit" */;
+			productName = "MPVKit-GPL";
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8EE6EE8E2C31FC6B007B629D /* Project object */;
+}

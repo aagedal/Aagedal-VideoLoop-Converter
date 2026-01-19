@@ -79,8 +79,7 @@ actor ExifToolUpdateService {
 
         // Check system locations
         let systemPaths = [
-            "/opt/homebrew/bin/exiftool",
-            "/usr/local/bin/exiftool"
+            "/opt/homebrew/bin/exiftool"
         ]
         for path in systemPaths {
             if FileManager.default.isExecutableFile(atPath: path) {

@@ -48,8 +48,7 @@ actor RcloneUpdateService {
 
         // Check system paths (Homebrew)
         let systemPaths = [
-            "/opt/homebrew/bin/rclone",  // Apple Silicon
-            "/usr/local/bin/rclone"       // Intel
+            "/opt/homebrew/bin/rclone"
         ]
         for path in systemPaths {
             if FileManager.default.isExecutableFile(atPath: path) {
@@ -83,7 +82,7 @@ actor RcloneUpdateService {
         }
 
         // Check system paths
-        let systemPaths = ["/opt/homebrew/bin/rclone", "/usr/local/bin/rclone"]
+        let systemPaths = ["/opt/homebrew/bin/rclone"]
         for path in systemPaths {
             if FileManager.default.fileExists(atPath: path) {
                 return .systemAvailable(path)
@@ -144,12 +143,7 @@ actor RcloneUpdateService {
             throw RcloneUpdateError.parseError
         }
 
-        // Determine architecture
-        #if arch(arm64)
         let assetPattern = "rclone-.*-osx-arm64.zip"
-        #else
-        let assetPattern = "rclone-.*-osx-amd64.zip"
-        #endif
 
         // Find the macOS asset
         for asset in assets {

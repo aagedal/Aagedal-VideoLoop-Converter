@@ -405,6 +405,10 @@ enum AppConstants {
     static let ytdlpGitHubReleasesURL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
     static let ytdlpMacOSAssetName = "yt-dlp_macos"
 
+    static let denoVersionKey = "denoInstalledVersion"
+    static let denoLastUpdateCheckKey = "denoLastUpdateCheck"
+    static let denoGitHubReleasesURL = "https://api.github.com/repos/denoland/deno/releases/latest"
+
     // Custom binary paths (no longer need security-scoped bookmarks without sandbox)
     static let ytdlpCustomPathKey = "ytdlpCustomPath"
     static let customFFmpegPathKey = "customFFmpegPath"

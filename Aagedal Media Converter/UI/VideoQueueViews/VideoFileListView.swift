@@ -213,134 +213,73 @@ struct VideoFileListView: View {
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        print(" handleDrop called with \(providers.count) providers")
         Task { @MainActor in
             await self.importProviders(providers)
         }
-        print(" handleDrop returning: true")
         return true
     }
-    
+
     @MainActor
     private func importProviders(_ providers: [NSItemProvider]) async {
         let supportedExtensions = AppConstants.supportedVideoExtensions
 
         for provider in providers {
-            print(" Processing provider: \(provider)")
-
-            // First, try to load as plain text (for pasted/dropped URLs)
-            if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                do {
-                    let data = try await provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil)
-                    var urlString: String?
-                    if let data = data as? Data {
-                        urlString = String(data: data, encoding: .utf8)
-                    } else if let string = data as? String {
-                        urlString = string
-                    }
-                    if let urlString = urlString?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       DownloadManager.isValidURL(urlString),
-                       let url = URL(string: urlString),
-                       url.scheme == "http" || url.scheme == "https" {
-                        print(" Detected web URL from text: \(urlString)")
-                        onURLDrop?(urlString)
-                        continue
-                    }
-                } catch {
-                    print(" Error loading text: \(error)")
-                }
-            }
-
             // Use the proper API to load file URLs
             if provider.canLoadObject(ofClass: URL.self) {
-                print(" Provider can load URL")
-                do {
-                    let loadedURL = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL?, Error>) in
-                        _ = provider.loadObject(ofClass: URL.self) { object, error in
-                            if let error = error {
-                                continuation.resume(throwing: error)
-                            } else {
-                                continuation.resume(returning: object)
-                            }
-                        }
+                _ = provider.loadObject(ofClass: URL.self) { url, error in
+                    if let error = error {
+                        print(" Error loading URL: \(error)")
+                        return
                     }
-                    if let url = loadedURL {
-                        print(" Loaded URL: \(url)")
-
-                        // Check if this is a web URL (for yt-dlp)
-                        if url.scheme == "http" || url.scheme == "https" {
-                            print(" Detected web URL: \(url.absoluteString)")
-                            onURLDrop?(url.absoluteString)
-                            continue
-                        }
-
+                    if let url = url {
                         // For drag and drop, the URL already has temporary access
                         // We need to start accessing the security-scoped resource immediately
                         let hasAccess = url.startAccessingSecurityScopedResource()
-                        print(" Security-scoped access granted: \(hasAccess)")
 
-                        await processFileURL(url, supportedExtensions: supportedExtensions, hasSecurityAccess: hasAccess)
-                    } else {
-                        print(" Provider returned nil URL")
+                        Task { @MainActor in
+                            await self.processFileURL(url, supportedExtensions: supportedExtensions, hasSecurityAccess: hasAccess)
+                        }
                     }
-                } catch {
-                    print(" Error loading URL: \(error)")
                 }
-            } else {
-                print(" Provider cannot load URL")
             }
         }
     }
-    
+
     @MainActor
     private func processFileURL(_ url: URL, supportedExtensions: Set<String>, hasSecurityAccess: Bool = false) async {
-        print(" Processing file URL: \(url)")
-        
         // Get the file extension and check if it's supported
         let fileExtension = url.pathExtension.lowercased()
-        print(" File extension: '\(fileExtension)'")
-        print(" Supported extensions: \(supportedExtensions)")
-        
+
         guard !fileExtension.isEmpty,
               supportedExtensions.contains(fileExtension) else {
-            print(" File extension '\(fileExtension)' not supported")
             if hasSecurityAccess {
                 url.stopAccessingSecurityScopedResource()
-                print(" Released security-scoped resource (unsupported file)")
             }
             return
         }
-        
-        print(" File extension is supported")
-        
+
         // Handle security-scoped access based on the source
         var needsBookmarkAccess = false
         if !hasSecurityAccess {
             // Attempt to use an existing bookmark for persistent access
             if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
                 needsBookmarkAccess = true
-                print(" Successfully accessed security-scoped resource via bookmark")
             } else {
                 // No bookmark found – rely on direct entitlements (e.g. Downloads/Movie directory access)
                 if FileManager.default.isReadableFile(atPath: url.path) {
-                    print(" Proceeding with direct file access (no bookmark needed)")
                 } else {
                     print(" No bookmark and file not readable – access denied")
                     return
                 }
             }
-        } else {
-            print(" Using existing security-scoped resource access")
         }
-        
+
         var shouldReleaseImmediately = true
         let releaseSecurityAccess: () -> Void = {
             if hasSecurityAccess {
                 url.stopAccessingSecurityScopedResource()
-                print(" Released security-scoped resource (drag and drop)")
             } else if needsBookmarkAccess {
                 SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
-                print(" Released security-scoped resource (bookmark)")
             }
         }
         defer {
@@ -348,25 +287,21 @@ struct VideoFileListView: View {
                 releaseSecurityAccess()
             }
         }
-        
+
         // Save the bookmark for future access
-        let bookmarkSaved = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-        print(" Bookmark saved: \(bookmarkSaved)")
-        
+        _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+
         // Get the output folder from UserDefaults or use default
-        let outputFolder = UserDefaults.standard.string(forKey: "outputFolder") 
+        let outputFolder = UserDefaults.standard.string(forKey: "outputFolder")
             ?? AppConstants.defaultOutputDirectory.path
-            
+
         guard let placeholder = VideoFileUtils.makePlaceholderItem(from: url, outputFolder: outputFolder, preset: preset) else {
             print(" Failed to create placeholder video item")
             return
         }
 
-        print(" [processFileURL] Placeholder created: \(placeholder.name)")
-
         // Check for duplicates before adding
         if self.droppedFiles.contains(where: { $0.url == placeholder.url }) {
-            print(" Video item already exists in list")
             return
         }
 
@@ -376,20 +311,17 @@ struct VideoFileListView: View {
             droppedFiles[droppedFiles.count - 1].isMuted = true
         }
         let placeholderID = placeholder.id
-        print(" Added placeholder video item to list. Total items: \(self.droppedFiles.count)")
 
         Task(priority: .utility) {
             defer { releaseSecurityAccess() }
 
-            let bookmarkSaved = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-            print(" Bookmark saved: \(bookmarkSaved)")
+            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
 
             let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
             await MainActor.run {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].apply(details: details)
                     self.droppedFiles[index].detailsLoaded = true
-                    print(" [processFileURL] Details applied for: \(self.droppedFiles[index].name)")
                 }
             }
 
@@ -397,7 +329,6 @@ struct VideoFileListView: View {
             await MainActor.run {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].metadata = metadata
-                    print(" Updated video item with metadata: \(self.droppedFiles[index].name)")
                     VideoFileUtils.prefetchPreviewAssets(for: url)
                 }
             }
@@ -794,8 +725,8 @@ struct VideoFileListView: View {
         // Get language from settings
         let language = UserDefaults.standard.string(forKey: AppConstants.whisperLanguageKey) ?? "auto"
 
-        // Check if model is downloaded
-        guard await WhisperModelManager.shared.isModelDownloaded(model) else {
+        // Check if model is downloaded (nonisolated, no await needed)
+        guard WhisperModelManager.shared.isModelDownloaded(model) else {
             await MainActor.run {
                 if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
                     droppedFiles[idx].subtitleStatus = .failed("Model '\(model.displayName)' not downloaded")
@@ -858,9 +789,13 @@ struct VideoFileListView: View {
     // MARK: - Row Builder
     @ViewBuilder
     private func cardRow(for index: Int) -> some View {
-        // Get a binding to the file in the array
-        let file = $droppedFiles[index]
-        VideoFileRowView(
+        // Guard against index out of bounds (can happen during async array updates)
+        if index >= droppedFiles.count {
+            EmptyView()
+        } else {
+            // Get a binding to the file in the array
+            let file = $droppedFiles[index]
+            VideoFileRowView(
             file: file,
             focusedCommentID: $focusedCommentID,
             preset: preset,
@@ -894,7 +829,7 @@ struct VideoFileListView: View {
             },
             isSelected: selection.contains(file.wrappedValue.id),
             onCommentFocusChange: { id, isFocused in
-                guard droppedFiles[index].id == id else { return }
+                guard index < droppedFiles.count, droppedFiles[index].id == id else { return }
                 if isFocused {
                     // Don't override multi-selection when comment field is focused
                     // Only update focusedCommentID for Tab navigation
@@ -918,10 +853,11 @@ struct VideoFileListView: View {
             showDateTagButton: showDateTagButton,
             isCompactMode: isCompactMode
         )
-        .padding([.vertical], 4)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets())
-        .tag(file.wrappedValue.id)
+            .padding([.vertical], 4)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets())
+            .tag(file.wrappedValue.id)
+        }
     }
 }
 

@@ -116,7 +116,8 @@ actor WhisperModelManager {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             delegate.completion = { result in
                 Task {
-                    await self.cleanupDownload(for: model)
+                    // Call actor-isolated cleanup method
+                    await self.performCleanup(for: model)
                     switch result {
                     case .success:
                         continuation.resume()
@@ -156,16 +157,21 @@ actor WhisperModelManager {
     }
 
     /// Cleans up after download (success or failure)
-    private func cleanupDownload(for model: WhisperModel) async {
+    private func cleanupDownload(for model: WhisperModel) {
         downloadTasks.removeValue(forKey: model)
         progressHandlers.removeValue(forKey: model)
     }
 
+    /// Async wrapper for cleanup to satisfy actor isolation from external Tasks
+    private func performCleanup(for model: WhisperModel) async {
+        cleanupDownload(for: model)
+    }
+
     /// Cancels an ongoing model download
-    func cancelDownload(for model: WhisperModel) async {
+    func cancelDownload(for model: WhisperModel) {
         if let task = downloadTasks[model] {
             task.cancel()
-            await cleanupDownload(for: model)
+            cleanupDownload(for: model)
             logger.info("Cancelled download of model: \(model.displayName)")
         }
     }

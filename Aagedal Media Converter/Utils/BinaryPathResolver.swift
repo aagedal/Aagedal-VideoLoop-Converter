@@ -73,8 +73,7 @@ enum BinaryPathResolver {
 
         // Check system locations (Homebrew)
         let systemPaths = [
-            "/opt/homebrew/bin/exiftool",
-            "/usr/local/bin/exiftool"
+            "/opt/homebrew/bin/exiftool"
         ]
         for path in systemPaths {
             if FileManager.default.isExecutableFile(atPath: path) {
@@ -180,6 +179,24 @@ enum BinaryPathResolver {
 /// Homebrew installs Python tools with venv interpreters that may be blocked by Hardened Runtime.
 /// This helper detects such scripts and executes them using the main Homebrew Python instead.
 enum HomebrewPythonExecutor {
+    private static let commonPathEntries = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin"
+    ]
+
+    private static func mergedPath(from entries: [String]) -> String {
+        var seen = Set<String>()
+        var result: [String] = []
+        for entry in entries {
+            let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if !seen.contains(trimmed) {
+                result.append(trimmed)
+                seen.insert(trimmed)
+            }
+        }
+        return result.joined(separator: ":")
+    }
 
     /// Execution info for a Homebrew Python script
     struct ExecutionInfo {
@@ -293,12 +310,16 @@ enum HomebrewPythonExecutor {
 
             // Add bundled ffmpeg to PATH so yt-dlp can find it for post-processing
             var env = ProcessInfo.processInfo.environment
+            var pathEntries: [String] = []
             if let ffmpegPath = BinaryPathResolver.ffmpegPath {
                 let ffmpegDir = (ffmpegPath as NSString).deletingLastPathComponent
-                let currentPath = env["PATH"] ?? "/usr/bin:/bin"
-                env["PATH"] = ffmpegDir + ":" + currentPath
+                pathEntries.append(ffmpegDir)
                 print("[HomebrewPythonExecutor] Added ffmpeg to PATH: \(ffmpegDir)")
             }
+            pathEntries.append(contentsOf: commonPathEntries)
+            let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
+            env["PATH"] = mergedPath(from: pathEntries)
             process.environment = env
             return
         }
@@ -324,12 +345,22 @@ enum HomebrewPythonExecutor {
             process.arguments = ["-u", "-m", "yt_dlp"] + arguments
             var env = ProcessInfo.processInfo.environment
             env["PYTHONPATH"] = info.sitePackages
+            var pathEntries = commonPathEntries
+            let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
+            env["PATH"] = mergedPath(from: pathEntries)
             process.environment = env
         } else {
             // Last resort - try executing directly (may work for scripts with valid shebangs)
             print("[HomebrewPythonExecutor] Executing directly: \(scriptPath)")
             process.executableURL = URL(fileURLWithPath: scriptPath)
             process.arguments = arguments
+            var env = ProcessInfo.processInfo.environment
+            var pathEntries = commonPathEntries
+            let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
+            env["PATH"] = mergedPath(from: pathEntries)
+            process.environment = env
         }
     }
 }
