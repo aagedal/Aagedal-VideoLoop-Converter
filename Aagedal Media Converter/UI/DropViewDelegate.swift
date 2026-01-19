@@ -24,49 +24,52 @@ struct DropViewDelegate: DropDelegate {
     
     func dropEntered(info: DropInfo) {
         guard !isEncoding else { return }
-        
-        guard let fromIndex = items.firstIndex(where: { $0.id == item.id }) else {
+
+        guard let itemProvider = info.itemProviders(for: [.text]).first else {
             return
         }
-        
-        guard let toIndex = items.firstIndex(where: { $0.id == (info.itemProviders(for: [.text])
-            .first?.loadObject(ofClass: NSString.self) { str, _ in
-                if let str = str as? String {
-                    DispatchQueue.main.async {
-                        self.moveItem(from: fromIndex, to: toIndex, with: str)
-                    }
-                }
+
+        itemProvider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { data, _ in
+            let idString: String?
+            if let data = data as? Data {
+                idString = String(data: data, encoding: .utf8)
+            } else if let str = data as? String {
+                idString = str
+            } else if let str = data as? NSString {
+                idString = str as String
+            } else {
+                idString = nil
             }
-        )}) else {
-            return
-        }
-        
-        if fromIndex != toIndex {
-            withAnimation {
-                let from = min(fromIndex, toIndex)
-                let to = max(fromIndex, toIndex)
-                
-                var updatedItems = items
-                updatedItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
-                
-                // Only update if the order actually changed
-                if updatedItems != items {
-                    items = updatedItems
-                    // Call the onMove callback to update the parent view
-                    onMove(IndexSet(integer: from), toIndex)
-                }
+
+            guard let idString, let draggedId = UUID(uuidString: idString) else {
+                return
+            }
+
+            DispatchQueue.main.async {
+                isReordering = true
+                moveItem(with: draggedId, to: item.id)
             }
         }
     }
     
-    private func moveItem(from fromIndex: Int, to toIndex: Int, with itemId: String) {
-        guard fromIndex != toIndex,
-              let from = items.firstIndex(where: { $0.id == itemId }) else {
+    private func moveItem(with draggedId: UUID, to targetId: UUID) {
+        guard let fromIndex = items.firstIndex(where: { $0.id == draggedId }),
+              let toIndex = items.firstIndex(where: { $0.id == targetId }),
+              fromIndex != toIndex else {
             return
         }
-        
+
         withAnimation {
-            items.move(fromOffsets: IndexSet(integer: from), toOffset: toIndex > from ? toIndex + 1 : toIndex)
+            var updatedItems = items
+            updatedItems.move(
+                fromOffsets: IndexSet(integer: fromIndex),
+                toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
+            )
+
+            if updatedItems != items {
+                items = updatedItems
+                onMove(IndexSet(integer: fromIndex), toIndex)
+            }
         }
     }
     
