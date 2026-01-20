@@ -322,7 +322,7 @@ actor ConversionManager: Sendable {
     }
 
     private func prepareTrimmedClip(for item: VideoItem) async -> URL? {
-        guard let ffmpegPath = Bundle.main.path(forResource: "ffmpeg", ofType: nil) else {
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             mergeLogger.error("FFmpeg binary not found while preparing trimmed clip for \(item.name, privacy: .public)")
             return nil
         }
@@ -709,7 +709,12 @@ actor ConversionManager: Sendable {
 
     func evaluateMergeCompatibility(for items: [VideoItem], preset: ExportPreset) async -> MergeCompatibilityResult {
         lastMergeMetadata = [:]
-        let waitingItems = items.filter { $0.status == .waiting }
+        // Filter for waiting items, excluding downloads and scheduled downloads
+        let waitingItems = items.filter {
+            $0.status == .waiting &&
+            !$0.isDownloading &&
+            $0.scheduledDownloadTime == nil
+        }
         mergeLogger.debug("Evaluating merge compatibility for \(waitingItems.count) waiting clips")
         guard waitingItems.count >= 2 else {
             mergeLogger.debug("Merge incompatible: insufficient items (\(waitingItems.count))")
@@ -992,9 +997,7 @@ actor ConversionManager: Sendable {
             return
         }
 
-        let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
-        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
-        let outputFileName = sanitizedBaseName + suffixPart
+        let outputFileName = outputBaseName(for: currentItem, inputURL: inputURL, preset: preset)
         let resolvedOutputFolder = VideoFileUtils.resolveOutputFolder(for: inputURL, defaultOutputFolder: outputFolder, preset: preset) ?? outputFolder
 
         // Ensure the output directory exists with proper security-scoped access
@@ -1155,8 +1158,28 @@ actor ConversionManager: Sendable {
                     print("📊 Final state - outputFileSizeBytes: \(droppedFiles.wrappedValue[idx].outputFileSizeBytes ?? -1)")
                     print("📊 Final state - formattedOutputSize: \(droppedFiles.wrappedValue[idx].formattedOutputSize ?? "nil")")
                     print("📊 Final state - status: \(droppedFiles.wrappedValue[idx].status)")
+
+                    // Trigger upload if enabled for this item
+                    if success && droppedFiles.wrappedValue[idx].uploadEnabled {
+                        Task {
+                            await UploadManager.shared.startUpload(itemID: fileId)
+                        }
+                    }
+
+                    // Trigger subtitle generation if enabled for this item
+                    if success && droppedFiles.wrappedValue[idx].subtitleEnabled {
+                        if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
+                            Task {
+                                await self.generateSubtitles(
+                                    for: fileId,
+                                    inputURL: outputURL,
+                                    droppedFiles: droppedFiles
+                                )
+                            }
+                        }
+                    }
                 }
-                
+
                 // Only continue if conversion has not been cancelled
                 if await self.isConverting {
                     await self.convertNextFile(
@@ -1292,5 +1315,96 @@ actor ConversionManager: Sendable {
         print("totalDuration: \(totalDuration) s, completedDuration: \(completedDuration) s, overallProgress: \(progress * 100)%")
         #endif
         progressContinuation?.yield(progress)
+    }
+
+    // MARK: - Subtitle Generation
+
+    /// Generates subtitles for a completed conversion
+    private func generateSubtitles(
+        for itemID: UUID,
+        inputURL: URL,
+        droppedFiles: Binding<[VideoItem]>
+    ) async {
+        // Get selected model and language from settings
+        let modelRaw = UserDefaults.standard.string(forKey: AppConstants.whisperModelKey) ?? AppConstants.defaultWhisperModel
+        let model = WhisperModel(rawValue: modelRaw) ?? .base
+        let language = UserDefaults.standard.string(forKey: AppConstants.whisperLanguageKey) ?? AppConstants.defaultWhisperLanguage
+
+        // Update status to pending
+        await MainActor.run {
+            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles.wrappedValue[idx].subtitleStatus = .pending
+            }
+        }
+
+        // Verify model is downloaded
+        guard WhisperModelManager.shared.isModelDownloaded(model) else {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed("Model not downloaded")
+                }
+            }
+            return
+        }
+
+        do {
+            let outputDir = inputURL.deletingLastPathComponent()
+
+            let srtURL = try await WhisperService.shared.generateSubtitles(
+                inputFile: inputURL,
+                outputDirectory: outputDir,
+                model: model,
+                language: language
+            ) { [weak self] whisperProgress in
+                Task { @MainActor in
+                    guard let _ = self else { return }
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        switch whisperProgress.stage {
+                        case .extractingAudio:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .extractingAudio
+                        case .transcribing:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .generating(progress: whisperProgress.percentage)
+                        case .complete:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                        case .failed(let error):
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error)
+                        default:
+                            break
+                        }
+                        droppedFiles.wrappedValue[idx].subtitleProgress = whisperProgress.percentage
+                    }
+                }
+            }
+
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                    droppedFiles.wrappedValue[idx].subtitleFilePath = srtURL
+                    droppedFiles.wrappedValue[idx].subtitleProgress = 1.0
+                }
+            }
+
+            print("📝 Subtitles generated: \(srtURL.lastPathComponent)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+            print("📝 Subtitle generation failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func outputBaseName(for item: VideoItem, inputURL: URL, preset: ExportPreset) -> String {
+        if let override = item.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            let baseName = (override as NSString).deletingPathExtension
+            return FileNameProcessor.processFileName(baseName)
+        }
+
+        let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        return sanitizedBaseName + suffixPart
     }
 }

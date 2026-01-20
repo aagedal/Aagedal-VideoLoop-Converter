@@ -286,6 +286,10 @@ enum FFMPEGCommandBuilder {
             }
         }
 
+        if preset == .streamCopy {
+            adjustStreamCopyArguments(inputURL: inputURL, outputURL: outputFileURL, ffmpegArgs: &ffmpegArgs)
+        }
+
         if let durationArgument = trimDurationArgument(start: normalizedTrimStart, end: normalizedTrimEnd) {
             arguments.append(contentsOf: durationArgument)
         }
@@ -1072,6 +1076,17 @@ extension FFMPEGCommandBuilder {
         }
     }
 
+    private static func removeStandaloneArgument(_ key: String, from args: inout [String]) {
+        var index = 0
+        while index < args.count {
+            if args[index] == key {
+                args.remove(at: index)
+                continue
+            }
+            index += 1
+        }
+    }
+
     static func adjustDeinterlaceFilter(
         inputURL: URL,
         ffmpegArgs: inout [String]
@@ -1125,6 +1140,29 @@ extension FFMPEGCommandBuilder {
         }
 
         ffmpegArgs[vfIndex + 1] = filters
+    }
+
+    private static func adjustStreamCopyArguments(
+        inputURL: URL,
+        outputURL: URL,
+        ffmpegArgs: inout [String]
+    ) {
+        let outputExtension = outputURL.pathExtension.lowercased()
+        let effectiveExtension = outputExtension.isEmpty ? inputURL.pathExtension.lowercased() : outputExtension
+        let restrictedContainers: Set<String> = ["mp4", "mov", "m4v", "m4a"]
+
+        guard restrictedContainers.contains(effectiveExtension) else { return }
+
+        // MP4/MOV containers can fail on unknown/data streams; map only known types.
+        removeArgumentPair("-map", value: nil, from: &ffmpegArgs)
+        removeStandaloneArgument("-copy_unknown", from: &ffmpegArgs)
+
+        var mapArgs: [String] = ["-map", "0:v?"]
+        if !ffmpegArgs.contains("-an") {
+            mapArgs.append(contentsOf: ["-map", "0:a?"])
+        }
+        mapArgs.append(contentsOf: ["-map", "0:s?"])
+        ffmpegArgs.append(contentsOf: mapArgs)
     }
 
     private static func sanitizeArgumentsForCustomVideoPipeline(_ ffmpegArgs: inout [String]) {

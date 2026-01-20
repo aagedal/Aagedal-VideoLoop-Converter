@@ -390,6 +390,114 @@ enum AppConstants {
     static let preferredTimecodeDisplayModeKey = "preferredTimecodeDisplayMode"
     static let defaultPreferredTimecodeDisplayMode = "relative" // relative, source, frames
 
+    // yt-dlp settings
+    static let ytdlpToolsDirectory: URL = {
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let toolsDir = supportDir
+            .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
+            .appendingPathComponent("tools", isDirectory: true)
+        try? FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
+        return toolsDir
+    }()
+    static let ytdlpCacheDirectory: URL = {
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let cacheDir = supportDir
+            .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
+            .appendingPathComponent("yt-dlp-cache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        return cacheDir
+    }()
+
+    static let ytdlpVersionKey = "ytdlpInstalledVersion"
+    static let ytdlpLastUpdateCheckKey = "ytdlpLastUpdateCheck"
+    static let ytdlpGitHubReleasesURL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+    static let ytdlpMacOSAssetName = "yt-dlp_macos"
+    static let ytdlpBinarySourceKey = "ytdlpBinarySource"
+
+    static let denoVersionKey = "denoInstalledVersion"
+    static let denoLastUpdateCheckKey = "denoLastUpdateCheck"
+    static let denoGitHubReleasesURL = "https://api.github.com/repos/denoland/deno/releases/latest"
+    static let denoBinarySourceKey = "denoBinarySource"
+    static let denoCustomPathKey = "denoCustomPath"
+
+    // Custom binary paths (no longer need security-scoped bookmarks without sandbox)
+    static let ytdlpCustomPathKey = "ytdlpCustomPath"
+    static let ffmpegBinarySourceKey = "ffmpegBinarySource"
+    static let customFFmpegPathKey = "customFFmpegPath"
+    static let customFFprobePathKey = "customFFprobePath"
+
+    // Legacy keys (for migration)
+    static let ytdlpUserPathBookmarkKey = "ytdlpUserPathBookmark"
+    static let ytdlpUserPathKey = "ytdlpUserPath"
+
+    // Download history
+    static let downloadHistoryKey = "downloadHistory"
+    static let downloadHistoryMaxItems = 10
+
+    // Download automation defaults
+    static let autoEncodeAfterDownloadKey = "autoEncodeAfterDownload"
+    static let autoUploadAfterDownloadKey = "autoUploadAfterDownload"
+
+    // yt-dlp authentication
+    static let ytdlpCookiesBrowserKey = "ytdlpCookiesBrowser"
+
+    // MARK: - Upload Settings
+
+    // FTP/Upload configuration
+    static let uploadServerKey = "uploadServer"
+    static let uploadPortKey = "uploadPort"
+    static let uploadUsernameKey = "uploadUsername"
+    static let uploadRemotePathKey = "uploadRemotePath"
+    static let uploadUseFTPSKey = "uploadUseFTPS"
+    static let uploadDefaultEnabledKey = "uploadDefaultEnabled"
+    static let uploadRetryCountKey = "uploadRetryCount"
+    static let uploadFTPProfilesKey = "uploadFTPProfiles"
+    static let uploadFTPSelectedProfileIDKey = "uploadFTPSelectedProfileID"
+    static let uploadSFTPProfilesKey = "uploadSFTPProfiles"
+    static let uploadSFTPSelectedProfileIDKey = "uploadSFTPSelectedProfileID"
+    static let uploadSMBProfilesKey = "uploadSMBProfiles"
+    static let uploadSMBSelectedProfileIDKey = "uploadSMBSelectedProfileID"
+    static let uploadS3ProfilesKey = "uploadS3Profiles"
+    static let uploadS3SelectedProfileIDKey = "uploadS3SelectedProfileID"
+    static let defaultUploadPort = 21
+    static let defaultUploadRetryCount = 3
+
+    // rclone binary management
+    static let rcloneVersionKey = "rcloneInstalledVersion"
+    static let rcloneLastUpdateCheckKey = "rcloneLastUpdateCheck"
+    static let rcloneGitHubReleasesURL = "https://api.github.com/repos/rclone/rclone/releases/latest"
+    static let rcloneCustomPathKey = "rcloneCustomPath"
+
+    // ExifTool binary management
+    static let exiftoolVersionKey = "exiftoolInstalledVersion"
+    static let exiftoolLastUpdateCheckKey = "exiftoolLastUpdateCheck"
+    static let exiftoolCustomPathKey = "exiftoolCustomPath"
+    static let exiftoolDownloadBaseURL = "https://exiftool.org/"
+    static let exiftoolVersionURL = "https://exiftool.org/ver.txt"
+
+    // C2PA (Content Authenticity) settings
+    static let c2paCheckEnabledKey = "c2paCheckEnabled"
+    static let defaultC2PACheckEnabled = true
+
+    // Backend type selection
+    static let uploadBackendTypeKey = "uploadBackendType"
+
+    // SFTP-specific settings
+    static let uploadSFTPKeyFileKey = "uploadSFTPKeyFile"
+    static let uploadSFTPKeyFileBookmarkKey = "uploadSFTPKeyFileBookmark"
+    static let defaultSFTPPort = 22
+
+    // SMB-specific settings
+    static let uploadSMBShareKey = "uploadSMBShare"
+    static let uploadSMBDomainKey = "uploadSMBDomain"
+    static let defaultSMBPort = 445
+
+    // S3-specific settings
+    static let uploadS3BucketKey = "uploadS3Bucket"
+    static let uploadS3RegionKey = "uploadS3Region"
+    static let uploadS3EndpointKey = "uploadS3Endpoint"
+    static let uploadS3AccessKeyKey = "uploadS3AccessKey"
+
     // Output location settings
     static let saveNextToOriginalKey = "saveNextToOriginal"
     static let saveNextToOriginalSubfolderKey = "saveNextToOriginalSubfolder"
@@ -399,4 +507,32 @@ enum AppConstants {
     static let defaultSaveNextToOriginalSubfolder = false
     static let defaultSaveNextToOriginalSubfolderMode = "custom" // "custom" or "presetSuffix"
     static let defaultSaveNextToOriginalSubfolderName = "Encoded"
+
+    // MARK: - Whisper Settings
+
+    // Whisper binary management
+    static let whisperVersionKey = "whisperInstalledVersion"
+    static let whisperLastUpdateCheckKey = "whisperLastUpdateCheck"
+    static let whisperGitHubReleasesURL = "https://api.github.com/repos/ggerganov/whisper.cpp/releases/latest"
+    static let whisperCustomPathKey = "whisperCustomPath"
+
+    // Whisper model management
+    static let whisperModelKey = "whisperSelectedModel"
+    static let whisperCustomModelPathKey = "whisperCustomModelPath"
+    static let whisperModelsDirectory: URL = {
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let modelsDir = supportDir
+            .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
+            .appendingPathComponent("whisper-models", isDirectory: true)
+        try? FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        return modelsDir
+    }()
+    static let defaultWhisperModel = "base"
+
+    // Whisper generation settings
+    static let whisperDefaultEnabledKey = "whisperDefaultEnabled"
+    static let whisperLanguageKey = "whisperLanguage"
+    static let defaultWhisperLanguage = "auto"
+    static let whisperMaxLineLengthKey = "whisperMaxLineLength"
+    static let defaultWhisperMaxLineLength = 42  // Characters per subtitle line
 }

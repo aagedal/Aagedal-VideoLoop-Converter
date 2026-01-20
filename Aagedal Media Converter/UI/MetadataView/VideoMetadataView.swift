@@ -4,6 +4,8 @@ struct VideoMetadataView: View {
     @Environment(\.dismiss) private var dismiss
     @Binding var item: VideoItem
 
+    @State private var isLoadingC2PA = false
+
     private var metadata: VideoMetadata? { item.metadata }
 
     var body: some View {
@@ -36,6 +38,8 @@ struct VideoMetadataView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    c2paSection
+                    Divider()
                     generalSection
                     Divider()
                     videoSection
@@ -50,6 +54,23 @@ struct VideoMetadataView: View {
         }
         .padding(24)
         .frame(minWidth: 520, idealWidth: 560, minHeight: 420, idealHeight: 520)
+        .task {
+            await fetchC2PAIfNeeded()
+        }
+    }
+
+    // MARK: - C2PA Fetching
+
+    private func fetchC2PAIfNeeded() async {
+        // Skip if already loaded or loading
+        guard item.c2paMetadata == nil, !isLoadingC2PA else { return }
+
+        isLoadingC2PA = true
+        defer { isLoadingC2PA = false }
+
+        if let c2pa = await VideoFileUtils.fetchC2PAMetadata(for: item.url) {
+            item.c2paMetadata = c2pa
+        }
     }
 
     private var generalSection: some View {
@@ -181,6 +202,76 @@ struct VideoMetadataView: View {
                 Text("No subtitle stream detected.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var c2paSection: some View {
+        section(title: "Content Authenticity (C2PA)") {
+            Text("Presence only. This app does not verify C2PA signatures.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            if isLoadingC2PA {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Checking for content credentials...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if let c2pa = item.c2paMetadata, c2pa.hasContentCredentials {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.shield.fill")
+                        .foregroundColor(.green)
+                    Text("Content Credentials Present")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+                .padding(.bottom, 8)
+
+                if c2pa.hasSignature {
+                    infoRow("Signature", value: "Present")
+                }
+                infoRow("Claim Generator Info Name", value: c2pa.claimGeneratorInfoName)
+                infoRow("Claim Generator", value: c2pa.claimGenerator)
+                infoRow("Actions Action", value: c2pa.actionsAction)
+                infoRow("Actions Digital Source Type", value: c2pa.actionsDigitalSourceType)
+                infoRow("Signature Types", value: c2pa.userDescriptiveMetadataName)
+                infoRow("Signature Content", value: c2pa.userDescriptiveMetadataContent)
+                infoRow("Device Manufacturer", value: c2pa.deviceManufacturer)
+                infoRow("Device Model", value: c2pa.deviceModelName)
+                infoRow("Device Serial", value: c2pa.deviceSerialNumber)
+                infoRow("Lens Model", value: c2pa.lensModelName)
+                infoRow("C2PA Creation Date", value: c2pa.creationDateValue)
+                if let manifestStore = c2pa.manifestStore, !manifestStore.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Manifest Store")
+                            .font(.subheadline.weight(.semibold))
+                        Text(manifestStore)
+                            .font(.system(.caption, design: .monospaced))
+                            .lineLimit(3)
+                            .truncationMode(.tail)
+                    }
+                }
+                if let assertions = c2pa.assertions, !assertions.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Assertions")
+                            .font(.subheadline.weight(.semibold))
+                        ForEach(assertions, id: \.self) { assertion in
+                            Text("• \(assertion)")
+                                .font(.system(.caption, design: .monospaced))
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundColor(.secondary)
+                    Text("C2PA metadata not available")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
             }
         }
     }

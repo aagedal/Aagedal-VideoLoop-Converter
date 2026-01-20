@@ -4,6 +4,10 @@ struct MetadataComparisonView: View {
     @Environment(\.dismiss) private var dismiss
     let items: [VideoItem]
 
+    @State private var c2paByID: [UUID: C2PAMetadata] = [:]
+    @State private var c2paCheckedIDs: Set<UUID> = []
+    @State private var c2paLoadingIDs: Set<UUID> = []
+
     private let labelColumnWidth: CGFloat = 140
     private let valueColumnWidth: CGFloat = 200
     private let columnSpacing: CGFloat = 16
@@ -16,6 +20,8 @@ struct MetadataComparisonView: View {
                 ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 24) {
                         fileNamesRow
+                        Divider()
+                        c2paSection
                         Divider()
                         generalSection
                         Divider()
@@ -33,6 +39,9 @@ struct MetadataComparisonView: View {
         .padding(24)
         .frame(width: 1400, height: 900)
         .background(Color(nsColor: .windowBackgroundColor))
+        .task {
+            await loadC2PAIfNeeded()
+        }
     }
 
     private var headerView: some View {
@@ -125,6 +134,63 @@ struct MetadataComparisonView: View {
             }
             comparisonRow("Comment") { item in
                 item.metadataComment
+            }
+        }
+    }
+
+    // MARK: - C2PA Section
+
+    private var c2paSection: some View {
+        sectionView(title: "CONTENT AUTHENTICITY (C2PA)") {
+            comparisonRow("Note") { _ in
+                "Presence only. This app does not verify C2PA signatures."
+            }
+            comparisonRow("Content Credentials") { item in
+                c2paStatusValue(for: item)
+            }
+            comparisonRow("Signature") { item in
+                guard let c2pa = c2paMetadata(for: item) else { return nil }
+                return c2pa.hasSignature ? "Present" : "Not found"
+            }
+            comparisonRow("Claim Generator Info Name") { item in
+                c2paMetadata(for: item)?.claimGeneratorInfoName
+            }
+            comparisonRow("Claim Generator") { item in
+                c2paMetadata(for: item)?.claimGenerator
+            }
+            comparisonRow("Actions Action") { item in
+                c2paMetadata(for: item)?.actionsAction
+            }
+            comparisonRow("Actions Digital Source Type") { item in
+                c2paMetadata(for: item)?.actionsDigitalSourceType
+            }
+            comparisonRow("Signature Types") { item in
+                c2paMetadata(for: item)?.userDescriptiveMetadataName
+            }
+            comparisonRow("Signature Content") { item in
+                c2paMetadata(for: item)?.userDescriptiveMetadataContent
+            }
+            comparisonRow("Device Manufacturer") { item in
+                c2paMetadata(for: item)?.deviceManufacturer
+            }
+            comparisonRow("Device Model") { item in
+                c2paMetadata(for: item)?.deviceModelName
+            }
+            comparisonRow("Device Serial") { item in
+                c2paMetadata(for: item)?.deviceSerialNumber
+            }
+            comparisonRow("Lens Model") { item in
+                c2paMetadata(for: item)?.lensModelName
+            }
+            comparisonRow("C2PA Creation Date") { item in
+                c2paMetadata(for: item)?.creationDateValue
+            }
+            comparisonRow("Manifest Store") { item in
+                c2paMetadata(for: item)?.manifestStore
+            }
+            comparisonRow("Assertions") { item in
+                guard let assertions = c2paMetadata(for: item)?.assertions else { return nil }
+                return assertions.joined(separator: ", ")
             }
         }
     }
@@ -420,6 +486,57 @@ struct MetadataComparisonView: View {
             guard let streams = item.metadata?.subtitleStreams,
                   streamIndex < streams.count else { return nil }
             return streams[streamIndex].isForced ? "Yes" : nil
+        }
+    }
+
+    // MARK: - C2PA Helpers
+
+    private func c2paMetadata(for item: VideoItem) -> C2PAMetadata? {
+        item.c2paMetadata ?? c2paByID[item.id]
+    }
+
+    private func c2paStatusValue(for item: VideoItem) -> String? {
+        if let c2pa = c2paMetadata(for: item) {
+            return c2pa.hasContentCredentials ? "Present" : "No"
+        }
+        if c2paLoadingIDs.contains(item.id) {
+            return "Checking..."
+        }
+        return "Not available"
+    }
+
+    private func loadC2PAIfNeeded() async {
+        let itemsToLoad = items.filter { item in
+            item.c2paMetadata == nil
+                && c2paByID[item.id] == nil
+                && !c2paCheckedIDs.contains(item.id)
+                && !c2paLoadingIDs.contains(item.id)
+        }
+
+        guard !itemsToLoad.isEmpty else { return }
+
+        let loadingIDs = Set(itemsToLoad.map(\.id))
+        await MainActor.run {
+            c2paLoadingIDs.formUnion(loadingIDs)
+        }
+
+        await withTaskGroup(of: (UUID, C2PAMetadata?).self) { group in
+            for item in itemsToLoad {
+                group.addTask {
+                    let metadata = await VideoFileUtils.fetchC2PAMetadata(for: item.url)
+                    return (item.id, metadata)
+                }
+            }
+
+            for await (id, metadata) in group {
+                await MainActor.run {
+                    if let metadata {
+                        c2paByID[id] = metadata
+                    }
+                    c2paCheckedIDs.insert(id)
+                    c2paLoadingIDs.remove(id)
+                }
+            }
         }
     }
 

@@ -19,6 +19,12 @@ struct VideoFileRowView: View {
     let onCancel: () -> Void
     let onDelete: () -> Void
     let onReset: (_ optionKeyPressed: Bool) -> Void
+    var onCancelDownload: (() -> Void)?
+    var onRetryDownload: (() -> Void)?
+    var onForceRedownload: (() -> Void)?
+    var onCancelScheduledDownload: (() -> Void)?
+    var onTranscribeOnly: (() -> Void)?
+    var onRenameOutputFileName: ((String?) -> Void)? = nil
     /// Indicates if this row is selected in the list
     var isSelected: Bool = false
     var onCommentFocusChange: (UUID, Bool) -> Void = { _, _ in }
@@ -47,6 +53,63 @@ struct VideoFileRowView: View {
             ? "Merge enabled: this clip will be concatenated into a single output file."
             : "Clips are merge-compatible. Enable merge to export a single concatenated file."
     }
+
+    // Upload button computed properties
+    private var uploadIconName: String {
+        if file.uploadSourceFile {
+            return "arrow.up.doc.fill"  // Different icon for source file upload
+        } else if file.uploadEnabled {
+            return "icloud.and.arrow.up.fill"
+        } else {
+            return "icloud.and.arrow.up"
+        }
+    }
+
+    private var uploadIconColor: Color {
+        if file.uploadSourceFile {
+            return .orange  // Orange for source file upload
+        } else if file.uploadEnabled {
+            return .blue
+        } else {
+            return .secondary
+        }
+    }
+
+    private var uploadHelpText: String {
+        guard UploadManager.shared.isConfigured else {
+            return "Configure upload in Settings > Upload"
+        }
+        if file.uploadSourceFile {
+            return "Source file will upload immediately. Option+click to disable."
+        } else if file.uploadEnabled {
+            return "Encoded file will upload after encoding. Option+click to upload source file instead."
+        } else {
+            return "Enable upload after encoding. Option+click to upload source file immediately."
+        }
+    }
+
+    // Subtitle button computed properties
+    private var subtitleIconName: String {
+        file.subtitleEnabled ? "captions.bubble.fill" : "captions.bubble"
+    }
+
+    private var subtitleIconColor: Color {
+        file.subtitleEnabled ? .green : .secondary
+    }
+
+    private var subtitleHelpText: String {
+        if file.subtitleEnabled {
+            return "Subtitle generation enabled. SRT will be created after encoding. Option+click to generate SRT only (no encoding)."
+        } else {
+            return "Enable subtitle generation after encoding. Option+click to generate SRT only (no encoding)."
+        }
+    }
+
+    private func isOptionKeyPressed() -> Bool {
+        let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        return flags.contains(.option)
+    }
+
     @FocusState private var isCommentFieldFocused: Bool
     @State private var isThumbnailHovered = false
     @State private var showPreview = false
@@ -57,6 +120,9 @@ struct VideoFileRowView: View {
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
     @State private var showCommentPreviewPopover = false
+    @State private var isEditingOutputName = false
+    @State private var outputNameDraft: String = ""
+    @FocusState private var isOutputNameFieldFocused: Bool
 
     var body: some View {
         ZStack {
@@ -80,9 +146,34 @@ struct VideoFileRowView: View {
                             // Duration warning icon
                             Text("→")
                             HStack(spacing: 4) {
-                                Text(displayOutputFilename())
-                                    .font(.headline)
-                                    .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .primary)
+                                if isEditingOutputName {
+                                    TextField("Output filename", text: $outputNameDraft)
+                                        .font(.headline)
+                                        .textFieldStyle(.plain)
+                                        .focused($isOutputNameFieldFocused)
+                                        .onSubmit {
+                                            commitOutputNameEdit()
+                                        }
+                                        .onExitCommand {
+                                            cancelOutputNameEdit()
+                                        }
+                                        .onChange(of: isOutputNameFieldFocused) { _, isFocused in
+                                            if !isFocused && isEditingOutputName {
+                                                commitOutputNameEdit()
+                                            }
+                                        }
+                                        .onAppear {
+                                            outputNameDraft = displayOutputFilename()
+                                            isOutputNameFieldFocused = true
+                                        }
+                                } else {
+                                    Text(displayOutputFilename())
+                                        .font(.headline)
+                                        .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .primary)
+                                        .onTapGesture(count: 2) {
+                                            beginOutputNameEdit()
+                                        }
+                                }
                                 if shouldShowMergeIndicator {
                                     Image(systemName: "link")
                                         .rotationEffect(.degrees(90))
@@ -143,7 +234,35 @@ struct VideoFileRowView: View {
                                 // Action buttons (delete/reset) - right aligned
                                 HStack {
                                     Spacer()
-                                    if file.status == .converting {
+                                    if file.isDownloading {
+                                        Button(action: { onCancelDownload?() }) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.purple)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel download")
+                                    } else if file.scheduledDownloadTime != nil {
+                                        Button(action: { onCancelScheduledDownload?() }) {
+                                            Image(systemName: "clock.badge.xmark")
+                                                .foregroundColor(.cyan)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel scheduled download")
+                                    } else if file.fileAlreadyExistsPath != nil {
+                                        Button(action: { onForceRedownload?() }) {
+                                            Image(systemName: "arrow.down.circle.fill")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Redownload (overwrite existing file)")
+                                    } else if file.downloadError != nil {
+                                        Button(action: { onRetryDownload?() }) {
+                                            Image(systemName: "arrow.clockwise.circle")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Retry download")
+                                    } else if file.status == .converting {
                                         Button(action: onCancel) {
                                             Image(systemName: "xmark.circle")
                                                 .foregroundColor(.red)
@@ -175,10 +294,17 @@ struct VideoFileRowView: View {
                             }
                         }
 
-                        // Progress bar (always shown when converting)
-                        if file.status == .converting {
-                            ProgressView(value: file.progress)
-                                .progressViewStyle(LinearProgressViewStyle())
+                        // Progress bar (shown when converting, downloading, uploading, or transcribing)
+                        if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading || file.subtitleStatus.isInProgress {
+                            if (file.isDownloading && isDownloadPreparing) || isSubtitlePreparing {
+                                ProgressView()
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                    .tint(progressBarColor)
+                            } else {
+                                ProgressView(value: progressBarValue)
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                    .tint(progressBarColor)
+                            }
                         }
 
                         // Standard mode: duration and size line
@@ -204,9 +330,90 @@ struct VideoFileRowView: View {
 
                                 Spacer()
 
+                                // Auto-encode toggle (for download items)
+                                if file.isDownloading || file.scheduledDownloadTime != nil {
+                                    Button {
+                                        file.autoEncodeAfterDownload.toggle()
+                                    } label: {
+                                        Image(systemName: file.autoEncodeAfterDownload ? "play.fill" : "play")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundColor(file.autoEncodeAfterDownload ? .green : .secondary)
+                                    .help(file.autoEncodeAfterDownload ? "Auto-encode enabled" : "Enable auto-encode after download")
+                                }
+
+                                // Upload toggle button (Option+click for source file upload)
+                                Button {
+                                    if isOptionKeyPressed() {
+                                        // Option+click: toggle source file upload
+                                        file.uploadSourceFile.toggle()
+                                        if file.uploadSourceFile {
+                                            file.uploadEnabled = true
+                                            // Start upload immediately for source files
+                                            Task {
+                                                await UploadManager.shared.startUpload(itemID: file.id)
+                                            }
+                                        }
+                                    } else {
+                                        file.uploadEnabled.toggle()
+                                        if !file.uploadEnabled {
+                                            file.uploadSourceFile = false
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: uploadIconName)
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundColor(uploadIconColor)
+                                .disabled(!UploadManager.shared.isConfigured)
+                                .help(uploadHelpText)
+
+                                // Subtitle toggle button (Option+click for transcribe-only)
+                                Button {
+                                    if isOptionKeyPressed() {
+                                        // Option+click: generate SRT only (no encoding)
+                                        onTranscribeOnly?()
+                                    } else {
+                                        file.subtitleEnabled.toggle()
+                                    }
+                                } label: {
+                                    Image(systemName: subtitleIconName)
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundColor(subtitleIconColor)
+                                .help(subtitleHelpText)
+
                                 // Action buttons container with fixed width
                                 HStack(spacing: 4) {
-                                    if file.status == .converting {
+                                    if file.isDownloading {
+                                        Button(action: { onCancelDownload?() }) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.purple)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel download")
+                                    } else if file.scheduledDownloadTime != nil {
+                                        Button(action: { onCancelScheduledDownload?() }) {
+                                            Image(systemName: "clock.badge.xmark")
+                                                .foregroundColor(.cyan)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel scheduled download")
+                                    } else if file.fileAlreadyExistsPath != nil {
+                                        Button(action: { onForceRedownload?() }) {
+                                            Image(systemName: "arrow.down.circle.fill")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Redownload (overwrite existing file)")
+                                    } else if file.downloadError != nil {
+                                        Button(action: { onRetryDownload?() }) {
+                                            Image(systemName: "arrow.clockwise.circle")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Retry download")
+                                    } else if file.status == .converting {
                                         Button(action: onCancel) {
                                             Image(systemName: "xmark.circle")
                                                 .foregroundColor(.red)
@@ -230,7 +437,7 @@ struct VideoFileRowView: View {
                                         .help("Remove from list")
 
                                         FileResetButton(
-                                            isEnabled: file.status != .converting && file.status != .waiting,
+                                            isEnabled: file.status != .converting && file.status != .waiting && !file.isDownloading,
                                             onReset: onReset
                                         )
                                     }
@@ -275,7 +482,8 @@ struct VideoFileRowView: View {
         }
         .padding(.horizontal, 4)
         .sheet(isPresented: $showPreview) {
-            if showPreview {
+            // Don't show preview for scheduled downloads or items being downloaded
+            if showPreview && !file.isDownloading && file.scheduledDownloadTime == nil {
                 PreviewPlayerView(item: $file)
             }
         }
@@ -295,9 +503,10 @@ struct VideoFileRowView: View {
             }
         }
         .task(id: file.thumbnailData) {
+            await Task.yield()
             // Decode thumbnail asynchronously off main thread
             guard let data = file.thumbnailData else {
-                cachedThumbnail = nil
+                await MainActor.run { cachedThumbnail = nil }
                 return
             }
 
@@ -314,7 +523,8 @@ struct VideoFileRowView: View {
                 return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             }.value
 
-            cachedThumbnail = image
+            guard !Task.isCancelled else { return }
+            await MainActor.run { cachedThumbnail = image }
         }
         .onAppear {
             // Initialize local comment from file
@@ -322,13 +532,15 @@ struct VideoFileRowView: View {
         }
         .onChange(of: file.comment) { _, newComment in
             // Sync local comment when file comment changes externally
-            if !isCommentFieldFocused {
+            // Guard against cycle: only sync if values differ
+            if !isCommentFieldFocused && localComment != newComment {
                 localComment = newComment
             }
         }
         .onChange(of: localComment) { _, newValue in
             // Sync local comment back to file when changed (only if not being deleted)
-            if !isBeingDeleted && isCommentFieldFocused && file.status == .waiting {
+            // Guard against cycle: only sync if values differ
+            if !isBeingDeleted && isCommentFieldFocused && file.status == .waiting && file.comment != newValue {
                 file.comment = newValue
             }
         }
@@ -340,6 +552,7 @@ struct VideoFileRowView: View {
             .overlay(alignment: .topTrailing, content: { timecodeBadge })
             .overlay(alignment: .bottomLeading, content: { trimBadge })
             .overlay(alignment: .bottomTrailing, content: { cropBadge })
+            .overlay(alignment: .trailing, content: { uploadBadge })
             .overlay { if isThumbnailHovered { thumbnailHoverOverlay } }
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -447,6 +660,26 @@ struct VideoFileRowView: View {
     private var cropBadge: some View {
         if let cropConfig = file.cropConfig, cropConfig.isActive {
             badgeView(icon: "crop", text: "\(Int(cropConfig.normalizedRect.width * 100))%")
+        }
+    }
+
+    @ViewBuilder
+    private var uploadBadge: some View {
+        switch file.uploadStatus {
+        case .uploading:
+            badgeView(icon: "arrow.up.circle", text: "\(Int(file.uploadProgress * 100))%", color: .orange)
+        case .uploaded:
+            badgeView(icon: "checkmark.icloud.fill", text: "", color: .green)
+        case .failed:
+            badgeView(icon: "exclamationmark.icloud.fill", text: "", color: .red)
+        case .pending:
+            badgeView(icon: "clock.arrow.circlepath", text: "", color: .orange)
+        case .cancelled:
+            badgeView(icon: "xmark.icloud", text: "", color: .gray)
+        case .notQueued:
+            if file.uploadEnabled {
+                badgeView(icon: "icloud.and.arrow.up", text: "", color: .blue.opacity(0.7))
+            }
         }
     }
 
@@ -626,6 +859,65 @@ struct VideoFileRowView: View {
             .buttonStyle(.borderless)
             .foregroundColor(.secondary)
             .help("View metadata")
+
+            // Auto-encode toggle (for download items)
+            if file.isDownloading || file.scheduledDownloadTime != nil {
+                Button {
+                    file.autoEncodeAfterDownload.toggle()
+                } label: {
+                    Image(systemName: file.autoEncodeAfterDownload ? "play.fill" : "play")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(file.autoEncodeAfterDownload ? .green : .secondary)
+                .help(file.autoEncodeAfterDownload ? "Auto-encode enabled" : "Enable auto-encode after download")
+            }
+
+            // Upload toggle button (Option+click for source file upload)
+            Button {
+                if isOptionKeyPressed() {
+                    // Option+click: toggle source file upload
+                    file.uploadSourceFile.toggle()
+                    if file.uploadSourceFile {
+                        file.uploadEnabled = true
+                        // Start upload immediately for source files
+                        Task {
+                            await UploadManager.shared.startUpload(itemID: file.id)
+                        }
+                    }
+                } else {
+                    file.uploadEnabled.toggle()
+                    if !file.uploadEnabled {
+                        file.uploadSourceFile = false
+                    }
+                }
+            } label: {
+                Image(systemName: uploadIconName)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(uploadIconColor)
+            .disabled(!UploadManager.shared.isConfigured)
+            .help(uploadHelpText)
+
+            // Subtitle toggle button (compact, Option+click for transcribe-only)
+            Button {
+                if isOptionKeyPressed() {
+                    // Option+click: generate SRT only (no encoding)
+                    onTranscribeOnly?()
+                } else {
+                    file.subtitleEnabled.toggle()
+                }
+            } label: {
+                Image(systemName: subtitleIconName)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(subtitleIconColor)
+            .help(subtitleHelpText)
         }
     }
 
@@ -882,6 +1174,32 @@ struct VideoFileRowView: View {
     }
     
     private var progressText: String {
+        // Handle download states first
+        if file.isDownloading {
+            if isDownloadPreparing {
+                return "Preparing for download..."
+            }
+            if let speed = file.downloadSpeed {
+                return "Downloading... \(speed)"
+            } else {
+                return "Downloading..."
+            }
+        }
+        if let scheduledTime = file.scheduledDownloadTime {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+            formatter.timeZone = .current  // Explicitly use local timezone
+            let timeString = formatter.string(from: scheduledTime)
+            return "Scheduled for \(timeString)"
+        }
+        if file.fileAlreadyExistsPath != nil {
+            return "File already exists - click to redownload"
+        }
+        if let error = file.downloadError {
+            return "Download failed: \(error)"
+        }
+
         switch file.status {
         case .waiting:
             return "Waiting"
@@ -899,8 +1217,22 @@ struct VideoFileRowView: View {
             return "Failed"
         }
     }
-    
+
     private var statusColor: Color {
+        // Handle download states first
+        if file.isDownloading {
+            return .purple
+        }
+        if file.scheduledDownloadTime != nil {
+            return .cyan
+        }
+        if file.fileAlreadyExistsPath != nil {
+            return .orange
+        }
+        if file.downloadError != nil {
+            return .red
+        }
+
         switch file.status {
         case .done: return .green
         case .converting: return .blue
@@ -909,8 +1241,55 @@ struct VideoFileRowView: View {
         default: return .gray
         }
     }
-    
+
+    private var isDownloadPreparing: Bool {
+        file.isDownloading && !file.downloadHasProgress
+    }
+
+    private var isSubtitlePreparing: Bool {
+        switch file.subtitleStatus {
+        case .pending, .extractingAudio:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Progress bar value (0.0 to 1.0) based on current state
+    private var progressBarValue: Double {
+        if file.uploadStatus == .uploading {
+            return file.uploadProgress
+        } else if file.isDownloading {
+            return file.downloadProgress
+        } else if file.status == .converting {
+            return file.progress
+        } else if file.subtitleStatus.isInProgress {
+            return file.subtitleProgress
+        } else {
+            return file.progress
+        }
+    }
+
+    /// Progress bar color based on current state
+    private var progressBarColor: Color {
+        if file.uploadStatus == .uploading {
+            return .orange
+        } else if file.isDownloading {
+            return .purple
+        } else if file.status == .converting {
+            return .accentColor
+        } else if file.subtitleStatus.isInProgress {
+            return .green
+        } else {
+            return .accentColor
+        }
+    }
+
     private func displayOutputFilename() -> String {
+        if let overrideName = sanitizedOutputNameOverride() {
+            let resolvedExtension = preset.outputExtension(for: file.url)
+            return overrideName + "." + resolvedExtension
+        }
         if let outputURL = file.outputURL {
             return outputURL.lastPathComponent
         }
@@ -923,6 +1302,31 @@ struct VideoFileRowView: View {
         let resolvedExtension = preset.outputExtension(for: file.url)
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
         return "\(sanitized)\(suffixPart).\(resolvedExtension)"
+    }
+
+    private func sanitizedOutputNameOverride() -> String? {
+        guard let raw = file.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        return FileNameProcessor.processFileName(raw)
+    }
+
+    private func beginOutputNameEdit() {
+        outputNameDraft = displayOutputFilename()
+        isEditingOutputName = true
+        isOutputNameFieldFocused = true
+    }
+
+    private func commitOutputNameEdit() {
+        isEditingOutputName = false
+        let trimmed = outputNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        onRenameOutputFileName?(trimmed.isEmpty ? nil : trimmed)
+    }
+
+    private func cancelOutputNameEdit() {
+        isEditingOutputName = false
+        outputNameDraft = ""
     }
 
     private func dragIcon(for outputURL: URL, color: Color, helpText: String) -> some View {

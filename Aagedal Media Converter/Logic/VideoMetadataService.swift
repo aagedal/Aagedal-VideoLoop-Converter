@@ -190,17 +190,108 @@ enum VideoMetadataError: Error {
     case timeout
 }
 
+/// Essential video information needed for import (obtained in a single FFprobe call)
+struct EssentialVideoInfo: Sendable {
+    let duration: Double
+    let hasVideoStream: Bool
+    let videoStreamCount: Int
+    let hasAudioStream: Bool
+    let primaryCodec: String?
+    let width: Int?
+    let height: Int?
+}
+
 actor VideoMetadataService {
     static let shared = VideoMetadataService()
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "VideoMetadata")
     private let cache = NSCache<NSURL, CachedMetadata>()
+    private let essentialInfoCache = NSCache<NSURL, CachedEssentialInfo>()
 
     private final class CachedMetadata: NSObject {
         let metadata: VideoMetadata
         init(metadata: VideoMetadata) {
             self.metadata = metadata
         }
+    }
+
+    private final class CachedEssentialInfo: NSObject {
+        let info: EssentialVideoInfo
+        init(info: EssentialVideoInfo) {
+            self.info = info
+        }
+    }
+
+    /// Fetches essential video info in a single FFprobe call (optimized for bulk imports)
+    /// Returns: duration, hasVideoStream, videoStreamCount, hasAudioStream, primaryCodec
+    func fetchEssentialInfo(for url: URL) async throws -> EssentialVideoInfo {
+        // Check cache first
+        if let cached = essentialInfoCache.object(forKey: url as NSURL) {
+            return cached.info
+        }
+
+        var didStartDirectAccess = false
+        var didStartBookmarkAccess = false
+        if url.startAccessingSecurityScopedResource() {
+            didStartDirectAccess = true
+        } else if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
+            didStartBookmarkAccess = true
+        }
+
+        defer {
+            if didStartDirectAccess {
+                url.stopAccessingSecurityScopedResource()
+            } else if didStartBookmarkAccess {
+                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
+            }
+        }
+
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
+            throw VideoMetadataError.ffprobeMissing
+        }
+
+        // Single FFprobe call that gets both format and all streams
+        let response = try await fetchFFprobeResponse(
+            url: url,
+            ffprobePath: ffprobePath,
+            arguments: [
+                "-v", "error",
+                "-show_format",
+                "-show_streams",
+                "-of", "json"
+            ],
+            allowNoStreams: true
+        )
+
+        // Parse essential info from response
+        let duration = response.format?.duration.flatMap { Double($0) } ?? 0
+
+        // Filter video streams (exclude cover art)
+        let videoStreams = response.streams.filter { stream in
+            stream.codecType == "video" && stream.disposition?.attachedPic != 1
+        }
+        let hasVideoStream = !videoStreams.isEmpty
+        let videoStreamCount = videoStreams.count
+        let primaryVideoStream = videoStreams.first
+
+        // Check for audio streams
+        let audioStreams = response.streams.filter { $0.codecType == "audio" }
+        let hasAudioStream = !audioStreams.isEmpty
+
+        let info = EssentialVideoInfo(
+            duration: duration,
+            hasVideoStream: hasVideoStream,
+            videoStreamCount: videoStreamCount,
+            hasAudioStream: hasAudioStream,
+            primaryCodec: primaryVideoStream?.codecName,
+            width: primaryVideoStream?.width,
+            height: primaryVideoStream?.height
+        )
+
+        // Cache the result
+        essentialInfoCache.setObject(CachedEssentialInfo(info: info), forKey: url as NSURL)
+
+        return info
     }
 
     func metadata(for url: URL) async throws -> VideoMetadata {
@@ -224,61 +315,31 @@ actor VideoMetadataService {
             }
         }
 
-        guard let ffprobePath = Bundle.main.path(forResource: "ffprobe", ofType: nil) else {
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
             throw VideoMetadataError.ffprobeMissing
         }
 
-        let formatResponse = try await fetchFFprobeResponse(
+        let response = try await fetchFFprobeResponse(
             url: url,
             ffprobePath: ffprobePath,
             arguments: [
                 "-v", "error",
                 "-show_format",
-                "-of", "json"
-            ]
-        )
-
-        let videoResponse = try await fetchFFprobeResponse(
-            url: url,
-            ffprobePath: ffprobePath,
-            arguments: [
-                "-v", "error",
-                "-select_streams", "v",
                 "-show_streams",
                 "-of", "json"
             ],
             allowNoStreams: true
         )
 
-        let audioResponse = try await fetchFFprobeResponse(
-            url: url,
-            ffprobePath: ffprobePath,
-            arguments: [
-                "-v", "error",
-                "-select_streams", "a",
-                "-show_streams",
-                "-of", "json"
-            ],
-            allowNoStreams: true
-        )
-
-        let subtitleResponse = try await fetchFFprobeResponse(
-            url: url,
-            ffprobePath: ffprobePath,
-            arguments: [
-                "-v", "error",
-                "-select_streams", "s",
-                "-show_streams",
-                "-of", "json"
-            ],
-            allowNoStreams: true
-        )
+        let videoStreams = response.streams.filter { $0.codecType == "video" }
+        let audioStreams = response.streams.filter { $0.codecType == "audio" }
+        let subtitleStreams = response.streams.filter { $0.codecType == "subtitle" }
 
         let metadata = try buildMetadata(
-            format: formatResponse.format,
-            videoStreams: videoResponse.streams,
-            audioStreams: audioResponse.streams,
-            subtitleStreams: subtitleResponse.streams
+            format: response.format,
+            videoStreams: videoStreams,
+            audioStreams: audioStreams,
+            subtitleStreams: subtitleStreams
         )
         cache.setObject(CachedMetadata(metadata: metadata), forKey: url as NSURL)
         return metadata

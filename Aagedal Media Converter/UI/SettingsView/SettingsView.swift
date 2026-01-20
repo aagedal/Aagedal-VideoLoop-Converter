@@ -13,6 +13,9 @@ struct SettingsView: View {
         case presets
         case waveform
         case watchFolder
+        case ytdlp
+        case upload
+        case whisper
         case updates
         case shortcuts
     }
@@ -39,6 +42,18 @@ struct SettingsView: View {
                 .tabItem { Label("Watch Folder", systemImage: "eye.fill") }
                 .tag(SettingsTab.watchFolder)
 
+            YTDLPSettingsView()
+                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
+                .tag(SettingsTab.ytdlp)
+
+            UploadSettingsView()
+                .tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
+                .tag(SettingsTab.upload)
+
+            WhisperSettingsView()
+                .tabItem { Label("Subtitles", systemImage: "captions.bubble") }
+                .tag(SettingsTab.whisper)
+
             UpdateSettingsView()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(SettingsTab.updates)
@@ -63,10 +78,16 @@ struct SettingsView: View {
                     .keyboardShortcut("4", modifiers: .command)
                 Button("") { selectedTab = .watchFolder }
                     .keyboardShortcut("5", modifiers: .command)
-                Button("") { selectedTab = .updates }
+                Button("") { selectedTab = .ytdlp }
                     .keyboardShortcut("6", modifiers: .command)
-                Button("") { selectedTab = .shortcuts }
+                Button("") { selectedTab = .upload }
                     .keyboardShortcut("7", modifiers: .command)
+                Button("") { selectedTab = .whisper }
+                    .keyboardShortcut("8", modifiers: .command)
+                Button("") { selectedTab = .updates }
+                    .keyboardShortcut("9", modifiers: .command)
+                Button("") { selectedTab = .shortcuts }
+                    .keyboardShortcut("0", modifiers: .command)
             }
             .frame(width: 0, height: 0)
             .opacity(0)

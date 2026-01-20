@@ -12,8 +12,35 @@ import AVFoundation
 import AppKit
 import Carbon.HIToolbox
 
+private final class MergeCompatibilityScheduler: ObservableObject {
+    var task: Task<Void, Never>?
+
+    deinit {
+        task?.cancel()
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+
+    func schedule(after delayNanoseconds: UInt64 = 200_000_000, action: @escaping @MainActor () async -> Void) {
+        task?.cancel()
+        task = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: delayNanoseconds)
+            } catch {
+                return
+            }
+
+            guard !Task.isCancelled else { return }
+            await action()
+        }
+    }
+}
 
 struct ContentView: View {
+    @Environment(\.openSettings) private var openSettings
     @State private var droppedFiles: [VideoItem] = []
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path {
         didSet {
@@ -39,44 +66,7 @@ struct ContentView: View {
     @State private var hasUserChangedPreset = false
     @State private var dockProgressUpdater = DockProgressUpdater()
     @State private var progressTask: Task<Void, Never>?
-    @AppStorage(AppConstants.customPreset1NameKey) private var customPreset1Name = AppConstants.defaultCustomPresetDisplayNames[0]
-    @AppStorage(AppConstants.customPreset2NameKey) private var customPreset2Name = AppConstants.defaultCustomPresetDisplayNames[1]
-    @AppStorage(AppConstants.customPreset3NameKey) private var customPreset3Name = AppConstants.defaultCustomPresetDisplayNames[2]
-    @AppStorage(AppConstants.customPreset4NameKey) private var customPreset4Name = AppConstants.defaultCustomPresetDisplayNames[3]
-    @AppStorage(AppConstants.customPreset5NameKey) private var customPreset5Name = AppConstants.defaultCustomPresetDisplayNames[4]
-    @AppStorage(AppConstants.customPreset6NameKey) private var customPreset6Name = AppConstants.defaultCustomPresetDisplayNames[5]
-    @AppStorage(AppConstants.customPreset7NameKey) private var customPreset7Name = AppConstants.defaultCustomPresetDisplayNames[6]
-    @AppStorage(AppConstants.customPreset8NameKey) private var customPreset8Name = AppConstants.defaultCustomPresetDisplayNames[7]
-    @AppStorage(AppConstants.customPreset9NameKey) private var customPreset9Name = AppConstants.defaultCustomPresetDisplayNames[8]
-    @AppStorage(AppConstants.customPreset10NameKey) private var customPreset10Name = AppConstants.defaultCustomPresetDisplayNames[9]
-
-    // Preset visibility (built-in presets)
-    @AppStorage(AppConstants.videoLoopVisibleKey) private var videoLoopVisible = true
-    @AppStorage(AppConstants.videoLoopWithSoundVisibleKey) private var videoLoopWithSoundVisible = true
-    @AppStorage(AppConstants.animatedStillVisibleKey) private var animatedStillVisible = true
-    @AppStorage(AppConstants.h264VisibleKey) private var h264Visible = true
-    @AppStorage(AppConstants.h265VisibleKey) private var h265Visible = true
-    @AppStorage(AppConstants.av1VisibleKey) private var av1Visible = true
-    @AppStorage(AppConstants.tvHEVCVisibleKey) private var tvHEVCVisible = true
-    @AppStorage(AppConstants.tvAVCIntraVisibleKey) private var tvAVCIntraVisible = true
-    @AppStorage(AppConstants.proresVisibleKey) private var proresVisible = true
-    @AppStorage(AppConstants.proxyVisibleKey) private var proxyVisible = true
-    @AppStorage(AppConstants.streamCopyVisibleKey) private var streamCopyVisible = true
-    @AppStorage(AppConstants.audioWAVVisibleKey) private var audioWAVVisible = true
-    @AppStorage(AppConstants.audioAACVisibleKey) private var audioAACVisible = true
-
-    // Custom preset activation
-    @AppStorage(AppConstants.customPreset1ActiveKey) private var customPreset1Active = false
-    @AppStorage(AppConstants.customPreset2ActiveKey) private var customPreset2Active = false
-    @AppStorage(AppConstants.customPreset3ActiveKey) private var customPreset3Active = false
-    @AppStorage(AppConstants.customPreset4ActiveKey) private var customPreset4Active = false
-    @AppStorage(AppConstants.customPreset5ActiveKey) private var customPreset5Active = false
-    @AppStorage(AppConstants.customPreset6ActiveKey) private var customPreset6Active = false
-    @AppStorage(AppConstants.customPreset7ActiveKey) private var customPreset7Active = false
-    @AppStorage(AppConstants.customPreset8ActiveKey) private var customPreset8Active = false
-    @AppStorage(AppConstants.customPreset9ActiveKey) private var customPreset9Active = false
-    @AppStorage(AppConstants.customPreset10ActiveKey) private var customPreset10Active = false
-
+    private let presetManager = PresetManager.shared
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.watchFolderModeKey) private var watchFolderModeEnabled = false
     @AppStorage(AppConstants.watchFolderPathKey) private var watchFolderPath = ""
@@ -84,12 +74,14 @@ struct ContentView: View {
     @State private var mergeClipsEnabled = false
     @State private var mergeClipsAvailable = false
     @State private var mergeClipsTooltip = "Add at least two compatible clips to enable merging."
-    @State private var mergeCompatibilityTask: Task<Void, Never>? = nil
+    @StateObject private var mergeCompatibilityScheduler = MergeCompatibilityScheduler()
     
     @StateObject private var updateChecker = UpdateChecker.shared
     @State private var showUpdateNotification = false
     @State private var updateNotificationTask: Task<Void, Never>?
-    
+    @State private var showURLInputOverlay = false
+    @State private var showYTDLPNotConfiguredAlert = false
+
     // Keyboard shortcut sheet states - using optional UUID directly for item-based sheet presentation
     // When non-nil, the corresponding sheet is presented. Set to nil to dismiss.
     @State private var trimSheetItemID: UUID?
@@ -112,36 +104,9 @@ struct ContentView: View {
         droppedFiles.contains { $0.status != .waiting }
     }
 
-    /// Presets that are currently visible in the picker, computed from @AppStorage values
-    /// This ensures SwiftUI reactively updates the picker when visibility settings change
+    /// Presets that are currently visible in the picker
     private var visiblePresets: [ExportPreset] {
-        ExportPreset.allCases.filter { preset in
-            switch preset {
-            case .videoLoop: return videoLoopVisible
-            case .videoLoopWithSound: return videoLoopWithSoundVisible
-            case .animatedStill: return animatedStillVisible
-            case .h264: return h264Visible
-            case .h265: return h265Visible
-            case .av1: return av1Visible
-            case .tvHEVC: return tvHEVCVisible
-            case .tvAVCIntra: return tvAVCIntraVisible
-            case .prores: return proresVisible
-            case .proxy: return proxyVisible
-            case .streamCopy: return streamCopyVisible
-            case .audioUncompressedWAV: return audioWAVVisible
-            case .audioStereoAAC: return audioAACVisible
-            case .custom1: return customPreset1Active
-            case .custom2: return customPreset2Active
-            case .custom3: return customPreset3Active
-            case .custom4: return customPreset4Active
-            case .custom5: return customPreset5Active
-            case .custom6: return customPreset6Active
-            case .custom7: return customPreset7Active
-            case .custom8: return customPreset8Active
-            case .custom9: return customPreset9Active
-            case .custom10: return customPreset10Active
-            }
-        }
+        presetManager.visiblePresets
     }
 
     private var fileListView: some View {
@@ -187,11 +152,30 @@ struct ContentView: View {
                         in: droppedFiles
                     )
                 }
+            },
+            onURLDrop: { urlString in
+                handleURLDownload(urlString)
+            },
+            onRenameOutputFileName: { id, newName in
+                handleOutputFileNameOverride(itemID: id, newName: newName)
             }
         )
     }
 
     private func handleFileDeletion(_ indexSet: IndexSet) {
+        let itemsToRemove = indexSet.compactMap { index -> VideoItem? in
+            guard index < droppedFiles.count else { return nil }
+            return droppedFiles[index]
+        }
+
+        for item in itemsToRemove {
+            if item.isDownloading {
+                Task { await DownloadManager.shared.cancelDownload(itemID: item.id) }
+            } else if let _ = item.scheduledDownloadTime {
+                ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
+            }
+        }
+
         // Clean up cache for removed items
         for index in indexSet {
             if index < droppedFiles.count {
@@ -224,6 +208,7 @@ struct ContentView: View {
                 droppedFiles[index].trimStart = nil
                 droppedFiles[index].trimEnd = nil
                 droppedFiles[index].isMuted = false
+                droppedFiles[index].outputFileNameOverride = nil
                 // Also reset comment and date tag to defaults
                 droppedFiles[index].comment = ""
                 droppedFiles[index].includeDateTag = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
@@ -307,12 +292,85 @@ struct ContentView: View {
                 .task {
                     await startProgressUpdates()
                 }
+                .onAppear {
+                    setupScheduledDownloads()
+                }
                 .toolbar {
                     conversionToolbar
                 }
 
             if isConverting {
                 OverallProgressView(progress: overallProgress)
+            }
+        }
+        .overlay {
+            if showURLInputOverlay {
+                URLInputOverlay(
+                    isPresented: $showURLInputOverlay,
+                    onSubmit: { urlString in
+                        handleURLDownload(urlString)
+                    },
+                    onSchedule: { urlString, scheduledDate in
+                        handleScheduledDownload(urlString, at: scheduledDate)
+                    }
+                )
+            }
+        }
+        .alert("yt-dlp Not Available", isPresented: $showYTDLPNotConfiguredAlert) {
+            Button("Open Settings") {
+                openSettings()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("To download videos from URLs, you need yt-dlp. Install with Homebrew (brew install yt-dlp) or configure a custom path in Settings > Downloads.")
+        }
+    }
+
+    /// Handles URL download from the overlay
+    private func handleURLDownload(_ urlString: String) {
+        Task {
+            // Check if yt-dlp is configured
+            guard await DownloadManager.shared.isYTDLPConfigured() else {
+                showYTDLPNotConfiguredAlert = true
+                return
+            }
+
+            await DownloadManager.shared.startDownload(
+                url: urlString,
+                items: $droppedFiles,
+                outputFolder: currentOutputFolder
+            )
+        }
+    }
+
+    /// Handles scheduling a download for later
+    private func handleScheduledDownload(_ urlString: String, at date: Date) {
+        Task {
+            await DownloadManager.shared.scheduleDownload(
+                url: urlString,
+                at: date,
+                items: $droppedFiles,
+                outputFolder: currentOutputFolder
+            )
+        }
+    }
+
+    /// Sets up the download manager references for scheduled downloads
+    private func setupScheduledDownloads() {
+        // Store references in DownloadManager so scheduled downloads can access them
+        DownloadManager.shared.videoItems = $droppedFiles
+        DownloadManager.shared.outputFolder = currentOutputFolder
+
+        // Store references in UploadManager for upload functionality
+        UploadManager.shared.videoItems = $droppedFiles
+
+        // Set up auto-encode callback for downloads
+        DownloadManager.shared.onAutoEncode = { [self] _ in
+            Task { @MainActor in
+                // Only start if not already converting
+                if !isConverting {
+                    await startConversion()
+                }
             }
         }
     }
@@ -357,7 +415,10 @@ struct ContentView: View {
             onResetAll: {
                 resetAllFiles()
             },
-            onToggleConversion: handleConversionToggle
+            onToggleConversion: handleConversionToggle,
+            onShowURLInput: {
+                showURLInputOverlay = true
+            }
         )
     }
 
@@ -389,7 +450,7 @@ struct ContentView: View {
         }
         return nil
     }
-    
+
     // Handle file selection from file picker
     private func handleFileSelection(result: Result<[URL], Error>) {
         switch result {
@@ -416,27 +477,27 @@ struct ContentView: View {
                 }
                 let placeholderID = placeholder.id
 
-            // Load details asynchronously in background
-            Task(priority: .utility) {
-                let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let metadata = await VideoFileUtils.fetchMetadata(for: url)
+                // Load details asynchronously in background
+                Task(priority: .utility) {
+                    let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
+                    let metadata = await VideoFileUtils.fetchMetadata(for: url)
 
-                await MainActor.run {
-                    if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
-                        self.droppedFiles[index].apply(details: details)
-                        self.droppedFiles[index].detailsLoaded = true
-                        self.droppedFiles[index].metadata = metadata
+                    await MainActor.run {
+                        if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
+                            self.droppedFiles[index].apply(details: details)
+                            self.droppedFiles[index].detailsLoaded = true
+                            self.droppedFiles[index].metadata = metadata
 
-                        VideoFileUtils.prefetchPreviewAssets(for: url)
+                            VideoFileUtils.prefetchPreviewAssets(for: url)
+                        }
                     }
                 }
-            }
             }
         case .failure(let error):
             print("Error selecting files: \(error.localizedDescription)")
         }
     }
-    
+
     private func startProgressUpdates() async {
         progressTask?.cancel()
         progressTask = Task {
@@ -485,44 +546,7 @@ struct ContentView: View {
     }
 
     private func displayName(for preset: ExportPreset) -> String {
-        guard let slot = preset.customSlotIndex else {
-            return preset.displayName
-        }
-        let prefixes = AppConstants.customPresetPrefixes
-        let fallbackSuffixes = AppConstants.defaultCustomPresetNameSuffixes
-        let prefix = prefixes.indices.contains(slot) ? prefixes[slot] : "C\(slot + 1):"
-        let fallbackSuffix = fallbackSuffixes.indices.contains(slot) ? fallbackSuffixes[slot] : "Custom Preset"
-        let storedSuffix: String
-        switch slot {
-        case 0: storedSuffix = customPreset1Name
-        case 1: storedSuffix = customPreset2Name
-        case 2: storedSuffix = customPreset3Name
-        case 3: storedSuffix = customPreset4Name
-        case 4: storedSuffix = customPreset5Name
-        case 5: storedSuffix = customPreset6Name
-        case 6: storedSuffix = customPreset7Name
-        case 7: storedSuffix = customPreset8Name
-        case 8: storedSuffix = customPreset9Name
-        case 9: storedSuffix = customPreset10Name
-        default: storedSuffix = fallbackSuffix
-        }
-        let sanitizedSuffix = sanitizeCustomNameSuffix(storedSuffix, prefix: prefix, fallback: fallbackSuffix)
-        return "\(prefix) \(sanitizedSuffix)"
-    }
-
-    private func sanitizeCustomNameSuffix(_ value: String, prefix: String, fallback: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return fallback }
-        if trimmed.lowercased().hasPrefix(prefix.lowercased()) {
-            let cutoff = trimmed.index(trimmed.startIndex, offsetBy: prefix.count)
-            let remainder = trimmed[cutoff...].trimmingCharacters(in: .whitespacesAndNewlines)
-            return remainder.isEmpty ? fallback : remainder
-        }
-        if let colonIndex = trimmed.firstIndex(of: ":") {
-            let remainder = trimmed[trimmed.index(after: colonIndex)...].trimmingCharacters(in: .whitespacesAndNewlines)
-            return remainder.isEmpty ? fallback : remainder
-        }
-        return trimmed
+        presetManager.displayName(for: preset)
     }
 
     /// Creates a Binding<Bool> from a Binding<UUID?> for sheet presentation.
@@ -571,10 +595,9 @@ struct ContentView: View {
             return mergedURL
         }
 
-        let sanitizedBaseName = FileNameProcessor.processFileName(item.url.deletingPathExtension().lastPathComponent)
         let resolvedExtension = preset.outputExtension(for: item.url)
-        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
-        let outputFileName = sanitizedBaseName + suffixPart + "." + resolvedExtension
+        let outputBaseName = outputBaseName(for: item, preset: preset)
+        let outputFileName = outputBaseName + "." + resolvedExtension
         return currentOutputFolder.appendingPathComponent(outputFileName)
     }
 
@@ -590,6 +613,30 @@ struct ContentView: View {
         return currentOutputFolder.appendingPathComponent(outputFileName)
     }
 
+    private func outputBaseName(for item: VideoItem, preset: ExportPreset) -> String {
+        if let override = item.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            let baseName = (override as NSString).deletingPathExtension
+            return FileNameProcessor.processFileName(baseName)
+        }
+
+        let sanitizedBaseName = FileNameProcessor.processFileName(item.url.deletingPathExtension().lastPathComponent)
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        return sanitizedBaseName + suffixPart
+    }
+
+    private func handleOutputFileNameOverride(itemID: UUID, newName: String?) {
+        guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+        let trimmed = newName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            droppedFiles[index].outputFileNameOverride = nil
+        } else {
+            let baseName = (trimmed as NSString).deletingPathExtension
+            droppedFiles[index].outputFileNameOverride = FileNameProcessor.processFileName(baseName)
+        }
+        droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
+    }
+
     private var toolbarPresetBinding: Binding<ExportPreset> {
         Binding(
             get: { selectedPreset },
@@ -598,20 +645,20 @@ struct ContentView: View {
                 hasUserChangedPreset = true
                 selectedPreset = newValue
                 refreshExpectedOutputURLs(for: newValue)
-                scheduleMergeCompatibilityEvaluation()
 
-                // Auto-mute items when switching to VideoLoop preset if the setting is enabled
-                if newValue == .videoLoop && videoLoopDefaultMuted {
-                    for index in droppedFiles.indices where droppedFiles[index].status == .waiting {
-                        droppedFiles[index].isMuted = true
-                    }
+                // Defer merge evaluation to avoid modifying state during view update
+                Task { @MainActor in
+                    await Task.yield()
+                    self.scheduleMergeCompatibilityEvaluation()
                 }
-                // Auto-unmute items when switching away from a preset that forces mute
-                else if oldValue == .videoLoop && newValue != .videoLoop {
-                    for index in droppedFiles.indices where droppedFiles[index].status == .waiting {
-                        droppedFiles[index].isMuted = false
-                    }
-                }
+
+                // Apply auto-mute settings via PresetManager
+                presetManager.applyAutoMuteSettings(
+                    to: &droppedFiles,
+                    oldPreset: oldValue,
+                    newPreset: newValue,
+                    videoLoopDefaultMuted: videoLoopDefaultMuted
+                )
             }
         )
     }
@@ -630,6 +677,7 @@ struct ContentView: View {
             mergeClipsAvailable: mergeClipsAvailable,
             onToggleConversion: handleConversionToggle,
             onImport: { isFileImporterPresented = true },
+            onShowDownload: { showURLInputOverlay = true },
             onResetAll: resetAllFiles,
             hasResettableItems: hasResettableItems,
             onClear: clearAllFiles
@@ -637,7 +685,7 @@ struct ContentView: View {
     }
     
     // MARK: - Watch Folder Management
-    
+
     @MainActor
     private func addFilesFromWatchFolder(_ urls: [URL]) async {
         for url in urls {
@@ -693,22 +741,14 @@ struct ContentView: View {
     }
 
     private func scheduleMergeCompatibilityEvaluation() {
-        mergeCompatibilityTask?.cancel()
-        mergeCompatibilityTask = Task { @MainActor in
-            do {
-                try await Task.sleep(nanoseconds: 200_000_000)
-            } catch {
-                return
-            }
-
-            guard !Task.isCancelled else { return }
+        mergeCompatibilityScheduler.schedule {
             await evaluateMergeClipsState()
         }
     }
 
     @MainActor
     private func evaluateMergeClipsState() async {
-        mergeCompatibilityTask = nil
+        await Task.yield()
 
         if isConverting {
             mergeClipsAvailable = false
@@ -718,6 +758,8 @@ struct ContentView: View {
         }
 
         let result = await ConversionManager.shared.evaluateMergeCompatibility(for: droppedFiles, preset: selectedPreset)
+
+        guard !Task.isCancelled else { return }
 
         switch result {
         case .compatible:
@@ -747,7 +789,7 @@ struct ContentView: View {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    private func handleConversionToggle(optionKeyPressed: Bool) {
+    private func handleConversionToggle(_ optionKeyPressed: Bool) {
         Task { @MainActor in
             let currentlyConverting = await ConversionManager.shared.isConvertingStatus()
             isConverting = currentlyConverting
@@ -934,6 +976,14 @@ struct ContentView: View {
     private func clearAllFiles() {
         guard !isConverting else { return }
 
+        for item in droppedFiles {
+            if item.isDownloading {
+                Task { await DownloadManager.shared.cancelDownload(itemID: item.id) }
+            } else if let _ = item.scheduledDownloadTime {
+                ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
+            }
+        }
+
         for file in droppedFiles {
             Task {
                 await PreviewAssetGenerator.shared.cleanupAssets(for: file.url)
@@ -979,7 +1029,11 @@ struct ContentView: View {
         if didReset {
             overallProgress = 0.0
             dockProgressUpdater.reset()
-            scheduleMergeCompatibilityEvaluation()
+            // Defer merge evaluation to be safe
+            Task { @MainActor in
+                await Task.yield()
+                self.scheduleMergeCompatibilityEvaluation()
+            }
         }
     }
 
@@ -1024,6 +1078,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
     var onToggleMerge: () -> Void
     var onResetAll: () -> Void
     var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
+    var onShowURLInput: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -1031,7 +1086,8 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             onSelectOutputFolder: onSelectOutputFolder,
             onToggleMerge: onToggleMerge,
             onResetAll: onResetAll,
-            onToggleConversion: onToggleConversion
+            onToggleConversion: onToggleConversion,
+            onShowURLInput: onShowURLInput
         )
     }
     
@@ -1048,6 +1104,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         context.coordinator.onToggleMerge = onToggleMerge
         context.coordinator.onResetAll = onResetAll
         context.coordinator.onToggleConversion = onToggleConversion
+        context.coordinator.onShowURLInput = onShowURLInput
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -1060,6 +1117,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         var onToggleMerge: () -> Void
         var onResetAll: () -> Void
         var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
+        var onShowURLInput: () -> Void
         private var monitor: Any?
 
         init(
@@ -1067,13 +1125,15 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             onSelectOutputFolder: @escaping () -> Void,
             onToggleMerge: @escaping () -> Void,
             onResetAll: @escaping () -> Void,
-            onToggleConversion: @escaping (_ optionKeyPressed: Bool) -> Void
+            onToggleConversion: @escaping (_ optionKeyPressed: Bool) -> Void,
+            onShowURLInput: @escaping () -> Void
         ) {
             self.onToggleWatchFolder = onToggleWatchFolder
             self.onSelectOutputFolder = onSelectOutputFolder
             self.onToggleMerge = onToggleMerge
             self.onResetAll = onResetAll
             self.onToggleConversion = onToggleConversion
+            self.onShowURLInput = onShowURLInput
         }
         
         func install() {
@@ -1113,6 +1173,12 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
                 // Cmd+Return: Start/Stop Conversion
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_Return {
                     self.onToggleConversion(false)
+                    return nil
+                }
+
+                // Cmd+L: Show URL Input Overlay (L for Load)
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_L {
+                    self.onShowURLInput()
                     return nil
                 }
 
@@ -1338,6 +1404,8 @@ private struct ContentViewChangeHandlers: ViewModifier {
         } else {
             refreshExpectedOutputURLs(selectedPreset)
         }
+        // Keep DownloadManager in sync for scheduled downloads
+        DownloadManager.shared.outputFolder = updatedFolderURL
     }
 }
 
@@ -1389,17 +1457,43 @@ private struct ContentViewNotificationHandlers: ViewModifier {
             let placeholderID = placeholder.id
 
             Task(priority: .utility) {
-                let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let metadata = await VideoFileUtils.fetchMetadata(for: url)
+                let details = await VideoFileUtils.loadDetails(
+                    for: url,
+                    outputFolder: outputFolder,
+                    preset: selectedPreset,
+                    generateRowThumbnailIfMissing: false
+                )
 
                 await MainActor.run {
                     if let index = droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                         droppedFiles[index].apply(details: details)
                         droppedFiles[index].detailsLoaded = true
-                        droppedFiles[index].metadata = metadata
-                        VideoFileUtils.prefetchPreviewAssets(for: url)
                     }
                 }
+
+                if details.thumbnailData == nil {
+                    Task.detached(priority: .background) {
+                        let thumbnailData = await VideoFileUtils.getCachedThumbnail(url: url, generateRowThumbnailIfMissing: true)
+                        guard let thumbnailData else { return }
+                        await MainActor.run {
+                            if let index = droppedFiles.firstIndex(where: { $0.id == placeholderID }),
+                               droppedFiles[index].thumbnailData == nil {
+                                droppedFiles[index].thumbnailData = thumbnailData
+                            }
+                        }
+                    }
+                }
+
+                Task.detached(priority: .background) {
+                    let metadata = await VideoFileUtils.fetchMetadata(for: url)
+                    await MainActor.run {
+                        if let index = droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
+                            droppedFiles[index].metadata = metadata
+                        }
+                    }
+                }
+
+                VideoFileUtils.prefetchPreviewAssets(for: url)
             }
         }
     }

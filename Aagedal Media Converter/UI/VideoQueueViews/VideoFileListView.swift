@@ -55,6 +55,8 @@ struct VideoFileListView: View {
     var onOpenMetadata: (([UUID]) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
+    var onURLDrop: ((String) -> Void)?
+    var onRenameOutputFileName: ((UUID, String?) -> Void)? = nil
 
     @State private var isTargeted = false
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
@@ -158,8 +160,8 @@ struct VideoFileListView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showSortOverlay)
-        // Support file drops on entire view (empty or populated)
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
+        // Support file drops and URL drops on entire view (empty or populated)
+        .onDrop(of: [.fileURL, .url, .plainText], isTargeted: $isTargeted) { providers in
             return handleDrop(providers: providers)
         }
         .overlay(alignment: .topLeading) {
@@ -179,6 +181,10 @@ struct VideoFileListView: View {
                     onResetSelected: handleResetSelectedShortcut,
                     onDeselectAll: { selection.removeAll() },
                     onToggleMute: handleToggleMuteShortcut,
+                    onToggleUpload: handleToggleUploadShortcut,
+                    onToggleSourceUpload: handleToggleSourceUploadShortcut,
+                    onToggleSubtitles: handleToggleSubtitlesShortcut,
+                    onToggleAutoEncode: handleToggleAutoEncodeShortcut,
                     onNavigateUp: { handleNavigateSelection(direction: .up) },
                     onNavigateDown: { handleNavigateSelection(direction: .down) },
                     onSort: handleSortShortcut
@@ -209,98 +215,73 @@ struct VideoFileListView: View {
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        print(" handleDrop called with \(providers.count) providers")
         Task { @MainActor in
             await self.importProviders(providers)
         }
-        print(" handleDrop returning: true")
         return true
     }
-    
+
     @MainActor
     private func importProviders(_ providers: [NSItemProvider]) async {
         let supportedExtensions = AppConstants.supportedVideoExtensions
 
         for provider in providers {
-            print(" Processing provider: \(provider)")
             // Use the proper API to load file URLs
             if provider.canLoadObject(ofClass: URL.self) {
-                print(" Provider can load URL")
                 _ = provider.loadObject(ofClass: URL.self) { url, error in
                     if let error = error {
                         print(" Error loading URL: \(error)")
                         return
                     }
                     if let url = url {
-                        print(" Loaded URL: \(url)")
-                        
                         // For drag and drop, the URL already has temporary access
                         // We need to start accessing the security-scoped resource immediately
                         let hasAccess = url.startAccessingSecurityScopedResource()
-                        print(" Security-scoped access granted: \(hasAccess)")
-                        
+
                         Task { @MainActor in
                             await self.processFileURL(url, supportedExtensions: supportedExtensions, hasSecurityAccess: hasAccess)
                         }
-                    } else {
-                        print(" Provider cannot load URL")
                     }
                 }
-            } else {
-                print(" Provider cannot load URL")
             }
         }
     }
-    
+
     @MainActor
     private func processFileURL(_ url: URL, supportedExtensions: Set<String>, hasSecurityAccess: Bool = false) async {
-        print(" Processing file URL: \(url)")
-        
         // Get the file extension and check if it's supported
         let fileExtension = url.pathExtension.lowercased()
-        print(" File extension: '\(fileExtension)'")
-        print(" Supported extensions: \(supportedExtensions)")
-        
+
         guard !fileExtension.isEmpty,
               supportedExtensions.contains(fileExtension) else {
-            print(" File extension '\(fileExtension)' not supported")
             if hasSecurityAccess {
                 url.stopAccessingSecurityScopedResource()
-                print(" Released security-scoped resource (unsupported file)")
             }
             return
         }
-        
-        print(" File extension is supported")
-        
+
         // Handle security-scoped access based on the source
         var needsBookmarkAccess = false
         if !hasSecurityAccess {
             // Attempt to use an existing bookmark for persistent access
             if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
                 needsBookmarkAccess = true
-                print(" Successfully accessed security-scoped resource via bookmark")
             } else {
                 // No bookmark found – rely on direct entitlements (e.g. Downloads/Movie directory access)
                 if FileManager.default.isReadableFile(atPath: url.path) {
-                    print(" Proceeding with direct file access (no bookmark needed)")
                 } else {
                     print(" No bookmark and file not readable – access denied")
                     return
                 }
             }
-        } else {
-            print(" Using existing security-scoped resource access")
         }
-        
+
         var shouldReleaseImmediately = true
         let releaseSecurityAccess: () -> Void = {
             if hasSecurityAccess {
                 url.stopAccessingSecurityScopedResource()
-                print(" Released security-scoped resource (drag and drop)")
             } else if needsBookmarkAccess {
                 SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
-                print(" Released security-scoped resource (bookmark)")
             }
         }
         defer {
@@ -308,25 +289,21 @@ struct VideoFileListView: View {
                 releaseSecurityAccess()
             }
         }
-        
+
         // Save the bookmark for future access
-        let bookmarkSaved = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-        print(" Bookmark saved: \(bookmarkSaved)")
-        
+        _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+
         // Get the output folder from UserDefaults or use default
-        let outputFolder = UserDefaults.standard.string(forKey: "outputFolder") 
+        let outputFolder = UserDefaults.standard.string(forKey: "outputFolder")
             ?? AppConstants.defaultOutputDirectory.path
-            
+
         guard let placeholder = VideoFileUtils.makePlaceholderItem(from: url, outputFolder: outputFolder, preset: preset) else {
             print(" Failed to create placeholder video item")
             return
         }
 
-        print(" [processFileURL] Placeholder created: \(placeholder.name)")
-
         // Check for duplicates before adding
         if self.droppedFiles.contains(where: { $0.url == placeholder.url }) {
-            print(" Video item already exists in list")
             return
         }
 
@@ -336,20 +313,17 @@ struct VideoFileListView: View {
             droppedFiles[droppedFiles.count - 1].isMuted = true
         }
         let placeholderID = placeholder.id
-        print(" Added placeholder video item to list. Total items: \(self.droppedFiles.count)")
 
         Task(priority: .utility) {
             defer { releaseSecurityAccess() }
 
-            let bookmarkSaved = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-            print(" Bookmark saved: \(bookmarkSaved)")
+            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
 
             let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
             await MainActor.run {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].apply(details: details)
                     self.droppedFiles[index].detailsLoaded = true
-                    print(" [processFileURL] Details applied for: \(self.droppedFiles[index].name)")
                 }
             }
 
@@ -357,7 +331,6 @@ struct VideoFileListView: View {
             await MainActor.run {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].metadata = metadata
-                    print(" Updated video item with metadata: \(self.droppedFiles[index].name)")
                     VideoFileUtils.prefetchPreviewAssets(for: url)
                 }
             }
@@ -554,7 +527,81 @@ struct VideoFileListView: View {
             droppedFiles[index].isMuted.toggle()
         }
     }
-    
+
+    private func handleToggleUploadShortcut() {
+        // Works with single or multi-selection
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        // Only toggle if upload is configured
+        guard UploadManager.shared.isConfigured else { return }
+
+        for index in selectedIndices {
+            droppedFiles[index].uploadEnabled.toggle()
+            // Clear source upload when disabling upload
+            if !droppedFiles[index].uploadEnabled {
+                droppedFiles[index].uploadSourceFile = false
+            }
+        }
+    }
+
+    private func handleToggleSourceUploadShortcut() {
+        // Works with single or multi-selection - toggles source file upload
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        // Only toggle if upload is configured
+        guard UploadManager.shared.isConfigured else { return }
+
+        for index in selectedIndices {
+            droppedFiles[index].uploadSourceFile.toggle()
+            // Enable upload when enabling source upload
+            if droppedFiles[index].uploadSourceFile {
+                droppedFiles[index].uploadEnabled = true
+                // Start upload immediately for source files
+                let itemID = droppedFiles[index].id
+                Task {
+                    await UploadManager.shared.startUpload(itemID: itemID)
+                }
+            }
+        }
+    }
+
+    private func handleToggleSubtitlesShortcut() {
+        // Works with single or multi-selection
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        for index in selectedIndices {
+            droppedFiles[index].subtitleEnabled.toggle()
+        }
+    }
+
+    private func handleToggleAutoEncodeShortcut() {
+        // Works with single or multi-selection - only affects download items
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        for index in selectedIndices {
+            // Only toggle for items that are downloading or scheduled
+            if droppedFiles[index].isDownloading || droppedFiles[index].scheduledDownloadTime != nil {
+                droppedFiles[index].autoEncodeAfterDownload.toggle()
+            }
+        }
+    }
+
     private enum MoveDirection {
         case up, down
     }
@@ -675,12 +722,95 @@ struct VideoFileListView: View {
         return resourceValues?.creationDate ?? Date.distantPast
     }
 
+    // MARK: - Transcribe Only (Option+click)
+
+    /// Generates subtitles directly from source file without encoding
+    private func transcribeOnly(itemID: UUID) async {
+        // Find the item
+        guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+
+        let inputURL = droppedFiles[index].url
+
+        // Get model from settings
+        let modelRaw = UserDefaults.standard.string(forKey: AppConstants.whisperModelKey) ?? "base"
+        let model = WhisperModel(rawValue: modelRaw) ?? .base
+
+        // Get language from settings
+        let language = UserDefaults.standard.string(forKey: AppConstants.whisperLanguageKey) ?? "auto"
+
+        // Check if model is downloaded (nonisolated, no await needed)
+        guard WhisperModelManager.shared.isModelDownloaded(model) else {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .failed("Model '\(model.displayName)' not downloaded")
+                }
+            }
+            return
+        }
+
+        // Update status to pending
+        await MainActor.run {
+            if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].subtitleStatus = .pending
+            }
+        }
+
+        do {
+            let srtURL = try await WhisperService.shared.generateSubtitlesOnly(
+                inputFile: inputURL,
+                model: model,
+                language: language
+            ) { whisperProgress in
+                Task { @MainActor in
+                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        switch whisperProgress.stage {
+                        case .extractingAudio:
+                            self.droppedFiles[idx].subtitleStatus = .extractingAudio
+                        case .transcribing:
+                            self.droppedFiles[idx].subtitleStatus = .generating(progress: whisperProgress.percentage)
+                        case .complete:
+                            self.droppedFiles[idx].subtitleStatus = .completed
+                        case .failed(let error):
+                            self.droppedFiles[idx].subtitleStatus = .failed(error)
+                        default:
+                            break
+                        }
+                        self.droppedFiles[idx].subtitleProgress = whisperProgress.percentage
+                    }
+                }
+            }
+
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .completed
+                    droppedFiles[idx].subtitleFilePath = srtURL
+                    droppedFiles[idx].subtitleProgress = 1.0
+                }
+            }
+            print("📝 Transcribe-only completed: \(srtURL.lastPathComponent)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+            print("📝 Transcribe-only failed: \(error.localizedDescription)")
+        }
+    }
+
     // MARK: - Row Builder
     @ViewBuilder
     private func cardRow(for index: Int) -> some View {
-        // Get a binding to the file in the array
-        let file = $droppedFiles[index]
-        VideoFileRowView(
+        // Guard against index out of bounds (can happen during async array updates)
+        if index >= droppedFiles.count {
+            EmptyView()
+        } else {
+            // Get a binding to the file in the array
+            let file = $droppedFiles[index]
+            VideoFileRowView(
             file: file,
             focusedCommentID: $focusedCommentID,
             preset: preset,
@@ -693,9 +823,31 @@ struct VideoFileListView: View {
             onReset: { optionKeyPressed in
                 onReset(index, optionKeyPressed)
             },
+            onCancelDownload: {
+                Task { await DownloadManager.shared.cancelDownload(itemID: file.wrappedValue.id) }
+            },
+            onRetryDownload: {
+                Task { await DownloadManager.shared.retryDownload(itemID: file.wrappedValue.id) }
+            },
+            onForceRedownload: {
+                Task { await DownloadManager.shared.forceRedownload(itemID: file.wrappedValue.id) }
+            },
+            onCancelScheduledDownload: {
+                ScheduledDownloadService.shared.cancelScheduledItem(itemID: file.wrappedValue.id)
+                // Remove the item from the queue
+                onDelete(IndexSet(integer: index))
+            },
+            onTranscribeOnly: {
+                Task {
+                    await transcribeOnly(itemID: file.wrappedValue.id)
+                }
+            },
+            onRenameOutputFileName: { newName in
+                onRenameOutputFileName?(file.wrappedValue.id, newName)
+            },
             isSelected: selection.contains(file.wrappedValue.id),
             onCommentFocusChange: { id, isFocused in
-                guard droppedFiles[index].id == id else { return }
+                guard index < droppedFiles.count, droppedFiles[index].id == id else { return }
                 if isFocused {
                     // Don't override multi-selection when comment field is focused
                     // Only update focusedCommentID for Tab navigation
@@ -719,10 +871,11 @@ struct VideoFileListView: View {
             showDateTagButton: showDateTagButton,
             isCompactMode: isCompactMode
         )
-        .padding([.vertical], 4)
-        .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets())
-        .tag(file.wrappedValue.id)
+            .padding([.vertical], 4)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets())
+            .tag(file.wrappedValue.id)
+        }
     }
 }
 
@@ -791,6 +944,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onResetSelected: () -> Void
     var onDeselectAll: () -> Void
     var onToggleMute: () -> Void
+    var onToggleUpload: () -> Void
+    var onToggleSourceUpload: () -> Void
+    var onToggleSubtitles: () -> Void
+    var onToggleAutoEncode: () -> Void
     // Navigation shortcuts (plain arrow keys)
     var onNavigateUp: () -> Void
     var onNavigateDown: () -> Void
@@ -813,6 +970,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onResetSelected: onResetSelected,
             onDeselectAll: onDeselectAll,
             onToggleMute: onToggleMute,
+            onToggleUpload: onToggleUpload,
+            onToggleSourceUpload: onToggleSourceUpload,
+            onToggleSubtitles: onToggleSubtitles,
+            onToggleAutoEncode: onToggleAutoEncode,
             onNavigateUp: onNavigateUp,
             onNavigateDown: onNavigateDown,
             onSort: onSort
@@ -841,6 +1002,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onResetSelected = onResetSelected
         context.coordinator.onDeselectAll = onDeselectAll
         context.coordinator.onToggleMute = onToggleMute
+        context.coordinator.onToggleUpload = onToggleUpload
+        context.coordinator.onToggleSourceUpload = onToggleSourceUpload
+        context.coordinator.onToggleSubtitles = onToggleSubtitles
+        context.coordinator.onToggleAutoEncode = onToggleAutoEncode
         context.coordinator.onNavigateUp = onNavigateUp
         context.coordinator.onNavigateDown = onNavigateDown
         context.coordinator.onSort = onSort
@@ -865,6 +1030,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onResetSelected: () -> Void
         var onDeselectAll: () -> Void
         var onToggleMute: () -> Void
+        var onToggleUpload: () -> Void
+        var onToggleSourceUpload: () -> Void
+        var onToggleSubtitles: () -> Void
+        var onToggleAutoEncode: () -> Void
         var onNavigateUp: () -> Void
         var onNavigateDown: () -> Void
         var onSort: () -> Void
@@ -885,6 +1054,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onResetSelected: @escaping () -> Void,
             onDeselectAll: @escaping () -> Void,
             onToggleMute: @escaping () -> Void,
+            onToggleUpload: @escaping () -> Void,
+            onToggleSourceUpload: @escaping () -> Void,
+            onToggleSubtitles: @escaping () -> Void,
+            onToggleAutoEncode: @escaping () -> Void,
             onNavigateUp: @escaping () -> Void,
             onNavigateDown: @escaping () -> Void,
             onSort: @escaping () -> Void
@@ -903,6 +1076,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onResetSelected = onResetSelected
             self.onDeselectAll = onDeselectAll
             self.onToggleMute = onToggleMute
+            self.onToggleUpload = onToggleUpload
+            self.onToggleSourceUpload = onToggleSourceUpload
+            self.onToggleSubtitles = onToggleSubtitles
+            self.onToggleAutoEncode = onToggleAutoEncode
             self.onNavigateUp = onNavigateUp
             self.onNavigateDown = onNavigateDown
             self.onSort = onSort
@@ -952,6 +1129,12 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // CMD+T: Open Trim (single selection)
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_T {
                     self.onTrim()
+                    return nil
+                }
+
+                // CMD+Option+T: Toggle subtitles on selected items
+                if hasCommand && hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_T {
+                    self.onToggleSubtitles()
                     return nil
                 }
                 
@@ -1030,6 +1213,24 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // Ctrl+M: Toggle mute on selected items
                 if hasControl && !hasCommand && !hasOption && !hasShift && event.keyCode == kVK_ANSI_M {
                     self.onToggleMute()
+                    return nil
+                }
+
+                // CMD+U: Toggle upload on selected items
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_U {
+                    self.onToggleUpload()
+                    return nil
+                }
+
+                // CMD+Option+U: Toggle source file upload on selected items
+                if hasCommand && hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_U {
+                    self.onToggleSourceUpload()
+                    return nil
+                }
+
+                // CMD+E: Toggle auto-encode on selected items (for download items)
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_E {
+                    self.onToggleAutoEncode()
                     return nil
                 }
 
