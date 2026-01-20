@@ -299,12 +299,6 @@ struct VideoFileUtils: Sendable {
             return nil
         }
 
-        // Check if C2PA checking is enabled in settings
-        guard UserDefaults.standard.bool(forKey: AppConstants.c2paCheckEnabledKey) else {
-            print(" [fetchC2PAMetadata] ⏭️ C2PA checking disabled in settings")
-            return nil
-        }
-
         // Check if ExifTool is available
         guard ExifToolService.shared.isAvailable else {
             print(" [fetchC2PAMetadata] ⏭️ ExifTool not available")
@@ -624,6 +618,9 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     /// Path to generated SRT file
     var subtitleFilePath: URL? = nil
 
+    /// Manual override for output filename (base name, no extension)
+    var outputFileNameOverride: String? = nil
+
     /// Whether this item is ready for upload (conversion done or source upload enabled)
     var isReadyForUpload: Bool {
         if uploadSourceFile {
@@ -652,7 +649,9 @@ struct VideoItem: Identifiable, Equatable, Sendable {
         duration = details.duration
         durationSeconds = details.durationSeconds
         thumbnailData = details.thumbnailData
-        outputURL = details.outputURL
+        if outputFileNameOverride == nil {
+            outputURL = details.outputURL
+        }
         hasVideoStream = details.hasVideoStream
     }
     

@@ -453,6 +453,12 @@ enum AppConstants {
     static let uploadRetryCountKey = "uploadRetryCount"
     static let uploadFTPProfilesKey = "uploadFTPProfiles"
     static let uploadFTPSelectedProfileIDKey = "uploadFTPSelectedProfileID"
+    static let uploadSFTPProfilesKey = "uploadSFTPProfiles"
+    static let uploadSFTPSelectedProfileIDKey = "uploadSFTPSelectedProfileID"
+    static let uploadSMBProfilesKey = "uploadSMBProfiles"
+    static let uploadSMBSelectedProfileIDKey = "uploadSMBSelectedProfileID"
+    static let uploadS3ProfilesKey = "uploadS3Profiles"
+    static let uploadS3SelectedProfileIDKey = "uploadS3SelectedProfileID"
     static let defaultUploadPort = 21
     static let defaultUploadRetryCount = 3
 

@@ -56,6 +56,7 @@ struct VideoFileListView: View {
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
     var onURLDrop: ((String) -> Void)?
+    var onRenameOutputFileName: ((UUID, String?) -> Void)? = nil
 
     @State private var isTargeted = false
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
@@ -840,6 +841,9 @@ struct VideoFileListView: View {
                 Task {
                     await transcribeOnly(itemID: file.wrappedValue.id)
                 }
+            },
+            onRenameOutputFileName: { newName in
+                onRenameOutputFileName?(file.wrappedValue.id, newName)
             },
             isSelected: selection.contains(file.wrappedValue.id),
             onCommentFocusChange: { id, isFocused in

@@ -8,15 +8,37 @@ import OSLog
 /// C2PA (Content Authenticity) metadata structure
 struct C2PAMetadata: Codable, Sendable, Equatable {
     let hasContentCredentials: Bool
+    let hasSignature: Bool
+    let actionsAction: String?
+    let actionsDigitalSourceType: String?
     let claimGenerator: String?
+    let claimGeneratorInfoName: String?
     let manifestStore: String?
     let assertions: [String]?
+    let userDescriptiveMetadataName: String?
+    let userDescriptiveMetadataContent: String?
+    let deviceManufacturer: String?
+    let deviceModelName: String?
+    let deviceSerialNumber: String?
+    let lensModelName: String?
+    let creationDateValue: String?
 
     static let empty = C2PAMetadata(
         hasContentCredentials: false,
+        hasSignature: false,
+        actionsAction: nil,
+        actionsDigitalSourceType: nil,
         claimGenerator: nil,
+        claimGeneratorInfoName: nil,
         manifestStore: nil,
-        assertions: nil
+        assertions: nil,
+        userDescriptiveMetadataName: nil,
+        userDescriptiveMetadataContent: nil,
+        deviceManufacturer: nil,
+        deviceModelName: nil,
+        deviceSerialNumber: nil,
+        lensModelName: nil,
+        creationDateValue: nil
     )
 }
 
@@ -166,8 +188,20 @@ actor ExifToolService {
         let stdoutPipe = Pipe()
 
         process.executableURL = URL(fileURLWithPath: exiftoolPath)
-        // Check for C2PA namespace tags
-        process.arguments = ["-json", "-XMP-c2pa:all", url.path]
+        // Check for C2PA metadata stored in XMP and JUMBF blocks
+        process.arguments = [
+            "-json", "-G", "-s",
+            "-XMP-c2pa:all",
+            "-JUMBF:all",
+            "-XML:UserDescriptiveMetadataMetaName",
+            "-XML:UserDescriptiveMetadataMetaContent",
+            "-XML:DeviceManufacturer",
+            "-XML:DeviceModelName",
+            "-XML:DeviceSerialNo",
+            "-XML:LensModelName",
+            "-XML:CreationDateValue",
+            url.path
+        ]
         process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
@@ -187,8 +221,10 @@ actor ExifToolService {
             return false
         }
 
-        // Check if there are any keys besides SourceFile
-        let c2paKeys = metadata.keys.filter { $0 != "SourceFile" }
+        let c2paKeys = metadata.keys.filter { key in
+            let normalizedKey = normalizeKey(key)
+            return normalizedKey.contains("jumbf") || normalizedKey.contains("c2pa")
+        }
         return !c2paKeys.isEmpty
     }
 
@@ -208,8 +244,20 @@ actor ExifToolService {
         let stdoutPipe = Pipe()
 
         process.executableURL = URL(fileURLWithPath: exiftoolPath)
-        // Get all C2PA tags
-        process.arguments = ["-json", "-G", "-XMP-c2pa:all", url.path]
+        // Get all C2PA tags (XMP and JUMBF) and related XML metadata
+        process.arguments = [
+            "-json", "-G", "-s",
+            "-XMP-c2pa:all",
+            "-JUMBF:all",
+            "-XML:UserDescriptiveMetadataMetaName",
+            "-XML:UserDescriptiveMetadataMetaContent",
+            "-XML:DeviceManufacturer",
+            "-XML:DeviceModelName",
+            "-XML:DeviceSerialNo",
+            "-XML:LensModelName",
+            "-XML:CreationDateValue",
+            url.path
+        ]
         process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
@@ -228,45 +276,55 @@ actor ExifToolService {
             return nil
         }
 
-        // Check if there are any C2PA tags (besides SourceFile)
-        let c2paKeys = metadata.keys.filter { $0 != "SourceFile" }
+        let c2paKeys = metadata.keys.filter { key in
+            let normalizedKey = normalizeKey(key)
+            return normalizedKey.contains("jumbf") || normalizedKey.contains("c2pa")
+        }
         guard !c2paKeys.isEmpty else {
             return nil
         }
 
         // Extract C2PA-specific fields
-        let claimGenerator = metadata["XMP-c2pa:ClaimGenerator"] as? String
-            ?? metadata["ClaimGenerator"] as? String
-        let manifestStore = metadata["XMP-c2pa:ManifestStore"] as? String
-            ?? metadata["ManifestStore"] as? String
+        let signatureValue = stringValue(in: metadata, matchingKeys: ["Signature"])
+        let claimGenerator = stringValue(in: metadata, matchingKeys: ["ClaimGenerator", "Claim Generator"])
+        let claimGeneratorInfoName = stringValue(in: metadata, matchingKeys: ["ClaimGeneratorInfoName", "Claim Generator Info Name"])
+        let actionsAction = stringValue(in: metadata, matchingKeys: ["ActionsAction", "Actions Action"])
+        let actionsDigitalSourceType = stringValue(in: metadata, matchingKeys: ["ActionsDigitalSourceType", "Actions Digital Source Type"])
+        let manifestStore = stringValue(in: metadata, matchingKeys: ["ManifestStore", "Manifest Store"])
+        let userDescriptiveMetadataName = stringValue(in: metadata, matchingKeys: ["UserDescriptiveMetadataMetaName", "User Descriptive Metadata Meta Name"])
+        let userDescriptiveMetadataContent = stringValue(in: metadata, matchingKeys: ["UserDescriptiveMetadataMetaContent", "User Descriptive Metadata Meta Content"])
+        let deviceManufacturer = stringValue(in: metadata, matchingKeys: ["DeviceManufacturer", "Device Manufacturer"])
+        let deviceModelName = stringValue(in: metadata, matchingKeys: ["DeviceModelName", "Device Model Name"])
+        let deviceSerialNumber = stringValue(in: metadata, matchingKeys: ["DeviceSerialNo", "Device Serial No"])
+        let lensModelName = stringValue(in: metadata, matchingKeys: ["LensModelName", "Lens Model Name"])
+        let creationDateValue = stringValue(in: metadata, matchingKeys: ["CreationDateValue", "Creation Date Value"])
 
         // Try to get assertions if present
-        var assertions: [String]? = nil
-        if let assertionsValue = metadata["XMP-c2pa:Assertions"] ?? metadata["Assertions"] {
-            if let assertionsArray = assertionsValue as? [String] {
-                assertions = assertionsArray
-            } else if let assertionsString = assertionsValue as? String {
-                assertions = [assertionsString]
-            }
-        }
+        let assertions = stringArrayValue(in: metadata, matchingKeys: ["Assertions"])
 
         return C2PAMetadata(
             hasContentCredentials: true,
+            hasSignature: signatureValue?.isEmpty == false,
+            actionsAction: actionsAction,
+            actionsDigitalSourceType: actionsDigitalSourceType,
             claimGenerator: claimGenerator,
+            claimGeneratorInfoName: claimGeneratorInfoName,
             manifestStore: manifestStore,
-            assertions: assertions
+            assertions: assertions,
+            userDescriptiveMetadataName: userDescriptiveMetadataName,
+            userDescriptiveMetadataContent: userDescriptiveMetadataContent,
+            deviceManufacturer: deviceManufacturer,
+            deviceModelName: deviceModelName,
+            deviceSerialNumber: deviceSerialNumber,
+            lensModelName: lensModelName,
+            creationDateValue: creationDateValue
         )
     }
 
-    /// Checks C2PA status only if enabled in settings
+    /// Checks C2PA status when ExifTool is available
     /// - Parameter url: The file to check
-    /// - Returns: C2PAMetadata if enabled and found, nil otherwise
+    /// - Returns: C2PAMetadata if found, nil otherwise
     func checkC2PAIfEnabled(for url: URL) async -> C2PAMetadata? {
-        // Check if C2PA checking is enabled in settings
-        guard UserDefaults.standard.bool(forKey: AppConstants.c2paCheckEnabledKey) else {
-            return nil
-        }
-
         // Check if ExifTool is available
         guard isAvailable else {
             return nil
@@ -278,6 +336,80 @@ actor ExifToolService {
             logger.warning("Failed to check C2PA metadata: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private func stringValue(in metadata: [String: Any], matchingKeys: [String]) -> String? {
+        for key in matchingKeys {
+            if let value = metadata[key], let stringValue = stringValue(from: value) {
+                return stringValue
+            }
+        }
+
+        let normalizedTargets = matchingKeys.map { normalizeKey($0) }
+        for (key, value) in metadata {
+            let normalizedKey = normalizeKey(key)
+            for target in normalizedTargets where normalizedKey.hasSuffix(target) {
+                return stringValue(from: value)
+            }
+        }
+
+        return nil
+    }
+
+    private func stringArrayValue(in metadata: [String: Any], matchingKeys: [String]) -> [String]? {
+        for key in matchingKeys {
+            if let value = metadata[key], let arrayValue = stringArray(from: value) {
+                return arrayValue
+            }
+        }
+
+        let normalizedTargets = matchingKeys.map { normalizeKey($0) }
+        for (key, value) in metadata {
+            let normalizedKey = normalizeKey(key)
+            for target in normalizedTargets where normalizedKey.hasSuffix(target) {
+                return stringArray(from: value)
+            }
+        }
+
+        return nil
+    }
+
+    private func stringValue(from value: Any) -> String? {
+        if let stringValue = value as? String {
+            return stringValue
+        }
+        if let numberValue = value as? NSNumber {
+            return numberValue.stringValue
+        }
+        if let arrayValue = value as? [String] {
+            return arrayValue.joined(separator: ", ")
+        }
+        if let arrayValue = value as? [Any] {
+            let stringValues = arrayValue.compactMap { stringValue(from: $0) }
+            return stringValues.isEmpty ? nil : stringValues.joined(separator: ", ")
+        }
+        return nil
+    }
+
+    private func stringArray(from value: Any) -> [String]? {
+        if let arrayValue = value as? [String] {
+            return arrayValue
+        }
+        if let stringValue = value as? String {
+            return [stringValue]
+        }
+        if let numberValue = value as? NSNumber {
+            return [numberValue.stringValue]
+        }
+        if let arrayValue = value as? [Any] {
+            let stringValues = arrayValue.compactMap { stringValue(from: $0) }
+            return stringValues.isEmpty ? nil : stringValues
+        }
+        return nil
+    }
+
+    private func normalizeKey(_ value: String) -> String {
+        value.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 }
 

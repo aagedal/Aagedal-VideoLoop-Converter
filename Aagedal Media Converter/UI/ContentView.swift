@@ -155,6 +155,9 @@ struct ContentView: View {
             },
             onURLDrop: { urlString in
                 handleURLDownload(urlString)
+            },
+            onRenameOutputFileName: { id, newName in
+                handleOutputFileNameOverride(itemID: id, newName: newName)
             }
         )
     }
@@ -205,6 +208,7 @@ struct ContentView: View {
                 droppedFiles[index].trimStart = nil
                 droppedFiles[index].trimEnd = nil
                 droppedFiles[index].isMuted = false
+                droppedFiles[index].outputFileNameOverride = nil
                 // Also reset comment and date tag to defaults
                 droppedFiles[index].comment = ""
                 droppedFiles[index].includeDateTag = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
@@ -591,10 +595,9 @@ struct ContentView: View {
             return mergedURL
         }
 
-        let sanitizedBaseName = FileNameProcessor.processFileName(item.url.deletingPathExtension().lastPathComponent)
         let resolvedExtension = preset.outputExtension(for: item.url)
-        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
-        let outputFileName = sanitizedBaseName + suffixPart + "." + resolvedExtension
+        let outputBaseName = outputBaseName(for: item, preset: preset)
+        let outputFileName = outputBaseName + "." + resolvedExtension
         return currentOutputFolder.appendingPathComponent(outputFileName)
     }
 
@@ -608,6 +611,30 @@ struct ContentView: View {
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
         let outputFileName = sanitizedBaseName + suffixPart + "_merge" + "." + resolvedExtension
         return currentOutputFolder.appendingPathComponent(outputFileName)
+    }
+
+    private func outputBaseName(for item: VideoItem, preset: ExportPreset) -> String {
+        if let override = item.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            let baseName = (override as NSString).deletingPathExtension
+            return FileNameProcessor.processFileName(baseName)
+        }
+
+        let sanitizedBaseName = FileNameProcessor.processFileName(item.url.deletingPathExtension().lastPathComponent)
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        return sanitizedBaseName + suffixPart
+    }
+
+    private func handleOutputFileNameOverride(itemID: UUID, newName: String?) {
+        guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+        let trimmed = newName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            droppedFiles[index].outputFileNameOverride = nil
+        } else {
+            let baseName = (trimmed as NSString).deletingPathExtension
+            droppedFiles[index].outputFileNameOverride = FileNameProcessor.processFileName(baseName)
+        }
+        droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
     }
 
     private var toolbarPresetBinding: Binding<ExportPreset> {
