@@ -11,6 +11,46 @@ enum WhisperModel: String, CaseIterable, Codable, Sendable {
     case small = "small"
     case medium = "medium"
     case large = "large"
+    case norwegianTiny = "nb_tiny"
+    case norwegianSmall = "nb_small"
+    case norwegianMedium = "nb_medium"
+    case norwegianLarge = "nb_large"
+    case swedishBase = "sv_base"
+    case swedishSmall = "sv_small"
+    case swedishMedium = "sv_medium"
+    case swedishLarge = "sv_large"
+    case custom = "custom"
+
+    static var allCases: [WhisperModel] {
+        [
+            .tiny,
+            .base,
+            .small,
+            .medium,
+            .large,
+            .norwegianTiny,
+            .norwegianSmall,
+            .norwegianMedium,
+            .norwegianLarge,
+            .swedishBase,
+            .swedishSmall,
+            .swedishMedium,
+            .swedishLarge,
+            .custom
+        ]
+    }
+
+    static var downloadableCases: [WhisperModel] {
+        allCases.filter { $0.isDownloadable }
+    }
+
+    var isDownloadable: Bool {
+        self != .custom
+    }
+
+    var isCustom: Bool {
+        self == .custom
+    }
 
     /// Human-readable display name
     var displayName: String {
@@ -20,6 +60,15 @@ enum WhisperModel: String, CaseIterable, Codable, Sendable {
         case .small: return "Small"
         case .medium: return "Medium"
         case .large: return "Large"
+        case .norwegianTiny: return "Norwegian Tiny (NbAiLab)"
+        case .norwegianSmall: return "Norwegian Small (NbAiLab)"
+        case .norwegianMedium: return "Norwegian Medium (NbAiLab)"
+        case .norwegianLarge: return "Norwegian Large (NbAiLab)"
+        case .swedishBase: return "Swedish Base (KBLab)"
+        case .swedishSmall: return "Swedish Small (KBLab)"
+        case .swedishMedium: return "Swedish Medium (KBLab)"
+        case .swedishLarge: return "Swedish Large (KBLab)"
+        case .custom: return "Custom"
         }
     }
 
@@ -31,13 +80,43 @@ enum WhisperModel: String, CaseIterable, Codable, Sendable {
         case .small: return "ggml-small.bin"
         case .medium: return "ggml-medium.bin"
         case .large: return "ggml-large-v3.bin"
+        case .norwegianTiny: return "ggml-nb-whisper-tiny.bin"
+        case .norwegianSmall: return "ggml-nb-whisper-small.bin"
+        case .norwegianMedium: return "ggml-nb-whisper-medium.bin"
+        case .norwegianLarge: return "ggml-nb-whisper-large.bin"
+        case .swedishBase: return "ggml-sv-whisper-base.bin"
+        case .swedishSmall: return "ggml-sv-whisper-small.bin"
+        case .swedishMedium: return "ggml-sv-whisper-medium.bin"
+        case .swedishLarge: return "ggml-sv-whisper-large.bin"
+        case .custom: return "custom-model.bin"
         }
     }
 
     /// Download URL from Hugging Face
     var downloadURL: URL {
-        let baseURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-        return URL(string: baseURL + fileName)!
+        switch self {
+        case .norwegianTiny:
+            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-tiny/resolve/main/ggml-model.bin")!
+        case .norwegianSmall:
+            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-small/resolve/main/ggml-model.bin")!
+        case .norwegianMedium:
+            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-medium/resolve/main/ggml-model.bin")!
+        case .norwegianLarge:
+            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-large/resolve/main/ggml-model.bin")!
+        case .swedishBase:
+            return URL(string: "https://huggingface.co/KBLab/kb-whisper-base/resolve/main/ggml-model.bin")!
+        case .swedishSmall:
+            return URL(string: "https://huggingface.co/KBLab/kb-whisper-small/resolve/main/ggml-model.bin")!
+        case .swedishMedium:
+            return URL(string: "https://huggingface.co/KBLab/kb-whisper-medium/resolve/main/ggml-model.bin")!
+        case .swedishLarge:
+            return URL(string: "https://huggingface.co/KBLab/kb-whisper-large/resolve/main/ggml-model.bin")!
+        case .custom:
+            return URL(fileURLWithPath: "/")
+        default:
+            let baseURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
+            return URL(string: baseURL + fileName)!
+        }
     }
 
     /// Human-readable file size
@@ -48,6 +127,15 @@ enum WhisperModel: String, CaseIterable, Codable, Sendable {
         case .small: return "466 MB"
         case .medium: return "1.5 GB"
         case .large: return "3.1 GB"
+        case .norwegianTiny: return "75 MB"
+        case .norwegianSmall: return "466 MB"
+        case .norwegianMedium: return "1.5 GB"
+        case .norwegianLarge: return "3.1 GB"
+        case .swedishBase: return "142 MB"
+        case .swedishSmall: return "466 MB"
+        case .swedishMedium: return "1.5 GB"
+        case .swedishLarge: return "3.1 GB"
+        case .custom: return "Custom"
         }
     }
 
@@ -59,6 +147,15 @@ enum WhisperModel: String, CaseIterable, Codable, Sendable {
         case .small: return 466_000_000
         case .medium: return 1_500_000_000
         case .large: return 3_100_000_000
+        case .norwegianTiny: return 75_000_000
+        case .norwegianSmall: return 466_000_000
+        case .norwegianMedium: return 1_500_000_000
+        case .norwegianLarge: return 3_100_000_000
+        case .swedishBase: return 142_000_000
+        case .swedishSmall: return 466_000_000
+        case .swedishMedium: return 1_500_000_000
+        case .swedishLarge: return 3_100_000_000
+        case .custom: return 0
         }
     }
 
@@ -75,6 +172,24 @@ enum WhisperModel: String, CaseIterable, Codable, Sendable {
             return "High accuracy, slower processing."
         case .large:
             return "Best accuracy, slowest. Requires significant RAM."
+        case .norwegianTiny:
+            return "Tiny model optimized for Norwegian. Fastest, lowest accuracy."
+        case .norwegianSmall:
+            return "Small model optimized for Norwegian. Good balance of speed and accuracy."
+        case .norwegianMedium:
+            return "Medium model optimized for Norwegian. High accuracy, slower processing."
+        case .norwegianLarge:
+            return "Large model optimized for Norwegian. Best accuracy, slowest."
+        case .swedishBase:
+            return "Base model optimized for Swedish. Fast with reasonable accuracy."
+        case .swedishSmall:
+            return "Small model optimized for Swedish. Good balance of speed and accuracy."
+        case .swedishMedium:
+            return "Medium model optimized for Swedish. High accuracy, slower processing."
+        case .swedishLarge:
+            return "Large model optimized for Swedish. Best accuracy, slowest."
+        case .custom:
+            return "Use a custom GGML model file."
         }
     }
 
@@ -86,6 +201,15 @@ enum WhisperModel: String, CaseIterable, Codable, Sendable {
         case .small: return "~2 GB"
         case .medium: return "~5 GB"
         case .large: return "~10 GB"
+        case .norwegianTiny: return "~1 GB"
+        case .norwegianSmall: return "~2 GB"
+        case .norwegianMedium: return "~5 GB"
+        case .norwegianLarge: return "~10 GB"
+        case .swedishBase: return "~1 GB"
+        case .swedishSmall: return "~2 GB"
+        case .swedishMedium: return "~5 GB"
+        case .swedishLarge: return "~10 GB"
+        case .custom: return "Varies"
         }
     }
 }

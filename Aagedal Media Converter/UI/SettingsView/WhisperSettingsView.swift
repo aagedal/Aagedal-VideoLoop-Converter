@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import AppKit
 
 struct WhisperSettingsView: View {
     @State private var installationStatus: WhisperInstallationStatus = .notInstalled
@@ -14,6 +15,7 @@ struct WhisperSettingsView: View {
     @State private var downloadError: String?
 
     @AppStorage(AppConstants.whisperModelKey) private var selectedModel = AppConstants.defaultWhisperModel
+    @AppStorage(AppConstants.whisperCustomModelPathKey) private var customModelPath = ""
     @AppStorage(AppConstants.whisperLanguageKey) private var selectedLanguage = AppConstants.defaultWhisperLanguage
     @AppStorage(AppConstants.whisperDefaultEnabledKey) private var defaultEnabled = false
     @AppStorage(AppConstants.whisperMaxLineLengthKey) private var maxLineLength = AppConstants.defaultWhisperMaxLineLength
@@ -28,6 +30,11 @@ struct WhisperSettingsView: View {
         .formStyle(.grouped)
         .task {
             await loadState()
+        }
+        .onChange(of: customModelPath) { _, _ in
+            if selectedModel == WhisperModel.custom.rawValue && !customModelExists {
+                selectedModel = AppConstants.defaultWhisperModel
+            }
         }
     }
 
@@ -87,12 +94,19 @@ struct WhisperSettingsView: View {
                     .font(.callout)
                     .foregroundColor(.secondary)
 
-                ForEach(WhisperModel.allCases, id: \.self) { model in
+                let models = WhisperModel.downloadableCases
+                ForEach(models, id: \.self) { model in
                     modelRow(for: model)
-                    if model != WhisperModel.allCases.last {
+                    if model != models.last {
                         Divider()
                     }
                 }
+
+                if !models.isEmpty {
+                    Divider()
+                }
+
+                customModelRow
 
                 if let error = downloadError {
                     HStack {
@@ -218,10 +232,13 @@ struct WhisperSettingsView: View {
                         .frame(width: 100, alignment: .trailing)
 
                     Picker("", selection: $selectedModel) {
-                        ForEach(WhisperModel.allCases, id: \.self) { model in
+                        ForEach(selectableModels, id: \.self) { model in
                             HStack {
                                 Text(model.displayName)
-                                if !downloadedModels.contains(model) {
+                                if model.isCustom {
+                                    Text("(custom file)")
+                                        .foregroundColor(.secondary)
+                                } else if !downloadedModels.contains(model) {
                                     Text("(not downloaded)")
                                         .foregroundColor(.secondary)
                                 }
@@ -315,6 +332,12 @@ struct WhisperSettingsView: View {
             downloadedModels = models
             isCheckingStatus = false
         }
+
+        await MainActor.run {
+            if selectedModel == WhisperModel.custom.rawValue && !customModelExists {
+                selectedModel = AppConstants.defaultWhisperModel
+            }
+        }
     }
 
     private func downloadModel(_ model: WhisperModel) {
@@ -399,6 +422,102 @@ struct WhisperSettingsView: View {
             return String(format: "%.1f MB", bytesDouble / mb)
         } else {
             return String(format: "%.2f GB", bytesDouble / gb)
+        }
+    }
+
+    private var customModelURL: URL? {
+        let trimmed = customModelPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return URL(fileURLWithPath: trimmed)
+    }
+
+    private var customModelExists: Bool {
+        guard let url = customModelURL else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private var selectableModels: [WhisperModel] {
+        var models = WhisperModel.downloadableCases
+        if customModelExists {
+            models.append(.custom)
+        }
+        return models
+    }
+
+    private var customModelRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Custom model path:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if selectedModel == WhisperModel.custom.rawValue {
+                    Text("Selected")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.2))
+                        .foregroundColor(.accentColor)
+                        .cornerRadius(4)
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField("Select Whisper model (.bin)", text: $customModelPath)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+
+                Button("Browse...") {
+                    selectCustomModel()
+                }
+
+                if !customModelPath.isEmpty {
+                    Button(role: .destructive) {
+                        clearCustomModel()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            if !customModelPath.isEmpty && !customModelExists {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("Custom model not found.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func selectCustomModel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.title = "Select Whisper model"
+        panel.message = "Choose a GGML Whisper model file (.bin)."
+        panel.prompt = "Select"
+        panel.allowedContentTypes = [.data]
+        panel.treatsFilePackagesAsDirectories = true
+        panel.showsHiddenFiles = false
+        panel.resolvesAliases = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            customModelPath = url.path
+            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+            selectedModel = WhisperModel.custom.rawValue
+        }
+    }
+
+    private func clearCustomModel() {
+        customModelPath = ""
+        if selectedModel == WhisperModel.custom.rawValue {
+            selectedModel = AppConstants.defaultWhisperModel
         }
     }
 }

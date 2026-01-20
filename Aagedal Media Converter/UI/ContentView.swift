@@ -160,6 +160,19 @@ struct ContentView: View {
     }
 
     private func handleFileDeletion(_ indexSet: IndexSet) {
+        let itemsToRemove = indexSet.compactMap { index -> VideoItem? in
+            guard index < droppedFiles.count else { return nil }
+            return droppedFiles[index]
+        }
+
+        for item in itemsToRemove {
+            if item.isDownloading {
+                Task { await DownloadManager.shared.cancelDownload(itemID: item.id) }
+            } else if let _ = item.scheduledDownloadTime {
+                ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
+            }
+        }
+
         // Clean up cache for removed items
         for index in indexSet {
             if index < droppedFiles.count {
@@ -637,6 +650,7 @@ struct ContentView: View {
             mergeClipsAvailable: mergeClipsAvailable,
             onToggleConversion: handleConversionToggle,
             onImport: { isFileImporterPresented = true },
+            onShowDownload: { showURLInputOverlay = true },
             onResetAll: resetAllFiles,
             hasResettableItems: hasResettableItems,
             onClear: clearAllFiles
@@ -934,6 +948,14 @@ struct ContentView: View {
     @MainActor
     private func clearAllFiles() {
         guard !isConverting else { return }
+
+        for item in droppedFiles {
+            if item.isDownloading {
+                Task { await DownloadManager.shared.cancelDownload(itemID: item.id) }
+            } else if let _ = item.scheduledDownloadTime {
+                ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
+            }
+        }
 
         for file in droppedFiles {
             Task {

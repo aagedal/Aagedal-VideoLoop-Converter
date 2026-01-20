@@ -22,14 +22,24 @@ actor WhisperModelManager {
         )
     }
 
-    /// Returns the file path for a given model
+    /// Returns the file URL for a given model
     nonisolated func modelPath(for model: WhisperModel) -> URL {
-        AppConstants.whisperModelsDirectory.appendingPathComponent(model.fileName)
+        if model.isCustom, let customURL = customModelURL() {
+            return customURL
+        }
+        return AppConstants.whisperModelsDirectory.appendingPathComponent(model.fileName)
+    }
+
+    nonisolated func customModelURL() -> URL? {
+        let rawPath = UserDefaults.standard.string(forKey: AppConstants.whisperCustomModelPathKey) ?? ""
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return URL(fileURLWithPath: trimmed)
     }
 
     /// Checks if a model is downloaded
     nonisolated func isModelDownloaded(_ model: WhisperModel) -> Bool {
-        let path = AppConstants.whisperModelsDirectory.appendingPathComponent(model.fileName)
+        let path = modelPath(for: model)
         return FileManager.default.fileExists(atPath: path.path)
     }
 
@@ -46,7 +56,7 @@ actor WhisperModelManager {
 
     /// Gets all downloaded models
     nonisolated func getDownloadedModels() -> [WhisperModel] {
-        WhisperModel.allCases.filter { isModelDownloaded($0) }
+        WhisperModel.downloadableCases.filter { isModelDownloaded($0) }
     }
 
     /// Gets the currently selected model from settings
@@ -66,7 +76,7 @@ actor WhisperModelManager {
         var totalSize: Int64 = 0
         let fm = FileManager.default
 
-        for model in WhisperModel.allCases {
+        for model in WhisperModel.downloadableCases {
             let path = modelPath(for: model)
             if let attrs = try? fm.attributesOfItem(atPath: path.path),
                let size = attrs[.size] as? Int64 {
@@ -82,6 +92,9 @@ actor WhisperModelManager {
         _ model: WhisperModel,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
+        guard model.isDownloadable else {
+            throw WhisperModelError.modelNotFound
+        }
         // Check if already downloading
         if downloadTasks[model] != nil {
             logger.warning("Model \(model.rawValue) is already being downloaded")
@@ -215,6 +228,10 @@ actor WhisperModelManager {
 
         if isModelDownloaded(selected) {
             return selected
+        }
+
+        if selected.isCustom {
+            logger.info("Custom model not available, falling back to a downloaded model")
         }
 
         // Check if any model is downloaded

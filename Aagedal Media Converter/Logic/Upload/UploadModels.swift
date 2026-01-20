@@ -103,6 +103,75 @@ struct UploadConfig: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - FTP Profiles
+
+struct FTPUploadProfile: Codable, Identifiable, Equatable, Sendable {
+    var id: UUID
+    var name: String
+    var server: String
+    var port: Int
+    var username: String
+    var remotePath: String
+    var useFTPS: Bool
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        server: String = "",
+        port: Int = AppConstants.defaultUploadPort,
+        username: String = "",
+        remotePath: String = "/",
+        useFTPS: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.server = server
+        self.port = port
+        self.username = username
+        self.remotePath = remotePath
+        self.useFTPS = useFTPS
+    }
+}
+
+enum FTPUploadProfileStore {
+    static func loadProfiles() -> [FTPUploadProfile] {
+        guard let data = UserDefaults.standard.data(forKey: AppConstants.uploadFTPProfilesKey) else {
+            return []
+        }
+        return (try? JSONDecoder().decode([FTPUploadProfile].self, from: data)) ?? []
+    }
+
+    static func saveProfiles(_ profiles: [FTPUploadProfile]) {
+        guard let data = try? JSONEncoder().encode(profiles) else { return }
+        UserDefaults.standard.set(data, forKey: AppConstants.uploadFTPProfilesKey)
+    }
+
+    static func loadSelectedProfileID() -> UUID? {
+        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.uploadFTPSelectedProfileIDKey),
+              let id = UUID(uuidString: rawValue) else {
+            return nil
+        }
+        return id
+    }
+
+    static func saveSelectedProfileID(_ id: UUID?) {
+        if let id {
+            UserDefaults.standard.set(id.uuidString, forKey: AppConstants.uploadFTPSelectedProfileIDKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: AppConstants.uploadFTPSelectedProfileIDKey)
+        }
+    }
+
+    static func resolveSelectedProfile(from profiles: [FTPUploadProfile]) -> FTPUploadProfile? {
+        guard !profiles.isEmpty else { return nil }
+        if let selectedID = loadSelectedProfileID(),
+           let match = profiles.first(where: { $0.id == selectedID }) {
+            return match
+        }
+        return profiles.first
+    }
+}
+
 // MARK: - Backend Types
 
 /// Supported upload backend types (rclone remotes)

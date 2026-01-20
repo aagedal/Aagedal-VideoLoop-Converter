@@ -194,6 +194,22 @@ class UploadManager {
         let backendTypeRaw = UserDefaults.standard.string(forKey: AppConstants.uploadBackendTypeKey) ?? "ftp"
         let backendType = UploadBackendType(rawValue: backendTypeRaw) ?? .ftp
 
+        if backendType == .ftp {
+            let profiles = FTPUploadProfileStore.loadProfiles()
+            if let selectedProfile = FTPUploadProfileStore.resolveSelectedProfile(from: profiles) {
+                let resolvedPort = selectedProfile.port > 0 ? selectedProfile.port : backendType.defaultPort
+                let config = UploadConfig(
+                    server: selectedProfile.server,
+                    port: resolvedPort,
+                    username: selectedProfile.username,
+                    remotePath: selectedProfile.remotePath,
+                    useFTPS: selectedProfile.useFTPS,
+                    backendType: backendType
+                )
+                return config.isConfigured ? config : nil
+            }
+        }
+
         // Read common fields
         let server = UserDefaults.standard.string(forKey: AppConstants.uploadServerKey) ?? ""
         let port = UserDefaults.standard.integer(forKey: AppConstants.uploadPortKey)

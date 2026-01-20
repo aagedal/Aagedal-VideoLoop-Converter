@@ -12,18 +12,24 @@ struct YTDLPSettingsView: View {
     @State private var ffprobeVersion: String?
     @State private var isCheckingVersions = false
     @State private var ytdlpCustomPath: String = ""
+    @State private var denoCustomPath: String = ""
     @State private var ffmpegCustomPath: String = ""
     @State private var ffprobeCustomPath: String = ""
     @State private var ytdlpStatus: YTDLPStatus = .checking
     @State private var installationStatus: YTDLPInstallationStatus = .notInstalled
     @State private var isDownloading = false
+    @State private var ytdlpDownloadProgress: Double = 0.0
     @State private var downloadError: String?
 
     @State private var denoStatus: DenoStatus = .checking
     @State private var denoInstallationStatus: DenoInstallationStatus = .notInstalled
     @State private var isDownloadingDeno = false
+    @State private var denoDownloadProgress: Double = 0.0
     @State private var denoDownloadError: String?
 
+    @AppStorage(AppConstants.ytdlpBinarySourceKey) private var ytdlpBinarySource = BinarySourceSelection.app.rawValue
+    @AppStorage(AppConstants.denoBinarySourceKey) private var denoBinarySource = BinarySourceSelection.app.rawValue
+    @AppStorage(AppConstants.ffmpegBinarySourceKey) private var ffmpegBinarySource = BinarySourceSelection.app.rawValue
     @AppStorage(AppConstants.autoEncodeAfterDownloadKey) private var autoEncodeAfterDownload = false
     @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
     @AppStorage(AppConstants.ytdlpCookiesBrowserKey) private var cookiesBrowser = ""
@@ -42,6 +48,17 @@ struct YTDLPSettingsView: View {
             loadSettings()
             await refreshVersions()
         }
+        .onChange(of: ytdlpBinarySource) { _, _ in
+            downloadError = nil
+            Task { await refreshVersions() }
+        }
+        .onChange(of: denoBinarySource) { _, _ in
+            denoDownloadError = nil
+            Task { await refreshVersions() }
+        }
+        .onChange(of: ffmpegBinarySource) { _, _ in
+            Task { await refreshVersions() }
+        }
     }
 
     // MARK: - yt-dlp Status
@@ -56,6 +73,49 @@ struct YTDLPSettingsView: View {
         case checking
         case configured
         case notAvailable
+    }
+
+    private var selectedYTDLPSource: BinarySourceSelection {
+        BinarySourceSelection(rawValue: ytdlpBinarySource) ?? .app
+    }
+
+    private var selectedDenoSource: BinarySourceSelection {
+        BinarySourceSelection(rawValue: denoBinarySource) ?? .app
+    }
+
+    private var selectedFFmpegSource: BinarySourceSelection {
+        BinarySourceSelection(rawValue: ffmpegBinarySource) ?? .app
+    }
+
+    private var ffmpegStatusLabel: String {
+        switch selectedFFmpegSource {
+        case .custom:
+            return "FFmpeg: Custom"
+        case .homebrew:
+            return "FFmpeg: Homebrew"
+        case .app:
+            return "FFmpeg: App (Bundled)"
+        }
+    }
+
+    private var ffprobeStatusLabel: String {
+        switch selectedFFmpegSource {
+        case .custom:
+            return "FFprobe: Custom"
+        case .homebrew:
+            return "FFprobe: Homebrew"
+        case .app:
+            return "FFprobe: App (Bundled)"
+        }
+    }
+
+    private func statusColor(for selection: BinarySourceSelection) -> Color {
+        switch selection {
+        case .custom:
+            return .blue
+        case .homebrew, .app:
+            return .green
+        }
     }
 
     // MARK: - yt-dlp Section
@@ -91,35 +151,57 @@ struct YTDLPSettingsView: View {
                             .font(.system(.body, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
-
                     if isCheckingVersions {
                         ProgressView()
                             .scaleEffect(0.7)
                     }
                 }
 
+                HStack {
+                    Text("Source:")
+                        .frame(width: 60, alignment: .trailing)
+                    Picker("Source", selection: $ytdlpBinarySource) {
+                        Text("App Download").tag(BinarySourceSelection.app.rawValue)
+                        Text("Homebrew").tag(BinarySourceSelection.homebrew.rawValue)
+                        Text("Custom").tag(BinarySourceSelection.custom.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 260)
+                    Spacer()
+                }
+
                 // Download/Update buttons
                 if !isDownloading {
                     HStack {
-                        if ytdlpStatus == .notAvailable {
-                            Button {
-                                downloadYTDLP()
-                            } label: {
-                                Label("Download yt-dlp", systemImage: "arrow.down.circle")
+                        if selectedYTDLPSource == .app {
+                            if ytdlpStatus == .notAvailable {
+                                Button {
+                                    downloadYTDLP()
+                                } label: {
+                                    Label("Download yt-dlp", systemImage: "arrow.down.circle")
+                                }
+                                .buttonStyle(.borderedProminent)
+                            } else if ytdlpStatus == .configured {
+                                Button {
+                                    checkAndUpdateYTDLP()
+                                } label: {
+                                    Label("Check for Updates", systemImage: "arrow.clockwise")
+                                }
                             }
-                            .buttonStyle(.borderedProminent)
-                        } else if ytdlpStatus == .configured && !installationStatus.isCustomPath {
-                            Button {
-                                checkAndUpdateYTDLP()
-                            } label: {
-                                Label("Check for Updates", systemImage: "arrow.clockwise")
-                            }
+                        } else if ytdlpStatus == .notAvailable {
+                            Text("Selected source not found.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
                 } else {
                     HStack {
-                        ProgressView()
-                            .scaleEffect(0.7)
+                        ProgressView(value: ytdlpDownloadProgress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 140)
+                        Text("\(Int(ytdlpDownloadProgress * 100))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                         Text("Downloading...")
                             .foregroundColor(.secondary)
                     }
@@ -131,36 +213,44 @@ struct YTDLPSettingsView: View {
                         .foregroundColor(.red)
                 }
 
-                Divider()
-
-                // Custom path
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Custom yt-dlp path (optional):")
+                if case .homebrewAvailable = installationStatus {
+                    Text("Tip: Homebrew yt-dlp may start downloads slightly faster. Use the Homebrew binary if it is installed.")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
 
-                    HStack {
-                        TextField("Leave empty to auto-download", text: $ytdlpCustomPath)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(.body, design: .monospaced))
+                if selectedYTDLPSource == .custom {
+                    Divider()
 
-                        Button("Browse...") {
-                            selectBinary(for: .ytdlp)
-                        }
+                    // Custom path
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Custom yt-dlp path:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
-                        if !ytdlpCustomPath.isEmpty {
-                            Button(role: .destructive) {
-                                ytdlpCustomPath = ""
-                                saveYTDLPPath()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
+                        HStack {
+                            TextField("Select yt-dlp binary", text: $ytdlpCustomPath)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
+
+                            Button("Browse...") {
+                                selectBinary(for: .ytdlp)
                             }
-                            .buttonStyle(.borderless)
+
+                            if !ytdlpCustomPath.isEmpty {
+                                Button(role: .destructive) {
+                                    ytdlpCustomPath = ""
+                                    saveYTDLPPath()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
                     }
-                }
-                .onChange(of: ytdlpCustomPath) { _, _ in
-                    saveYTDLPPath()
+                    .onChange(of: ytdlpCustomPath) { _, _ in
+                        saveYTDLPPath()
+                    }
                 }
 
                 // Alternative install info (Homebrew)
@@ -187,6 +277,10 @@ struct YTDLPSettingsView: View {
                             }
 
                             Text("After installing, set custom path to: /opt/homebrew/bin/yt-dlp")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Text("Homebrew builds can start downloads slightly faster than the auto-downloaded binary.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
@@ -233,41 +327,63 @@ struct YTDLPSettingsView: View {
                             .font(.system(.body, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
-
                     if isCheckingVersions {
                         ProgressView()
                             .scaleEffect(0.7)
                     }
                 }
 
+                HStack {
+                    Text("Source:")
+                        .frame(width: 60, alignment: .trailing)
+                    Picker("Source", selection: $denoBinarySource) {
+                        Text("App Download").tag(BinarySourceSelection.app.rawValue)
+                        Text("Homebrew").tag(BinarySourceSelection.homebrew.rawValue)
+                        Text("Custom").tag(BinarySourceSelection.custom.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 260)
+                    Spacer()
+                }
+
                 if !isDownloadingDeno {
-                    if denoStatus == .notAvailable {
-                        Button {
-                            downloadDeno()
-                        } label: {
-                            Label("Download deno", systemImage: "arrow.down.circle")
-                        }
-                        .buttonStyle(.borderedProminent)
-                    } else {
-                        HStack {
+                    if selectedDenoSource == .app {
+                        if denoStatus == .notAvailable {
                             Button {
                                 downloadDeno()
                             } label: {
                                 Label("Download deno", systemImage: "arrow.down.circle")
                             }
-                            .help("Downloads a bundled copy and prefers it over the system runtime.")
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            HStack {
+                                Button {
+                                    downloadDeno()
+                                } label: {
+                                    Label("Download deno", systemImage: "arrow.down.circle")
+                                }
+                                .help("Downloads a bundled copy and prefers it over the system runtime.")
 
-                            Button {
-                                checkAndUpdateDeno()
-                            } label: {
-                                Label("Check for Updates", systemImage: "arrow.clockwise")
+                                Button {
+                                    checkAndUpdateDeno()
+                                } label: {
+                                    Label("Check for Updates", systemImage: "arrow.clockwise")
+                                }
                             }
                         }
+                    } else if denoStatus == .notAvailable {
+                        Text("Selected source not found.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 } else {
                     HStack {
-                        ProgressView()
-                            .scaleEffect(0.7)
+                        ProgressView(value: denoDownloadProgress)
+                            .progressViewStyle(.linear)
+                            .frame(width: 140)
+                        Text("\(Int(denoDownloadProgress * 100))%")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                         Text("Downloading...")
                             .foregroundColor(.secondary)
                     }
@@ -281,6 +397,37 @@ struct YTDLPSettingsView: View {
 
                 Divider()
 
+                if selectedDenoSource == .custom {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Custom deno path:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack {
+                            TextField("Select deno binary", text: $denoCustomPath)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
+
+                            Button("Browse...") {
+                                selectBinary(for: .deno)
+                            }
+
+                            if !denoCustomPath.isEmpty {
+                                Button(role: .destructive) {
+                                    denoCustomPath = ""
+                                    saveDenoPath()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                    .onChange(of: denoCustomPath) { _, _ in
+                        saveDenoPath()
+                    }
+                }
+
                 Text("deno provides the JavaScript runtime needed by yt-dlp to handle modern YouTube extraction challenges. It can be auto-downloaded on first use.")
                     .font(.callout)
                     .foregroundColor(.secondary)
@@ -293,11 +440,17 @@ struct YTDLPSettingsView: View {
     // MARK: - Download Actions
 
     private func downloadYTDLP() {
+        guard selectedYTDLPSource == .app else { return }
         isDownloading = true
+        ytdlpDownloadProgress = 0.0
         downloadError = nil
         Task {
             do {
-                try await YTDLPUpdateService.shared.downloadUpdate()
+                try await YTDLPUpdateService.shared.downloadUpdate(progress: { progress in
+                    DispatchQueue.main.async {
+                        ytdlpDownloadProgress = progress
+                    }
+                })
                 await refreshVersions()
             } catch {
                 await MainActor.run {
@@ -311,13 +464,19 @@ struct YTDLPSettingsView: View {
     }
 
     private func checkAndUpdateYTDLP() {
+        guard selectedYTDLPSource == .app else { return }
         isDownloading = true
+        ytdlpDownloadProgress = 0.0
         downloadError = nil
         Task {
             do {
                 let hasUpdate = await YTDLPUpdateService.shared.checkForUpdates()
                 if hasUpdate {
-                    try await YTDLPUpdateService.shared.downloadUpdate()
+                    try await YTDLPUpdateService.shared.downloadUpdate(progress: { progress in
+                        DispatchQueue.main.async {
+                            ytdlpDownloadProgress = progress
+                        }
+                    })
                 } else {
                     await MainActor.run {
                         downloadError = "Already up to date"
@@ -343,11 +502,17 @@ struct YTDLPSettingsView: View {
     }
 
     private func downloadDeno() {
+        guard selectedDenoSource == .app else { return }
         isDownloadingDeno = true
+        denoDownloadProgress = 0.0
         denoDownloadError = nil
         Task {
             do {
-                try await YTDLPUpdateService.shared.downloadDenoUpdate()
+                try await YTDLPUpdateService.shared.downloadDenoUpdate(progress: { progress in
+                    DispatchQueue.main.async {
+                        denoDownloadProgress = progress
+                    }
+                })
                 await refreshVersions()
             } catch {
                 await MainActor.run {
@@ -361,13 +526,19 @@ struct YTDLPSettingsView: View {
     }
 
     private func checkAndUpdateDeno() {
+        guard selectedDenoSource == .app else { return }
         isDownloadingDeno = true
+        denoDownloadProgress = 0.0
         denoDownloadError = nil
         Task {
             do {
                 let hasUpdate = await YTDLPUpdateService.shared.checkForDenoUpdates()
                 if hasUpdate {
-                    try await YTDLPUpdateService.shared.downloadDenoUpdate()
+                    try await YTDLPUpdateService.shared.downloadDenoUpdate(progress: { progress in
+                        DispatchQueue.main.async {
+                            denoDownloadProgress = progress
+                        }
+                    })
                 } else {
                     await MainActor.run {
                         denoDownloadError = "Already up to date"
@@ -480,14 +651,10 @@ struct YTDLPSettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 // FFmpeg status
                 HStack {
-                    if BinaryPathResolver.isUsingCustomFFmpeg {
+                    if BinaryPathResolver.ffmpegPath != nil {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.blue)
-                        Text("FFmpeg: Custom")
-                    } else if BinaryPathResolver.ffmpegPath != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("FFmpeg: Bundled")
+                            .foregroundColor(statusColor(for: selectedFFmpegSource))
+                        Text(ffmpegStatusLabel)
                     } else {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.red)
@@ -506,14 +673,10 @@ struct YTDLPSettingsView: View {
 
                 // FFprobe status
                 HStack {
-                    if BinaryPathResolver.isUsingCustomFFprobe {
+                    if BinaryPathResolver.ffprobePath != nil {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.blue)
-                        Text("FFprobe: Custom")
-                    } else if BinaryPathResolver.ffprobePath != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        Text("FFprobe: Bundled")
+                            .foregroundColor(statusColor(for: selectedFFmpegSource))
+                        Text(ffprobeStatusLabel)
                     } else {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.red)
@@ -532,64 +695,79 @@ struct YTDLPSettingsView: View {
 
                 Divider()
 
-                // Custom FFmpeg path
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Custom FFmpeg path (optional):")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                HStack {
+                    Text("Source:")
+                        .frame(width: 60, alignment: .trailing)
+                    Picker("Source", selection: $ffmpegBinarySource) {
+                        Text("App (Bundled)").tag(BinarySourceSelection.app.rawValue)
+                        Text("Homebrew").tag(BinarySourceSelection.homebrew.rawValue)
+                        Text("Custom").tag(BinarySourceSelection.custom.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 260)
+                    Spacer()
+                }
 
-                    HStack {
-                        TextField("Leave empty to use bundled version", text: $ffmpegCustomPath)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(.body, design: .monospaced))
+                if selectedFFmpegSource == .custom {
+                    // Custom FFmpeg path
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Custom FFmpeg path:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
-                        Button("Browse...") {
-                            selectBinary(for: .ffmpeg)
-                        }
+                        HStack {
+                            TextField("Select ffmpeg binary", text: $ffmpegCustomPath)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
 
-                        if !ffmpegCustomPath.isEmpty {
-                            Button(role: .destructive) {
-                                ffmpegCustomPath = ""
-                                saveFFmpegPath()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
+                            Button("Browse...") {
+                                selectBinary(for: .ffmpeg)
                             }
-                            .buttonStyle(.borderless)
+
+                            if !ffmpegCustomPath.isEmpty {
+                                Button(role: .destructive) {
+                                    ffmpegCustomPath = ""
+                                    saveFFmpegPath()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
                     }
-                }
-                .onChange(of: ffmpegCustomPath) { _, _ in
-                    saveFFmpegPath()
-                }
+                    .onChange(of: ffmpegCustomPath) { _, _ in
+                        saveFFmpegPath()
+                    }
 
-                // Custom FFprobe path
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Custom FFprobe path (optional):")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    // Custom FFprobe path
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Custom FFprobe path:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
 
-                    HStack {
-                        TextField("Leave empty to use bundled version", text: $ffprobeCustomPath)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(.body, design: .monospaced))
+                        HStack {
+                            TextField("Select ffprobe binary", text: $ffprobeCustomPath)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
 
-                        Button("Browse...") {
-                            selectBinary(for: .ffprobe)
-                        }
-
-                        if !ffprobeCustomPath.isEmpty {
-                            Button(role: .destructive) {
-                                ffprobeCustomPath = ""
-                                saveFFprobePath()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
+                            Button("Browse...") {
+                                selectBinary(for: .ffprobe)
                             }
-                            .buttonStyle(.borderless)
+
+                            if !ffprobeCustomPath.isEmpty {
+                                Button(role: .destructive) {
+                                    ffprobeCustomPath = ""
+                                    saveFFprobePath()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                            }
                         }
                     }
-                }
-                .onChange(of: ffprobeCustomPath) { _, _ in
-                    saveFFprobePath()
+                    .onChange(of: ffprobeCustomPath) { _, _ in
+                        saveFFprobePath()
+                    }
                 }
 
                 Divider()
@@ -634,11 +812,12 @@ struct YTDLPSettingsView: View {
     // MARK: - Binary Type
 
     private enum BinaryType {
-        case ytdlp, ffmpeg, ffprobe
+        case ytdlp, deno, ffmpeg, ffprobe
 
         var title: String {
             switch self {
             case .ytdlp: return "Select yt-dlp binary"
+            case .deno: return "Select deno binary"
             case .ffmpeg: return "Select ffmpeg binary"
             case .ffprobe: return "Select ffprobe binary"
             }
@@ -647,6 +826,7 @@ struct YTDLPSettingsView: View {
         var message: String {
             switch self {
             case .ytdlp: return "Select yt-dlp from /opt/homebrew/bin/"
+            case .deno: return "Select deno from /opt/homebrew/bin/"
             case .ffmpeg: return "Select ffmpeg binary"
             case .ffprobe: return "Select ffprobe binary"
             }
@@ -664,7 +844,9 @@ struct YTDLPSettingsView: View {
     // MARK: - Actions
 
     private func loadSettings() {
+        seedBinarySourcesIfNeeded()
         ytdlpCustomPath = YTDLPUpdateService.shared.getCustomPath() ?? ""
+        denoCustomPath = YTDLPUpdateService.shared.getDenoCustomPath() ?? ""
         ffmpegCustomPath = UserDefaults.standard.string(forKey: AppConstants.customFFmpegPathKey) ?? ""
         ffprobeCustomPath = UserDefaults.standard.string(forKey: AppConstants.customFFprobePathKey) ?? ""
     }
@@ -680,6 +862,17 @@ struct YTDLPSettingsView: View {
         }
     }
 
+    private func saveDenoPath() {
+        Task {
+            if denoCustomPath.isEmpty {
+                await YTDLPUpdateService.shared.clearDenoCustomPath()
+            } else {
+                await YTDLPUpdateService.shared.saveDenoCustomPath(denoCustomPath)
+            }
+            await refreshVersions()
+        }
+    }
+
     private func saveFFmpegPath() {
         BinaryPathResolver.saveCustomFFmpegPath(ffmpegCustomPath.isEmpty ? nil : ffmpegCustomPath)
         Task { await refreshVersions() }
@@ -688,6 +881,68 @@ struct YTDLPSettingsView: View {
     private func saveFFprobePath() {
         BinaryPathResolver.saveCustomFFprobePath(ffprobeCustomPath.isEmpty ? nil : ffprobeCustomPath)
         Task { await refreshVersions() }
+    }
+
+    private func seedBinarySourcesIfNeeded() {
+        if !hasStoredValue(for: AppConstants.ytdlpBinarySourceKey) {
+            ytdlpBinarySource = defaultYTDLPSourceSelection().rawValue
+        }
+        if !hasStoredValue(for: AppConstants.denoBinarySourceKey) {
+            denoBinarySource = defaultDenoSourceSelection().rawValue
+        }
+        if !hasStoredValue(for: AppConstants.ffmpegBinarySourceKey) {
+            ffmpegBinarySource = defaultFFmpegSourceSelection().rawValue
+        }
+    }
+
+    private func defaultYTDLPSourceSelection() -> BinarySourceSelection {
+        if let customPath = YTDLPUpdateService.shared.getCustomPath(),
+           fileExists(at: customPath) {
+            return .custom
+        }
+        if fileExists(at: "/opt/homebrew/bin/yt-dlp") {
+            return .homebrew
+        }
+        if fileExists(at: AppConstants.ytdlpToolsDirectory.appendingPathComponent("yt-dlp").path) {
+            return .app
+        }
+        return .app
+    }
+
+    private func defaultDenoSourceSelection() -> BinarySourceSelection {
+        if let customPath = YTDLPUpdateService.shared.getDenoCustomPath(),
+           fileExists(at: customPath) {
+            return .custom
+        }
+        if fileExists(at: AppConstants.ytdlpToolsDirectory.appendingPathComponent("deno").path) {
+            return .app
+        }
+        if fileExists(at: "/opt/homebrew/bin/deno") || fileExists(at: "/usr/bin/deno") {
+            return .homebrew
+        }
+        return .app
+    }
+
+    private func defaultFFmpegSourceSelection() -> BinarySourceSelection {
+        if let customPath = UserDefaults.standard.string(forKey: AppConstants.customFFmpegPathKey),
+           fileExists(at: customPath) {
+            return .custom
+        }
+        return .app
+    }
+
+    private func hasStoredValue(for key: String) -> Bool {
+        guard let value = UserDefaults.standard.object(forKey: key) else { return false }
+        if let stringValue = value as? String {
+            return !stringValue.isEmpty
+        }
+        return true
+    }
+
+    private func fileExists(at path: String) -> Bool {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return FileManager.default.fileExists(atPath: trimmed)
     }
 
     private func selectBinary(for type: BinaryType) {
@@ -711,6 +966,8 @@ struct YTDLPSettingsView: View {
             switch type {
             case .ytdlp:
                 ytdlpCustomPath = url.path
+            case .deno:
+                denoCustomPath = url.path
             case .ffmpeg:
                 ffmpegCustomPath = url.path
             case .ffprobe:
@@ -730,8 +987,9 @@ struct YTDLPSettingsView: View {
         let resolvedPath = await YTDLPUpdateService.shared.resolveYTDLPPath()
         let status: YTDLPStatus = resolvedPath != nil ? .configured : .notAvailable
         let instStatus = await YTDLPUpdateService.shared.getInstallationStatus()
+        let resolvedDenoPath = await YTDLPUpdateService.shared.resolveDenoPath()
         let denoInstStatus = await YTDLPUpdateService.shared.getDenoInstallationStatus()
-        let denoStatusValue: DenoStatus = denoInstStatus.isAvailable ? .configured : .notAvailable
+        let denoStatusValue: DenoStatus = resolvedDenoPath != nil ? .configured : .notAvailable
 
         async let ytdlpVer = YTDLPUpdateService.shared.getCurrentVersion()
         async let denoVer = YTDLPUpdateService.shared.getCurrentDenoVersion()

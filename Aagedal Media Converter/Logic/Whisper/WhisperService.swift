@@ -46,6 +46,16 @@ actor WhisperService {
             throw WhisperServiceError.ffmpegNotFound
         }
 
+        var shouldStopAccess = false
+        if model.isCustom {
+            shouldStopAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: modelPath)
+        }
+        defer {
+            if shouldStopAccess {
+                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: modelPath)
+            }
+        }
+
         // Prepare output file path
         let baseName = inputFile.deletingPathExtension().lastPathComponent
         let srtFile = outputDirectory.appendingPathComponent(baseName + ".srt")

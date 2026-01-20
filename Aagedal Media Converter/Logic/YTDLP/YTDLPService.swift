@@ -26,6 +26,14 @@ actor YTDLPService {
     private var currentProcess: Process?
     private let updateService = YTDLPUpdateService.shared
 
+    private final class DateBox: @unchecked Sendable {
+        var value: Date
+
+        init(value: Date) {
+            self.value = value
+        }
+    }
+
     /// Path to ffmpeg for post-processing
     private var ffmpegPath: String? {
         BinaryPathResolver.ffmpegPath
@@ -56,7 +64,11 @@ actor YTDLPService {
                 // Configure process for Homebrew Python or regular executable
                 // Note: --ignore-config prevents yt-dlp from reading user config files
                 // Note: --remote-components ejs:github is required for YouTube JS challenge solving
-                var arguments = ["--ignore-config", "--remote-components", "ejs:github"]
+                var arguments = [
+                    "--ignore-config",
+                    "--remote-components", "ejs:github",
+                    "--cache-dir", AppConstants.ytdlpCacheDirectory.path
+                ]
                 if let denoPath {
                     arguments.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
                 }
@@ -183,10 +195,16 @@ actor YTDLPService {
         // Build arguments array
         // Note: --ignore-config prevents yt-dlp from reading user config files
         // Note: --remote-components ejs:github is required for YouTube JS challenge solving
-        var args: [String] = ["--ignore-config", "--remote-components", "ejs:github"]
+        var args: [String] = [
+            "--ignore-config",
+            "--remote-components", "ejs:github",
+            "--cache-dir", AppConstants.ytdlpCacheDirectory.path
+        ]
         if let denoPath = await updateService.ensureDenoInstalled() {
             args.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
+            logger.info("[YTDLPService] Using deno runtime at: \(denoPath)")
         }
+        logger.info("[YTDLPService] Using cache dir: \(AppConstants.ytdlpCacheDirectory.path)")
 
         // Add ffmpeg location if available
         let ffmpegResolveStart = Date()
@@ -236,6 +254,9 @@ actor YTDLPService {
             var lastError: String?
             var fileAlreadyExists: Bool = false
             var existingFilePath: String?
+            var firstStdoutLogged: Bool = false
+            var firstStderrLogged: Bool = false
+            var firstProgressLogged: Bool = false
             let lock = NSLock()
 
             func read<T>(_ block: (ParsedState) -> T) -> T {
@@ -243,8 +264,39 @@ actor YTDLPService {
                 defer { lock.unlock() }
                 return block(self)
             }
+
+            func markFirstStdout() -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                if firstStdoutLogged {
+                    return false
+                }
+                firstStdoutLogged = true
+                return true
+            }
+
+            func markFirstStderr() -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                if firstStderrLogged {
+                    return false
+                }
+                firstStderrLogged = true
+                return true
+            }
+
+            func markFirstProgress() -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                if firstProgressLogged {
+                    return false
+                }
+                firstProgressLogged = true
+                return true
+            }
         }
         let parsedState = ParsedState()
+        let processStartBox = DateBox(value: Date())
 
         // Handle stderr for progress updates
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
@@ -256,12 +308,21 @@ actor YTDLPService {
                     let trimmed = singleLine.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { continue }
 
+                    if parsedState.markFirstStderr() {
+                        let delta = Date().timeIntervalSince(processStartBox.value)
+                        self.logger.info("[TIMING] First yt-dlp stderr after \(String(format: "%.3f", delta))s")
+                    }
+
                     // Debug: Log all stderr output
                     print("[YTDLPService] stderr: \(trimmed)")
 
                     // Parse progress
                     if let progressInfo = YTDLPProgressParser.parse(trimmed) {
                         print("[YTDLPService] Progress parsed: \(progressInfo.progress * 100)%")
+                        if parsedState.markFirstProgress() {
+                            let delta = Date().timeIntervalSince(processStartBox.value)
+                            self.logger.info("[TIMING] First yt-dlp progress after \(String(format: "%.3f", delta))s")
+                        }
                         progress(progressInfo.progress, progressInfo.speed)
                     }
 
@@ -299,6 +360,11 @@ actor YTDLPService {
                     let trimmed = singleLine.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { continue }
 
+                    if parsedState.markFirstStdout() {
+                        let delta = Date().timeIntervalSince(processStartBox.value)
+                        self.logger.info("[TIMING] First yt-dlp stdout after \(String(format: "%.3f", delta))s")
+                    }
+
                     // Debug: Log stdout output
                     print("[YTDLPService] stdout: \(trimmed)")
 
@@ -319,6 +385,10 @@ actor YTDLPService {
                     // Check for progress on stdout too
                     if let progressInfo = YTDLPProgressParser.parse(trimmed) {
                         print("[YTDLPService] Progress from stdout: \(progressInfo.progress * 100)%")
+                        if parsedState.markFirstProgress() {
+                            let delta = Date().timeIntervalSince(processStartBox.value)
+                            self.logger.info("[TIMING] First yt-dlp progress after \(String(format: "%.3f", delta))s")
+                        }
                         progress(progressInfo.progress, progressInfo.speed)
                     }
 
@@ -337,10 +407,10 @@ actor YTDLPService {
         let processSetupElapsed = Date().timeIntervalSince(downloadStartTime)
         logger.info("[TIMING] Process setup completed in \(String(format: "%.3f", processSetupElapsed))s, starting download process...")
 
-        let processRunStart = Date()
+        processStartBox.value = Date()
         try process.run()
         process.waitUntilExit()
-        let processRunElapsed = Date().timeIntervalSince(processRunStart)
+        let processRunElapsed = Date().timeIntervalSince(processStartBox.value)
         logger.info("[TIMING] Download process completed in \(String(format: "%.2f", processRunElapsed))s")
 
         // Clean up

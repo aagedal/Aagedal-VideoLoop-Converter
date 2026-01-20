@@ -29,6 +29,7 @@ struct ConversionToolbarView: ToolbarContent {
     let mergeClipsAvailable: Bool
     let onToggleConversion: (_ optionKeyPressed: Bool) -> Void
     let onImport: () -> Void
+    let onShowDownload: () -> Void
     let onResetAll: (_ optionKeyPressed: Bool) -> Void
     let hasResettableItems: Bool
     let onClear: () -> Void
@@ -66,6 +67,13 @@ struct ConversionToolbarView: ToolbarContent {
             }
             .help("Import video files")
             .keyboardShortcut("i", modifiers: .command)
+        }
+
+        ToolbarItem(placement: .automatic) {
+            Button(action: onShowDownload) {
+                Label("Download", systemImage: "arrow.down.circle")
+            }
+            .help("Download video from URL")
         }
 
         ToolbarItem(placement: .automatic) {

@@ -182,6 +182,7 @@ struct VideoFileListView: View {
                     onToggleMute: handleToggleMuteShortcut,
                     onToggleUpload: handleToggleUploadShortcut,
                     onToggleSourceUpload: handleToggleSourceUploadShortcut,
+                    onToggleSubtitles: handleToggleSubtitlesShortcut,
                     onToggleAutoEncode: handleToggleAutoEncodeShortcut,
                     onNavigateUp: { handleNavigateSelection(direction: .up) },
                     onNavigateDown: { handleNavigateSelection(direction: .down) },
@@ -571,6 +572,19 @@ struct VideoFileListView: View {
         }
     }
 
+    private func handleToggleSubtitlesShortcut() {
+        // Works with single or multi-selection
+        let selectedIndices = selection.compactMap { selectedID in
+            droppedFiles.firstIndex(where: { $0.id == selectedID })
+        }.sorted()
+
+        guard !selectedIndices.isEmpty else { return }
+
+        for index in selectedIndices {
+            droppedFiles[index].subtitleEnabled.toggle()
+        }
+    }
+
     private func handleToggleAutoEncodeShortcut() {
         // Works with single or multi-selection - only affects download items
         let selectedIndices = selection.compactMap { selectedID in
@@ -928,6 +942,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onToggleMute: () -> Void
     var onToggleUpload: () -> Void
     var onToggleSourceUpload: () -> Void
+    var onToggleSubtitles: () -> Void
     var onToggleAutoEncode: () -> Void
     // Navigation shortcuts (plain arrow keys)
     var onNavigateUp: () -> Void
@@ -953,6 +968,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onToggleMute: onToggleMute,
             onToggleUpload: onToggleUpload,
             onToggleSourceUpload: onToggleSourceUpload,
+            onToggleSubtitles: onToggleSubtitles,
             onToggleAutoEncode: onToggleAutoEncode,
             onNavigateUp: onNavigateUp,
             onNavigateDown: onNavigateDown,
@@ -984,6 +1000,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onToggleMute = onToggleMute
         context.coordinator.onToggleUpload = onToggleUpload
         context.coordinator.onToggleSourceUpload = onToggleSourceUpload
+        context.coordinator.onToggleSubtitles = onToggleSubtitles
         context.coordinator.onToggleAutoEncode = onToggleAutoEncode
         context.coordinator.onNavigateUp = onNavigateUp
         context.coordinator.onNavigateDown = onNavigateDown
@@ -1011,6 +1028,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onToggleMute: () -> Void
         var onToggleUpload: () -> Void
         var onToggleSourceUpload: () -> Void
+        var onToggleSubtitles: () -> Void
         var onToggleAutoEncode: () -> Void
         var onNavigateUp: () -> Void
         var onNavigateDown: () -> Void
@@ -1034,6 +1052,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onToggleMute: @escaping () -> Void,
             onToggleUpload: @escaping () -> Void,
             onToggleSourceUpload: @escaping () -> Void,
+            onToggleSubtitles: @escaping () -> Void,
             onToggleAutoEncode: @escaping () -> Void,
             onNavigateUp: @escaping () -> Void,
             onNavigateDown: @escaping () -> Void,
@@ -1055,6 +1074,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onToggleMute = onToggleMute
             self.onToggleUpload = onToggleUpload
             self.onToggleSourceUpload = onToggleSourceUpload
+            self.onToggleSubtitles = onToggleSubtitles
             self.onToggleAutoEncode = onToggleAutoEncode
             self.onNavigateUp = onNavigateUp
             self.onNavigateDown = onNavigateDown
@@ -1105,6 +1125,12 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // CMD+T: Open Trim (single selection)
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_T {
                     self.onTrim()
+                    return nil
+                }
+
+                // CMD+Option+T: Toggle subtitles on selected items
+                if hasCommand && hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_T {
+                    self.onToggleSubtitles()
                     return nil
                 }
                 
