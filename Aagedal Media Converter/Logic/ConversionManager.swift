@@ -997,9 +997,7 @@ actor ConversionManager: Sendable {
             return
         }
 
-        let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
-        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
-        let outputFileName = sanitizedBaseName + suffixPart
+        let outputFileName = outputBaseName(for: currentItem, inputURL: inputURL, preset: preset)
         let resolvedOutputFolder = VideoFileUtils.resolveOutputFolder(for: inputURL, defaultOutputFolder: outputFolder, preset: preset) ?? outputFolder
 
         // Ensure the output directory exists with proper security-scoped access
@@ -1396,5 +1394,17 @@ actor ConversionManager: Sendable {
             }
             print("📝 Subtitle generation failed: \(error.localizedDescription)")
         }
+    }
+
+    private func outputBaseName(for item: VideoItem, inputURL: URL, preset: ExportPreset) -> String {
+        if let override = item.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            let baseName = (override as NSString).deletingPathExtension
+            return FileNameProcessor.processFileName(baseName)
+        }
+
+        let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
+        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        return sanitizedBaseName + suffixPart
     }
 }

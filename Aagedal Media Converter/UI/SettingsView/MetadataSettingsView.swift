@@ -17,8 +17,6 @@ struct MetadataSettingsView: View {
     @AppStorage(AppConstants.dateTagPrefixKey) private var dateTagPrefix = AppConstants.defaultDateTagPrefix
     @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
     @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
-    @AppStorage(AppConstants.c2paCheckEnabledKey) private var c2paCheckEnabled = AppConstants.defaultC2PACheckEnabled
-
     @State private var isValidTimecode: Bool = true
     @State private var showCommentInfoPopover = false
     @FocusState private var isTextFieldFocused: Bool
@@ -594,17 +592,14 @@ struct MetadataSettingsView: View {
 
                 // C2PA Settings
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle(isOn: $c2paCheckEnabled) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Check for C2PA metadata")
-                                .font(.subheadline.weight(.medium))
-                            Text("Automatically detect Content Authenticity (C2PA) credentials in imported files")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "checkmark.seal")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                        Text("C2PA metadata is checked automatically when ExifTool is available.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .toggleStyle(SwitchToggleStyle())
-                    .disabled(!exiftoolStatus.isAvailable)
 
                     if !exiftoolStatus.isAvailable {
                         HStack(alignment: .top, spacing: 6) {

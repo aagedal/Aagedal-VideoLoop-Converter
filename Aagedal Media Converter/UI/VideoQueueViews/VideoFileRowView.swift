@@ -24,6 +24,7 @@ struct VideoFileRowView: View {
     var onForceRedownload: (() -> Void)?
     var onCancelScheduledDownload: (() -> Void)?
     var onTranscribeOnly: (() -> Void)?
+    var onRenameOutputFileName: ((String?) -> Void)? = nil
     /// Indicates if this row is selected in the list
     var isSelected: Bool = false
     var onCommentFocusChange: (UUID, Bool) -> Void = { _, _ in }
@@ -119,6 +120,9 @@ struct VideoFileRowView: View {
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
     @State private var showCommentPreviewPopover = false
+    @State private var isEditingOutputName = false
+    @State private var outputNameDraft: String = ""
+    @FocusState private var isOutputNameFieldFocused: Bool
 
     var body: some View {
         ZStack {
@@ -142,9 +146,34 @@ struct VideoFileRowView: View {
                             // Duration warning icon
                             Text("→")
                             HStack(spacing: 4) {
-                                Text(displayOutputFilename())
-                                    .font(.headline)
-                                    .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .primary)
+                                if isEditingOutputName {
+                                    TextField("Output filename", text: $outputNameDraft)
+                                        .font(.headline)
+                                        .textFieldStyle(.plain)
+                                        .focused($isOutputNameFieldFocused)
+                                        .onSubmit {
+                                            commitOutputNameEdit()
+                                        }
+                                        .onExitCommand {
+                                            cancelOutputNameEdit()
+                                        }
+                                        .onChange(of: isOutputNameFieldFocused) { _, isFocused in
+                                            if !isFocused && isEditingOutputName {
+                                                commitOutputNameEdit()
+                                            }
+                                        }
+                                        .onAppear {
+                                            outputNameDraft = displayOutputFilename()
+                                            isOutputNameFieldFocused = true
+                                        }
+                                } else {
+                                    Text(displayOutputFilename())
+                                        .font(.headline)
+                                        .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .primary)
+                                        .onTapGesture(count: 2) {
+                                            beginOutputNameEdit()
+                                        }
+                                }
                                 if shouldShowMergeIndicator {
                                     Image(systemName: "link")
                                         .rotationEffect(.degrees(90))
@@ -1257,6 +1286,10 @@ struct VideoFileRowView: View {
     }
 
     private func displayOutputFilename() -> String {
+        if let overrideName = sanitizedOutputNameOverride() {
+            let resolvedExtension = preset.outputExtension(for: file.url)
+            return overrideName + "." + resolvedExtension
+        }
         if let outputURL = file.outputURL {
             return outputURL.lastPathComponent
         }
@@ -1269,6 +1302,31 @@ struct VideoFileRowView: View {
         let resolvedExtension = preset.outputExtension(for: file.url)
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
         return "\(sanitized)\(suffixPart).\(resolvedExtension)"
+    }
+
+    private func sanitizedOutputNameOverride() -> String? {
+        guard let raw = file.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            return nil
+        }
+        return FileNameProcessor.processFileName(raw)
+    }
+
+    private func beginOutputNameEdit() {
+        outputNameDraft = displayOutputFilename()
+        isEditingOutputName = true
+        isOutputNameFieldFocused = true
+    }
+
+    private func commitOutputNameEdit() {
+        isEditingOutputName = false
+        let trimmed = outputNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        onRenameOutputFileName?(trimmed.isEmpty ? nil : trimmed)
+    }
+
+    private func cancelOutputNameEdit() {
+        isEditingOutputName = false
+        outputNameDraft = ""
     }
 
     private func dragIcon(for outputURL: URL, color: Color, helpText: String) -> some View {

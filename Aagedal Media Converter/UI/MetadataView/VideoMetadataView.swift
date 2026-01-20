@@ -38,6 +38,8 @@ struct VideoMetadataView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    c2paSection
+                    Divider()
                     generalSection
                     Divider()
                     videoSection
@@ -45,10 +47,6 @@ struct VideoMetadataView: View {
                     audioSection
                     Divider()
                     subtitleSection
-                    if item.c2paMetadata != nil || isLoadingC2PA {
-                        Divider()
-                        c2paSection
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -210,6 +208,10 @@ struct VideoMetadataView: View {
 
     private var c2paSection: some View {
         section(title: "Content Authenticity (C2PA)") {
+            Text("Presence only. This app does not verify C2PA signatures.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
             if isLoadingC2PA {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -228,7 +230,20 @@ struct VideoMetadataView: View {
                 }
                 .padding(.bottom, 8)
 
+                if c2pa.hasSignature {
+                    infoRow("Signature", value: "Present")
+                }
+                infoRow("Claim Generator Info Name", value: c2pa.claimGeneratorInfoName)
                 infoRow("Claim Generator", value: c2pa.claimGenerator)
+                infoRow("Actions Action", value: c2pa.actionsAction)
+                infoRow("Actions Digital Source Type", value: c2pa.actionsDigitalSourceType)
+                infoRow("Signature Types", value: c2pa.userDescriptiveMetadataName)
+                infoRow("Signature Content", value: c2pa.userDescriptiveMetadataContent)
+                infoRow("Device Manufacturer", value: c2pa.deviceManufacturer)
+                infoRow("Device Model", value: c2pa.deviceModelName)
+                infoRow("Device Serial", value: c2pa.deviceSerialNumber)
+                infoRow("Lens Model", value: c2pa.lensModelName)
+                infoRow("C2PA Creation Date", value: c2pa.creationDateValue)
                 if let manifestStore = c2pa.manifestStore, !manifestStore.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Manifest Store")
@@ -251,9 +266,9 @@ struct VideoMetadataView: View {
                 }
             } else {
                 HStack(spacing: 6) {
-                    Image(systemName: "shield.slash")
+                    Image(systemName: "exclamationmark.triangle")
                         .foregroundColor(.secondary)
-                    Text("No content credentials detected")
+                    Text("C2PA metadata not available")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }

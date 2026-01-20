@@ -20,6 +20,12 @@ struct UploadSettingsView: View {
     @AppStorage(AppConstants.uploadBackendTypeKey) private var selectedBackend = "ftp"
     @State private var ftpProfiles: [FTPUploadProfile] = []
     @AppStorage(AppConstants.uploadFTPSelectedProfileIDKey) private var selectedFTPProfileID = ""
+    @State private var sftpProfiles: [SFTPUploadProfile] = []
+    @AppStorage(AppConstants.uploadSFTPSelectedProfileIDKey) private var selectedSFTPProfileID = ""
+    @State private var smbProfiles: [SMBUploadProfile] = []
+    @AppStorage(AppConstants.uploadSMBSelectedProfileIDKey) private var selectedSMBProfileID = ""
+    @State private var s3Profiles: [S3UploadProfile] = []
+    @AppStorage(AppConstants.uploadS3SelectedProfileIDKey) private var selectedS3ProfileID = ""
 
     // Common Settings
     @AppStorage(AppConstants.uploadServerKey) private var server = ""
@@ -77,57 +83,115 @@ struct UploadSettingsView: View {
         return ftpProfiles[index]
     }
 
+    private var selectedSFTPProfileIndex: Int? {
+        sftpProfiles.firstIndex { $0.id.uuidString == selectedSFTPProfileID }
+    }
+
+    private var selectedSFTPProfile: SFTPUploadProfile? {
+        guard let index = selectedSFTPProfileIndex else { return nil }
+        return sftpProfiles[index]
+    }
+
+    private var selectedSMBProfileIndex: Int? {
+        smbProfiles.firstIndex { $0.id.uuidString == selectedSMBProfileID }
+    }
+
+    private var selectedSMBProfile: SMBUploadProfile? {
+        guard let index = selectedSMBProfileIndex else { return nil }
+        return smbProfiles[index]
+    }
+
+    private var selectedS3ProfileIndex: Int? {
+        s3Profiles.firstIndex { $0.id.uuidString == selectedS3ProfileID }
+    }
+
+    private var selectedS3Profile: S3UploadProfile? {
+        guard let index = selectedS3ProfileIndex else { return nil }
+        return s3Profiles[index]
+    }
+
     var body: some View {
-        Form {
-            rcloneStatusSection
-            backendSelectorSection
-
-            // Show backend-specific sections
-            switch currentBackendType {
-            case .ftp:
-                ftpServerSection
-            case .sftp:
-                sftpServerSection
-            case .smb:
-                smbServerSection
-            case .s3:
-                s3Section
-            case .gdrive:
-                gdriveSection
+        formContent
+            .formStyle(.grouped)
+            .task {
+                await loadInitialState()
             }
-
-            uploadBehaviorSection
-            testConnectionSection
-        }
-        .formStyle(.grouped)
-        .task {
-            await loadInitialState()
-        }
         .onChange(of: selectedBackend) { _, newValue in
             handleBackendChange(newValue)
         }
-        .onChange(of: selectedFTPProfileID) { _, _ in
-            if currentBackendType == .ftp {
+        .onChange(of: profileSelectionToken) { _, _ in
+            switch currentBackendType {
+            case .ftp:
                 applySelectedFTPProfile()
+            case .sftp:
+                applySelectedSFTPProfile()
+            case .smb:
+                applySelectedSMBProfile()
+            case .s3:
+                applySelectedS3Profile()
+            case .gdrive:
+                break
             }
         }
-        .onChange(of: server) { _, _ in
-            updateSelectedFTPProfileFromFields()
+        .onChange(of: profileFieldsToken) { _, _ in
+            updateSelectedProfileFromFields()
             refreshPasswordState()
+            refreshS3SecretState()
         }
-        .onChange(of: port) { _, _ in
-            updateSelectedFTPProfileFromFields()
+    }
+
+    private var formContent: some View {
+        Form {
+            rcloneStatusSection
+            backendSelectorSection
+            backendSettingsSection
+            uploadBehaviorSection
+            testConnectionSection
         }
-        .onChange(of: username) { _, _ in
-            updateSelectedFTPProfileFromFields()
-            refreshPasswordState()
+    }
+
+    @ViewBuilder
+    private var backendSettingsSection: some View {
+        switch currentBackendType {
+        case .ftp:
+            ftpServerSection
+        case .sftp:
+            sftpServerSection
+        case .smb:
+            smbServerSection
+        case .s3:
+            s3Section
+        case .gdrive:
+            gdriveSection
         }
-        .onChange(of: remotePath) { _, _ in
-            updateSelectedFTPProfileFromFields()
-        }
-        .onChange(of: useFTPS) { _, _ in
-            updateSelectedFTPProfileFromFields()
-        }
+    }
+
+    private var profileSelectionToken: String {
+        [
+            currentBackendType.rawValue,
+            selectedFTPProfileID,
+            selectedSFTPProfileID,
+            selectedSMBProfileID,
+            selectedS3ProfileID
+        ].joined(separator: "|")
+    }
+
+    private var profileFieldsToken: String {
+        [
+            server,
+            "\(port)",
+            username,
+            remotePath,
+            useFTPS ? "1" : "0",
+            sftpKeyFilePath,
+            useSFTPKeyAuth ? "1" : "0",
+            smbShare,
+            smbDomain,
+            s3Bucket,
+            s3Region,
+            s3Endpoint,
+            s3AccessKeyID
+        ].joined(separator: "|")
     }
 
     // MARK: - Backend Selector
@@ -226,6 +290,9 @@ struct UploadSettingsView: View {
     private var ftpServerSection: some View {
         Section(header: Text("FTP Server")) {
             VStack(alignment: .leading, spacing: 12) {
+                Text("Profile")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 HStack {
                     Text("Profile:")
                         .frame(width: 80, alignment: .trailing)
@@ -270,6 +337,12 @@ struct UploadSettingsView: View {
                     )
                     .textFieldStyle(.roundedBorder)
                 }
+
+                Divider().padding(.vertical, 4)
+
+                Text("Settings")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
                 // Server hostname
                 HStack {
@@ -331,6 +404,60 @@ struct UploadSettingsView: View {
     private var sftpServerSection: some View {
         Section(header: Text("SFTP Server")) {
             VStack(alignment: .leading, spacing: 12) {
+                Text("Profile")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                HStack {
+                    Text("Profile:")
+                        .frame(width: 80, alignment: .trailing)
+                    Picker("Profile", selection: $selectedSFTPProfileID) {
+                        if sftpProfiles.isEmpty {
+                            Text("No profiles").tag("")
+                        } else {
+                            ForEach(sftpProfiles) { profile in
+                                Text(profile.name.isEmpty ? "Untitled SFTP" : profile.name)
+                                    .tag(profile.id.uuidString)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    Spacer()
+                    Button {
+                        addSFTPProfile()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add profile")
+                    Button {
+                        deleteSelectedSFTPProfile()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(sftpProfiles.count <= 1)
+                    .help("Delete profile")
+                }
+
+                HStack {
+                    Text("Name:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField(
+                        "SFTP Profile",
+                        text: Binding(
+                            get: { selectedSFTPProfile?.name ?? "" },
+                            set: { updateSelectedSFTPProfileName($0) }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                Divider().padding(.vertical, 4)
+
+                Text("Settings")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 // Server hostname
                 HStack {
                     Text("Server:")
@@ -411,6 +538,60 @@ struct UploadSettingsView: View {
     private var smbServerSection: some View {
         Section(header: Text("SMB Server (Windows Share)")) {
             VStack(alignment: .leading, spacing: 12) {
+                Text("Profile")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                HStack {
+                    Text("Profile:")
+                        .frame(width: 80, alignment: .trailing)
+                    Picker("Profile", selection: $selectedSMBProfileID) {
+                        if smbProfiles.isEmpty {
+                            Text("No profiles").tag("")
+                        } else {
+                            ForEach(smbProfiles) { profile in
+                                Text(profile.name.isEmpty ? "Untitled SMB" : profile.name)
+                                    .tag(profile.id.uuidString)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    Spacer()
+                    Button {
+                        addSMBProfile()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add profile")
+                    Button {
+                        deleteSelectedSMBProfile()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(smbProfiles.count <= 1)
+                    .help("Delete profile")
+                }
+
+                HStack {
+                    Text("Name:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField(
+                        "SMB Profile",
+                        text: Binding(
+                            get: { selectedSMBProfile?.name ?? "" },
+                            set: { updateSelectedSMBProfileName($0) }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                Divider().padding(.vertical, 4)
+
+                Text("Settings")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 // Server hostname
                 HStack {
                     Text("Server:")
@@ -483,6 +664,60 @@ struct UploadSettingsView: View {
     private var s3Section: some View {
         Section(header: Text("Amazon S3 / S3-Compatible Storage")) {
             VStack(alignment: .leading, spacing: 12) {
+                Text("Profile")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                HStack {
+                    Text("Profile:")
+                        .frame(width: 100, alignment: .trailing)
+                    Picker("Profile", selection: $selectedS3ProfileID) {
+                        if s3Profiles.isEmpty {
+                            Text("No profiles").tag("")
+                        } else {
+                            ForEach(s3Profiles) { profile in
+                                Text(profile.name.isEmpty ? "Untitled S3" : profile.name)
+                                    .tag(profile.id.uuidString)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    Spacer()
+                    Button {
+                        addS3Profile()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add profile")
+                    Button {
+                        deleteSelectedS3Profile()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(s3Profiles.count <= 1)
+                    .help("Delete profile")
+                }
+
+                HStack {
+                    Text("Name:")
+                        .frame(width: 100, alignment: .trailing)
+                    TextField(
+                        "S3 Profile",
+                        text: Binding(
+                            get: { selectedS3Profile?.name ?? "" },
+                            set: { updateSelectedS3ProfileName($0) }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+
+                Divider().padding(.vertical, 4)
+
+                Text("Settings")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
                 // Bucket name
                 HStack {
                     Text("Bucket:")
@@ -728,39 +963,98 @@ struct UploadSettingsView: View {
         rcloneVersion = await RcloneUpdateService.shared.getCurrentVersion()
 
         loadFTPProfiles()
-        if currentBackendType == .ftp {
+        loadSFTPProfiles()
+        loadSMBProfiles()
+        loadS3Profiles()
+
+        switch currentBackendType {
+        case .ftp:
             ensureFTPProfilesForFTPBackend(seedFromCurrent: true)
             applySelectedFTPProfile()
-        } else {
+        case .sftp:
+            ensureSFTPProfilesForBackend(seedFromCurrent: true)
+            applySelectedSFTPProfile()
+        case .smb:
+            ensureSMBProfilesForBackend(seedFromCurrent: true)
+            applySelectedSMBProfile()
+        case .s3:
+            ensureS3ProfilesForBackend(seedFromCurrent: true)
+            applySelectedS3Profile()
+        case .gdrive:
             refreshPasswordState()
         }
 
-        // Check if S3 secret key exists
-        if !s3AccessKeyID.isEmpty {
-            hasStoredS3SecretKey = KeychainCredentialManager.shared.hasS3SecretKey(accessKeyID: s3AccessKeyID)
-        }
-
-        // Set SFTP auth mode based on whether key file is configured
-        useSFTPKeyAuth = !sftpKeyFilePath.isEmpty
+        refreshS3SecretState()
     }
 
     private func handleBackendChange(_ newValue: String) {
         guard let backend = UploadBackendType(rawValue: newValue) else { return }
 
-        if backend == .ftp {
+        switch backend {
+        case .ftp:
             let shouldSeed = !(server.isEmpty && username.isEmpty)
             ensureFTPProfilesForFTPBackend(seedFromCurrent: shouldSeed)
             applySelectedFTPProfile()
-        } else {
+        case .sftp:
+            let shouldSeed = !(server.isEmpty && username.isEmpty)
+            ensureSFTPProfilesForBackend(seedFromCurrent: shouldSeed)
+            applySelectedSFTPProfile()
+        case .smb:
+            let shouldSeed = !(server.isEmpty && username.isEmpty)
+            ensureSMBProfilesForBackend(seedFromCurrent: shouldSeed)
+            applySelectedSMBProfile()
+        case .s3:
+            let shouldSeed = !s3Bucket.isEmpty || !s3AccessKeyID.isEmpty
+            ensureS3ProfilesForBackend(seedFromCurrent: shouldSeed)
+            applySelectedS3Profile()
+        case .gdrive:
             port = backend.defaultPort
         }
 
         testResult = nil
     }
 
+    private func updateSelectedProfileFromFields() {
+        switch currentBackendType {
+        case .ftp:
+            updateSelectedFTPProfileFromFields()
+        case .sftp:
+            updateSelectedSFTPProfileFromFields()
+        case .smb:
+            updateSelectedSMBProfileFromFields()
+        case .s3:
+            updateSelectedS3ProfileFromFields()
+        case .gdrive:
+            break
+        }
+    }
+
+    private func refreshS3SecretState() {
+        guard !s3AccessKeyID.isEmpty else {
+            hasStoredS3SecretKey = false
+            return
+        }
+        hasStoredS3SecretKey = KeychainCredentialManager.shared.hasS3SecretKey(accessKeyID: s3AccessKeyID)
+    }
+
     private func loadFTPProfiles() {
         ftpProfiles = FTPUploadProfileStore.loadProfiles()
         ensureSelectedFTPProfile()
+    }
+
+    private func loadSFTPProfiles() {
+        sftpProfiles = SFTPUploadProfileStore.loadProfiles()
+        ensureSelectedSFTPProfile()
+    }
+
+    private func loadSMBProfiles() {
+        smbProfiles = SMBUploadProfileStore.loadProfiles()
+        ensureSelectedSMBProfile()
+    }
+
+    private func loadS3Profiles() {
+        s3Profiles = S3UploadProfileStore.loadProfiles()
+        ensureSelectedS3Profile()
     }
 
     private func ensureSelectedFTPProfile() {
@@ -865,6 +1159,320 @@ struct UploadSettingsView: View {
         let trimmed = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
         let seed = trimmed.isEmpty ? "FTP Profile" : trimmed
         let existingNames = Set(ftpProfiles.map { $0.name })
+        if !existingNames.contains(seed) {
+            return seed
+        }
+        var index = 2
+        var candidate = "\(seed) \(index)"
+        while existingNames.contains(candidate) {
+            index += 1
+            candidate = "\(seed) \(index)"
+        }
+        return candidate
+    }
+
+    private func ensureSelectedSFTPProfile() {
+        guard !sftpProfiles.isEmpty else { return }
+        if selectedSFTPProfileIndex == nil {
+            selectedSFTPProfileID = sftpProfiles[0].id.uuidString
+        }
+    }
+
+    private func ensureSelectedSMBProfile() {
+        guard !smbProfiles.isEmpty else { return }
+        if selectedSMBProfileIndex == nil {
+            selectedSMBProfileID = smbProfiles[0].id.uuidString
+        }
+    }
+
+    private func ensureSelectedS3Profile() {
+        guard !s3Profiles.isEmpty else { return }
+        if selectedS3ProfileIndex == nil {
+            selectedS3ProfileID = s3Profiles[0].id.uuidString
+        }
+    }
+
+    private func ensureSFTPProfilesForBackend(seedFromCurrent: Bool) {
+        guard sftpProfiles.isEmpty else {
+            ensureSelectedSFTPProfile()
+            return
+        }
+
+        let profileName = seedFromCurrent ? defaultSFTPProfileName() : "New SFTP Profile"
+        let profile = SFTPUploadProfile(
+            name: profileName,
+            server: seedFromCurrent ? server : "",
+            port: seedFromCurrent ? resolvedSFTPPort() : AppConstants.defaultSFTPPort,
+            username: seedFromCurrent ? username : "",
+            remotePath: seedFromCurrent ? remotePath : "/",
+            useKeyAuth: seedFromCurrent ? useSFTPKeyAuth : false,
+            keyFilePath: seedFromCurrent ? sftpKeyFilePath : ""
+        )
+        sftpProfiles = [profile]
+        SFTPUploadProfileStore.saveProfiles(sftpProfiles)
+        selectedSFTPProfileID = profile.id.uuidString
+    }
+
+    private func ensureSMBProfilesForBackend(seedFromCurrent: Bool) {
+        guard smbProfiles.isEmpty else {
+            ensureSelectedSMBProfile()
+            return
+        }
+
+        let profileName = seedFromCurrent ? defaultSMBProfileName() : "New SMB Profile"
+        let profile = SMBUploadProfile(
+            name: profileName,
+            server: seedFromCurrent ? server : "",
+            port: seedFromCurrent ? resolvedSMBPort() : AppConstants.defaultSMBPort,
+            username: seedFromCurrent ? username : "",
+            remotePath: seedFromCurrent ? remotePath : "/",
+            smbShare: seedFromCurrent ? smbShare : "",
+            smbDomain: seedFromCurrent ? smbDomain : ""
+        )
+        smbProfiles = [profile]
+        SMBUploadProfileStore.saveProfiles(smbProfiles)
+        selectedSMBProfileID = profile.id.uuidString
+    }
+
+    private func ensureS3ProfilesForBackend(seedFromCurrent: Bool) {
+        guard s3Profiles.isEmpty else {
+            ensureSelectedS3Profile()
+            return
+        }
+
+        let profileName = seedFromCurrent ? defaultS3ProfileName() : "New S3 Profile"
+        let profile = S3UploadProfile(
+            name: profileName,
+            bucket: seedFromCurrent ? s3Bucket : "",
+            region: seedFromCurrent ? s3Region : "us-east-1",
+            endpoint: seedFromCurrent ? s3Endpoint : "",
+            accessKeyID: seedFromCurrent ? s3AccessKeyID : "",
+            remotePath: seedFromCurrent ? remotePath : "/"
+        )
+        s3Profiles = [profile]
+        S3UploadProfileStore.saveProfiles(s3Profiles)
+        selectedS3ProfileID = profile.id.uuidString
+    }
+
+    private func defaultSFTPProfileName() -> String {
+        let trimmedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedServer.isEmpty ? "Default SFTP" : trimmedServer
+    }
+
+    private func defaultSMBProfileName() -> String {
+        let trimmedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedServer.isEmpty ? "Default SMB" : trimmedServer
+    }
+
+    private func defaultS3ProfileName() -> String {
+        let trimmedBucket = s3Bucket.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedBucket.isEmpty ? "Default S3" : trimmedBucket
+    }
+
+    private func resolvedSFTPPort() -> Int {
+        port > 0 ? port : AppConstants.defaultSFTPPort
+    }
+
+    private func resolvedSMBPort() -> Int {
+        port > 0 ? port : AppConstants.defaultSMBPort
+    }
+
+    private func applySelectedSFTPProfile() {
+        guard let profile = selectedSFTPProfile else { return }
+        server = profile.server
+        port = profile.port > 0 ? profile.port : AppConstants.defaultSFTPPort
+        username = profile.username
+        remotePath = profile.remotePath
+        useSFTPKeyAuth = profile.useKeyAuth
+        sftpKeyFilePath = profile.keyFilePath
+        password = ""
+        refreshPasswordState()
+    }
+
+    private func applySelectedSMBProfile() {
+        guard let profile = selectedSMBProfile else { return }
+        server = profile.server
+        port = profile.port > 0 ? profile.port : AppConstants.defaultSMBPort
+        username = profile.username
+        remotePath = profile.remotePath
+        smbShare = profile.smbShare
+        smbDomain = profile.smbDomain
+        password = ""
+        refreshPasswordState()
+    }
+
+    private func applySelectedS3Profile() {
+        guard let profile = selectedS3Profile else { return }
+        s3Bucket = profile.bucket
+        s3Region = profile.region
+        s3Endpoint = profile.endpoint
+        s3AccessKeyID = profile.accessKeyID
+        remotePath = profile.remotePath
+        s3SecretKey = ""
+        refreshS3SecretState()
+    }
+
+    private func updateSelectedSFTPProfileFromFields() {
+        guard currentBackendType == .sftp,
+              let index = selectedSFTPProfileIndex else { return }
+        sftpProfiles[index].server = server
+        sftpProfiles[index].port = resolvedSFTPPort()
+        sftpProfiles[index].username = username
+        sftpProfiles[index].remotePath = remotePath
+        sftpProfiles[index].useKeyAuth = useSFTPKeyAuth
+        sftpProfiles[index].keyFilePath = sftpKeyFilePath
+        SFTPUploadProfileStore.saveProfiles(sftpProfiles)
+    }
+
+    private func updateSelectedSMBProfileFromFields() {
+        guard currentBackendType == .smb,
+              let index = selectedSMBProfileIndex else { return }
+        smbProfiles[index].server = server
+        smbProfiles[index].port = resolvedSMBPort()
+        smbProfiles[index].username = username
+        smbProfiles[index].remotePath = remotePath
+        smbProfiles[index].smbShare = smbShare
+        smbProfiles[index].smbDomain = smbDomain
+        SMBUploadProfileStore.saveProfiles(smbProfiles)
+    }
+
+    private func updateSelectedS3ProfileFromFields() {
+        guard currentBackendType == .s3,
+              let index = selectedS3ProfileIndex else { return }
+        s3Profiles[index].bucket = s3Bucket
+        s3Profiles[index].region = s3Region
+        s3Profiles[index].endpoint = s3Endpoint
+        s3Profiles[index].accessKeyID = s3AccessKeyID
+        s3Profiles[index].remotePath = remotePath
+        S3UploadProfileStore.saveProfiles(s3Profiles)
+    }
+
+    private func updateSelectedSFTPProfileName(_ newValue: String) {
+        guard let index = selectedSFTPProfileIndex else { return }
+        sftpProfiles[index].name = newValue
+        SFTPUploadProfileStore.saveProfiles(sftpProfiles)
+    }
+
+    private func updateSelectedSMBProfileName(_ newValue: String) {
+        guard let index = selectedSMBProfileIndex else { return }
+        smbProfiles[index].name = newValue
+        SMBUploadProfileStore.saveProfiles(smbProfiles)
+    }
+
+    private func updateSelectedS3ProfileName(_ newValue: String) {
+        guard let index = selectedS3ProfileIndex else { return }
+        s3Profiles[index].name = newValue
+        S3UploadProfileStore.saveProfiles(s3Profiles)
+    }
+
+    private func addSFTPProfile() {
+        let baseName = server.isEmpty ? "New SFTP Profile" : server
+        let name = uniqueProfileName(from: baseName, existing: sftpProfiles.map { $0.name }, fallback: "SFTP Profile")
+        let profile = SFTPUploadProfile(
+            name: name,
+            server: server,
+            port: resolvedSFTPPort(),
+            username: username,
+            remotePath: remotePath,
+            useKeyAuth: useSFTPKeyAuth,
+            keyFilePath: sftpKeyFilePath
+        )
+        sftpProfiles.append(profile)
+        SFTPUploadProfileStore.saveProfiles(sftpProfiles)
+        selectedSFTPProfileID = profile.id.uuidString
+        applySelectedSFTPProfile()
+    }
+
+    private func addSMBProfile() {
+        let baseName = server.isEmpty ? "New SMB Profile" : server
+        let name = uniqueProfileName(from: baseName, existing: smbProfiles.map { $0.name }, fallback: "SMB Profile")
+        let profile = SMBUploadProfile(
+            name: name,
+            server: server,
+            port: resolvedSMBPort(),
+            username: username,
+            remotePath: remotePath,
+            smbShare: smbShare,
+            smbDomain: smbDomain
+        )
+        smbProfiles.append(profile)
+        SMBUploadProfileStore.saveProfiles(smbProfiles)
+        selectedSMBProfileID = profile.id.uuidString
+        applySelectedSMBProfile()
+    }
+
+    private func addS3Profile() {
+        let baseName = s3Bucket.isEmpty ? "New S3 Profile" : s3Bucket
+        let name = uniqueProfileName(from: baseName, existing: s3Profiles.map { $0.name }, fallback: "S3 Profile")
+        let profile = S3UploadProfile(
+            name: name,
+            bucket: s3Bucket,
+            region: s3Region,
+            endpoint: s3Endpoint,
+            accessKeyID: s3AccessKeyID,
+            remotePath: remotePath
+        )
+        s3Profiles.append(profile)
+        S3UploadProfileStore.saveProfiles(s3Profiles)
+        selectedS3ProfileID = profile.id.uuidString
+        applySelectedS3Profile()
+    }
+
+    private func deleteSelectedSFTPProfile() {
+        guard let index = selectedSFTPProfileIndex else { return }
+        sftpProfiles.remove(at: index)
+        if sftpProfiles.isEmpty {
+            let profile = SFTPUploadProfile(name: "New SFTP Profile")
+            sftpProfiles = [profile]
+            selectedSFTPProfileID = profile.id.uuidString
+        } else {
+            let nextIndex = min(index, sftpProfiles.count - 1)
+            selectedSFTPProfileID = sftpProfiles[nextIndex].id.uuidString
+        }
+        SFTPUploadProfileStore.saveProfiles(sftpProfiles)
+        if currentBackendType == .sftp {
+            applySelectedSFTPProfile()
+        }
+    }
+
+    private func deleteSelectedSMBProfile() {
+        guard let index = selectedSMBProfileIndex else { return }
+        smbProfiles.remove(at: index)
+        if smbProfiles.isEmpty {
+            let profile = SMBUploadProfile(name: "New SMB Profile")
+            smbProfiles = [profile]
+            selectedSMBProfileID = profile.id.uuidString
+        } else {
+            let nextIndex = min(index, smbProfiles.count - 1)
+            selectedSMBProfileID = smbProfiles[nextIndex].id.uuidString
+        }
+        SMBUploadProfileStore.saveProfiles(smbProfiles)
+        if currentBackendType == .smb {
+            applySelectedSMBProfile()
+        }
+    }
+
+    private func deleteSelectedS3Profile() {
+        guard let index = selectedS3ProfileIndex else { return }
+        s3Profiles.remove(at: index)
+        if s3Profiles.isEmpty {
+            let profile = S3UploadProfile(name: "New S3 Profile")
+            s3Profiles = [profile]
+            selectedS3ProfileID = profile.id.uuidString
+        } else {
+            let nextIndex = min(index, s3Profiles.count - 1)
+            selectedS3ProfileID = s3Profiles[nextIndex].id.uuidString
+        }
+        S3UploadProfileStore.saveProfiles(s3Profiles)
+        if currentBackendType == .s3 {
+            applySelectedS3Profile()
+        }
+    }
+
+    private func uniqueProfileName(from baseName: String, existing: [String], fallback: String) -> String {
+        let trimmed = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let seed = trimmed.isEmpty ? fallback : trimmed
+        let existingNames = Set(existing)
         if !existingNames.contains(seed) {
             return seed
         }
