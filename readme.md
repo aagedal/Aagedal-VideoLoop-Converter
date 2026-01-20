@@ -21,7 +21,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 ```
 
 ### Manual download
-[Latest version (3.3.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.3.0/Aagedal-Media-Converter_3-3-0.zip)
+[Latest version (3.5.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.5.0/Aagedal-Media-Converter_3-5-0.zip) 
 
 
 ---
@@ -41,6 +41,10 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 - Lots of settings if you want to customize
 - Language support: English and Norwegian
 - Automatically check for updates with a subtle update notification, can be turned off.
+- Download (yt-dlp)
+- Transcribe (whisper.cpp)
+- Upload (rclone)
+- Check for C2PA signature (exiftool)
 
 ### Batch conversion
 - Automatically encode all the files in the queue
