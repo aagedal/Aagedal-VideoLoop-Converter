@@ -1,0 +1,949 @@
+// Aagedal Media Converter
+// Copyright 2025 Truls Aagedal
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+import OSLog
+import Darwin
+
+/// Manages yt-dlp binary resolution with priority: custom path > downloaded > bundled
+actor YTDLPUpdateService {
+    static let shared = YTDLPUpdateService()
+
+    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "YTDLPUpdate")
+    private var denoInstallTask: Task<String?, Never>?
+    private var cachedDenoPath: String?
+
+    /// Path to bundled yt-dlp binary in app bundle
+    /// Note: We don't bundle yt-dlp anymore because PyInstaller binaries
+    /// don't work with Hardened Runtime (semctl blocked). Users should
+    /// install via Homebrew: brew install yt-dlp
+    var bundledPath: String? {
+        nil
+    }
+
+    /// Path to downloaded yt-dlp binary in Application Support
+    var downloadedPath: URL {
+        AppConstants.ytdlpToolsDirectory.appendingPathComponent("yt-dlp")
+    }
+
+    /// Path to version file for downloaded binary
+    private var versionFilePath: URL {
+        AppConstants.ytdlpToolsDirectory.appendingPathComponent("version.txt")
+    }
+
+    /// Path to downloaded deno binary in Application Support
+    private var denoDownloadedPath: URL {
+        AppConstants.ytdlpToolsDirectory.appendingPathComponent("deno")
+    }
+
+    private func selectedYTDLPSource() -> BinarySourceSelection? {
+        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.ytdlpBinarySourceKey),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return BinarySourceSelection(rawValue: rawValue)
+    }
+
+    private func selectedDenoSource() -> BinarySourceSelection? {
+        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.denoBinarySourceKey),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return BinarySourceSelection(rawValue: rawValue)
+    }
+
+    private func resolveYTDLPPath(for selection: BinarySourceSelection) -> String? {
+        switch selection {
+        case .custom:
+            return resolveCustomYTDLPPath()
+        case .homebrew:
+            return resolveHomebrewYTDLPPath()
+        case .app:
+            return resolveDownloadedYTDLPPath() ?? resolveBundledYTDLPPath()
+        }
+    }
+
+    private func resolveCustomYTDLPPath() -> String? {
+        guard let customPath = UserDefaults.standard.string(forKey: AppConstants.ytdlpCustomPathKey),
+              !customPath.isEmpty else {
+            return nil
+        }
+        if FileManager.default.fileExists(atPath: customPath) {
+            logger.info("Using custom yt-dlp at: \(customPath)")
+            return customPath
+        }
+        logger.warning("Custom yt-dlp path no longer exists: \(customPath)")
+        return nil
+    }
+
+    private func resolveHomebrewYTDLPPath() -> String? {
+        let homebrewPaths = [
+            "/opt/homebrew/bin/yt-dlp"
+        ]
+        for path in homebrewPaths where FileManager.default.fileExists(atPath: path) {
+            logger.info("Using Homebrew yt-dlp at: \(path)")
+            return path
+        }
+        return nil
+    }
+
+    private func resolveDownloadedYTDLPPath() -> String? {
+        let downloadedPathString = downloadedPath.path
+        let fileExists = FileManager.default.fileExists(atPath: downloadedPathString)
+        var isExecutable = FileManager.default.isExecutableFile(atPath: downloadedPathString)
+        logger.debug("Checking downloaded path: \(downloadedPathString), exists: \(fileExists), executable: \(isExecutable)")
+
+        if fileExists && !isExecutable {
+            logger.info("Fixing executable permissions for downloaded yt-dlp")
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: downloadedPathString)
+            isExecutable = FileManager.default.isExecutableFile(atPath: downloadedPathString)
+            logger.debug("After chmod: executable: \(isExecutable)")
+        }
+
+        if fileExists {
+            logger.info("Using downloaded yt-dlp at: \(downloadedPathString)")
+            return downloadedPathString
+        }
+
+        return nil
+    }
+
+    private func resolveBundledYTDLPPath() -> String? {
+        if let bundled = bundledPath,
+           FileManager.default.isExecutableFile(atPath: bundled) {
+            logger.info("Using bundled yt-dlp at: \(bundled)")
+            return bundled
+        }
+        return nil
+    }
+
+    private func resolveDenoPath(for selection: BinarySourceSelection) -> String? {
+        switch selection {
+        case .custom:
+            return resolveCustomDenoPath()
+        case .homebrew:
+            return resolveSystemDenoPath()
+        case .app:
+            return resolveDownloadedDenoPath()
+        }
+    }
+
+    private func resolveCustomDenoPath() -> String? {
+        guard let customPath = UserDefaults.standard.string(forKey: AppConstants.denoCustomPathKey),
+              !customPath.isEmpty else {
+            return nil
+        }
+        if FileManager.default.fileExists(atPath: customPath) {
+            cachedDenoPath = customPath
+            return customPath
+        }
+        return nil
+    }
+
+    private func resolveDownloadedDenoPath() -> String? {
+        let downloadedPathString = denoDownloadedPath.path
+        if FileManager.default.fileExists(atPath: downloadedPathString) {
+            cachedDenoPath = downloadedPathString
+            return downloadedPathString
+        }
+        return nil
+    }
+
+    private func resolveSystemDenoPath() -> String? {
+        let systemPaths = [
+            "/opt/homebrew/bin/deno",
+            "/usr/bin/deno"
+        ]
+        for path in systemPaths where FileManager.default.fileExists(atPath: path) {
+            cachedDenoPath = path
+            return path
+        }
+        return nil
+    }
+
+    private func ytdlpInstallationStatus(for selection: BinarySourceSelection) -> YTDLPInstallationStatus {
+        switch selection {
+        case .custom:
+            if let customPath = resolveCustomYTDLPPath() {
+                return .customPath(customPath)
+            }
+            return .notInstalled
+        case .homebrew:
+            if let homebrewPath = resolveHomebrewYTDLPPath() {
+                return .homebrewAvailable(homebrewPath)
+            }
+            return .notInstalled
+        case .app:
+            if FileManager.default.fileExists(atPath: downloadedPath.path) {
+                let version = UserDefaults.standard.string(forKey: AppConstants.ytdlpVersionKey)
+                return .downloaded(version: version)
+            }
+            return .notInstalled
+        }
+    }
+
+    private func denoInstallationStatus(for selection: BinarySourceSelection) -> DenoInstallationStatus {
+        switch selection {
+        case .custom:
+            if let customPath = resolveCustomDenoPath() {
+                return .customPath(customPath)
+            }
+            return .notInstalled
+        case .homebrew:
+            if let systemPath = resolveSystemDenoPath() {
+                return .systemAvailable(systemPath)
+            }
+            return .notInstalled
+        case .app:
+            if FileManager.default.fileExists(atPath: denoDownloadedPath.path) {
+                let version = UserDefaults.standard.string(forKey: AppConstants.denoVersionKey)
+                return .downloaded(version: version)
+            }
+            return .notInstalled
+        }
+    }
+
+    /// Returns the path to the best available yt-dlp binary
+    /// Priority: 1) Custom path, 2) Homebrew, 3) Downloaded, 4) Bundled
+    func resolveYTDLPPath() -> String? {
+        if let selection = selectedYTDLPSource() {
+            return resolveYTDLPPath(for: selection)
+        }
+
+        if let customPath = resolveCustomYTDLPPath() {
+            return customPath
+        }
+
+        if let homebrewPath = resolveHomebrewYTDLPPath() {
+            return homebrewPath
+        }
+
+        if let downloaded = resolveDownloadedYTDLPPath() {
+            return downloaded
+        }
+
+        if let bundled = resolveBundledYTDLPPath() {
+            return bundled
+        }
+
+        logger.warning("No yt-dlp binary available")
+        return nil
+    }
+
+    // MARK: - Deno Runtime Management
+
+    /// Returns the best available deno path (downloaded or system)
+    func resolveDenoPath() -> String? {
+        if let selection = selectedDenoSource() {
+            return resolveDenoPath(for: selection)
+        }
+
+        if let customPath = resolveCustomDenoPath() {
+            return customPath
+        }
+
+        if let downloadedPath = resolveDownloadedDenoPath() {
+            return downloadedPath
+        }
+
+        if let cached = cachedDenoPath,
+           FileManager.default.fileExists(atPath: cached) {
+            return cached
+        }
+
+        if let systemPath = resolveSystemDenoPath() {
+            return systemPath
+        }
+
+        return nil
+    }
+
+    /// Ensures deno is available (auto-downloads if missing)
+    func ensureDenoInstalled() async -> String? {
+        if let selection = selectedDenoSource(), selection != .app {
+            return resolveDenoPath()
+        }
+
+        if let resolved = resolveDenoPath() {
+            return resolved
+        }
+
+        if let task = denoInstallTask {
+            return await task.value
+        }
+
+        let logger = logger
+        let task = Task<String?, Never> { [weak self] in
+            guard let self else { return nil }
+            do {
+                let path = try await self.downloadDenoRuntime(progress: { _ in })
+                return path
+            } catch {
+                logger.error("Failed to auto-download deno: \(error.localizedDescription)")
+                return nil
+            }
+        }
+        denoInstallTask = task
+        let path = await task.value
+        denoInstallTask = nil
+        if let path {
+            cachedDenoPath = path
+        }
+        return path
+    }
+
+    /// Gets the current deno version from the resolved runtime
+    func getCurrentDenoVersion() async -> String? {
+        guard let denoPath = resolveDenoPath() else { return nil }
+        if denoPath == denoDownloadedPath.path,
+           let cached = UserDefaults.standard.string(forKey: AppConstants.denoVersionKey) {
+            return cached
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: denoPath)
+        process.arguments = ["--version"]
+        if let output = await runProcessWithTimeout(process, timeout: 3.0, label: "deno --version") {
+            let lines = output.split(separator: "\n")
+            if let firstLine = lines.first {
+                let parts = firstLine.split(separator: " ")
+                if parts.count >= 2 {
+                    return String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+            return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return nil
+    }
+
+    /// Checks if a deno update is available
+    func checkForDenoUpdates() async -> Bool {
+        do {
+            guard let currentVersion = await getCurrentDenoVersion(),
+                  let (latestVersion, _) = try await getLatestDenoRelease() else {
+                return false
+            }
+
+            let normalizedCurrent = currentVersion.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+            let normalizedLatest = latestVersion.trimmingCharacters(in: CharacterSet(charactersIn: "v"))
+            let isNewer = normalizedLatest.compare(normalizedCurrent, options: .numeric) == .orderedDescending
+            logger.info("deno - Current: \(currentVersion), Latest: \(latestVersion), Update available: \(isNewer)")
+            return isNewer
+        } catch {
+            logger.error("Failed to check for deno updates: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Downloads and installs the latest deno release
+    func downloadDenoUpdate() async throws {
+        _ = try await downloadDenoRuntime(progress: { _ in })
+        cachedDenoPath = denoDownloadedPath.path
+    }
+
+    /// Downloads and installs the latest deno release
+    /// - Parameter progress: Callback for download progress (0.0 to 1.0)
+    func downloadDenoUpdate(progress: @escaping @Sendable (Double) -> Void) async throws {
+        _ = try await downloadDenoRuntime(progress: progress)
+        cachedDenoPath = denoDownloadedPath.path
+    }
+
+    /// Gets the current installation status for deno
+    func getDenoInstallationStatus() -> DenoInstallationStatus {
+        if let selection = selectedDenoSource() {
+            return denoInstallationStatus(for: selection)
+        }
+
+        if let customPath = resolveCustomDenoPath() {
+            return .customPath(customPath)
+        }
+
+        if FileManager.default.fileExists(atPath: denoDownloadedPath.path) {
+            let version = UserDefaults.standard.string(forKey: AppConstants.denoVersionKey)
+            return .downloaded(version: version)
+        }
+
+        if let systemPath = resolveSystemDenoPath() {
+            return .systemAvailable(systemPath)
+        }
+
+        return .notInstalled
+    }
+
+    // MARK: - Custom Path Management
+
+    /// Saves a custom yt-dlp path
+    func saveCustomPath(_ path: String) {
+        UserDefaults.standard.set(path, forKey: AppConstants.ytdlpCustomPathKey)
+        logger.info("Saved custom yt-dlp path: \(path)")
+    }
+
+    /// Gets the custom yt-dlp path
+    nonisolated func getCustomPath() -> String? {
+        UserDefaults.standard.string(forKey: AppConstants.ytdlpCustomPathKey)
+    }
+
+    /// Clears the custom yt-dlp path
+    func clearCustomPath() {
+        UserDefaults.standard.removeObject(forKey: AppConstants.ytdlpCustomPathKey)
+        logger.info("Cleared custom yt-dlp path")
+    }
+
+    /// Saves a custom deno path
+    func saveDenoCustomPath(_ path: String) {
+        UserDefaults.standard.set(path, forKey: AppConstants.denoCustomPathKey)
+        logger.info("Saved custom deno path: \(path)")
+    }
+
+    /// Gets the custom deno path
+    nonisolated func getDenoCustomPath() -> String? {
+        UserDefaults.standard.string(forKey: AppConstants.denoCustomPathKey)
+    }
+
+    /// Clears the custom deno path
+    func clearDenoCustomPath() {
+        UserDefaults.standard.removeObject(forKey: AppConstants.denoCustomPathKey)
+        logger.info("Cleared custom deno path")
+    }
+
+    /// Checks if yt-dlp is available
+    func isYTDLPAvailable() -> Bool {
+        resolveYTDLPPath() != nil
+    }
+
+    /// Downloads yt-dlp if not already installed
+    /// Returns true if yt-dlp is available after this call
+    func ensureYTDLPInstalled() async -> Bool {
+        if let selection = selectedYTDLPSource(), selection != .app {
+            return resolveYTDLPPath() != nil
+        }
+
+        // Check if already available
+        if resolveYTDLPPath() != nil {
+            return true
+        }
+
+        logger.info("No yt-dlp found, attempting to download...")
+
+        do {
+            try await downloadUpdate()
+            return resolveYTDLPPath() != nil
+        } catch {
+            logger.error("Failed to auto-download yt-dlp: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Gets the current installation status
+    func getInstallationStatus() -> YTDLPInstallationStatus {
+        if let selection = selectedYTDLPSource() {
+            return ytdlpInstallationStatus(for: selection)
+        }
+
+        if let customPath = resolveCustomYTDLPPath() {
+            return .customPath(customPath)
+        }
+
+        if let homebrewPath = resolveHomebrewYTDLPPath() {
+            return .homebrewAvailable(homebrewPath)
+        }
+
+        if FileManager.default.fileExists(atPath: downloadedPath.path) {
+            let version = UserDefaults.standard.string(forKey: AppConstants.ytdlpVersionKey)
+            return .downloaded(version: version)
+        }
+
+        return .notInstalled
+    }
+
+    /// Gets the version of the currently active yt-dlp binary
+    func getCurrentVersion() async -> String? {
+        guard let ytdlpPath = resolveYTDLPPath() else { return nil }
+        if ytdlpPath == downloadedPath.path,
+           let cached = UserDefaults.standard.string(forKey: AppConstants.ytdlpVersionKey) {
+            return cached
+        }
+
+        let process = Process()
+        // Configure process for Homebrew Python or regular executable
+        HomebrewPythonExecutor.configureProcess(process, scriptPath: ytdlpPath, arguments: ["--version"])
+        if let output = await runProcessWithTimeout(process, timeout: 3.0, label: "yt-dlp --version") {
+            return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return nil
+    }
+
+    /// Checks GitHub for the latest yt-dlp release version
+    func getLatestReleaseVersion() async throws -> (version: String, downloadURL: URL)? {
+        guard let url = URL(string: AppConstants.ytdlpGitHubReleasesURL) else {
+            throw YTDLPUpdateError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw YTDLPUpdateError.networkError
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tagName = json["tag_name"] as? String,
+              let assets = json["assets"] as? [[String: Any]] else {
+            throw YTDLPUpdateError.parseError
+        }
+
+        // Find the macOS asset
+        for asset in assets {
+            if let name = asset["name"] as? String,
+               name == AppConstants.ytdlpMacOSAssetName,
+               let downloadURLString = asset["browser_download_url"] as? String,
+               let downloadURL = URL(string: downloadURLString) {
+                return (version: tagName, downloadURL: downloadURL)
+            }
+        }
+
+        throw YTDLPUpdateError.assetNotFound
+    }
+
+    // MARK: - Deno Download
+
+    private func getLatestDenoRelease() async throws -> (version: String, downloadURL: URL)? {
+        guard let url = URL(string: AppConstants.denoGitHubReleasesURL) else {
+            throw YTDLPUpdateError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw YTDLPUpdateError.networkError
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tagName = json["tag_name"] as? String,
+              let assets = json["assets"] as? [[String: Any]] else {
+            throw YTDLPUpdateError.parseError
+        }
+
+        let assetNames = [
+            "deno-aarch64-apple-darwin.zip",
+            "deno-arm64-apple-darwin.zip"
+        ]
+
+        for asset in assets {
+            if let name = asset["name"] as? String,
+               assetNames.contains(name),
+               let downloadURLString = asset["browser_download_url"] as? String,
+               let downloadURL = URL(string: downloadURLString) {
+                return (version: tagName, downloadURL: downloadURL)
+            }
+        }
+
+        throw YTDLPUpdateError.assetNotFound
+    }
+
+    private func downloadDenoRuntime(
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> String {
+        guard let (version, downloadURL) = try await getLatestDenoRelease() else {
+            throw YTDLPUpdateError.assetNotFound
+        }
+
+        logger.info("Auto-downloading deno \(version) from \(downloadURL)")
+
+        let (tempZipURL, response) = try await downloadWithProgress(from: downloadURL, progress: progress)
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw YTDLPUpdateError.downloadFailed
+        }
+
+        let extractedBinaryURL = try await extractDenoBinary(from: tempZipURL)
+
+        let fm = FileManager.default
+        let destinationPath = denoDownloadedPath
+        let destinationDir = destinationPath.deletingLastPathComponent()
+
+        try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true, attributes: nil)
+        if fm.fileExists(atPath: destinationPath.path) {
+            try fm.removeItem(at: destinationPath)
+        }
+        try fm.moveItem(at: extractedBinaryURL, to: destinationPath)
+
+        removeQuarantine(at: destinationPath.path)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationPath.path)
+        try? fm.removeItem(at: tempZipURL)
+
+        UserDefaults.standard.set(Date(), forKey: AppConstants.denoLastUpdateCheckKey)
+        UserDefaults.standard.set(version, forKey: AppConstants.denoVersionKey)
+
+        logger.info("Installed deno at \(destinationPath.path)")
+        cachedDenoPath = destinationPath.path
+        return destinationPath.path
+    }
+
+    private func extractDenoBinary(from zipURL: URL) async throws -> URL {
+        let fm = FileManager.default
+        let extractDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+
+        try fm.createDirectory(at: extractDir, withIntermediateDirectories: true)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        process.arguments = ["-xk", zipURL.path, extractDir.path]
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            throw YTDLPUpdateError.extractionFailed
+        }
+
+        let directPath = extractDir.appendingPathComponent("deno")
+        if fm.fileExists(atPath: directPath.path) {
+            return directPath
+        }
+
+        let contents = try fm.contentsOfDirectory(at: extractDir, includingPropertiesForKeys: nil)
+        for item in contents {
+            let nestedPath = item.appendingPathComponent("deno")
+            if fm.fileExists(atPath: nestedPath.path) {
+                return nestedPath
+            }
+        }
+
+        throw YTDLPUpdateError.binaryNotFound
+    }
+
+
+    /// Checks if an update is available
+    func checkForUpdates() async -> Bool {
+        do {
+            guard let currentVersion = await getCurrentVersion(),
+                  let (latestVersion, _) = try await getLatestReleaseVersion() else {
+                return false
+            }
+
+            let isNewer = latestVersion.compare(currentVersion, options: .numeric) == .orderedDescending
+            logger.info("Current: \(currentVersion), Latest: \(latestVersion), Update available: \(isNewer)")
+            return isNewer
+        } catch {
+            logger.error("Failed to check for updates: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Downloads and installs the latest yt-dlp release (without progress)
+    func downloadUpdate() async throws {
+        try await downloadUpdate(progress: { _ in })
+    }
+
+    /// Downloads and installs the latest yt-dlp release
+    /// - Parameter progress: Callback for download progress (0.0 to 1.0)
+    func downloadUpdate(progress: @escaping @Sendable (Double) -> Void) async throws {
+        guard let (version, downloadURL) = try await getLatestReleaseVersion() else {
+            throw YTDLPUpdateError.assetNotFound
+        }
+
+        logger.info("Downloading yt-dlp \(version) from \(downloadURL)")
+
+        // Download the binary with progress tracking
+        let (tempURL, response) = try await downloadWithProgress(from: downloadURL, progress: progress)
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw YTDLPUpdateError.downloadFailed
+        }
+
+        // Move to final location
+        let fm = FileManager.default
+        let destinationPath = downloadedPath
+        let destinationDir = destinationPath.deletingLastPathComponent()
+
+        logger.info("Tools directory: \(destinationDir.path)")
+        logger.info("Destination file: \(destinationPath.path)")
+
+        // Ensure destination directory exists
+        do {
+            try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true, attributes: nil)
+            logger.info("Created/verified tools directory")
+        } catch {
+            logger.error("Failed to create tools directory: \(error.localizedDescription)")
+            throw YTDLPUpdateError.installFailed
+        }
+
+        logger.info("Installing yt-dlp to: \(destinationPath.path)")
+
+        // Remove existing file if present
+        if fm.fileExists(atPath: destinationPath.path) {
+            try fm.removeItem(at: destinationPath)
+        }
+
+        try fm.moveItem(at: tempURL, to: destinationPath)
+
+        // Verify file exists after move
+        guard fm.fileExists(atPath: destinationPath.path) else {
+            logger.error("File not found after move!")
+            throw YTDLPUpdateError.installFailed
+        }
+
+        // Remove quarantine attribute (critical for sandbox)
+        removeQuarantine(at: destinationPath.path)
+
+        // Set executable permission
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationPath.path)
+
+        // Verify file is executable
+        let isExec = fm.isExecutableFile(atPath: destinationPath.path)
+        logger.info("File exists: true, isExecutable: \(isExec)")
+
+        // Save version info
+        try version.write(to: versionFilePath, atomically: true, encoding: .utf8)
+
+        // Update last check date
+        UserDefaults.standard.set(Date(), forKey: AppConstants.ytdlpLastUpdateCheckKey)
+        UserDefaults.standard.set(version, forKey: AppConstants.ytdlpVersionKey)
+
+        logger.info("Successfully installed yt-dlp \(version) at \(destinationPath.path)")
+    }
+
+    /// Removes the quarantine extended attribute from a file
+    private func removeQuarantine(at path: String) {
+        let result = removexattr(path, "com.apple.quarantine", 0)
+        // ENOATTR (93) means attribute doesn't exist, which is fine
+        // EPERM (1) can happen if file doesn't have quarantine attribute
+        if result != 0 && errno != 93 && errno != 1 {
+            logger.warning("Failed to remove quarantine attribute: \(errno)")
+        }
+    }
+
+    private func runProcessWithTimeout(
+        _ process: Process,
+        timeout: TimeInterval,
+        label: String
+    ) async -> String? {
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            logger.error("Failed to run \(label): \(error.localizedDescription)")
+            return nil
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        if process.isRunning {
+            logger.warning("\(label) timed out after \(timeout)s")
+            process.terminate()
+            try? await Task.sleep(for: .seconds(1))
+            if process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Downloads a file with progress tracking
+    private func downloadWithProgress(
+        from url: URL,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> (URL, URLResponse) {
+        let request = URLRequest(url: url)
+
+        let delegate = YTDLPDownloadProgressDelegate(progressHandler: progress)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = session.downloadTask(with: request) { tempURL, response, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let tempURL = tempURL, let response = response else {
+                    continuation.resume(throwing: YTDLPUpdateError.downloadFailed)
+                    return
+                }
+
+                // Move to a more permanent temp location
+                let persistentTemp = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                do {
+                    try FileManager.default.moveItem(at: tempURL, to: persistentTemp)
+                    continuation.resume(returning: (persistentTemp, response))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+            task.resume()
+        }
+    }
+
+    /// Performs update check and downloads if available (called on app launch)
+    func performUpdateCheckIfNeeded() async {
+        // Check if we should check for updates (once per day)
+        let lastCheck = UserDefaults.standard.object(forKey: AppConstants.ytdlpLastUpdateCheckKey) as? Date
+        let shouldCheck: Bool
+        if let lastCheck = lastCheck {
+            shouldCheck = Date().timeIntervalSince(lastCheck) > 86400 // 24 hours
+        } else {
+            shouldCheck = true
+        }
+
+        guard shouldCheck else {
+            logger.info("Skipping yt-dlp update check (checked recently)")
+            return
+        }
+
+        logger.info("Checking for yt-dlp updates...")
+
+        do {
+            if await checkForUpdates() {
+                try await downloadUpdate()
+            } else {
+                // Update last check date even if no update needed
+                UserDefaults.standard.set(Date(), forKey: AppConstants.ytdlpLastUpdateCheckKey)
+            }
+        } catch {
+            logger.error("yt-dlp update failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - Download Progress Delegate
+
+private final class YTDLPDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let progressHandler: @Sendable (Double) -> Void
+
+    init(progressHandler: @escaping @Sendable (Double) -> Void) {
+        self.progressHandler = progressHandler
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        DispatchQueue.main.async {
+            self.progressHandler(progress)
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        // Handled in the completion handler
+    }
+}
+
+enum YTDLPUpdateError: Error, LocalizedError {
+    case invalidURL
+    case networkError
+    case parseError
+    case assetNotFound
+    case downloadFailed
+    case extractionFailed
+    case binaryNotFound
+    case installFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL: return "Invalid GitHub API URL"
+        case .networkError: return "Network error while checking for updates"
+        case .parseError: return "Failed to parse GitHub release info"
+        case .assetNotFound: return "macOS binary not found in release"
+        case .downloadFailed: return "Failed to download binary"
+        case .extractionFailed: return "Failed to extract binary from archive"
+        case .binaryNotFound: return "Binary not found in archive"
+        case .installFailed: return "Failed to install binary"
+        }
+    }
+}
+
+/// Status of deno installation
+enum DenoInstallationStatus {
+    case notInstalled
+    case downloaded(version: String?)
+    case customPath(String)
+    case systemAvailable(String)
+
+    var displayText: String {
+        switch self {
+        case .notInstalled:
+            return "Not installed"
+        case .downloaded(let version):
+            if let version = version {
+                return "Downloaded (\(version))"
+            }
+            return "Downloaded"
+        case .customPath(let path):
+            return "Custom: \(path)"
+        case .systemAvailable(let path):
+            if path.contains("/opt/homebrew/") {
+                return "Homebrew: \(path)"
+            }
+            return "System: \(path)"
+        }
+    }
+
+    var isAvailable: Bool {
+        switch self {
+        case .notInstalled:
+            return false
+        case .downloaded, .customPath, .systemAvailable:
+            return true
+        }
+    }
+}
+
+/// Status of yt-dlp installation
+enum YTDLPInstallationStatus {
+    case notInstalled
+    case downloaded(version: String?)
+    case customPath(String)
+    case homebrewAvailable(String)
+
+    var displayText: String {
+        switch self {
+        case .notInstalled:
+            return "Not installed"
+        case .downloaded(let version):
+            if let version = version {
+                return "Downloaded (v\(version))"
+            }
+            return "Downloaded"
+        case .customPath(let path):
+            return "Custom: \(path)"
+        case .homebrewAvailable(let path):
+            return "Homebrew: \(path)"
+        }
+    }
+
+    var isAvailable: Bool {
+        switch self {
+        case .notInstalled:
+            return false
+        case .downloaded, .customPath, .homebrewAvailable:
+            return true
+        }
+    }
+
+    var isCustomPath: Bool {
+        switch self {
+        case .customPath, .homebrewAvailable:
+            return true
+        case .notInstalled, .downloaded:
+            return false
+        }
+    }
+}

@@ -147,7 +147,7 @@ enum FFMPEGProbeService {
 
 private extension FFMPEGProbeService {
     static var ffprobeExecutablePath: String? {
-        Bundle.main.path(forResource: "ffprobe", ofType: nil)
+        BinaryPathResolver.ffprobePath
     }
 
     static func readDataWithTimeout(

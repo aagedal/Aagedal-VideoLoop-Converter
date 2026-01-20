@@ -17,6 +17,7 @@ struct ShortcutsSettingsView: View {
                 ShortcutSection(title: "Main Window", shortcuts: [
                     ShortcutItem(keys: "Cmd + Return", description: "Start/Stop conversion"),
                     ShortcutItem(keys: "Cmd + I", description: "Import files"),
+                    ShortcutItem(keys: "Cmd + L", description: "Open download URL input"),
                     ShortcutItem(keys: "Cmd + O", description: "Select output folder"),
                     ShortcutItem(keys: "Cmd + Backspace", description: "Delete selected items"),
                     ShortcutItem(keys: "Cmd + R", description: "Reset selected items"),
@@ -26,6 +27,10 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Cmd + Down Arrow", description: "Move selection down in queue"),
                     ShortcutItem(keys: "Ctrl + S", description: "Sort queue (cycles: Name A→Z, Z→A, Date Old→New, New→Old)"),
                     ShortcutItem(keys: "Ctrl + M", description: "Toggle mute on selected items"),
+                    ShortcutItem(keys: "Cmd + U", description: "Toggle upload after encoding"),
+                    ShortcutItem(keys: "Cmd + Option + U", description: "Upload source file immediately"),
+                    ShortcutItem(keys: "Cmd + E", description: "Toggle auto-encode after download"),
+                    ShortcutItem(keys: "Cmd + Option + T", description: "Toggle subtitles on selected items"),
                     ShortcutItem(keys: "Tab", description: "Focus next comment field"),
                     ShortcutItem(keys: "Shift + Tab", description: "Focus previous comment field"),
                 ])

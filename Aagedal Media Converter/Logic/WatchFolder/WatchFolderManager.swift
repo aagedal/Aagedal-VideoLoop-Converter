@@ -101,14 +101,15 @@ actor WatchFolderManager {
             
             if settings.deleteEnabled, let deleteThreshold = settings.deleteThreshold, fileAge > deleteThreshold {
                 do {
-                    try FileManager.default.removeItem(at: fileURL)
+                    // Use trash instead of permanent delete for safety (recoverable)
+                    try FileSafetyUtils.trashWatchFolderItem(fileURL)
                     if let description = settings.deleteDescription {
-                        Logger().info("Deleted watch folder file older than \(description): \(fileURL.lastPathComponent)")
+                        Logger().info("Trashed watch folder file older than \(description): \(fileURL.lastPathComponent)")
                     } else {
-                        Logger().info("Deleted watch folder file exceeding delete threshold: \(fileURL.lastPathComponent)")
+                        Logger().info("Trashed watch folder file exceeding delete threshold: \(fileURL.lastPathComponent)")
                     }
                 } catch {
-                    Logger().error("Failed to delete old watch folder file \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                    Logger().error("Failed to trash old watch folder file \(fileURL.lastPathComponent): \(error.localizedDescription)")
                 }
                 trackedFiles.removeValue(forKey: fileURL)
                 continue
