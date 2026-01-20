@@ -76,7 +76,7 @@ class DownloadManager {
         let itemID = item.id
 
         // Add to queue
-        items.wrappedValue.insert(item, at: 0)
+        items.wrappedValue.append(item)
 
         // Debug timezone info
         let formatter = DateFormatter()
@@ -178,7 +178,7 @@ class DownloadManager {
         let itemID = item.id
 
         // Add to queue
-        items.wrappedValue.insert(item, at: 0)
+        items.wrappedValue.append(item)
 
         // Start download task (using unowned self since DownloadManager is a singleton)
         let task = Task {

@@ -18,6 +18,8 @@ struct UploadSettingsView: View {
 
     // Backend selection
     @AppStorage(AppConstants.uploadBackendTypeKey) private var selectedBackend = "ftp"
+    @State private var ftpProfiles: [FTPUploadProfile] = []
+    @AppStorage(AppConstants.uploadFTPSelectedProfileIDKey) private var selectedFTPProfileID = ""
 
     // Common Settings
     @AppStorage(AppConstants.uploadServerKey) private var server = ""
@@ -66,6 +68,15 @@ struct UploadSettingsView: View {
         UploadBackendType(rawValue: selectedBackend) ?? .ftp
     }
 
+    private var selectedFTPProfileIndex: Int? {
+        ftpProfiles.firstIndex { $0.id.uuidString == selectedFTPProfileID }
+    }
+
+    private var selectedFTPProfile: FTPUploadProfile? {
+        guard let index = selectedFTPProfileIndex else { return nil }
+        return ftpProfiles[index]
+    }
+
     var body: some View {
         Form {
             rcloneStatusSection
@@ -93,12 +104,29 @@ struct UploadSettingsView: View {
             await loadInitialState()
         }
         .onChange(of: selectedBackend) { _, newValue in
-            // Reset port to default for the new backend
-            if let backend = UploadBackendType(rawValue: newValue) {
-                port = backend.defaultPort
+            handleBackendChange(newValue)
+        }
+        .onChange(of: selectedFTPProfileID) { _, _ in
+            if currentBackendType == .ftp {
+                applySelectedFTPProfile()
             }
-            // Clear test result when switching backends
-            testResult = nil
+        }
+        .onChange(of: server) { _, _ in
+            updateSelectedFTPProfileFromFields()
+            refreshPasswordState()
+        }
+        .onChange(of: port) { _, _ in
+            updateSelectedFTPProfileFromFields()
+        }
+        .onChange(of: username) { _, _ in
+            updateSelectedFTPProfileFromFields()
+            refreshPasswordState()
+        }
+        .onChange(of: remotePath) { _, _ in
+            updateSelectedFTPProfileFromFields()
+        }
+        .onChange(of: useFTPS) { _, _ in
+            updateSelectedFTPProfileFromFields()
         }
     }
 
@@ -198,6 +226,51 @@ struct UploadSettingsView: View {
     private var ftpServerSection: some View {
         Section(header: Text("FTP Server")) {
             VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Profile:")
+                        .frame(width: 80, alignment: .trailing)
+                    Picker("Profile", selection: $selectedFTPProfileID) {
+                        if ftpProfiles.isEmpty {
+                            Text("No profiles").tag("")
+                        } else {
+                            ForEach(ftpProfiles) { profile in
+                                Text(profile.name.isEmpty ? "Untitled FTP" : profile.name)
+                                    .tag(profile.id.uuidString)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    Spacer()
+                    Button {
+                        addFTPProfile()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Add profile")
+                    Button {
+                        deleteSelectedFTPProfile()
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(ftpProfiles.count <= 1)
+                    .help("Delete profile")
+                }
+
+                HStack {
+                    Text("Name:")
+                        .frame(width: 80, alignment: .trailing)
+                    TextField(
+                        "FTP Profile",
+                        text: Binding(
+                            get: { selectedFTPProfile?.name ?? "" },
+                            set: { updateSelectedFTPProfileName($0) }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                }
+
                 // Server hostname
                 HStack {
                     Text("Server:")
@@ -654,12 +727,12 @@ struct UploadSettingsView: View {
         rcloneStatus = RcloneUpdateService.shared.getInstallationStatus()
         rcloneVersion = await RcloneUpdateService.shared.getCurrentVersion()
 
-        // Check if password exists in Keychain (for password-based backends)
-        if !server.isEmpty && !username.isEmpty {
-            hasStoredPassword = KeychainCredentialManager.shared.hasCredential(
-                server: server,
-                username: username
-            )
+        loadFTPProfiles()
+        if currentBackendType == .ftp {
+            ensureFTPProfilesForFTPBackend(seedFromCurrent: true)
+            applySelectedFTPProfile()
+        } else {
+            refreshPasswordState()
         }
 
         // Check if S3 secret key exists
@@ -669,6 +742,150 @@ struct UploadSettingsView: View {
 
         // Set SFTP auth mode based on whether key file is configured
         useSFTPKeyAuth = !sftpKeyFilePath.isEmpty
+    }
+
+    private func handleBackendChange(_ newValue: String) {
+        guard let backend = UploadBackendType(rawValue: newValue) else { return }
+
+        if backend == .ftp {
+            let shouldSeed = !(server.isEmpty && username.isEmpty)
+            ensureFTPProfilesForFTPBackend(seedFromCurrent: shouldSeed)
+            applySelectedFTPProfile()
+        } else {
+            port = backend.defaultPort
+        }
+
+        testResult = nil
+    }
+
+    private func loadFTPProfiles() {
+        ftpProfiles = FTPUploadProfileStore.loadProfiles()
+        ensureSelectedFTPProfile()
+    }
+
+    private func ensureSelectedFTPProfile() {
+        guard !ftpProfiles.isEmpty else { return }
+        if selectedFTPProfileIndex == nil {
+            selectedFTPProfileID = ftpProfiles[0].id.uuidString
+        }
+    }
+
+    private func ensureFTPProfilesForFTPBackend(seedFromCurrent: Bool) {
+        guard ftpProfiles.isEmpty else {
+            ensureSelectedFTPProfile()
+            return
+        }
+
+        let profileName = seedFromCurrent ? defaultFTPProfileName() : "New FTP Profile"
+        let profile = FTPUploadProfile(
+            name: profileName,
+            server: seedFromCurrent ? server : "",
+            port: seedFromCurrent ? resolvedFTPPort() : AppConstants.defaultUploadPort,
+            username: seedFromCurrent ? username : "",
+            remotePath: seedFromCurrent ? remotePath : "/",
+            useFTPS: seedFromCurrent ? useFTPS : false
+        )
+        ftpProfiles = [profile]
+        FTPUploadProfileStore.saveProfiles(ftpProfiles)
+        selectedFTPProfileID = profile.id.uuidString
+    }
+
+    private func defaultFTPProfileName() -> String {
+        let trimmedServer = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedServer.isEmpty ? "Default FTP" : trimmedServer
+    }
+
+    private func resolvedFTPPort() -> Int {
+        port > 0 ? port : AppConstants.defaultUploadPort
+    }
+
+    private func applySelectedFTPProfile() {
+        guard let profile = selectedFTPProfile else { return }
+        server = profile.server
+        port = profile.port > 0 ? profile.port : AppConstants.defaultUploadPort
+        username = profile.username
+        remotePath = profile.remotePath
+        useFTPS = profile.useFTPS
+        password = ""
+        refreshPasswordState()
+    }
+
+    private func updateSelectedFTPProfileFromFields() {
+        guard currentBackendType == .ftp,
+              let index = selectedFTPProfileIndex else { return }
+        ftpProfiles[index].server = server
+        ftpProfiles[index].port = resolvedFTPPort()
+        ftpProfiles[index].username = username
+        ftpProfiles[index].remotePath = remotePath
+        ftpProfiles[index].useFTPS = useFTPS
+        FTPUploadProfileStore.saveProfiles(ftpProfiles)
+    }
+
+    private func updateSelectedFTPProfileName(_ newValue: String) {
+        guard let index = selectedFTPProfileIndex else { return }
+        ftpProfiles[index].name = newValue
+        FTPUploadProfileStore.saveProfiles(ftpProfiles)
+    }
+
+    private func addFTPProfile() {
+        let baseName = server.isEmpty ? "New FTP Profile" : server
+        let name = uniqueFTPProfileName(from: baseName)
+        let profile = FTPUploadProfile(
+            name: name,
+            server: server,
+            port: resolvedFTPPort(),
+            username: username,
+            remotePath: remotePath,
+            useFTPS: useFTPS
+        )
+        ftpProfiles.append(profile)
+        FTPUploadProfileStore.saveProfiles(ftpProfiles)
+        selectedFTPProfileID = profile.id.uuidString
+        applySelectedFTPProfile()
+    }
+
+    private func deleteSelectedFTPProfile() {
+        guard let index = selectedFTPProfileIndex else { return }
+        ftpProfiles.remove(at: index)
+        if ftpProfiles.isEmpty {
+            let profile = FTPUploadProfile(name: "New FTP Profile")
+            ftpProfiles = [profile]
+            selectedFTPProfileID = profile.id.uuidString
+        } else {
+            let nextIndex = min(index, ftpProfiles.count - 1)
+            selectedFTPProfileID = ftpProfiles[nextIndex].id.uuidString
+        }
+        FTPUploadProfileStore.saveProfiles(ftpProfiles)
+        if currentBackendType == .ftp {
+            applySelectedFTPProfile()
+        }
+    }
+
+    private func uniqueFTPProfileName(from baseName: String) -> String {
+        let trimmed = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let seed = trimmed.isEmpty ? "FTP Profile" : trimmed
+        let existingNames = Set(ftpProfiles.map { $0.name })
+        if !existingNames.contains(seed) {
+            return seed
+        }
+        var index = 2
+        var candidate = "\(seed) \(index)"
+        while existingNames.contains(candidate) {
+            index += 1
+            candidate = "\(seed) \(index)"
+        }
+        return candidate
+    }
+
+    private func refreshPasswordState() {
+        guard !server.isEmpty, !username.isEmpty else {
+            hasStoredPassword = false
+            return
+        }
+        hasStoredPassword = KeychainCredentialManager.shared.hasCredential(
+            server: server,
+            username: username
+        )
     }
 
     private func downloadRclone() async {

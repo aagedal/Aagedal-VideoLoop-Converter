@@ -104,6 +104,11 @@ struct VideoFileRowView: View {
         }
     }
 
+    private func isOptionKeyPressed() -> Bool {
+        let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        return flags.contains(.option)
+    }
+
     @FocusState private var isCommentFieldFocused: Bool
     @State private var isThumbnailHovered = false
     @State private var showPreview = false
@@ -260,9 +265,9 @@ struct VideoFileRowView: View {
                             }
                         }
 
-                        // Progress bar (shown when converting, downloading, or uploading)
-                        if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading {
-                            if file.isDownloading && isDownloadPreparing {
+                        // Progress bar (shown when converting, downloading, uploading, or transcribing)
+                        if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading || file.subtitleStatus.isInProgress {
+                            if (file.isDownloading && isDownloadPreparing) || isSubtitlePreparing {
                                 ProgressView()
                                     .progressViewStyle(LinearProgressViewStyle())
                                     .tint(progressBarColor)
@@ -310,7 +315,7 @@ struct VideoFileRowView: View {
 
                                 // Upload toggle button (Option+click for source file upload)
                                 Button {
-                                    if NSEvent.modifierFlags.contains(.option) {
+                                    if isOptionKeyPressed() {
                                         // Option+click: toggle source file upload
                                         file.uploadSourceFile.toggle()
                                         if file.uploadSourceFile {
@@ -336,7 +341,7 @@ struct VideoFileRowView: View {
 
                                 // Subtitle toggle button (Option+click for transcribe-only)
                                 Button {
-                                    if NSEvent.modifierFlags.contains(.option) {
+                                    if isOptionKeyPressed() {
                                         // Option+click: generate SRT only (no encoding)
                                         onTranscribeOnly?()
                                     } else {
@@ -633,7 +638,7 @@ struct VideoFileRowView: View {
     private var uploadBadge: some View {
         switch file.uploadStatus {
         case .uploading:
-            badgeView(icon: "arrow.up.circle", text: "\(Int(file.uploadProgress * 100))%", color: .blue)
+            badgeView(icon: "arrow.up.circle", text: "\(Int(file.uploadProgress * 100))%", color: .orange)
         case .uploaded:
             badgeView(icon: "checkmark.icloud.fill", text: "", color: .green)
         case .failed:
@@ -842,7 +847,7 @@ struct VideoFileRowView: View {
 
             // Upload toggle button (Option+click for source file upload)
             Button {
-                if NSEvent.modifierFlags.contains(.option) {
+                if isOptionKeyPressed() {
                     // Option+click: toggle source file upload
                     file.uploadSourceFile.toggle()
                     if file.uploadSourceFile {
@@ -870,7 +875,7 @@ struct VideoFileRowView: View {
 
             // Subtitle toggle button (compact, Option+click for transcribe-only)
             Button {
-                if NSEvent.modifierFlags.contains(.option) {
+                if isOptionKeyPressed() {
                     // Option+click: generate SRT only (no encoding)
                     onTranscribeOnly?()
                 } else {
@@ -1212,12 +1217,25 @@ struct VideoFileRowView: View {
         file.isDownloading && !file.downloadHasProgress
     }
 
+    private var isSubtitlePreparing: Bool {
+        switch file.subtitleStatus {
+        case .pending, .extractingAudio:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Progress bar value (0.0 to 1.0) based on current state
     private var progressBarValue: Double {
         if file.uploadStatus == .uploading {
             return file.uploadProgress
         } else if file.isDownloading {
             return file.downloadProgress
+        } else if file.status == .converting {
+            return file.progress
+        } else if file.subtitleStatus.isInProgress {
+            return file.subtitleProgress
         } else {
             return file.progress
         }
@@ -1226,9 +1244,13 @@ struct VideoFileRowView: View {
     /// Progress bar color based on current state
     private var progressBarColor: Color {
         if file.uploadStatus == .uploading {
-            return .cyan
+            return .orange
         } else if file.isDownloading {
             return .purple
+        } else if file.status == .converting {
+            return .accentColor
+        } else if file.subtitleStatus.isInProgress {
+            return .green
         } else {
             return .accentColor
         }

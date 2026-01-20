@@ -399,18 +399,30 @@ enum AppConstants {
         try? FileManager.default.createDirectory(at: toolsDir, withIntermediateDirectories: true)
         return toolsDir
     }()
+    static let ytdlpCacheDirectory: URL = {
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let cacheDir = supportDir
+            .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
+            .appendingPathComponent("yt-dlp-cache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        return cacheDir
+    }()
 
     static let ytdlpVersionKey = "ytdlpInstalledVersion"
     static let ytdlpLastUpdateCheckKey = "ytdlpLastUpdateCheck"
     static let ytdlpGitHubReleasesURL = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
     static let ytdlpMacOSAssetName = "yt-dlp_macos"
+    static let ytdlpBinarySourceKey = "ytdlpBinarySource"
 
     static let denoVersionKey = "denoInstalledVersion"
     static let denoLastUpdateCheckKey = "denoLastUpdateCheck"
     static let denoGitHubReleasesURL = "https://api.github.com/repos/denoland/deno/releases/latest"
+    static let denoBinarySourceKey = "denoBinarySource"
+    static let denoCustomPathKey = "denoCustomPath"
 
     // Custom binary paths (no longer need security-scoped bookmarks without sandbox)
     static let ytdlpCustomPathKey = "ytdlpCustomPath"
+    static let ffmpegBinarySourceKey = "ffmpegBinarySource"
     static let customFFmpegPathKey = "customFFmpegPath"
     static let customFFprobePathKey = "customFFprobePath"
 
@@ -439,6 +451,8 @@ enum AppConstants {
     static let uploadUseFTPSKey = "uploadUseFTPS"
     static let uploadDefaultEnabledKey = "uploadDefaultEnabled"
     static let uploadRetryCountKey = "uploadRetryCount"
+    static let uploadFTPProfilesKey = "uploadFTPProfiles"
+    static let uploadFTPSelectedProfileIDKey = "uploadFTPSelectedProfileID"
     static let defaultUploadPort = 21
     static let defaultUploadRetryCount = 3
 
@@ -498,6 +512,7 @@ enum AppConstants {
 
     // Whisper model management
     static let whisperModelKey = "whisperSelectedModel"
+    static let whisperCustomModelPathKey = "whisperCustomModelPath"
     static let whisperModelsDirectory: URL = {
         let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let modelsDir = supportDir

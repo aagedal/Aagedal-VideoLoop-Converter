@@ -4,6 +4,12 @@
 
 import Foundation
 
+enum BinarySourceSelection: String, CaseIterable {
+    case app
+    case homebrew
+    case custom
+}
+
 /// Resolves paths to external binaries (ffmpeg, ffprobe, yt-dlp)
 /// Priority: 1) Custom path from settings, 2) Bundled in app
 enum BinaryPathResolver {
@@ -13,15 +19,24 @@ enum BinaryPathResolver {
     /// Resolves the path to ffmpeg binary
     /// Priority: custom path > bundled
     static var ffmpegPath: String? {
+        if let selection = selectedFFmpegSource() {
+            switch selection {
+            case .custom:
+                return resolveCustomFFmpegPath()
+            case .homebrew:
+                return resolveHomebrewFFmpegPath()
+            case .app:
+                return resolveBundledFFmpegPath()
+            }
+        }
+
         // Check custom path first
-        if let customPath = UserDefaults.standard.string(forKey: AppConstants.customFFmpegPathKey),
-           !customPath.isEmpty,
-           FileManager.default.isExecutableFile(atPath: customPath) {
+        if let customPath = resolveCustomFFmpegPath() {
             return customPath
         }
 
         // Fall back to bundled
-        return Bundle.main.path(forResource: "ffmpeg", ofType: nil)
+        return resolveBundledFFmpegPath()
     }
 
     // MARK: - FFprobe
@@ -29,15 +44,24 @@ enum BinaryPathResolver {
     /// Resolves the path to ffprobe binary
     /// Priority: custom path > bundled
     static var ffprobePath: String? {
+        if let selection = selectedFFmpegSource() {
+            switch selection {
+            case .custom:
+                return resolveCustomFFprobePath()
+            case .homebrew:
+                return resolveHomebrewFFprobePath()
+            case .app:
+                return resolveBundledFFprobePath()
+            }
+        }
+
         // Check custom path first
-        if let customPath = UserDefaults.standard.string(forKey: AppConstants.customFFprobePathKey),
-           !customPath.isEmpty,
-           FileManager.default.isExecutableFile(atPath: customPath) {
+        if let customPath = resolveCustomFFprobePath() {
             return customPath
         }
 
         // Fall back to bundled
-        return Bundle.main.path(forResource: "ffprobe", ofType: nil)
+        return resolveBundledFFprobePath()
     }
 
     // MARK: - BMX Tools (MXF handling)
@@ -170,6 +194,64 @@ enum BinaryPathResolver {
         } else {
             UserDefaults.standard.removeObject(forKey: AppConstants.customFFprobePathKey)
         }
+    }
+
+    // MARK: - Source Selection Helpers
+
+    private static func selectedFFmpegSource() -> BinarySourceSelection? {
+        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.ffmpegBinarySourceKey),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return BinarySourceSelection(rawValue: rawValue)
+    }
+
+    private static func resolveCustomFFmpegPath() -> String? {
+        if let customPath = UserDefaults.standard.string(forKey: AppConstants.customFFmpegPathKey),
+           !customPath.isEmpty,
+           FileManager.default.isExecutableFile(atPath: customPath) {
+            return customPath
+        }
+        return nil
+    }
+
+    private static func resolveHomebrewFFmpegPath() -> String? {
+        let homebrewPaths = [
+            "/opt/homebrew/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg"
+        ]
+        for path in homebrewPaths where FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private static func resolveBundledFFmpegPath() -> String? {
+        Bundle.main.path(forResource: "ffmpeg", ofType: nil)
+    }
+
+    private static func resolveCustomFFprobePath() -> String? {
+        if let customPath = UserDefaults.standard.string(forKey: AppConstants.customFFprobePathKey),
+           !customPath.isEmpty,
+           FileManager.default.isExecutableFile(atPath: customPath) {
+            return customPath
+        }
+        return nil
+    }
+
+    private static func resolveHomebrewFFprobePath() -> String? {
+        let homebrewPaths = [
+            "/opt/homebrew/bin/ffprobe",
+            "/usr/local/bin/ffprobe"
+        ]
+        for path in homebrewPaths where FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private static func resolveBundledFFprobePath() -> String? {
+        Bundle.main.path(forResource: "ffprobe", ofType: nil)
     }
 }
 
@@ -326,18 +408,20 @@ enum HomebrewPythonExecutor {
 
         // It's a Python script - try Homebrew detection with PYTHONPATH
         if let info = executionInfo(for: scriptPath) {
-            // Try various system Pythons
+            // Prefer Homebrew Python that matches the detected site-packages.
             let cltPython = "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3"
             let xcodePython = "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3"
+            let systemPython = "/usr/bin/python3"
 
-            let pythonPath: String
-            if FileManager.default.fileExists(atPath: cltPython) {
-                pythonPath = cltPython
-            } else if FileManager.default.fileExists(atPath: xcodePython) {
-                pythonPath = xcodePython
-            } else {
-                pythonPath = "/usr/bin/python3"
-            }
+            let pythonCandidates = [
+                info.mainPythonPath,
+                info.pythonPath,
+                cltPython,
+                xcodePython,
+                systemPython
+            ]
+            let pythonPath = pythonCandidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+                ?? info.mainPythonPath
 
             print("[HomebrewPythonExecutor] Using \(pythonPath) with PYTHONPATH: \(info.sitePackages)")
             process.executableURL = URL(fileURLWithPath: pythonPath)
