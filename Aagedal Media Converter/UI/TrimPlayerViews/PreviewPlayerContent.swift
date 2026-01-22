@@ -15,12 +15,38 @@ struct PreviewPlayerContent: View {
     let togglePlaybackControls: () -> Void
     let keyHandler: (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool
     @Binding var currentPlaybackTime: Double
+    @State private var showPreviewUnavailable = false
+
+    private struct PreviewAvailabilityKey: Equatable {
+        let isPreviewAvailable: Bool
+        let hasError: Bool
+    }
 
     private var playerAspectRatio: CGFloat {
         if let ratio = item.videoDisplayAspectRatio, ratio.isFinite, ratio > 0 {
             return CGFloat(ratio)
         }
         return 16.0 / 9.0
+    }
+
+    private var isPreviewAvailable: Bool {
+        controller.player != nil || (controller.useMPV && controller.mpvPlayer != nil)
+    }
+
+    private var previewAvailabilityKey: PreviewAvailabilityKey {
+        PreviewAvailabilityKey(
+            isPreviewAvailable: isPreviewAvailable,
+            hasError: controller.errorMessage != nil
+        )
+    }
+
+    private var loadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView().progressViewStyle(.circular)
+            Text("Preview loading")
+                .foregroundColor(.white.opacity(0.8))
+        }
+        .padding()
     }
 
     var body: some View {
@@ -91,13 +117,6 @@ struct PreviewPlayerContent: View {
                 .onReceive(controller.playbackTimePublisher) { time in
                     currentPlaybackTime = time
                 }
-            } else if controller.isPreparing {
-                VStack(spacing: 12) {
-                    ProgressView().progressViewStyle(.circular)
-                    Text("Preparing preview…")
-                        .foregroundColor(.white.opacity(0.8))
-                }
-                .padding()
             } else if let message = controller.errorMessage {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -117,10 +136,21 @@ struct PreviewPlayerContent: View {
                     .buttonStyle(.borderedProminent)
                 }
                 .padding()
-            } else {
+            } else if showPreviewUnavailable {
                 Text("Preview not available")
                     .foregroundColor(.white.opacity(0.8))
                     .padding()
+            } else {
+                loadingView
+            }
+        }
+        .task(id: previewAvailabilityKey) { @MainActor in
+            showPreviewUnavailable = false
+            guard !isPreviewAvailable, controller.errorMessage == nil else { return }
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled else { return }
+            if !isPreviewAvailable && controller.errorMessage == nil {
+                showPreviewUnavailable = true
             }
         }
     }

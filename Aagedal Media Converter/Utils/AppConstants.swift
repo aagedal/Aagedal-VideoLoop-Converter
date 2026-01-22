@@ -27,6 +27,25 @@ enum AppConstants {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }()
+
+    static let defaultCaptureDirectory: URL = {
+        let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+        let fallback = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies", isDirectory: true)
+        let base = movies ?? fallback
+        let directory = base.appendingPathComponent("ScreenCaptures", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }()
+
+    static let captureDisplayIDKey = "captureDisplayID"
+    static let captureHideCursorKey = "captureHideCursor"
+    static let captureExcludeCurrentAppKey = "captureExcludeCurrentApp"
+    static let captureFrameRateKey = "captureFrameRate"
+    static let captureDynamicRangeKey = "captureDynamicRange"
+    static let defaultCaptureHideCursor = false
+    static let defaultCaptureExcludeCurrentApp = true
+    static let defaultCaptureFrameRate = "auto"
+    static let defaultCaptureDynamicRange = "sdr"
     
     // Directory for cached preview assets (thumbnails, waveforms, etc.)
     static let previewCacheDirectory: URL = {
@@ -194,6 +213,8 @@ enum AppConstants {
     static let defaultScreenshotFormat = "JPEG XL" // Default to JPEG XL for all bit depths (must match ScreenshotFormat.jpegXL.rawValue)
     static let screenshotAlphaHandlingKey = "screenshotAlphaHandling"
     static let defaultScreenshotAlphaHandling = "auto" // auto, useSelectedFormat
+    static let captureDirectoryKey = "captureDirectory"
+    static let capturePresetKey = "capturePreset"
     static let proResProfileKey = "proResProfile"
     
     // Update checking

@@ -81,6 +81,7 @@ struct ContentView: View {
     @State private var updateNotificationTask: Task<Void, Never>?
     @State private var showURLInputOverlay = false
     @State private var showYTDLPNotConfiguredAlert = false
+    @State private var showCaptureSheet = false
 
     // Keyboard shortcut sheet states - using optional UUID directly for item-based sheet presentation
     // When non-nil, the corresponding sheet is presented. Set to nil to dismiss.
@@ -227,7 +228,8 @@ struct ContentView: View {
                 timecodeSheetItemID: $timecodeSheetItemID,
                 audioConfigSheetItemID: $audioConfigSheetItemID,
                 metadataSheetItemIDs: $metadataSheetItemIDs,
-                selectedPreset: selectedPreset
+                selectedPreset: selectedPreset,
+                showCaptureSheet: $showCaptureSheet
             ))
             .background(keyboardShortcutHandler)
             .modifier(ContentViewLifecycle(
@@ -418,6 +420,9 @@ struct ContentView: View {
             onToggleConversion: handleConversionToggle,
             onShowURLInput: {
                 showURLInputOverlay = true
+            },
+            onShowCapture: {
+                showCaptureSheet = true
             }
         )
     }
@@ -678,6 +683,7 @@ struct ContentView: View {
             onToggleConversion: handleConversionToggle,
             onImport: { isFileImporterPresented = true },
             onShowDownload: { showURLInputOverlay = true },
+            onShowCapture: { showCaptureSheet = true },
             onResetAll: resetAllFiles,
             hasResettableItems: hasResettableItems,
             onClear: clearAllFiles
@@ -1079,6 +1085,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
     var onResetAll: () -> Void
     var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
     var onShowURLInput: () -> Void
+    var onShowCapture: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -1087,7 +1094,8 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             onToggleMerge: onToggleMerge,
             onResetAll: onResetAll,
             onToggleConversion: onToggleConversion,
-            onShowURLInput: onShowURLInput
+            onShowURLInput: onShowURLInput,
+            onShowCapture: onShowCapture
         )
     }
     
@@ -1105,6 +1113,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         context.coordinator.onResetAll = onResetAll
         context.coordinator.onToggleConversion = onToggleConversion
         context.coordinator.onShowURLInput = onShowURLInput
+        context.coordinator.onShowCapture = onShowCapture
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -1118,6 +1127,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         var onResetAll: () -> Void
         var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
         var onShowURLInput: () -> Void
+        var onShowCapture: () -> Void
         private var monitor: Any?
 
         init(
@@ -1126,7 +1136,8 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             onToggleMerge: @escaping () -> Void,
             onResetAll: @escaping () -> Void,
             onToggleConversion: @escaping (_ optionKeyPressed: Bool) -> Void,
-            onShowURLInput: @escaping () -> Void
+            onShowURLInput: @escaping () -> Void,
+            onShowCapture: @escaping () -> Void
         ) {
             self.onToggleWatchFolder = onToggleWatchFolder
             self.onSelectOutputFolder = onSelectOutputFolder
@@ -1134,6 +1145,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             self.onResetAll = onResetAll
             self.onToggleConversion = onToggleConversion
             self.onShowURLInput = onShowURLInput
+            self.onShowCapture = onShowCapture
         }
         
         func install() {
@@ -1182,6 +1194,12 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
                     return nil
                 }
 
+                // Cmd+Shift+C: Open Capture Mode
+                if hasCommand && hasShift && !hasOption && !hasControl && event.keyCode == kVK_ANSI_C {
+                    self.onShowCapture()
+                    return nil
+                }
+
                 return event
             }
         }
@@ -1206,6 +1224,7 @@ private struct ContentViewSheets: ViewModifier {
     @Binding var audioConfigSheetItemID: UUID?
     @Binding var metadataSheetItemIDs: [UUID]?
     let selectedPreset: ExportPreset
+    @Binding var showCaptureSheet: Bool
 
     func body(content: Content) -> some View {
         content
@@ -1223,6 +1242,9 @@ private struct ContentViewSheets: ViewModifier {
             }
             .sheet(isPresented: metadataSheetBinding) {
                 metadataSheetContent
+            }
+            .sheet(isPresented: $showCaptureSheet) {
+                CaptureModeView()
             }
     }
 

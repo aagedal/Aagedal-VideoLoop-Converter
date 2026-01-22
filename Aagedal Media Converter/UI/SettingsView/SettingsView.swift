@@ -11,6 +11,7 @@ struct SettingsView: View {
         case general
         case metadata
         case presets
+        case screenCapture
         case waveform
         case watchFolder
         case ytdlp
@@ -33,6 +34,10 @@ struct SettingsView: View {
             PresetsSettingsView()
                 .tabItem { Label("Presets", systemImage: "slider.horizontal.3") }
                 .tag(SettingsTab.presets)
+
+            ScreenCaptureSettingsView()
+                .tabItem { Label("Screen Capture", systemImage: "record.circle") }
+                .tag(SettingsTab.screenCapture)
 
             WaveformSettingsView()
                 .tabItem { Label("Audio Waveform", systemImage: "waveform") }
@@ -74,20 +79,22 @@ struct SettingsView: View {
                     .keyboardShortcut("2", modifiers: .command)
                 Button("") { selectedTab = .presets }
                     .keyboardShortcut("3", modifiers: .command)
-                Button("") { selectedTab = .waveform }
+                Button("") { selectedTab = .screenCapture }
                     .keyboardShortcut("4", modifiers: .command)
-                Button("") { selectedTab = .watchFolder }
+                Button("") { selectedTab = .waveform }
                     .keyboardShortcut("5", modifiers: .command)
-                Button("") { selectedTab = .ytdlp }
+                Button("") { selectedTab = .watchFolder }
                     .keyboardShortcut("6", modifiers: .command)
-                Button("") { selectedTab = .upload }
+                Button("") { selectedTab = .ytdlp }
                     .keyboardShortcut("7", modifiers: .command)
-                Button("") { selectedTab = .whisper }
+                Button("") { selectedTab = .upload }
                     .keyboardShortcut("8", modifiers: .command)
-                Button("") { selectedTab = .updates }
+                Button("") { selectedTab = .whisper }
                     .keyboardShortcut("9", modifiers: .command)
-                Button("") { selectedTab = .shortcuts }
+                Button("") { selectedTab = .updates }
                     .keyboardShortcut("0", modifiers: .command)
+                Button("") { selectedTab = .shortcuts }
+                    .keyboardShortcut("=", modifiers: [.command, .shift])
             }
             .frame(width: 0, height: 0)
             .opacity(0)

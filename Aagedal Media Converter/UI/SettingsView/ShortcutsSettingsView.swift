@@ -51,6 +51,7 @@ struct ShortcutsSettingsView: View {
                     ShortcutItem(keys: "Option + W", description: "Toggle Watch Folder mode"),
                     ShortcutItem(keys: "Option + F", description: "Select output folder"),
                     ShortcutItem(keys: "Option + M", description: "Toggle Merge clips"),
+                    ShortcutItem(keys: "Cmd + Shift + C", description: "Open Capture mode"),
                     ShortcutItem(keys: "Cmd + ,", description: "Open Settings"),
                 ])
                 
