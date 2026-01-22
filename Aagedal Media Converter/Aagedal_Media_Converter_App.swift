@@ -11,6 +11,7 @@ import SwiftUI
 import SwiftData
 import AppKit
 import OSLog
+import Combine
 
 @main
 struct Aagedal_Media_Converter_App: App {
@@ -32,7 +33,12 @@ struct Aagedal_Media_Converter_App: App {
             AppConstants.audioWaveformNormalizeKey: false,
             AppConstants.audioWaveformStyleKey: AppConstants.defaultAudioWaveformStyleRaw,
             AppConstants.audioWaveformLineThicknessKey: AppConstants.defaultAudioWaveformLineThickness,
-            AppConstants.audioWaveformDetailLevelKey: AppConstants.defaultAudioWaveformDetailLevel
+            AppConstants.audioWaveformDetailLevelKey: AppConstants.defaultAudioWaveformDetailLevel,
+            AppConstants.captureDisplayIDKey: 0,
+            AppConstants.captureHideCursorKey: AppConstants.defaultCaptureHideCursor,
+            AppConstants.captureExcludeCurrentAppKey: AppConstants.defaultCaptureExcludeCurrentApp,
+            AppConstants.captureFrameRateKey: AppConstants.defaultCaptureFrameRate,
+            AppConstants.captureDynamicRangeKey: AppConstants.defaultCaptureDynamicRange
         ])
 
         applyPreviewCacheCleanupPolicy()
@@ -93,6 +99,15 @@ private extension Aagedal_Media_Converter_App {
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var isFirstActivation = true
+    private var statusItemController: RecordingStatusItemController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor in
+            statusItemController = RecordingStatusItemController(
+                captureManager: ScreenCaptureManager.shared
+            )
+        }
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         // Terminate any running FFmpeg/FFprobe processes spawned by preview asset generation
@@ -164,6 +179,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             for url in videoURLs {
                 NotificationCenter.default.post(name: .enqueueFileURL, object: url)
             }
+        }
+    }
+}
+
+@MainActor
+private final class RecordingStatusItemController: NSObject {
+    private let captureManager: ScreenCaptureManager
+    private var statusItem: NSStatusItem
+    private var recordingCancellable: AnyCancellable?
+
+    init(captureManager: ScreenCaptureManager) {
+        self.captureManager = captureManager
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        super.init()
+
+        recordingCancellable = captureManager.$isRecording
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isRecording in
+                self?.updateStatusItem(isRecording: isRecording)
+            }
+    }
+
+    private func updateStatusItem(isRecording: Bool) {
+        statusItem.isVisible = isRecording
+        if isRecording {
+            configureStatusItem()
+        }
+    }
+
+    private func configureStatusItem() {
+        if let button = statusItem.button {
+            let image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Stop Recording")
+            image?.isTemplate = false
+            button.image = image
+            button.contentTintColor = .systemRed
+            button.target = self
+            button.action = #selector(stopRecording)
+            button.toolTip = "Stop Screen Recording"
+        }
+    }
+
+    @objc private func stopRecording() {
+        Task {
+            await captureManager.stopRecording()
         }
     }
 }

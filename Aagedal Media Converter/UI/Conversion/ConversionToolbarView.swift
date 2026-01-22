@@ -30,6 +30,7 @@ struct ConversionToolbarView: ToolbarContent {
     let onToggleConversion: (_ optionKeyPressed: Bool) -> Void
     let onImport: () -> Void
     let onShowDownload: () -> Void
+    let onShowCapture: () -> Void
     let onResetAll: (_ optionKeyPressed: Bool) -> Void
     let hasResettableItems: Bool
     let onClear: () -> Void
@@ -53,23 +54,30 @@ struct ConversionToolbarView: ToolbarContent {
         }
 
         ToolbarItem(placement: .automatic) {
+            Divider()
+                .frame(height: 18)
+        }
+
+        ToolbarItemGroup(placement: .automatic) {
             Toggle(isOn: $watchFolderModeEnabled) {
                 Label("Watch Mode", systemImage: watchFolderModeEnabled ? "eye.fill" : "eye")
             }
             .toggleStyle(.button)
             .help(watchFolderPath.isEmpty ? "Select a watch folder to enable Watch Mode" : (watchFolderModeEnabled ? "Stop watching \(watchFolderPath)" : "Start watching \(watchFolderPath)"))
-        }
 
-        ToolbarItem(placement: .automatic) {
+            Button(action: onShowCapture) {
+                Label("Capture", systemImage: "record.circle")
+                    .foregroundColor(.red)
+            }
+            .help("Open Capture Mode")
+
             Button(action: onImport) {
                 Label("Import", systemImage: "plus.circle")
                     .foregroundColor(.accentColor)
             }
             .help("Import video files")
             .keyboardShortcut("i", modifiers: .command)
-        }
 
-        ToolbarItem(placement: .automatic) {
             Button(action: onShowDownload) {
                 Label("Download", systemImage: "arrow.down.circle")
             }
@@ -80,24 +88,20 @@ struct ConversionToolbarView: ToolbarContent {
             Spacer()
         }
 
-        ToolbarItem(placement: .automatic) {
+        ToolbarItemGroup(placement: .automatic) {
             ResetButton(
                 hasResettableItems: hasResettableItems,
                 isConverting: isConverting,
                 onReset: onResetAll
             )
-        }
 
-        ToolbarItem(placement: .automatic) {
             Button(action: onClear) {
                 Label("Clear", systemImage: "square.stack.3d.up.slash")
                     .foregroundStyle((!hasFiles || isConverting) ? Color.gray : Color.red)
             }
             .help("Remove all files from the list")
             .disabled(!hasFiles || isConverting)
-        }
 
-        ToolbarItem(placement: .automatic) {
             Picker("Preset", selection: $selectedPreset) {
                 ForEach(presets) { preset in
                     Text(displayName(preset)).tag(preset)
@@ -108,9 +112,7 @@ struct ConversionToolbarView: ToolbarContent {
             .disabled(isConverting)
             .foregroundColor(.primary)
             .help("Select export preset for all files")
-        }
 
-        ToolbarItem {
             SettingsLink {
                 Image(systemName: "gear")
                     .foregroundStyle(.blue)

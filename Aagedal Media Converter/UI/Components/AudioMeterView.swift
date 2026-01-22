@@ -7,12 +7,17 @@ import SwiftUI
 /// Real-time audio level meter visualization
 struct AudioMeterView: View {
     let levels: UniversalAudioMeterService.AudioLevels
+    let meterHeight: CGFloat
     
     private let meterWidth: CGFloat = 12
-    private let meterHeight: CGFloat = 180  // 50% taller than original 120px
     
-    init(levels: UniversalAudioMeterService.AudioLevels, showLabels: Bool = true) { // Changed default to true
+    init(
+        levels: UniversalAudioMeterService.AudioLevels,
+        meterHeight: CGFloat = 180,
+        showLabels: Bool = true
+    ) {
         self.levels = levels
+        self.meterHeight = meterHeight
     }
     
     var body: some View {
@@ -20,8 +25,8 @@ struct AudioMeterView: View {
             // Labels are now always shown, so no `if showLabels`
             levelScale
             
-            meterBar(level: levels.leftChannel, label: "L")
-            meterBar(level: levels.rightChannel, label: "R")
+            meterBar(level: levels.leftChannel, label: "L", height: meterHeight)
+            meterBar(level: levels.rightChannel, label: "R", height: meterHeight)
         }
         .padding(8)
         .background(
@@ -35,13 +40,13 @@ struct AudioMeterView: View {
     }
     
     @ViewBuilder
-    private func meterBar(level: Float, label: String) -> some View {
+    private func meterBar(level: Float, label: String, height: CGFloat) -> some View {
         VStack(spacing: 0) {
             Text(label)
                 .font(.system(size: 8, weight: .medium))
                 .foregroundColor(.white.opacity(0.6))
             
-            LevelBar(level: level, range: -50...0) // Pass the new range
+            LevelBar(level: level, range: -50...0, height: height)
                 .frame(width: meterWidth)
         }
     }
@@ -66,7 +71,7 @@ struct AudioMeterView: View {
                 Spacer()
                 dbLabel("-50")
             }
-            .frame(height: 180)  // Match new meter height
+            .frame(height: meterHeight)
         }
     }
     
@@ -81,10 +86,12 @@ struct AudioMeterView: View {
 private struct LevelBar: View {
     let level: Float // dB value, typically -50 to 0
     let range: ClosedRange<Float>
+    let height: CGFloat
     
-    init(level: Float, range: ClosedRange<Float> = -50...0) {
+    init(level: Float, range: ClosedRange<Float> = -50...0, height: CGFloat = 180) {
         self.level = level
         self.range = range
+        self.height = height
     }
     
     private var normalizedLevel: CGFloat {
@@ -126,7 +133,7 @@ private struct LevelBar: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
         }
-        .frame(height: 180)  // Increased by 50%
+        .frame(height: height)
     }
     
     private var levelGradient: LinearGradient {

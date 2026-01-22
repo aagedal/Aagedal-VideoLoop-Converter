@@ -40,6 +40,8 @@
 		</dict>
 		<dict/>
 	</array>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Screen capture is used to record your screen with system audio.</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
