@@ -5,6 +5,7 @@
 import SwiftUI
 import AppKit
 import CoreGraphics
+import AVFoundation
 
 struct CaptureModeView: View {
     @Environment(\.dismiss) private var dismiss
@@ -15,9 +16,13 @@ struct CaptureModeView: View {
     @AppStorage(AppConstants.captureDynamicRangeKey) private var captureDynamicRangeRaw = AppConstants.defaultCaptureDynamicRange
     @AppStorage(AppConstants.captureHideCursorKey) private var captureHideCursor = AppConstants.defaultCaptureHideCursor
     @AppStorage(AppConstants.captureExcludeCurrentAppKey) private var captureExcludeCurrentApp = AppConstants.defaultCaptureExcludeCurrentApp
+    @AppStorage(AppConstants.captureIncludeMicrophoneKey) private var captureIncludeMicrophone = AppConstants.defaultCaptureIncludeMicrophone
+    @AppStorage(AppConstants.captureMicrophoneDeviceIDKey) private var captureMicrophoneDeviceID = AppConstants.defaultCaptureMicrophoneDeviceID
     @StateObject private var captureManager = ScreenCaptureManager.shared
     @State private var availableDisplays: [CaptureDisplay] = []
     @State private var isViewActive = false
+    @State private var microphoneDevices: [AVCaptureDevice] = []
+    @State private var isMicButtonHovering = false
 
     private var presetBinding: Binding<CapturePreset> {
         Binding(
@@ -45,13 +50,27 @@ struct CaptureModeView: View {
         return CaptureDynamicRangeOption(rawValue: captureDynamicRangeRaw) ?? .sdr
     }
 
+    private var selectedMicrophoneDeviceID: String? {
+        captureMicrophoneDeviceID.isEmpty ? nil : captureMicrophoneDeviceID
+    }
+
+    private var microphoneSelectionSupported: Bool {
+        if #available(macOS 15, *) {
+            return true
+        }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             headerRow
             Divider()
             previewSection
-            controlRow
-            outputSection
+            HStack {
+                controlRow
+                outputSection
+                
+            }
             if let error = captureManager.errorMessage, !error.isEmpty {
                 Text(error)
                     .foregroundColor(.red)
@@ -61,7 +80,7 @@ struct CaptureModeView: View {
             footerNote
         }
         .padding(16)
-        .frame(minWidth: 840, minHeight: 520)
+        .frame(minWidth: 840, minHeight: 620)
         .interactiveDismissDisabled(captureManager.isRecording || captureManager.isProcessing)
         .onAppear {
             isViewActive = true
@@ -70,6 +89,8 @@ struct CaptureModeView: View {
             }
             Task {
                 await loadDisplays()
+                await loadMicrophones()
+                captureManager.refreshMicrophoneAuthorizationStatus()
                 await refreshPreview()
             }
         }
@@ -95,6 +116,16 @@ struct CaptureModeView: View {
             }
         }
         .onChange(of: captureFrameRateRaw) { _, _ in
+            Task {
+                await refreshPreview()
+            }
+        }
+        .onChange(of: captureIncludeMicrophone) { _, _ in
+            Task {
+                await refreshPreview()
+            }
+        }
+        .onChange(of: captureMicrophoneDeviceID) { _, _ in
             Task {
                 await refreshPreview()
             }
@@ -134,104 +165,288 @@ struct CaptureModeView: View {
     }
 
     private var previewSection: some View {
-        HStack(alignment: .top, spacing: 16) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.black.opacity(0.2))
-                if let image = captureManager.previewImage {
-                    Image(decorative: image, scale: 1.0)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                } else {
-                    VStack(spacing: 6) {
-                        Image(systemName: "rectangle.inset.filled")
-                            .font(.system(size: 28))
-                            .foregroundColor(.secondary.opacity(0.7))
-                        Text(captureManager.isRecording ? "Waiting for frames..." : "Preview should appear shortly")
+        HStack {
+            VStack {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.black.opacity(0.2))
+                    if let image = captureManager.previewImage {
+                        Image(decorative: image, scale: 1.0)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    } else {
+                        VStack(spacing: 6) {
+                            Image(systemName: "rectangle.inset.filled")
+                                .font(.system(size: 28))
+                                .foregroundColor(.secondary.opacity(0.7))
+                            Text(captureManager.isRecording ? "Waiting for frames..." : "Preview should appear shortly")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .frame(minWidth: 560, maxWidth: .infinity, minHeight: 320, maxHeight: 420)
+                
+                
+                HStack {
+                    Picker("Display", selection: $captureDisplayID) {
+                        Text("Automatic (Main Display)")
+                            .tag(0)
+                        ForEach(availableDisplays) { display in
+                            let label = "\(display.name) (\(display.width)x\(display.height))" + (display.isMain ? " • Main" : "")
+                            Text(label).tag(Int(display.id))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 260)
+                    .disabled(captureManager.isRecording || captureManager.isProcessing)
+                    
+                    Spacer()
+                    
+                    if microphoneSelectionSupported {
+                        Picker("Microphone", selection: $captureMicrophoneDeviceID) {
+                            Text("System Default").tag("")
+                            ForEach(microphoneDevices, id: \.uniqueID) { device in
+                                Text(device.localizedName).tag(device.uniqueID)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .disabled(captureManager.isRecording || captureManager.isProcessing)
+                        .help("Select the microphone used for the secondary audio track")
+                    } else {
+                        Text("Microphone selection requires macOS 15 or later.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
-            }
-            .frame(minWidth: 560, maxWidth: .infinity, minHeight: 315, maxHeight: 315)
 
-            VStack(alignment: .leading, spacing: 8) {
-                AudioMeterView(levels: captureManager.audioLevels, meterHeight: 315)
             }
-            .frame(width: 180, alignment: .leading)
+            
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("System Audio")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        AudioMeterView(levels: captureManager.audioLevels, meterHeight: 320)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Microphone")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        AudioMeterView(levels: captureManager.microphoneLevels, meterHeight: 320)
+                            .saturation(microphoneButtonActive ? 1.0 : 0.0)
+                            .opacity(microphoneButtonActive ? 1.0 : 0.5)
+                    }
+                }
+                microphoneToggleButton
+                Spacer()
+            }
+            .frame(width: 140, alignment: .leading)
         }
     }
 
     private var controlRow: some View {
-        HStack(spacing: 12) {
-            Button(action: toggleRecording) {
-                Label(captureManager.isRecording ? "Stop" : "Record", systemImage: captureManager.isRecording ? "stop.circle.fill" : "record.circle")
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(captureManager.isRecording ? .red : .accentColor)
-            .controlSize(.small)
-            .disabled(captureManager.isProcessing)
+        VStack(spacing: 12) {
+            
+            
+            HStack {
+                Button(action: toggleRecording) {
+                    Label(captureManager.isRecording ? "Stop" : "Record", systemImage: captureManager.isRecording ? "stop.circle.fill" : "record.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(captureManager.isRecording ? .red : .green)
+                .controlSize(.regular)
+                .disabled(captureManager.isProcessing)
 
-            if captureManager.isRecording {
-                Label("Recording", systemImage: "record.circle.fill")
-                    .foregroundColor(.red)
-            } else if captureManager.isProcessing {
-                Label("Finalizing", systemImage: "hourglass")
-                    .foregroundColor(.orange)
-            } else {
-                Label("Ready", systemImage: "circle.fill")
-                    .foregroundColor(.green)
+                Spacer()
             }
 
-            Text(elapsedText)
-                .font(.callout)
-                .monospacedDigit()
+            
+            HStack {
+                if captureManager.isRecording {
+                    Label("Recording", systemImage: "record.circle.fill")
+                        .foregroundColor(.red)
+                } else if captureManager.isProcessing {
+                    Label("Finalizing", systemImage: "hourglass")
+                        .foregroundColor(.orange)
+                } else {
+                    Label("Ready", systemImage: "circle.fill")
+                        .foregroundColor(.green)
+                }
 
-            if captureManager.isProcessing {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .controlSize(.small)
+                Text(elapsedText)
+                    .font(.callout)
+                    .monospacedDigit()
+
+                if captureManager.isProcessing {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                }
+             
+                Spacer()
             }
 
-            Spacer()
+        }.frame(minWidth: 300)
+    }
 
-            Picker("Display", selection: $captureDisplayID) {
-                Text("Automatic (Main Display)")
-                    .tag(0)
-                ForEach(availableDisplays) { display in
-                    let label = "\(display.name) (\(display.width)x\(display.height))" + (display.isMain ? " • Main" : "")
-                    Text(label).tag(Int(display.id))
+    private var microphoneToggleButton: some View {
+        Button {
+            let willEnable = !captureIncludeMicrophone
+            captureIncludeMicrophone = willEnable
+            if willEnable {
+                Task {
+                    await captureManager.requestMicrophonePermission()
                 }
             }
-            .pickerStyle(.menu)
-            .frame(width: 260)
-            .disabled(captureManager.isRecording || captureManager.isProcessing)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: captureIncludeMicrophone ? "mic.fill" : "mic.slash")
+                    .font(.system(size: 14, weight: .semibold))
+                    .scaleEffect(isMicButtonHovering ? 1.05 : 1.0)
+                Text(captureIncludeMicrophone ? "Microphone On" : "Microphone Off")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundColor(microphoneIconColor)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(microphoneButtonBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .stroke(microphoneButtonBorder, lineWidth: isMicButtonHovering ? 1.5 : 1)
+            )
         }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            isMicButtonHovering = hovering
+        }
+        .help(microphoneButtonHelpText)
+        .disabled(captureManager.isRecording || captureManager.isProcessing)
+    }
+
+    private var microphoneIconColor: Color {
+        if captureIncludeMicrophone {
+            switch captureManager.microphoneCaptureStatus {
+            case .authorized:
+                return .white
+            case .denied:
+                return .orange
+            case .disabled:
+                return .yellow
+            }
+        }
+        return .primary
+    }
+
+    private var microphoneButtonBackground: Color {
+        if microphoneButtonActive {
+            return Color.accentColor.opacity(isMicButtonHovering ? 0.35 : 0.25)
+        }
+        if captureIncludeMicrophone && captureManager.microphoneCaptureStatus == .denied {
+            return Color.red.opacity(isMicButtonHovering ? 0.16 : 0.12)
+        }
+        return Color.primary.opacity(isMicButtonHovering ? 0.15 : 0.06)
+    }
+
+    private var microphoneButtonBorder: Color {
+        if microphoneButtonActive {
+            return Color.accentColor
+        }
+        if captureIncludeMicrophone && captureManager.microphoneCaptureStatus == .denied {
+            return Color.red
+        }
+        return Color.primary.opacity(0.35)
+    }
+
+    private var microphoneButtonHelpText: String {
+        if captureIncludeMicrophone {
+            switch captureManager.microphoneCaptureStatus {
+            case .authorized:
+                return "Microphone will be recorded as a separate 24-bit LPCM track."
+            case .denied:
+                return "Microphone access is blocked; click to re-open the permission prompt."
+            case .disabled:
+                return "Requesting microphone permission so a secondary track can be captured."
+            }
+        }
+        return "Enable the microphone track (system + mic) so you can capture narrations."
+    }
+
+    private var microphoneButtonActive: Bool {
+        captureIncludeMicrophone && captureManager.microphoneCaptureStatus == .authorized
     }
 
     @ViewBuilder
     private var outputSection: some View {
-        if let lastURL = captureManager.lastOutputURL {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Last Capture")
-                    .font(.headline)
-                HStack {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Last Capture")
+                .font(.headline)
+            HStack(spacing: 10) {
+                if let lastURL = captureManager.lastOutputURL {
                     Text(lastURL.lastPathComponent)
                         .font(.callout)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Spacer()
-                    Button("Send to Queue") {
-                        NotificationCenter.default.post(name: .enqueueFileURL, object: lastURL)
-                    }
-                    .controlSize(.small)
-                    Button("Reveal") {
-                        NSWorkspace.shared.activateFileViewerSelecting([lastURL])
-                    }
-                    .controlSize(.small)
+                } else {
+                    Text("No captures yet")
+                        .font(.callout)
+                        .foregroundColor(.secondary)
                 }
+                Spacer()
+                dragIcon(
+                    for: captureManager.lastOutputURL,
+                    color: .blue,
+                    helpText: "Drag the recorded file to another app or folder."
+                )
+                
+                Button {
+                    guard let lastURL = captureManager.lastOutputURL else { return }
+                    NSWorkspace.shared.activateFileViewerSelecting([lastURL])
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .help("Reveal the recording in Finder")
+                .disabled(captureManager.lastOutputURL == nil)
+                
+                Button {
+                    guard let lastURL = captureManager.lastOutputURL else { return }
+                    NotificationCenter.default.post(name: .enqueueFileURL, object: lastURL)
+                } label: {
+                    Image(systemName: "plus.square.on.square")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.green)
+                }
+                .buttonStyle(.plain)
+                .help("Send recording to the main queue")
+                .disabled(captureManager.lastOutputURL == nil)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func dragIcon(for outputURL: URL?, color: Color, helpText: String) -> some View {
+        if let url = outputURL {
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .foregroundColor(color)
+                .help(helpText)
+                .onDrag {
+                    let provider = NSItemProvider(object: url as NSURL)
+                    provider.suggestedName = url.lastPathComponent
+                    return provider
+                }
+        } else {
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .foregroundColor(color.opacity(0.45))
+                .help("Drag a recording once one is available.")
         }
     }
 
@@ -264,6 +479,8 @@ struct CaptureModeView: View {
                     displayID: displayID,
                     frameRate: frameRateOption,
                     dynamicRange: dynamicRangeOption,
+                    includeMicrophone: captureIncludeMicrophone,
+                    microphoneDeviceID: selectedMicrophoneDeviceID,
                     hideCursor: captureHideCursor,
                     excludeCurrentApp: captureExcludeCurrentApp
                 )
@@ -289,6 +506,24 @@ struct CaptureModeView: View {
         }
     }
 
+    private func loadMicrophones() async {
+        guard #available(macOS 15, *) else {
+            await MainActor.run {
+                microphoneDevices = []
+                captureMicrophoneDeviceID = ""
+            }
+            return
+        }
+
+        let devices = ScreenCaptureManager.availableMicrophones()
+        await MainActor.run {
+            microphoneDevices = devices
+            if !devices.contains(where: { $0.uniqueID == captureMicrophoneDeviceID }) {
+                captureMicrophoneDeviceID = ""
+            }
+        }
+    }
+
     private func refreshPreview() async {
         guard isViewActive, !captureManager.isRecording else { return }
         await captureManager.stopPreview()
@@ -296,6 +531,8 @@ struct CaptureModeView: View {
         await captureManager.startPreview(
             displayID: displayID,
             frameRate: frameRateOption,
+            includeMicrophone: captureIncludeMicrophone,
+            microphoneDeviceID: selectedMicrophoneDeviceID,
             hideCursor: captureHideCursor,
             excludeCurrentApp: captureExcludeCurrentApp
         )

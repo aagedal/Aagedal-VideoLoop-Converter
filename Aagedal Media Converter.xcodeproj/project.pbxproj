@@ -40,7 +40,6 @@
 		8E37A8C2E5334343AD98BD43 /* ShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E13CD4050F24D1788FD6C8C /* ShortcutsSettingsView.swift */; };
 		8E4DF26D2ECBACFC007B6277 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */; };
 		8E4DF26F2ECBAD35007B6277 /* PresetSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF26E2ECBAD30007B6277 /* PresetSettingsView.swift */; };
-		B1C2D3E4F5061728394A5B70 /* ScreenCaptureSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6F /* ScreenCaptureSettingsView.swift */; };
 		8E4DF2712ECBAD4B007B6277 /* WaveformSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2702ECBAD46007B6277 /* WaveformSettingsView.swift */; };
 		8E4DF2732ECBBE38007B6277 /* WatchFolderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2722ECBBE38007B6277 /* WatchFolderSettingsView.swift */; };
 		8E4DF2752ECBD3F2007B6277 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */; };
@@ -109,6 +108,7 @@
 		A14336D5FE72B1741AE6C2E2 /* RcloneService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B40739097F270F27C5045E /* RcloneService.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* CaptureModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* CaptureModeView.swift */; };
 		A7FDCC612BAD184830F774E4 /* WhisperSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */; };
+		B1C2D3E4F5061728394A5B70 /* ScreenCaptureSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6F /* ScreenCaptureSettingsView.swift */; };
 		B709DBE54F69E12A7484E1CE /* YTDLPSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */; };
 		BC6905B16FDDC57467098ECF /* KeychainCredentialManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */; };
 		C2D3E4F5061728394A5B6C7D /* ScreenCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */; };
@@ -208,7 +208,6 @@
 		8E2CA2A52E09AA03008D93F1 /* readme.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = readme.md; sourceTree = "<group>"; };
 		8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
 		8E4DF26E2ECBAD30007B6277 /* PresetSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetSettingsView.swift; sourceTree = "<group>"; };
-		B1C2D3E4F5061728394A5B6F /* ScreenCaptureSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureSettingsView.swift; sourceTree = "<group>"; };
 		8E4DF2702ECBAD46007B6277 /* WaveformSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformSettingsView.swift; sourceTree = "<group>"; };
 		8E4DF2722ECBBE38007B6277 /* WatchFolderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderSettingsView.swift; sourceTree = "<group>"; };
 		8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
@@ -278,6 +277,7 @@
 		A1B2C3D4E5F60718293A4B5D /* CaptureModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureModeView.swift; sourceTree = "<group>"; };
 		A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelManager.swift; sourceTree = "<group>"; };
 		ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = URLInputOverlay.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5061728394A5B6F /* ScreenCaptureSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureSettingsView.swift; sourceTree = "<group>"; };
 		BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneProgressParser.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneProgressParser.swift"; sourceTree = "<group>"; };
 		C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureManager.swift; sourceTree = "<group>"; };
 		D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KeychainCredentialManager.swift; path = "Aagedal Media Converter/Utils/KeychainCredentialManager.swift"; sourceTree = "<group>"; };
@@ -1212,7 +1212,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
@@ -1873,7 +1873,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;

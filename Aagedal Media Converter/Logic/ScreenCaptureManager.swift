@@ -17,6 +17,10 @@ import CoreImage
 import OSLog
 import AppKit
 
+private enum AudioSettingKeys {
+    static let linearPCMIsNonInterleaved = "AVLinearPCMIsNonInterleaved"
+}
+
 struct CaptureDisplay: Identifiable, Hashable {
     let id: CGDirectDisplayID
     let name: String
@@ -135,10 +139,13 @@ enum CapturePreset: String, CaseIterable, Identifiable {
 
     var audioSettings: [String: Any] {
         [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVFormatIDKey: kAudioFormatLinearPCM,
             AVNumberOfChannelsKey: 2,
             AVSampleRateKey: 48_000,
-            AVEncoderBitRateKey: 192_000
+            AVLinearPCMBitDepthKey: 24,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AudioSettingKeys.linearPCMIsNonInterleaved: false
         ]
     }
 
@@ -241,6 +248,14 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var previewImage: CGImage?
     @Published private(set) var audioLevels: UniversalAudioMeterService.AudioLevels = .silence
+    @Published private(set) var microphoneLevels: UniversalAudioMeterService.AudioLevels = .silence
+    @Published private(set) var microphoneCaptureStatus: MicrophoneCaptureStatus = .disabled
+
+    enum MicrophoneCaptureStatus {
+        case disabled
+        case authorized
+        case denied
+    }
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ScreenCapture")
     private var stream: SCStream?
@@ -252,6 +267,10 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     private var recordingStartDate: Date?
     private var previewStream: SCStream?
     private var previewOutput: CaptureStreamOutput?
+    private override init() {
+        super.init()
+        refreshMicrophoneAuthorizationStatus()
+    }
 
     func startRecording(
         preset: CapturePreset,
@@ -259,6 +278,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         displayID: CGDirectDisplayID?,
         frameRate: CaptureFrameRateOption,
         dynamicRange: CaptureDynamicRangeOption,
+        includeMicrophone: Bool,
+        microphoneDeviceID: String?,
         hideCursor: Bool,
         excludeCurrentApp: Bool
     ) async {
@@ -271,6 +292,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         }
         previewImage = nil
         audioLevels = .silence
+        microphoneLevels = .silence
 
         do {
             let content = try await ScreenCaptureManager.shareableContent()
@@ -289,6 +311,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 throw CaptureError.accessDenied
             }
 
+            let microphoneCaptureEnabled = await resolveMicrophoneCapture(requested: includeMicrophone)
+            let selectedMicrophoneID = microphoneDeviceID?.isEmpty == false ? microphoneDeviceID : nil
             outputAccess = access
             recordingURL = outputURLs.recordingURL
 
@@ -304,6 +328,12 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 dynamicRange: effectiveDynamicRange
             )
             config.showsCursor = !hideCursor
+            if microphoneCaptureEnabled, #available(macOS 15, *) {
+                config.captureMicrophone = true
+                if let selectedMicrophoneID {
+                    config.microphoneCaptureDeviceID = selectedMicrophoneID
+                }
+            }
             let hevcProfileOverride = resolveHEVCProfileOverride(
                 preset: preset,
                 width: Int(resolution.width),
@@ -327,7 +357,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                         hevcProfileOverride: hevcProfileOverride
                     ),
                     audioSettings: preset.audioSettings,
-                    dynamicRange: effectiveDynamicRange
+                    dynamicRange: effectiveDynamicRange,
+                    includeMicrophone: microphoneCaptureEnabled
                 )
             }
             writer.setErrorHandler { [weak self] error in
@@ -340,8 +371,21 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             let previewContext = CIContext()
             var lastPreviewSeconds: Double = 0
             var lastAudioSeconds: Double = 0
+            var lastMicrophoneSeconds: Double = 0
             let output = CaptureStreamOutput(queue: outputQueue) { [weak self, weak writer] sampleBuffer, type in
                 writer?.append(sampleBuffer: sampleBuffer, type: type)
+
+                if #available(macOS 15, *), type == .microphone {
+                    if let levels = ScreenCaptureManager.audioLevels(
+                        from: sampleBuffer,
+                        lastTimestamp: &lastMicrophoneSeconds
+                    ) {
+                        Task { @MainActor [weak self] in
+                            self?.microphoneLevels = levels
+                        }
+                    }
+                    return
+                }
 
                 switch type {
                 case .screen:
@@ -370,6 +414,9 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
             try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: outputQueue)
             try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: outputQueue)
+            if microphoneCaptureEnabled, #available(macOS 15, *) {
+                try stream.addStreamOutput(output, type: .microphone, sampleHandlerQueue: outputQueue)
+            }
 
             try await stream.startCapture()
 
@@ -420,6 +467,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         if !isPreviewing {
             previewImage = nil
             audioLevels = .silence
+            microphoneLevels = .silence
         }
 
         releaseAccess()
@@ -428,6 +476,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     func startPreview(
         displayID: CGDirectDisplayID?,
         frameRate: CaptureFrameRateOption,
+        includeMicrophone: Bool,
+        microphoneDeviceID: String?,
         hideCursor: Bool,
         excludeCurrentApp: Bool
     ) async {
@@ -436,6 +486,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         errorMessage = nil
         previewImage = nil
         audioLevels = .silence
+        microphoneLevels = .silence
 
         do {
             let content = try await ScreenCaptureManager.shareableContent()
@@ -458,6 +509,14 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 dynamicRange: .sdr
             )
             config.showsCursor = !hideCursor
+            let previewMicrophoneEnabled = await resolveMicrophoneCapture(requested: includeMicrophone)
+            let selectedMicrophoneID = microphoneDeviceID?.isEmpty == false ? microphoneDeviceID : nil
+            if previewMicrophoneEnabled, #available(macOS 15, *) {
+                config.captureMicrophone = true
+                if let selectedMicrophoneID {
+                    config.microphoneCaptureDeviceID = selectedMicrophoneID
+                }
+            }
 
             let filter = contentFilter(for: display, content: content, excludeCurrentApp: excludeCurrentApp)
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
@@ -466,7 +525,19 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             let previewContext = CIContext()
             var lastPreviewSeconds: Double = 0
             var lastAudioSeconds: Double = 0
+            var lastMicrophoneSeconds: Double = 0
             let output = CaptureStreamOutput(queue: outputQueue) { [weak self] sampleBuffer, type in
+                if #available(macOS 15, *), type == .microphone {
+                    if let levels = ScreenCaptureManager.audioLevels(
+                        from: sampleBuffer,
+                        lastTimestamp: &lastMicrophoneSeconds
+                    ) {
+                        Task { @MainActor [weak self] in
+                            self?.microphoneLevels = levels
+                        }
+                    }
+                    return
+                }
                 switch type {
                 case .screen:
                     if let image = ScreenCaptureManager.previewImage(
@@ -494,6 +565,9 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
             try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: outputQueue)
             try stream.addStreamOutput(output, type: .audio, sampleHandlerQueue: outputQueue)
+            if previewMicrophoneEnabled, #available(macOS 15, *) {
+                try stream.addStreamOutput(output, type: .microphone, sampleHandlerQueue: outputQueue)
+            }
             try await stream.startCapture()
 
             previewStream = stream
@@ -515,6 +589,9 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         previewStream = nil
         previewOutput = nil
         isPreviewing = false
+        if !isRecording {
+            microphoneLevels = .silence
+        }
     }
 
     private func startTimer() {
@@ -535,6 +612,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         recordingStartDate = nil
         previewImage = nil
         audioLevels = .silence
+        microphoneLevels = .silence
 
         if clearOutputs {
             recordingURL = nil
@@ -660,6 +738,64 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             return true
         }
         return false
+    }
+
+    @MainActor
+    func refreshMicrophoneAuthorizationStatus() {
+        guard #available(macOS 15, *) else {
+            microphoneCaptureStatus = .disabled
+            return
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized:
+            microphoneCaptureStatus = .authorized
+        case .denied, .restricted:
+            microphoneCaptureStatus = .denied
+        default:
+            microphoneCaptureStatus = .disabled
+        }
+    }
+
+    @MainActor
+    func requestMicrophonePermission() async {
+        _ = await resolveMicrophoneCapture(requested: true)
+    }
+
+    private func resolveMicrophoneCapture(requested: Bool) async -> Bool {
+        guard requested else {
+            microphoneCaptureStatus = .disabled
+            return false
+        }
+        guard #available(macOS 15, *) else {
+            microphoneCaptureStatus = .disabled
+            return false
+        }
+
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch status {
+        case .authorized:
+            microphoneCaptureStatus = .authorized
+            return true
+        case .notDetermined:
+            let granted = await requestMicrophoneAccess()
+            microphoneCaptureStatus = granted ? .authorized : .denied
+            return granted
+        case .denied, .restricted:
+            microphoneCaptureStatus = .denied
+            return false
+        @unknown default:
+            microphoneCaptureStatus = .denied
+            return false
+        }
+    }
+
+    private func requestMicrophoneAccess() async -> Bool {
+        await withCheckedContinuation { continuation in
+            AVCaptureDevice.requestAccess(for: .audio) { granted in
+                continuation.resume(returning: granted)
+            }
+        }
     }
 
     private func displayPixelResolution(for display: SCDisplay) -> CGSize {
@@ -898,7 +1034,16 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
         let isSignedInt = (asbd.mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0
         let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+        let isBigEndian = (asbd.mFormatFlags & kAudioFormatFlagIsBigEndian) != 0
         let bitsPerChannel = Int(asbd.mBitsPerChannel)
+        let bytesPerFrame = Int(asbd.mBytesPerFrame)
+        let inferredBytesPerSample = max(1, (bitsPerChannel + 7) / 8)
+        let bytesPerSample: Int
+        if bytesPerFrame > 0 {
+            bytesPerSample = max(1, isNonInterleaved ? bytesPerFrame : bytesPerFrame / max(1, channelCount))
+        } else {
+            bytesPerSample = inferredBytesPerSample
+        }
 
         let bufferList = AudioBufferList.allocate(maximumBuffers: channelCount)
         defer { free(bufferList.unsafeMutablePointer) }
@@ -922,15 +1067,37 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         var peaks = [Float](repeating: 0, count: maxChannels)
 
         func sampleValue(from pointer: UnsafeRawPointer, index: Int) -> Float {
-            if isFloat && bitsPerChannel == 32 {
-                return pointer.bindMemory(to: Float.self, capacity: index + 1)[index]
+            let byteOffset = index * bytesPerSample
+            if isFloat && (bitsPerChannel == 32 || (bitsPerChannel == 0 && bytesPerSample == 4)) {
+                return pointer.advanced(by: byteOffset).bindMemory(to: Float.self, capacity: 1).pointee
             }
-            if isSignedInt && bitsPerChannel == 16 {
-                let value = pointer.bindMemory(to: Int16.self, capacity: index + 1)[index]
+            if isFloat && (bitsPerChannel == 64 || (bitsPerChannel == 0 && bytesPerSample == 8)) {
+                let value = pointer.advanced(by: byteOffset).bindMemory(to: Double.self, capacity: 1).pointee
+                return Float(value)
+            }
+            if isSignedInt && (bitsPerChannel == 16 || bytesPerSample == 2) {
+                let value = pointer.advanced(by: byteOffset).bindMemory(to: Int16.self, capacity: 1).pointee
                 return Float(value) / Float(Int16.max)
             }
-            if isSignedInt && bitsPerChannel == 32 {
-                let value = pointer.bindMemory(to: Int32.self, capacity: index + 1)[index]
+            if isSignedInt && (bitsPerChannel == 24 || bytesPerSample == 3 || bytesPerSample == 4) {
+                let base = pointer.advanced(by: byteOffset)
+                let b0 = Int32(base.load(as: UInt8.self))
+                let b1 = Int32(base.load(fromByteOffset: 1, as: UInt8.self))
+                let b2 = Int32(base.load(fromByteOffset: 2, as: UInt8.self))
+                let raw: Int32
+                if isBigEndian {
+                    raw = (b0 << 16) | (b1 << 8) | b2
+                } else {
+                    raw = (b2 << 16) | (b1 << 8) | b0
+                }
+                var signed = raw
+                if signed & 0x800000 != 0 {
+                    signed |= ~0xFFFFFF
+                }
+                return Float(signed) / Float(1 << 23)
+            }
+            if isSignedInt && (bitsPerChannel == 32 || bytesPerSample == 4) {
+                let value = pointer.advanced(by: byteOffset).bindMemory(to: Int32.self, capacity: 1).pointee
                 return Float(value) / Float(Int32.max)
             }
             return 0
@@ -984,6 +1151,16 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         }
     }
 
+    @available(macOS 15, *)
+    static func availableMicrophones() -> [AVCaptureDevice] {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.microphone, .external],
+            mediaType: .audio,
+            position: .unspecified
+        )
+        return discovery.devices
+    }
+
     private static func mainDisplayID() -> CGDirectDisplayID? {
         guard let mainScreen = NSScreen.main,
               let screenNumber = mainScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
@@ -1024,18 +1201,22 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     private let videoSettings: [String: Any]
     private let audioSettings: [String: Any]
     private let dynamicRange: CaptureDynamicRangeOption
+    private let includeMicrophone: Bool
     private var writer: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
+    private var microphoneInput: AVAssetWriterInput?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var hasVideoInput = false
     private var hasAudioInput = false
+    private var hasMicrophoneInput = false
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ScreenCaptureWriter")
     private var started = false
     private var finished = false
     private var writeError: Error?
     private var videoSampleCount = 0
     private var audioSampleCount = 0
+    private var microphoneSampleCount = 0
     private var errorHandler: (@Sendable (Error) -> Void)?
 
     init(
@@ -1043,13 +1224,15 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         fileType: AVFileType,
         videoSettings: [String: Any],
         audioSettings: [String: Any],
-        dynamicRange: CaptureDynamicRangeOption
+        dynamicRange: CaptureDynamicRangeOption,
+        includeMicrophone: Bool
     ) throws {
         self.outputURL = outputURL
         self.fileType = fileType
         self.videoSettings = videoSettings
         self.audioSettings = audioSettings
         self.dynamicRange = dynamicRange
+        self.includeMicrophone = includeMicrophone
     }
 
     func append(sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) {
@@ -1082,6 +1265,19 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
                 }
                 logger.info("Capture writer started.")
             }
+        }
+
+        if #available(macOS 15, *), type == .microphone {
+            if hasMicrophoneInput, let microphoneInput, microphoneInput.isReadyForMoreMediaData {
+                if microphoneSampleCount == 0 {
+                    logger.info("First microphone sample received.")
+                }
+                microphoneSampleCount += 1
+                if !microphoneInput.append(sampleBuffer) {
+                    recordError(writer?.error ?? CaptureWriterError.microphoneAppendFailed)
+                }
+            }
+            return
         }
 
         switch type {
@@ -1148,6 +1344,9 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         if hasAudioInput {
             audioInput?.markAsFinished()
         }
+        if hasMicrophoneInput {
+            microphoneInput?.markAsFinished()
+        }
 
         await withCheckedContinuation { continuation in
             writer.finishWriting {
@@ -1188,6 +1387,12 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
 
         let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
         audioInput.expectsMediaDataInRealTime = true
+        var microphoneInput: AVAssetWriterInput?
+        if includeMicrophone {
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+            input.expectsMediaDataInRealTime = true
+            microphoneInput = input
+        }
 
         hasVideoInput = writer.canAdd(videoInput)
         if hasVideoInput {
@@ -1217,9 +1422,19 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
             recordError(CaptureWriterError.audioInputNotSupported)
         }
 
+        if let microphoneInput {
+            hasMicrophoneInput = writer.canAdd(microphoneInput)
+            if hasMicrophoneInput {
+                writer.add(microphoneInput)
+            } else {
+                recordError(CaptureWriterError.microphoneInputNotSupported)
+            }
+        }
+
         self.writer = writer
         self.videoInput = videoInput
         self.audioInput = audioInput
+        self.microphoneInput = microphoneInput
     }
 
     private func recordError(_ error: Error) {
@@ -1293,9 +1508,11 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     private enum CaptureWriterError: LocalizedError {
         case videoInputNotSupported
         case audioInputNotSupported
+        case microphoneInputNotSupported
         case writerStartFailed
         case videoAppendFailed
         case audioAppendFailed
+        case microphoneAppendFailed
         case noVideoFrames
         case videoBufferUnavailable
 
@@ -1305,12 +1522,16 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
                 return "Video input could not be added to the capture writer."
             case .audioInputNotSupported:
                 return "Audio input could not be added to the capture writer."
+            case .microphoneInputNotSupported:
+                return "Microphone input could not be added to the capture writer."
             case .writerStartFailed:
                 return "Failed to start the capture writer."
             case .videoAppendFailed:
                 return "Failed to append video samples to the capture writer."
             case .audioAppendFailed:
                 return "Failed to append audio samples to the capture writer."
+            case .microphoneAppendFailed:
+                return "Failed to append microphone samples to the capture writer."
             case .noVideoFrames:
                 return "No video frames were captured. Check Screen Recording permission."
             case .videoBufferUnavailable:

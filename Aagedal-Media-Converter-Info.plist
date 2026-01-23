@@ -42,6 +42,8 @@
 	</array>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Screen capture is used to record your screen with system audio.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Microphone access is used to capture your voice on a separate audio track during screen recording.</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

@@ -36,15 +36,13 @@ struct ConversionToolbarView: ToolbarContent {
     let onClear: () -> Void
 
     var body: some ToolbarContent {
-        ToolbarItem(placement: .automatic) {
+        ToolbarItemGroup(placement: .automatic) {
             ConversionPlayButton(
                 isConverting: isConverting,
                 canStartConversion: canStartConversion,
                 hasFiles: hasFiles,
                 onToggleConversion: onToggleConversion
             )
-        }
-        ToolbarItem(placement: .automatic) {
             Toggle(isOn: $mergeClipsEnabled) {
                 Label("Merge Clips", systemImage: "play.square.stack.fill")
             }
@@ -54,8 +52,7 @@ struct ConversionToolbarView: ToolbarContent {
         }
 
         ToolbarItem(placement: .automatic) {
-            Divider()
-                .frame(height: 18)
+            Spacer()
         }
 
         ToolbarItemGroup(placement: .automatic) {
@@ -108,7 +105,7 @@ struct ConversionToolbarView: ToolbarContent {
                 }
             }
             .pickerStyle(.menu)
-            .frame(width: 180)
+            .frame(width: 200)
             .disabled(isConverting)
             .foregroundColor(.primary)
             .help("Select export preset for all files")
