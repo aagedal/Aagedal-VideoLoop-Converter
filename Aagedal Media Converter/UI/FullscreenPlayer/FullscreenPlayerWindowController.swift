@@ -22,6 +22,9 @@ final class FullscreenPlayerWindowController {
     private var currentIndex: Int = 0
     private var currentScreen: NSScreen?
 
+    // Currently playing item identifier
+    private var currentlyPlayingItemID: UUID?
+
     // Overlay state preserved across video switches
     private var isOverlayHidden = false
 
@@ -49,6 +52,8 @@ final class FullscreenPlayerWindowController {
 
         let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first!
         currentScreen = targetScreen
+
+        currentlyPlayingItemID = item.id
 
         // Create a borderless fullscreen window
         let window = NSWindow(
@@ -159,6 +164,8 @@ final class FullscreenPlayerWindowController {
         let targetScreen = NSScreen.main ?? NSScreen.screens.first!
         currentScreen = targetScreen
 
+        currentlyPlayingItemID = item.id
+
         // Create a borderless fullscreen window
         let window = NSWindow(
             contentRect: targetScreen.frame,
@@ -266,6 +273,8 @@ final class FullscreenPlayerWindowController {
     }
 
     private func reopenWithItem(_ item: VideoItem) {
+        currentlyPlayingItemID = item.id
+
         guard let window = currentWindow else { return }
 
         // Create new player view with updated item, preserving overlay and timecode state
@@ -323,6 +332,8 @@ final class FullscreenPlayerWindowController {
         currentWindow = nil
         hostingView = nil
 
+        currentlyPlayingItemID = nil
+
         // Clear the position callback after window is dismissed
         onCloseWithPosition = nil
     }
@@ -330,6 +341,11 @@ final class FullscreenPlayerWindowController {
     /// Returns true if a fullscreen player is currently open
     var isFullscreenPlayerOpen: Bool {
         currentWindow != nil
+    }
+
+    /// Returns true if the provided item is currently displayed
+    func isCurrentlyPlaying(itemID: UUID) -> Bool {
+        currentlyPlayingItemID == itemID
     }
 }
 

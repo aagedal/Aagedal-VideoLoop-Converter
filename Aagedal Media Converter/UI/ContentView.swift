@@ -148,8 +148,12 @@ struct ContentView: View {
             },
             onPlayFullscreen: { id in
                 if let index = droppedFiles.firstIndex(where: { $0.id == id }) {
+                    let selectedItem = droppedFiles[index]
+                    if FullscreenPlayerWindowController.shared.isCurrentlyPlaying(itemID: selectedItem.id) {
+                        return
+                    }
                     FullscreenPlayerWindowController.shared.openFullscreenPlayer(
-                        for: droppedFiles[index],
+                        for: selectedItem,
                         in: droppedFiles
                     )
                 }
@@ -220,7 +224,7 @@ struct ContentView: View {
     var body: some View {
         mainContentView
             .overlay(alignment: .bottom) { updateNotificationOverlay }
-            .frame(minWidth: 780)
+            .frame(minWidth: 860)
             .modifier(ContentViewSheets(
                 droppedFiles: $droppedFiles,
                 trimSheetItemID: $trimSheetItemID,

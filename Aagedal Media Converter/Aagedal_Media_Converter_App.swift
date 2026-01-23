@@ -38,7 +38,9 @@ struct Aagedal_Media_Converter_App: App {
             AppConstants.captureHideCursorKey: AppConstants.defaultCaptureHideCursor,
             AppConstants.captureExcludeCurrentAppKey: AppConstants.defaultCaptureExcludeCurrentApp,
             AppConstants.captureFrameRateKey: AppConstants.defaultCaptureFrameRate,
-            AppConstants.captureDynamicRangeKey: AppConstants.defaultCaptureDynamicRange
+            AppConstants.captureDynamicRangeKey: AppConstants.defaultCaptureDynamicRange,
+            AppConstants.captureIncludeMicrophoneKey: AppConstants.defaultCaptureIncludeMicrophone,
+            AppConstants.captureMicrophoneDeviceIDKey: AppConstants.defaultCaptureMicrophoneDeviceID
         ])
 
         applyPreviewCacheCleanupPolicy()
@@ -63,6 +65,7 @@ struct Aagedal_Media_Converter_App: App {
         Window("About Aagedal Media Converter", id: "about") {
             AboutView()
         }
+        .handlesExternalEvents(matching: ["about"])
         .windowResizability(.contentSize)
     }
 }
@@ -122,31 +125,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let visibleWindows = NSApp.windows.filter { $0.isVisible }
-
-        // If there are no visible windows, open a new one
+        let visibleWindows = NSApp.windows.filter { $0.isVisible && $0.canBecomeKey }
         if visibleWindows.isEmpty {
-            var foundItem: NSMenuItem?
-            
-            if let mainMenu = NSApp.mainMenu {
-                for item in mainMenu.items {
-                    if let submenu = item.submenu {
-                        for subitem in submenu.items {
-                            if subitem.keyEquivalent == "n" && subitem.keyEquivalentModifierMask.contains(.command) {
-                                foundItem = subitem
-                                break
-                            }
-                        }
-                    }
-                    if foundItem != nil { break }
-                }
-            }
-            
-            if let item = foundItem, let action = item.action {
-                 DispatchQueue.main.async {
-                    // IMPORTANT: Pass 'item' as sender so SwiftUI knows which command to trigger
-                    NSApp.sendAction(action, to: item.target, from: item)
-                }
+            Task { @MainActor in
+                ensureMainWindowIsVisible()
             }
         }
     }
@@ -163,6 +145,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         if visibleWindows.isEmpty {
             // No windows open - let SwiftUI create a new window and add files there
+            Task { @MainActor in
+                ensureMainWindowIsVisible()
+            }
             // We need to delay posting notifications until the new window is created
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 for url in videoURLs {
@@ -180,6 +165,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: .enqueueFileURL, object: url)
             }
         }
+    }
+
+    @MainActor
+    private func ensureMainWindowIsVisible() {
+        let visibleWindows = NSApp.windows.filter { $0.isVisible && $0.canBecomeKey }
+        guard visibleWindows.isEmpty else { return }
+        openNewMainWindow()
+    }
+
+    @MainActor
+    private func openNewMainWindow() {
+        guard let menuItem = findNewWindowMenuItem(), let action = menuItem.action else { return }
+        // IMPORTANT: Pass 'menuItem' as sender so SwiftUI knows which command to trigger
+        NSApp.sendAction(action, to: menuItem.target, from: menuItem)
+    }
+
+    @MainActor
+    private func findNewWindowMenuItem() -> NSMenuItem? {
+        guard let mainMenu = NSApp.mainMenu else { return nil }
+        for item in mainMenu.items {
+            guard let submenu = item.submenu else { continue }
+            for subitem in submenu.items {
+                if subitem.keyEquivalent == "n" && subitem.keyEquivalentModifierMask.contains(.command) {
+                    return subitem
+                }
+            }
+        }
+        return nil
     }
 }
 

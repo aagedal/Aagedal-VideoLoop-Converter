@@ -42,10 +42,14 @@ enum AppConstants {
     static let captureExcludeCurrentAppKey = "captureExcludeCurrentApp"
     static let captureFrameRateKey = "captureFrameRate"
     static let captureDynamicRangeKey = "captureDynamicRange"
+    static let captureIncludeMicrophoneKey = "captureIncludeMicrophone"
+    static let captureMicrophoneDeviceIDKey = "captureMicrophoneDeviceID"
     static let defaultCaptureHideCursor = false
     static let defaultCaptureExcludeCurrentApp = true
     static let defaultCaptureFrameRate = "auto"
     static let defaultCaptureDynamicRange = "sdr"
+    static let defaultCaptureIncludeMicrophone = false
+    static let defaultCaptureMicrophoneDeviceID = ""
     
     // Directory for cached preview assets (thumbnails, waveforms, etc.)
     static let previewCacheDirectory: URL = {
