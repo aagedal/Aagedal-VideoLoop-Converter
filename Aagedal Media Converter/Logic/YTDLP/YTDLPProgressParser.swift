@@ -7,11 +7,12 @@ import Foundation
 /// Parses yt-dlp output for progress information
 struct YTDLPProgressParser: Sendable {
     struct ProgressInfo: Sendable {
-        let progress: Double      // 0.0 to 1.0
+        let progress: Double      // 0.0 to 1.0 (0.5 for live streams with unknown total)
         let speed: String?        // e.g., "5.2MiB/s"
         let eta: String?          // e.g., "01:23"
         let downloaded: String?   // e.g., "45.2MiB"
         let total: String?        // e.g., "1.23GiB"
+        let isLiveStream: Bool    // true if this is live stream progress (no percentage)
     }
 
     /// Parses a line of yt-dlp output for download progress
@@ -19,63 +20,148 @@ struct YTDLPProgressParser: Sendable {
     /// [download]  45.2% of 1.23GiB at 5.67MiB/s ETA 01:23
     /// [download] 100% of 1.23GiB in 00:04:32
     /// [download] Destination: Video Title.mp4
+    /// Live stream: [download] 234.5MiB at 2.3MiB/s (no percentage)
     static func parse(_ line: String) -> ProgressInfo? {
-        // Match progress percentage
+        // First try percentage-based progress
         let progressPattern = #"\[download\]\s+(\d+\.?\d*)%"#
-        guard let progressMatch = line.range(of: progressPattern, options: .regularExpression) else {
-            return nil
+        if let progressMatch = line.range(of: progressPattern, options: .regularExpression) {
+            let progressString = String(line[progressMatch])
+            let numberPattern = #"(\d+\.?\d*)"#
+            if let numberMatch = progressString.range(of: numberPattern, options: .regularExpression) {
+                let percentString = String(progressString[numberMatch])
+                if let percent = Double(percentString) {
+                    let progress = percent / 100.0
+                    return ProgressInfo(
+                        progress: progress,
+                        speed: extractSpeed(from: line),
+                        eta: extractETA(from: line),
+                        downloaded: nil,
+                        total: extractTotal(from: line),
+                        isLiveStream: false
+                    )
+                }
+            }
         }
 
-        let progressString = String(line[progressMatch])
-        let numberPattern = #"(\d+\.?\d*)"#
-        guard let numberMatch = progressString.range(of: numberPattern, options: .regularExpression) else {
-            return nil
+        // For live streams: [download] 234.5MiB at 2.3MiB/s (no percentage)
+        // Also matches fragment downloads
+        let livePattern = #"\[download\]\s+([\d.]+\s*\w+iB)\s+at\s+([\d.]+\s*\w+/s)"#
+        if let liveMatch = line.range(of: livePattern, options: .regularExpression) {
+            let matchStr = String(line[liveMatch])
+            let speed = extractSpeed(from: line)
+            // Extract downloaded size
+            let sizePattern = #"([\d.]+\s*\w+iB)"#
+            var downloaded: String? = nil
+            if let sizeMatch = matchStr.range(of: sizePattern, options: .regularExpression) {
+                downloaded = String(matchStr[sizeMatch])
+            }
+            return ProgressInfo(
+                progress: 0.5,  // Indeterminate progress for live
+                speed: speed,
+                eta: nil,
+                downloaded: downloaded,
+                total: nil,
+                isLiveStream: true
+            )
         }
 
-        let percentString = String(progressString[numberMatch])
-        guard let percent = Double(percentString) else {
-            return nil
+        // Fragment downloading for live streams: [download] Downloading fragment X of Y
+        if line.contains("[download]") && (line.contains("fragment") || line.contains("Fragment")) {
+            let speed = extractSpeed(from: line)
+            return ProgressInfo(
+                progress: 0.5,
+                speed: speed,
+                eta: nil,
+                downloaded: nil,
+                total: nil,
+                isLiveStream: true
+            )
         }
 
-        let progress = percent / 100.0
+        // Detect active download status even without progress numbers
+        // Examples: [download] Downloading video X, [youtube:tab] Downloading, etc.
+        if line.contains("[download]") && line.contains("Downloading") {
+            return ProgressInfo(
+                progress: 0.1,  // Small progress to indicate activity
+                speed: nil,
+                eta: nil,
+                downloaded: nil,
+                total: nil,
+                isLiveStream: line.contains("live") || line.contains("stream")
+            )
+        }
 
-        // Extract speed (e.g., "5.67MiB/s")
-        var speed: String? = nil
+        // Detect webpage/info fetching as initial progress
+        if line.contains("Downloading webpage") || line.contains("Downloading API") || line.contains("Extracting URL") {
+            return ProgressInfo(
+                progress: 0.05,  // Minimal progress to show activity started
+                speed: nil,
+                eta: nil,
+                downloaded: nil,
+                total: nil,
+                isLiveStream: false
+            )
+        }
+
+        // Detect ffmpeg being invoked for HLS/live stream downloads
+        // This is a strong indicator of live stream recording since yt-dlp uses ffmpeg for HLS
+        if line.contains("Invoking ffmpeg downloader") || line.contains("yt_live_broadcast") {
+            return ProgressInfo(
+                progress: 0.5,
+                speed: nil,
+                eta: nil,
+                downloaded: nil,
+                total: nil,
+                isLiveStream: true
+            )
+        }
+
+        // Detect HLS/m3u8 download which indicates streaming content
+        if line.contains("Downloading m3u8") || line.contains("playlist_type/DVR") {
+            return ProgressInfo(
+                progress: 0.3,
+                speed: nil,
+                eta: nil,
+                downloaded: nil,
+                total: nil,
+                isLiveStream: true
+            )
+        }
+
+        return nil
+    }
+
+    private static func extractSpeed(from line: String) -> String? {
         let speedPattern = #"at\s+([\d.]+\s*\w+/s)"#
         if let speedMatch = line.range(of: speedPattern, options: .regularExpression) {
             let speedFull = String(line[speedMatch])
             if let atIndex = speedFull.range(of: "at ") {
-                speed = String(speedFull[atIndex.upperBound...]).trimmingCharacters(in: .whitespaces)
+                return String(speedFull[atIndex.upperBound...]).trimmingCharacters(in: .whitespaces)
             }
         }
+        return nil
+    }
 
-        // Extract ETA (e.g., "01:23")
-        var eta: String? = nil
+    private static func extractETA(from line: String) -> String? {
         let etaPattern = #"ETA\s+(\d{1,2}:\d{2}(?::\d{2})?)"#
         if let etaMatch = line.range(of: etaPattern, options: .regularExpression) {
             let etaFull = String(line[etaMatch])
             if let etaIndex = etaFull.range(of: "ETA ") {
-                eta = String(etaFull[etaIndex.upperBound...]).trimmingCharacters(in: .whitespaces)
+                return String(etaFull[etaIndex.upperBound...]).trimmingCharacters(in: .whitespaces)
             }
         }
+        return nil
+    }
 
-        // Extract total size (e.g., "1.23GiB")
-        var total: String? = nil
+    private static func extractTotal(from line: String) -> String? {
         let totalPattern = #"of\s+([\d.]+\s*\w+)"#
         if let totalMatch = line.range(of: totalPattern, options: .regularExpression) {
             let totalFull = String(line[totalMatch])
             if let ofIndex = totalFull.range(of: "of ") {
-                total = String(totalFull[ofIndex.upperBound...]).trimmingCharacters(in: .whitespaces)
+                return String(totalFull[ofIndex.upperBound...]).trimmingCharacters(in: .whitespaces)
             }
         }
-
-        return ProgressInfo(
-            progress: progress,
-            speed: speed,
-            eta: eta,
-            downloaded: nil,
-            total: total
-        )
+        return nil
     }
 
     /// Parses the final output path from yt-dlp
@@ -116,8 +202,29 @@ struct YTDLPProgressParser: Sendable {
     }
 
     /// Parses video title from yt-dlp metadata output
+    /// Example lines:
+    /// [youtube] Extracting URL: https://...
+    /// [youtube] VIDEO_ID: Downloading webpage
+    /// [info] VIDEO_ID: Downloading 1 format(s)
+    /// [download] Destination: Video Title.mp4
     static func parseTitle(_ line: String) -> String? {
-        // From --print title output or extraction info
+        // From destination line - most reliable
+        if line.contains("Destination:") {
+            let destPattern = #"Destination:\s*(.+)\.(mp4|mkv|webm|mov|avi|flv|ts|m4v)$"#
+            if let destMatch = line.range(of: destPattern, options: .regularExpression) {
+                var fullMatch = String(line[destMatch])
+                if let colonIndex = fullMatch.range(of: "Destination:") {
+                    fullMatch = String(fullMatch[colonIndex.upperBound...]).trimmingCharacters(in: .whitespaces)
+                }
+                // Remove extension
+                if let dotIndex = fullMatch.lastIndex(of: ".") {
+                    return String(fullMatch[..<dotIndex])
+                }
+                return fullMatch
+            }
+        }
+
+        // From extraction info: [youtube] Title: Downloading
         let titlePattern = #"\[.*\] (.+): Downloading"#
         if let titleMatch = line.range(of: titlePattern, options: .regularExpression) {
             let fullMatch = String(line[titleMatch])
@@ -125,10 +232,32 @@ struct YTDLPProgressParser: Sendable {
                 let afterBracket = fullMatch.firstIndex(of: "]")
                 if let start = afterBracket {
                     let titleStart = fullMatch.index(after: start)
-                    return String(fullMatch[titleStart..<colonIndex.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    let title = String(fullMatch[titleStart..<colonIndex.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    // Skip if it looks like a video ID (short alphanumeric)
+                    if title.count > 15 || title.contains(" ") {
+                        return title
+                    }
                 }
             }
         }
+
+        // From merger output: [Merger] Merging formats into "Video Title.mp4"
+        let mergerPattern = #"\[Merger\] Merging formats into \"(.+)\""#
+        if let mergerMatch = line.range(of: mergerPattern, options: .regularExpression) {
+            let fullMatch = String(line[mergerMatch])
+            if let firstQuote = fullMatch.firstIndex(of: "\""),
+               let lastQuote = fullMatch.lastIndex(of: "\""),
+               firstQuote < lastQuote {
+                let pathStart = fullMatch.index(after: firstQuote)
+                var title = String(fullMatch[pathStart..<lastQuote])
+                // Remove extension
+                if let dotIndex = title.lastIndex(of: ".") {
+                    title = String(title[..<dotIndex])
+                }
+                return title
+            }
+        }
+
         return nil
     }
 

@@ -281,7 +281,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         includeMicrophone: Bool,
         microphoneDeviceID: String?,
         hideCursor: Bool,
-        excludeCurrentApp: Bool
+        excludeCurrentApp: Bool,
+        excludedAppBundleIDs: Set<String> = []
     ) async {
         guard !isRecording else { return }
 
@@ -340,7 +341,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 height: Int(resolution.height),
                 pixelFormat: config.pixelFormat
             )
-            let filter = contentFilter(for: display, content: content, excludeCurrentApp: excludeCurrentApp)
+            let filter = contentFilter(for: display, content: content, excludeCurrentApp: excludeCurrentApp, excludedAppBundleIDs: excludedAppBundleIDs)
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
 
             let writer: AnyCaptureOutputWriter
@@ -480,6 +481,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         microphoneDeviceID: String?,
         hideCursor: Bool,
         excludeCurrentApp: Bool,
+        excludedAppBundleIDs: Set<String> = [],
         cachedContent: SCShareableContent? = nil
     ) async {
         guard !isPreviewing, !isRecording else { return }
@@ -523,7 +525,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 }
             }
 
-            let filter = contentFilter(for: display, content: content, excludeCurrentApp: excludeCurrentApp)
+            let filter = contentFilter(for: display, content: content, excludeCurrentApp: excludeCurrentApp, excludedAppBundleIDs: excludedAppBundleIDs)
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
 
             let outputQueue = DispatchQueue(label: "com.aagedal.capture.preview")
@@ -981,14 +983,24 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     private func contentFilter(
         for display: SCDisplay,
         content: SCShareableContent,
-        excludeCurrentApp: Bool
+        excludeCurrentApp: Bool,
+        excludedAppBundleIDs: Set<String> = []
     ) -> SCContentFilter {
+        var excludedApps: [SCRunningApplication] = []
+
         if excludeCurrentApp,
            let bundleID = Bundle.main.bundleIdentifier,
            let app = content.applications.first(where: { $0.bundleIdentifier == bundleID }) {
-            return SCContentFilter(display: display, excludingApplications: [app], exceptingWindows: [])
+            excludedApps.append(app)
         }
-        return SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+
+        for bundleID in excludedAppBundleIDs {
+            if let app = content.applications.first(where: { $0.bundleIdentifier == bundleID }) {
+                excludedApps.append(app)
+            }
+        }
+
+        return SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: [])
     }
 
     nonisolated private static func previewImage(

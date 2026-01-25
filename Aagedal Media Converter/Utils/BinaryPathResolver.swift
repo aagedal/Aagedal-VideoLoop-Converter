@@ -402,6 +402,8 @@ enum HomebrewPythonExecutor {
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
+            // Enable unbuffered output for PyInstaller-frozen binaries (like yt-dlp_macos)
+            env["PYTHONUNBUFFERED"] = "1"
             process.environment = env
             return
         }
@@ -429,6 +431,8 @@ enum HomebrewPythonExecutor {
             process.arguments = ["-u", "-m", "yt_dlp"] + arguments
             var env = ProcessInfo.processInfo.environment
             env["PYTHONPATH"] = info.sitePackages
+            // Also set PYTHONUNBUFFERED for extra safety
+            env["PYTHONUNBUFFERED"] = "1"
             var pathEntries = commonPathEntries
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
@@ -444,6 +448,8 @@ enum HomebrewPythonExecutor {
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
+            // Enable unbuffered output for Python scripts
+            env["PYTHONUNBUFFERED"] = "1"
             process.environment = env
         }
     }

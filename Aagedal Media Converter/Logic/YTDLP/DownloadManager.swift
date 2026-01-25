@@ -18,6 +18,9 @@ class DownloadManager {
     /// Active download tasks keyed by VideoItem ID
     private var downloadTasks: [UUID: Task<Void, Never>] = [:]
 
+    /// Live recording stat update tasks keyed by VideoItem ID
+    private var liveRecordingStatTasks: [UUID: Task<Void, Never>] = [:]
+
     /// Queue of video items (bound from ContentView)
     var videoItems: Binding<[VideoItem]>?
 
@@ -28,6 +31,151 @@ class DownloadManager {
     var onAutoEncode: ((UUID) -> Void)?
 
     private init() {}
+
+    // MARK: - Live Recording Stats
+
+    /// Starts periodic updates of file size and duration for live stream recording
+    private func startLiveRecordingStatUpdates(itemID: UUID, outputFolder: URL) {
+        // Cancel any existing stat task for this item
+        liveRecordingStatTasks[itemID]?.cancel()
+
+        logger.info("[LiveStats] Starting live recording stat updates for item: \(itemID)")
+
+        let task = Task {
+            var updateCount = 0
+            // Do updates immediately, then every 1 second
+            while !Task.isCancelled {
+                updateCount += 1
+
+                // Get the item's name to use as a hint for finding the right partial file
+                let nameHint = self.findItem(itemID)?.name
+
+                // Find the partial file being written (using name hint to find the right one)
+                if let partialFile = findPartialFile(in: outputFolder, nameHint: nameHint) {
+                    // Update file size
+                    if let attrs = try? FileManager.default.attributesOfItem(atPath: partialFile.path),
+                       let fileSize = attrs[.size] as? Int64 {
+                        // Log every 10 updates (every 10 seconds)
+                        if updateCount % 10 == 1 {
+                            logger.info("[LiveStats] Update #\(updateCount): file size = \(fileSize) bytes")
+                        }
+                        updateItem(itemID) { item in
+                            item.liveRecordingFileSize = fileSize
+                        }
+                    }
+
+                    // Get duration using ffprobe
+                    let duration = await getDurationUsingFFprobe(for: partialFile)
+                    if let duration = duration {
+                        if updateCount % 10 == 1 {
+                            logger.info("[LiveStats] Update #\(updateCount): duration = \(String(format: "%.1f", duration))s")
+                        }
+                        await MainActor.run {
+                            self.updateItem(itemID) { item in
+                                item.liveRecordingDuration = duration
+                            }
+                        }
+                    }
+                } else if updateCount == 1 {
+                    logger.info("[LiveStats] Update #\(updateCount): no partial file found yet")
+                }
+
+                // Wait 1 second before next update
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { break }
+            }
+            logger.info("[LiveStats] Stat updates stopped for item: \(itemID)")
+        }
+        liveRecordingStatTasks[itemID] = task
+    }
+
+    /// Stops live recording stat updates for an item
+    private func stopLiveRecordingStatUpdates(itemID: UUID) {
+        liveRecordingStatTasks[itemID]?.cancel()
+        liveRecordingStatTasks.removeValue(forKey: itemID)
+    }
+
+    /// Fetches thumbnail from yt-dlp metadata in parallel with download
+    private func fetchThumbnailInBackground(itemID: UUID, urlString: String) {
+        Task.detached { [weak self] in
+            guard let self = self else { return }
+
+            do {
+                // Fetch metadata to get thumbnail URL
+                let metadata = try await self.ytdlpService.fetchMetadata(url: urlString)
+
+                // Update title if we got one
+                if !metadata.title.isEmpty {
+                    await MainActor.run {
+                        self.updateItem(itemID) { item in
+                            if item.name == "Fetching info..." || item.name.isEmpty {
+                                item.name = metadata.title
+                            }
+                        }
+                    }
+                }
+
+                // Download thumbnail if URL is available
+                if let thumbnailURL = metadata.thumbnailURL {
+                    let (data, response) = try await URLSession.shared.data(from: thumbnailURL)
+
+                    // Verify it's an image
+                    if let httpResponse = response as? HTTPURLResponse,
+                       httpResponse.statusCode == 200,
+                       !data.isEmpty {
+                        await MainActor.run {
+                            self.updateItem(itemID) { item in
+                                item.thumbnailData = data
+                            }
+                            self.logger.info("Fetched thumbnail for download: \(metadata.title)")
+                        }
+                    }
+                }
+            } catch {
+                // Silently fail - thumbnail is not critical
+                await MainActor.run {
+                    self.logger.info("Could not fetch thumbnail: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Gets the duration of a file using ffprobe
+    private func getDurationUsingFFprobe(for url: URL) async -> Double? {
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else { return nil }
+
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                let process = Process()
+                let pipe = Pipe()
+
+                process.executableURL = URL(fileURLWithPath: ffprobePath)
+                process.arguments = [
+                    "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    url.path
+                ]
+                process.standardOutput = pipe
+                process.standardError = FileHandle.nullDevice
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+
+                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                    if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       let duration = Double(output) {
+                        continuation.resume(returning: duration)
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
+                } catch {
+                    continuation.resume(returning: nil)
+                }
+            }
+        }
+    }
 
     /// Starts a download using stored videoItems and outputFolder references
     /// Used for scheduled downloads where we can't capture fresh bindings
@@ -211,6 +359,13 @@ class DownloadManager {
         let downloadStartTime = Date()
         logger.info("[TIMING] performDownload started at \(downloadStartTime)")
 
+        // Add to download history immediately (for easy retry of failed downloads)
+        let initialTitle = URL(string: urlString)?.host ?? "Download"
+        DownloadHistoryService.addEntry(url: urlString, title: initialTitle)
+
+        // Fetch thumbnail in parallel (doesn't block download)
+        fetchThumbnailInBackground(itemID: itemID, urlString: urlString)
+
         // Start the actual download immediately (don't wait for metadata)
         do {
             let actualDownloadStartTime = Date()
@@ -226,18 +381,39 @@ class DownloadManager {
                 url: urlString,
                 outputFolder: outputFolder,
                 forceOverwrite: false,
-                liveFromStart: liveFromStart
-            ) { [weak self] progress, speed in
-                Task { @MainActor in
-                    self?.updateItem(itemID) { item in
-                        item.downloadProgress = progress
-                        item.downloadHasProgress = true
-                        item.downloadSpeed = speed
-                        // Also update the main progress for the progress bar
-                        item.progress = progress
+                liveFromStart: liveFromStart,
+                progress: { [weak self] progress, speed, isLiveStream in
+                    Task { @MainActor in
+                        guard let self = self else { return }
+                        let wasLiveStreamRecording = self.findItem(itemID)?.isLiveStreamRecording ?? false
+                        self.updateItem(itemID) { item in
+                            item.downloadProgress = progress
+                            item.downloadHasProgress = true
+                            item.downloadSpeed = speed
+                            // For live streams, mark as live recording
+                            if isLiveStream {
+                                item.isLiveStreamRecording = true
+                            }
+                            // Also update the main progress for the progress bar
+                            item.progress = progress
+                        }
+                        // Start stat updates when we detect live stream recording
+                        if isLiveStream && !wasLiveStreamRecording {
+                            self.logger.info("[LiveStream] Detected live stream, starting stat updates")
+                            self.startLiveRecordingStatUpdates(itemID: itemID, outputFolder: outputFolder)
+                        }
+                    }
+                },
+                titleUpdate: { [weak self] title in
+                    Task { @MainActor in
+                        self?.updateItem(itemID) { item in
+                            // Update name with discovered title
+                            item.name = title
+                        }
+                        self?.logger.info("Updated item name to: \(title)")
                     }
                 }
-            }
+            )
 
             // Download complete - update item
             let downloadElapsed = Date().timeIntervalSince(actualDownloadStartTime)
@@ -256,11 +432,16 @@ class DownloadManager {
                 outputFileName: result.outputURL.lastPathComponent
             )
 
+            // Stop live recording stat updates
+            stopLiveRecordingStatUpdates(itemID: itemID)
+
             updateItem(itemID) { item in
                 item.url = result.outputURL
                 item.name = result.outputURL.lastPathComponent
                 item.isDownloading = false
                 item.isLiveStreamRecording = false
+                item.liveRecordingFileSize = nil
+                item.liveRecordingDuration = nil
                 item.downloadProgress = 1.0
                 item.downloadSpeed = nil
                 item.progress = 0  // Reset for encoding
@@ -304,6 +485,9 @@ class DownloadManager {
             }
 
         } catch let error as YTDLPError {
+            // Stop live recording stat updates for any error
+            stopLiveRecordingStatUpdates(itemID: itemID)
+
             switch error {
             case .fileAlreadyExists(let path, let title):
                 logger.warning("File already exists: \(path)")
@@ -313,14 +497,91 @@ class DownloadManager {
                     item.fileAlreadyExistsPath = path
                     item.status = .failed
                     item.name = title
+                    item.liveRecordingFileSize = nil
+                    item.liveRecordingDuration = nil
                 }
             case .liveRecordingStopped:
-                logger.info("Live stream recording stopped for item: \(itemID)")
-                updateItem(itemID) { item in
-                    item.isDownloading = false
-                    item.isLiveStreamRecording = false
-                    item.downloadError = nil
-                    item.status = .waiting
+                logger.info("Download stopped for item: \(itemID), searching for partial file...")
+
+                // Get the item's name to help find the right partial file
+                let nameHint = findItem(itemID)?.name
+
+                // Try to find the partial file in the output folder
+                if let partialFile = findPartialFile(in: outputFolder, nameHint: nameHint) {
+                    logger.info("Found partial file: \(partialFile.path)")
+
+                    // Rename the file to remove .part extension if present
+                    var finalFile = partialFile
+                    let filename = partialFile.lastPathComponent
+                    if filename.hasSuffix(".part") {
+                        let newFilename = String(filename.dropLast(5)) // Remove ".part"
+                        let newURL = partialFile.deletingLastPathComponent().appendingPathComponent(newFilename)
+                        do {
+                            try FileManager.default.moveItem(at: partialFile, to: newURL)
+                            finalFile = newURL
+                            logger.info("Renamed partial file to: \(newFilename)")
+                        } catch {
+                            logger.warning("Could not rename partial file: \(error.localizedDescription)")
+                            // Continue with original file
+                        }
+                    }
+
+                    updateItem(itemID) { item in
+                        item.url = finalFile
+                        item.name = finalFile.lastPathComponent
+                        item.isDownloading = false
+                        item.isLiveStreamRecording = false
+                        item.liveRecordingFileSize = nil
+                        item.liveRecordingDuration = nil
+                        item.downloadError = nil
+                        item.downloadProgress = 1.0
+                        item.downloadSpeed = nil
+                        item.progress = 0
+                        item.status = .waiting
+                        item.detailsLoaded = false
+
+                        // Get file size
+                        if let attrs = try? FileManager.default.attributesOfItem(atPath: finalFile.path),
+                           let size = attrs[.size] as? Int64 {
+                            item.size = size
+                        }
+                    }
+
+                    // Update download history with the proper title
+                    let videoTitle = (finalFile.deletingPathExtension().lastPathComponent)
+                    DownloadHistoryService.addEntry(
+                        url: urlString,
+                        title: videoTitle,
+                        outputFileName: finalFile.lastPathComponent
+                    )
+
+                    // Load details and metadata for the file
+                    Task.detached {
+                        let details = await VideoFileUtils.loadDetails(for: finalFile)
+                        await MainActor.run {
+                            self.updateItem(itemID) { item in
+                                item.apply(details: details)
+                                item.detailsLoaded = true
+                            }
+                        }
+
+                        let metadata = await VideoFileUtils.fetchMetadata(for: finalFile)
+                        await MainActor.run {
+                            self.updateItem(itemID) { item in
+                                item.metadata = metadata
+                            }
+                        }
+                    }
+                } else {
+                    logger.warning("Could not find partial file for stopped download")
+                    updateItem(itemID) { item in
+                        item.isDownloading = false
+                        item.isLiveStreamRecording = false
+                        item.liveRecordingFileSize = nil
+                        item.liveRecordingDuration = nil
+                        item.downloadError = "Stopped - partial file not found"
+                        item.status = .failed
+                    }
                 }
             default:
                 logger.error("Download failed: \(error.localizedDescription)")
@@ -329,9 +590,14 @@ class DownloadManager {
                     item.downloadError = error.localizedDescription
                     item.status = .failed
                     item.isLiveStreamRecording = false
+                    item.liveRecordingFileSize = nil
+                    item.liveRecordingDuration = nil
                 }
             }
         } catch {
+            // Stop live recording stat updates for any error
+            stopLiveRecordingStatUpdates(itemID: itemID)
+
             logger.error("Download failed: \(error.localizedDescription)")
 
             updateItem(itemID) { item in
@@ -339,6 +605,8 @@ class DownloadManager {
                 item.downloadError = error.localizedDescription
                 item.status = .failed
                 item.isLiveStreamRecording = false
+                item.liveRecordingFileSize = nil
+                item.liveRecordingDuration = nil
             }
         }
 
@@ -448,17 +716,28 @@ class DownloadManager {
                 url: urlString,
                 outputFolder: outputFolder,
                 forceOverwrite: true,
-                liveFromStart: liveFromStart
-            ) { [weak self] progress, speed in
-                Task { @MainActor in
-                    self?.updateItem(itemID) { item in
-                        item.downloadProgress = progress
-                        item.downloadHasProgress = true
-                        item.downloadSpeed = speed
-                        item.progress = progress
+                liveFromStart: liveFromStart,
+                progress: { [weak self] progress, speed, isLiveStream in
+                    Task { @MainActor in
+                        self?.updateItem(itemID) { item in
+                            item.downloadProgress = progress
+                            item.downloadHasProgress = true
+                            item.downloadSpeed = speed
+                            if isLiveStream {
+                                item.isLiveStreamRecording = true
+                            }
+                            item.progress = progress
+                        }
+                    }
+                },
+                titleUpdate: { [weak self] title in
+                    Task { @MainActor in
+                        self?.updateItem(itemID) { item in
+                            item.name = title
+                        }
                     }
                 }
-            }
+            )
 
             // Download complete - update item
             logger.info("Force download complete: \(result.outputURL.path)")
@@ -533,12 +812,71 @@ class DownloadManager {
     }
 
     /// Removes a download from the queue
-    func removeDownload(itemID: UUID) async {
+    func removeDownload(itemID: UUID) {
         // Cancel if in progress
-        await cancelDownload(itemID: itemID)
+        cancelDownload(itemID: itemID)
 
         // Remove from queue
         videoItems?.wrappedValue.removeAll { $0.id == itemID }
+    }
+
+    /// Finds the most recently modified video file in the output folder (including .part files)
+    /// - Parameters:
+    ///   - folder: The folder to search in
+    ///   - nameHint: Optional filename hint to prioritize matching files (e.g., item name without extension)
+    private func findPartialFile(in folder: URL, nameHint: String? = nil) -> URL? {
+        let fileManager = FileManager.default
+        let videoExtensions = ["mp4", "mkv", "webm", "mov", "avi", "flv", "ts", "m4v", "part"]
+
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        // Find video files modified in the last 60 seconds
+        let recentCutoff = Date().addingTimeInterval(-60)
+
+        let recentVideoFiles = contents.compactMap { url -> (URL, Date)? in
+            // Check if it's a video file or .part file
+            let ext = url.pathExtension.lowercased()
+            guard videoExtensions.contains(ext) || url.lastPathComponent.contains(".part") else {
+                return nil
+            }
+
+            // Get modification date
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let modDate = values.contentModificationDate,
+                  modDate > recentCutoff else {
+                return nil
+            }
+
+            return (url, modDate)
+        }
+
+        // If we have a name hint, try to find a file matching it first
+        if let hint = nameHint, !hint.isEmpty {
+            // Look for files containing the hint (handles both with and without .part extension)
+            let matchingFiles = recentVideoFiles.filter { url, _ in
+                url.lastPathComponent.contains(hint)
+            }
+            if let match = matchingFiles.sorted(by: { $0.1 > $1.1 }).first {
+                logger.info("Found matching partial file: \(match.0.lastPathComponent)")
+                return match.0
+            }
+        }
+
+        // Fall back to most recently modified file
+        let sorted = recentVideoFiles.sorted { $0.1 > $1.1 }
+        if let mostRecent = sorted.first {
+            logger.info("Found partial file: \(mostRecent.0.lastPathComponent), modified: \(mostRecent.1)")
+            return mostRecent.0
+        }
+
+        return nil
     }
 
     /// Checks if a URL is likely supported by yt-dlp

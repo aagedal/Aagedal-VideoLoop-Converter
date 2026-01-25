@@ -24,6 +24,9 @@ struct CaptureModeView: View {
     @State private var isViewActive = false
     @State private var microphoneDevices: [AVCaptureDevice] = []
     @State private var isMicButtonHovering = false
+    @State private var showAudioExclusionPopover = false
+    @State private var availableApps: [SCRunningApplication] = []
+    @State private var excludedAppBundleIDs: Set<String> = []
 
     private var presetBinding: Binding<CapturePreset> {
         Binding(
@@ -95,8 +98,10 @@ struct CaptureModeView: View {
                 do {
                     let content = try await ScreenCaptureManager.shareableContent()
                     let displays = ScreenCaptureManager.displays(from: content)
+                    let apps = content.applications
                     await MainActor.run {
                         availableDisplays = displays
+                        availableApps = apps
                         if captureDisplayID != 0,
                            !displays.contains(where: { Int($0.id) == captureDisplayID }) {
                             captureDisplayID = 0
@@ -151,6 +156,11 @@ struct CaptureModeView: View {
             }
         }
         .onChange(of: captureDynamicRangeRaw) { _, _ in
+            Task {
+                await refreshPreview()
+            }
+        }
+        .onChange(of: excludedAppBundleIDs) { _, _ in
             Task {
                 await refreshPreview()
             }
@@ -281,6 +291,7 @@ struct CaptureModeView: View {
 
                 cursorToggleButton
                 excludeAppToggleButton
+                audioExclusionButton
 
                 Spacer()
             }
@@ -447,6 +458,94 @@ struct CaptureModeView: View {
         .disabled(captureManager.isRecording || captureManager.isProcessing)
     }
 
+    private var audioExclusionButton: some View {
+        Button {
+            showAudioExclusionPopover.toggle()
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: excludedAppBundleIDs.isEmpty ? "eye" : "eye.slash")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(excludedAppBundleIDs.isEmpty ? .secondary : .orange)
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(excludedAppBundleIDs.isEmpty ? Color.primary.opacity(0.06) : Color.orange.opacity(0.15))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(excludedAppBundleIDs.isEmpty ? Color.primary.opacity(0.2) : Color.orange.opacity(0.6), lineWidth: 1)
+                    )
+                if !excludedAppBundleIDs.isEmpty {
+                    Text("\(excludedAppBundleIDs.count)")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.orange))
+                        .offset(x: 6, y: -6)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(excludedAppBundleIDs.isEmpty ? "Hide and exclude sound from apps" : "\(excludedAppBundleIDs.count) app(s) hidden")
+        .disabled(captureManager.isRecording || captureManager.isProcessing)
+        .popover(isPresented: $showAudioExclusionPopover, arrowEdge: .bottom) {
+            audioExclusionPopoverContent
+        }
+    }
+
+    private var audioExclusionPopoverContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Hide and Exclude Sound")
+                .font(.headline)
+                .padding(.bottom, 4)
+
+            if availableApps.isEmpty {
+                Text("No apps available")
+                    .foregroundColor(.secondary)
+                    .font(.callout)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(availableApps.filter { $0.bundleIdentifier != Bundle.main.bundleIdentifier }.sorted(by: { $0.applicationName < $1.applicationName }), id: \.bundleIdentifier) { app in
+                            let bundleID = app.bundleIdentifier
+                            Button {
+                                if excludedAppBundleIDs.contains(bundleID) {
+                                    excludedAppBundleIDs.remove(bundleID)
+                                } else {
+                                    excludedAppBundleIDs.insert(bundleID)
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: excludedAppBundleIDs.contains(bundleID) ? "checkmark.square.fill" : "square")
+                                        .foregroundColor(excludedAppBundleIDs.contains(bundleID) ? .accentColor : .secondary)
+                                    Text(app.applicationName)
+                                        .lineLimit(1)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 6)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 200)
+            }
+
+            if !excludedAppBundleIDs.isEmpty {
+                Divider()
+                Button("Clear All") {
+                    excludedAppBundleIDs.removeAll()
+                }
+                .font(.callout)
+            }
+        }
+        .padding(12)
+        .frame(width: 220)
+    }
+
     @ViewBuilder
     private var outputSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -547,7 +646,8 @@ struct CaptureModeView: View {
                     includeMicrophone: captureIncludeMicrophone,
                     microphoneDeviceID: selectedMicrophoneDeviceID,
                     hideCursor: captureHideCursor,
-                    excludeCurrentApp: captureExcludeCurrentApp
+                    excludeCurrentApp: captureExcludeCurrentApp,
+                    excludedAppBundleIDs: excludedAppBundleIDs
                 )
             }
         }
@@ -604,6 +704,7 @@ struct CaptureModeView: View {
             microphoneDeviceID: selectedMicrophoneDeviceID,
             hideCursor: captureHideCursor,
             excludeCurrentApp: captureExcludeCurrentApp,
+            excludedAppBundleIDs: excludedAppBundleIDs,
             cachedContent: cachedContent
         )
     }

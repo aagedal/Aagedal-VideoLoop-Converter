@@ -586,6 +586,10 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var downloadLiveFromStart: Bool = false
     /// Whether a live stream download is currently recording
     var isLiveStreamRecording: Bool = false
+    /// Current file size during live recording (updated periodically)
+    var liveRecordingFileSize: Int64? = nil
+    /// Estimated duration during live recording (updated periodically)
+    var liveRecordingDuration: Double? = nil
 
     // MARK: - Upload State
     /// Whether upload is enabled for this item

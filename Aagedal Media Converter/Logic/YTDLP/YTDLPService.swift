@@ -201,14 +201,16 @@ actor YTDLPService {
     ///   - outputFolder: The folder to save the downloaded video
     ///   - forceOverwrite: If true, overwrites existing files instead of skipping
     ///   - liveFromStart: Whether to rewind live streams to the beginning
-    ///   - progress: Callback for progress updates (progress 0-1, speed string)
+    ///   - progress: Callback for progress updates (progress 0-1, speed string, isLiveStream)
+    ///   - titleUpdate: Callback when video title is discovered
     /// - Returns: The path to the downloaded file
     func download(
         url: String,
         outputFolder: URL,
         forceOverwrite: Bool = false,
         liveFromStart: Bool = false,
-        progress: @escaping @Sendable (Double, String?) -> Void
+        progress: @escaping @Sendable (Double, String?, Bool) -> Void,
+        titleUpdate: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> YTDLPDownloadResult {
         let downloadStartTime = Date()
         logger.info("[TIMING] download() started")
@@ -272,6 +274,7 @@ actor YTDLPService {
             "--no-playlist",
             "--newline",
             "--progress",
+            "--verbose",  // Enable verbose output to ensure we get stderr
             forceOverwrite ? "--force-overwrites" : "--no-overwrites",
             "--print", "after_move:filepath",
             "-o", "%(title)s.%(ext)s",
@@ -339,109 +342,80 @@ actor YTDLPService {
         let parsedState = ParsedState()
         let processStartBox = DateBox(value: Date())
 
-        // Handle stderr for progress updates
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
+        // Helper to process a line of output
+        @Sendable func processLine(_ trimmed: String, isStderr: Bool) {
+            guard !trimmed.isEmpty else { return }
 
-            if let line = String(data: data, encoding: .utf8) {
-                for singleLine in line.components(separatedBy: .newlines) {
-                    let trimmed = singleLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { continue }
+            if isStderr {
+                if parsedState.markFirstStderr() {
+                    let delta = Date().timeIntervalSince(processStartBox.value)
+                    print("[TIMING] First yt-dlp stderr after \(String(format: "%.3f", delta))s")
+                }
+                // Debug: Log all stderr output
+                print("[YTDLPService] stderr: \(trimmed)")
+            } else {
+                if parsedState.markFirstStdout() {
+                    let delta = Date().timeIntervalSince(processStartBox.value)
+                    print("[TIMING] First yt-dlp stdout after \(String(format: "%.3f", delta))s")
+                }
+                // Debug: Log stdout output
+                print("[YTDLPService] stdout: \(trimmed)")
+            }
 
-                    if parsedState.markFirstStderr() {
-                        let delta = Date().timeIntervalSince(processStartBox.value)
-                        self.logger.info("[TIMING] First yt-dlp stderr after \(String(format: "%.3f", delta))s")
-                    }
+            // Parse progress from either stream
+            if let progressInfo = YTDLPProgressParser.parse(trimmed) {
+                print("[YTDLPService] Progress parsed: \(progressInfo.progress * 100)%, isLive: \(progressInfo.isLiveStream)")
+                if parsedState.markFirstProgress() {
+                    let delta = Date().timeIntervalSince(processStartBox.value)
+                    print("[TIMING] First yt-dlp progress after \(String(format: "%.3f", delta))s")
+                }
+                progress(progressInfo.progress, progressInfo.speed, progressInfo.isLiveStream)
+            }
 
-                    // Debug: Log all stderr output
-                    print("[YTDLPService] stderr: \(trimmed)")
-
-                    // Parse progress
-                    if let progressInfo = YTDLPProgressParser.parse(trimmed) {
-                        print("[YTDLPService] Progress parsed: \(progressInfo.progress * 100)%")
-                        if parsedState.markFirstProgress() {
-                            let delta = Date().timeIntervalSince(processStartBox.value)
-                            self.logger.info("[TIMING] First yt-dlp progress after \(String(format: "%.3f", delta))s")
-                        }
-                        progress(progressInfo.progress, progressInfo.speed)
-                    }
-
-                    // Parse title
-                    if let title = YTDLPProgressParser.parseTitle(trimmed) {
-                        parsedState.lock.lock()
-                        parsedState.videoTitle = title
-                        parsedState.lock.unlock()
-                    }
-
-                    // Parse output path (from merger or download destination)
-                    if let path = YTDLPProgressParser.parseOutputPath(trimmed) {
-                        parsedState.lock.lock()
-                        parsedState.outputPath = path
-                        parsedState.lock.unlock()
-                    }
-
-                    // Check for errors
-                    if let error = YTDLPProgressParser.parseError(trimmed) {
-                        parsedState.lock.lock()
-                        parsedState.lastError = error
-                        parsedState.lock.unlock()
-                    }
+            // Parse title from either stream
+            if let title = YTDLPProgressParser.parseTitle(trimmed) {
+                parsedState.lock.lock()
+                let previousTitle = parsedState.videoTitle
+                parsedState.videoTitle = title
+                parsedState.lock.unlock()
+                if title != previousTitle && title != "Downloaded Video" {
+                    print("[YTDLPService] Title discovered: \(title)")
+                    titleUpdate(title)
                 }
             }
-        }
 
-        // Also handle stdout for progress (yt-dlp may output progress to stdout when run as module)
-        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
+            // Parse output path (from merger or download destination)
+            if let path = YTDLPProgressParser.parseOutputPath(trimmed) {
+                parsedState.lock.lock()
+                parsedState.outputPath = path
+                parsedState.lock.unlock()
+            }
 
-            if let line = String(data: data, encoding: .utf8) {
-                for singleLine in line.components(separatedBy: .newlines) {
-                    let trimmed = singleLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { continue }
+            // Check for errors
+            if let error = YTDLPProgressParser.parseError(trimmed) {
+                parsedState.lock.lock()
+                parsedState.lastError = error
+                parsedState.lock.unlock()
+            }
 
-                    if parsedState.markFirstStdout() {
-                        let delta = Date().timeIntervalSince(processStartBox.value)
-                        self.logger.info("[TIMING] First yt-dlp stdout after \(String(format: "%.3f", delta))s")
-                    }
-
-                    // Debug: Log stdout output
-                    print("[YTDLPService] stdout: \(trimmed)")
-
-                    // Check for "already been downloaded" message
-                    if trimmed.contains("has already been downloaded") {
-                        print("[YTDLPService] File already exists detected")
-                        parsedState.lock.lock()
-                        parsedState.fileAlreadyExists = true
-                        // Extract filename from message like "[download] filename.ext has already been downloaded"
-                        if let range = trimmed.range(of: "] "),
-                           let endRange = trimmed.range(of: " has already been downloaded") {
-                            let filename = String(trimmed[range.upperBound..<endRange.lowerBound])
-                            parsedState.existingFilePath = filename
-                        }
-                        parsedState.lock.unlock()
-                    }
-
-                    // Check for progress on stdout too
-                    if let progressInfo = YTDLPProgressParser.parse(trimmed) {
-                        print("[YTDLPService] Progress from stdout: \(progressInfo.progress * 100)%")
-                        if parsedState.markFirstProgress() {
-                            let delta = Date().timeIntervalSince(processStartBox.value)
-                            self.logger.info("[TIMING] First yt-dlp progress after \(String(format: "%.3f", delta))s")
-                        }
-                        progress(progressInfo.progress, progressInfo.speed)
-                    }
-
-                    // Parse output path from stdout (--print after_move:filepath)
-                    // Store potential output path for later use
-                    if !trimmed.hasPrefix("[") && !trimmed.contains("%") {
-                        // Could be a file path from --print
-                        parsedState.lock.lock()
-                        parsedState.outputPath = trimmed
-                        parsedState.lock.unlock()
-                    }
+            // Check for "already been downloaded" message (stdout only)
+            if !isStderr && trimmed.contains("has already been downloaded") {
+                print("[YTDLPService] File already exists detected")
+                parsedState.lock.lock()
+                parsedState.fileAlreadyExists = true
+                if let range = trimmed.range(of: "] "),
+                   let endRange = trimmed.range(of: " has already been downloaded") {
+                    let filename = String(trimmed[range.upperBound..<endRange.lowerBound])
+                    parsedState.existingFilePath = filename
                 }
+                parsedState.lock.unlock()
+            }
+
+            // Parse output path from stdout (--print after_move:filepath)
+            if !isStderr && !trimmed.hasPrefix("[") && !trimmed.contains("%") {
+                parsedState.lock.lock()
+                parsedState.outputPath = trimmed
+                parsedState.lock.unlock()
             }
         }
 
@@ -450,13 +424,103 @@ actor YTDLPService {
 
         processStartBox.value = Date()
 
-        // Run process in background to avoid blocking the actor (allows cancel to work)
+        // Run process with background pipe reading using DispatchQueue
+        // This is more reliable than readabilityHandler with Swift concurrency
         let terminationStatus: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { proc in
-                continuation.resume(returning: proc.terminationStatus)
+            let group = DispatchGroup()
+
+            // Read stderr in background
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                print("[YTDLPService] stderr reader started")
+                let handle = stderrPipe.fileHandleForReading
+                var buffer = Data()
+                var chunkCount = 0
+                while true {
+                    let chunk = handle.availableData
+                    chunkCount += 1
+                    if chunkCount == 1 {
+                        print("[YTDLPService] stderr first chunk received, size: \(chunk.count)")
+                    }
+                    if chunk.isEmpty {
+                        print("[YTDLPService] stderr EOF after \(chunkCount) chunks")
+                        // Process any remaining data in buffer
+                        if !buffer.isEmpty, let str = String(data: buffer, encoding: .utf8) {
+                            for line in str.components(separatedBy: .newlines) {
+                                processLine(line.trimmingCharacters(in: .whitespacesAndNewlines), isStderr: true)
+                            }
+                        }
+                        break
+                    }
+                    buffer.append(chunk)
+                    // Process complete lines
+                    if let str = String(data: buffer, encoding: .utf8) {
+                        let lines = str.components(separatedBy: .newlines)
+                        // Keep the last incomplete line in buffer
+                        for i in 0..<(lines.count - 1) {
+                            processLine(lines[i].trimmingCharacters(in: .whitespacesAndNewlines), isStderr: true)
+                        }
+                        // Keep last line in buffer (might be incomplete)
+                        if let lastLine = lines.last, let lastLineData = lastLine.data(using: .utf8) {
+                            buffer = lastLineData
+                        } else {
+                            buffer = Data()
+                        }
+                    }
+                }
+                group.leave()
             }
+
+            // Read stdout in background
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                print("[YTDLPService] stdout reader started")
+                let handle = stdoutPipe.fileHandleForReading
+                var buffer = Data()
+                var chunkCount = 0
+                while true {
+                    let chunk = handle.availableData
+                    chunkCount += 1
+                    if chunkCount == 1 {
+                        print("[YTDLPService] stdout first chunk received, size: \(chunk.count)")
+                    }
+                    if chunk.isEmpty {
+                        print("[YTDLPService] stdout EOF after \(chunkCount) chunks")
+                        // Process any remaining data in buffer
+                        if !buffer.isEmpty, let str = String(data: buffer, encoding: .utf8) {
+                            for line in str.components(separatedBy: .newlines) {
+                                processLine(line.trimmingCharacters(in: .whitespacesAndNewlines), isStderr: false)
+                            }
+                        }
+                        break
+                    }
+                    buffer.append(chunk)
+                    // Process complete lines
+                    if let str = String(data: buffer, encoding: .utf8) {
+                        let lines = str.components(separatedBy: .newlines)
+                        for i in 0..<(lines.count - 1) {
+                            processLine(lines[i].trimmingCharacters(in: .whitespacesAndNewlines), isStderr: false)
+                        }
+                        if let lastLine = lines.last, let lastLineData = lastLine.data(using: .utf8) {
+                            buffer = lastLineData
+                        } else {
+                            buffer = Data()
+                        }
+                    }
+                }
+                group.leave()
+            }
+
+            process.terminationHandler = { proc in
+                // Wait for pipe readers to finish before resuming
+                group.notify(queue: .global()) {
+                    continuation.resume(returning: proc.terminationStatus)
+                }
+            }
+
             do {
                 try process.run()
+                print("[YTDLPService] Process started with PID: \(process.processIdentifier)")
             } catch {
                 continuation.resume(throwing: error)
             }
@@ -466,8 +530,6 @@ actor YTDLPService {
         logger.info("[TIMING] Download process completed in \(String(format: "%.2f", processRunElapsed))s")
 
         // Clean up
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
         processHolder.process = nil
 
         let finalCancelReason = processHolder.cancelReason
@@ -524,7 +586,7 @@ actor YTDLPService {
         }
 
         // Report 100% progress
-        progress(1.0, nil)
+        progress(1.0, nil, false)
 
         return YTDLPDownloadResult(outputURL: outputURL, title: videoTitle)
     }
