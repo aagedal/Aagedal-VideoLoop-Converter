@@ -22,6 +22,10 @@ final class FullscreenPlayerWindowController {
     private var currentIndex: Int = 0
     private var currentScreen: NSScreen?
 
+    // Queue playback options
+    private var queueAutoAdvanceEnabled = false
+    private var queueLoopEnabled = false
+
     // Currently playing item identifier
     private var currentlyPlayingItemID: UUID?
 
@@ -98,7 +102,25 @@ final class FullscreenPlayerWindowController {
                 MainActor.assumeIsolated { self?.currentTimecodeDisplayMode = mode }
             },
             canGoToPrevious: canGoToPrevious,
-            canGoToNext: canGoToNext
+            canGoToNext: canGoToNext,
+            queueAutoAdvanceEnabled: queueAutoAdvanceEnabled,
+            queueLoopEnabled: queueLoopEnabled,
+            onToggleQueueAutoAdvance: { [weak self] in
+                Task { @MainActor in
+                    self?.toggleQueueAutoAdvance()
+                }
+            },
+            onToggleQueueLoop: { [weak self] in
+                Task { @MainActor in
+                    self?.toggleQueueLoopEnabled()
+                }
+            },
+            onPlaybackDidFinish: { [weak self] in
+                Task { @MainActor in
+                    self?.handlePlaybackDidFinish()
+                }
+            },
+            autoPlayOnReady: false
         )
 
         let hostingView = NSHostingView(rootView: playerView)
@@ -209,7 +231,25 @@ final class FullscreenPlayerWindowController {
                 MainActor.assumeIsolated { self?.currentTimecodeDisplayMode = mode }
             },
             canGoToPrevious: false,
-            canGoToNext: false
+            canGoToNext: false,
+            queueAutoAdvanceEnabled: queueAutoAdvanceEnabled,
+            queueLoopEnabled: queueLoopEnabled,
+            onToggleQueueAutoAdvance: { [weak self] in
+                Task { @MainActor in
+                    self?.toggleQueueAutoAdvance()
+                }
+            },
+            onToggleQueueLoop: { [weak self] in
+                Task { @MainActor in
+                    self?.toggleQueueLoopEnabled()
+                }
+            },
+            onPlaybackDidFinish: { [weak self] in
+                Task { @MainActor in
+                    self?.handlePlaybackDidFinish()
+                }
+            },
+            autoPlayOnReady: false
         )
 
         let hostingView = NSHostingView(rootView: playerView)
@@ -272,7 +312,7 @@ final class FullscreenPlayerWindowController {
         !queue.isEmpty && currentIndex < queue.count - 1
     }
 
-    private func reopenWithItem(_ item: VideoItem) {
+    private func reopenWithItem(_ item: VideoItem, autoPlayOnReady: Bool = false) {
         currentlyPlayingItemID = item.id
 
         guard let window = currentWindow else { return }
@@ -298,7 +338,26 @@ final class FullscreenPlayerWindowController {
                 MainActor.assumeIsolated { self?.currentTimecodeDisplayMode = mode }
             },
             canGoToPrevious: canGoToPrevious,
-            canGoToNext: canGoToNext
+            canGoToNext: canGoToNext,
+            queueAutoAdvanceEnabled: queueAutoAdvanceEnabled,
+            queueLoopEnabled: queueLoopEnabled,
+            onToggleQueueAutoAdvance: { [weak self] in
+                Task { @MainActor in
+                    self?.toggleQueueAutoAdvance()
+                }
+            },
+            onToggleQueueLoop: { [weak self] in
+                Task { @MainActor in
+                    self?.toggleQueueLoopEnabled()
+                }
+            },
+            onPlaybackDidFinish: { [weak self] in
+                Task { @MainActor in
+                    self?.handlePlaybackDidFinish()
+                }
+            }
+            ,
+            autoPlayOnReady: autoPlayOnReady
         )
 
         let hostingView = NSHostingView(rootView: playerView)
@@ -336,6 +395,42 @@ final class FullscreenPlayerWindowController {
 
         // Clear the position callback after window is dismissed
         onCloseWithPosition = nil
+    }
+    
+    @MainActor
+    private func handlePlaybackDidFinish() {
+        guard queueAutoAdvanceEnabled,
+              queue.indices.contains(currentIndex) else {
+            return
+        }
+
+        let currentItem = queue[currentIndex]
+        guard !currentItem.loopPlayback else { return }
+
+        let nextItem: VideoItem?
+        if currentIndex + 1 < queue.count {
+            currentIndex += 1
+            nextItem = queue[currentIndex]
+        } else if queueLoopEnabled, let firstItem = queue.first {
+            currentIndex = 0
+            nextItem = firstItem
+        } else {
+            nextItem = nil
+        }
+
+        if let nextItem {
+            reopenWithItem(nextItem, autoPlayOnReady: true)
+        }
+    }
+
+    @MainActor
+    private func toggleQueueAutoAdvance() {
+        queueAutoAdvanceEnabled.toggle()
+    }
+
+    @MainActor
+    private func toggleQueueLoopEnabled() {
+        queueLoopEnabled.toggle()
     }
     
     /// Returns true if a fullscreen player is currently open

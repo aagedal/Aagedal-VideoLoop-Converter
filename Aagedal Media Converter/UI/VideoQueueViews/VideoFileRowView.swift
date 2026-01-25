@@ -20,6 +20,7 @@ struct VideoFileRowView: View {
     let onDelete: () -> Void
     let onReset: (_ optionKeyPressed: Bool) -> Void
     var onCancelDownload: (() -> Void)?
+    var onStopLiveRecording: (() -> Void)?
     var onRetryDownload: (() -> Void)?
     var onForceRedownload: (() -> Void)?
     var onCancelScheduledDownload: (() -> Void)?
@@ -201,23 +202,36 @@ struct VideoFileRowView: View {
                                             )
                                         }
 
-                                        if file.status == .done {
-                                            Button(action: {
-                                                NSWorkspace.shared.activateFileViewerSelecting([outputURL])
-                                            }) {
-                                                Image(systemName: "magnifyingglass.circle.fill")
-                                                    .foregroundColor(.blue)
-                                                    .help("Show in Finder")
-                                            }
-                                            .buttonStyle(BorderlessButtonStyle())
-                                            dragIcon(
-                                                for: outputURL,
-                                                color: Color.blue,
-                                                helpText: "Drag this icon to share the exported file with other apps."
-                                            )
-                                        }
+                                if file.status == .done {
+                                    Button(action: {
+                                        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                                    }) {
+                                        Image(systemName: "magnifyingglass.circle.fill")
+                                            .foregroundColor(.blue)
+                                            .help("Show in Finder")
                                     }
+                                    .buttonStyle(BorderlessButtonStyle())
+                                    dragIcon(
+                                        for: outputURL,
+                                        color: Color.blue,
+                                        helpText: "Drag this icon to share the exported file with other apps."
+                                    )
                                 }
+                                if file.sourceURL != nil && !file.isDownloading {
+                                    Button(action: {
+                                        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                                    }) {
+                                        Image(systemName: "magnifyingglass.circle.fill")
+                                            .foregroundColor(downloadActionColor)
+                                            .help("Show downloaded file")
+                                    }
+                                    .buttonStyle(BorderlessButtonStyle())
+                                }
+                            }
+                        }
+                            }
+                            if file.isLiveStreamRecording {
+                                liveRecordingBadge
                             }
                             Spacer()
                         }
@@ -234,14 +248,46 @@ struct VideoFileRowView: View {
                                 // Action buttons (delete/reset) - right aligned
                                 HStack {
                                     Spacer()
-                                    if file.isDownloading {
-                                        Button(action: { onCancelDownload?() }) {
-                                            Image(systemName: "xmark.circle")
-                                                .foregroundColor(.purple)
+                                if file.isDownloading {
+                                    if file.isLiveStreamRecording {
+                                        // Stop button - keeps the partial recording
+                                        Button(action: {
+                                            onStopLiveRecording?()
+                                        }) {
+                                            Image(systemName: "stop.circle.fill")
+                                                .font(.system(size: 14))
+                                                .frame(width: 20, height: 20)
+                                                .contentShape(Rectangle())
                                         }
-                                        .buttonStyle(BorderlessButtonStyle())
+                                        .buttonStyle(.borderless)
+                                        .foregroundColor(.orange)
+                                        .help("Stop recording and keep partial file")
+                                        // Cancel button - discards the recording
+                                        Button(action: {
+                                            onCancelDownload?()
+                                        }) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 14))
+                                                .frame(width: 20, height: 20)
+                                                .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .foregroundColor(.red)
+                                        .help("Cancel and discard recording")
+                                    } else {
+                                        Button(action: {
+                                            onCancelDownload?()
+                                        }) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 14))
+                                                .frame(width: 20, height: 20)
+                                                .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .foregroundColor(.purple)
                                         .help("Cancel download")
-                                    } else if file.scheduledDownloadTime != nil {
+                                    }
+                                } else if file.scheduledDownloadTime != nil {
                                         Button(action: { onCancelScheduledDownload?() }) {
                                             Image(systemName: "clock.badge.xmark")
                                                 .foregroundColor(.cyan)
@@ -290,7 +336,7 @@ struct VideoFileRowView: View {
                                         )
                                     }
                                 }
-                                .frame(width: 44, alignment: .trailing)
+                                .frame(minWidth: 44, alignment: .trailing)
                             }
                         }
 
@@ -386,12 +432,44 @@ struct VideoFileRowView: View {
                                 // Action buttons container with fixed width
                                 HStack(spacing: 4) {
                                     if file.isDownloading {
-                                        Button(action: { onCancelDownload?() }) {
-                                            Image(systemName: "xmark.circle")
-                                                .foregroundColor(.purple)
+                                        if file.isLiveStreamRecording {
+                                            // Stop button - keeps the partial recording
+                                            Button(action: {
+                                                onStopLiveRecording?()
+                                            }) {
+                                                Image(systemName: "stop.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .frame(width: 20, height: 20)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.borderless)
+                                            .foregroundColor(.orange)
+                                            .help("Stop recording and keep partial file")
+                                            // Cancel button - discards the recording
+                                            Button(action: {
+                                                onCancelDownload?()
+                                            }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .frame(width: 20, height: 20)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.borderless)
+                                            .foregroundColor(.red)
+                                            .help("Cancel and discard recording")
+                                        } else {
+                                            Button(action: {
+                                                onCancelDownload?()
+                                            }) {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.system(size: 14))
+                                                    .frame(width: 20, height: 20)
+                                                    .contentShape(Rectangle())
+                                            }
+                                            .buttonStyle(.borderless)
+                                            .foregroundColor(.purple)
+                                            .help("Cancel download")
                                         }
-                                        .buttonStyle(BorderlessButtonStyle())
-                                        .help("Cancel download")
                                     } else if file.scheduledDownloadTime != nil {
                                         Button(action: { onCancelScheduledDownload?() }) {
                                             Image(systemName: "clock.badge.xmark")
@@ -442,7 +520,7 @@ struct VideoFileRowView: View {
                                         )
                                     }
                                 }
-                                .frame(width: 44, alignment: .trailing)
+                                .frame(minWidth: 44, alignment: .trailing)
                             }
                         }
 
@@ -562,7 +640,6 @@ struct VideoFileRowView: View {
             .highPriorityGesture(
                 TapGesture(count: 2)
                     .onEnded {
-                        guard file.hasVideoStream else { return }
                         onPlayFullscreen()
                     }
             )
@@ -1174,6 +1251,13 @@ struct VideoFileRowView: View {
     }
     
     private var progressText: String {
+        if file.isLiveStreamRecording {
+            if let speed = file.downloadSpeed {
+                return "Recording live stream... \(speed)"
+            } else {
+                return "Recording live stream..."
+            }
+        }
         // Handle download states first
         if file.isDownloading {
             if isDownloadPreparing {
@@ -1219,6 +1303,9 @@ struct VideoFileRowView: View {
     }
 
     private var statusColor: Color {
+        if file.isLiveStreamRecording {
+            return .red
+        }
         // Handle download states first
         if file.isDownloading {
             return .purple
@@ -1239,6 +1326,23 @@ struct VideoFileRowView: View {
         case .cancelled: return .orange
         case .failed: return .red
         default: return .gray
+        }
+    }
+
+    @ViewBuilder
+    private var liveRecordingBadge: some View {
+        if file.isLiveStreamRecording {
+            HStack(spacing: 4) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("Recording")
+                    .font(.caption2)
+            }
+            .foregroundColor(.red)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.red.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
     }
 
@@ -1272,6 +1376,9 @@ struct VideoFileRowView: View {
 
     /// Progress bar color based on current state
     private var progressBarColor: Color {
+        if file.isLiveStreamRecording {
+            return .red
+        }
         if file.uploadStatus == .uploading {
             return .orange
         } else if file.isDownloading {
@@ -1283,6 +1390,10 @@ struct VideoFileRowView: View {
         } else {
             return .accentColor
         }
+    }
+
+    private var downloadActionColor: Color {
+        file.isLiveStreamRecording ? .red : .purple
     }
 
     private func displayOutputFilename() -> String {

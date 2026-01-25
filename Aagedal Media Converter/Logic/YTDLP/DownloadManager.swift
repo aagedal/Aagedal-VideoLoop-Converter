@@ -48,7 +48,13 @@ class DownloadManager {
     ///   - outputFolder: The folder to save downloads
     /// - Returns: The UUID of the created VideoItem
     @discardableResult
-    func scheduleDownload(url urlString: String, at scheduledTime: Date, items: Binding<[VideoItem]>, outputFolder: URL) async -> UUID? {
+    func scheduleDownload(
+        url urlString: String,
+        at scheduledTime: Date,
+        items: Binding<[VideoItem]>,
+        outputFolder: URL,
+        liveFromStart: Bool = false
+    ) async -> UUID? {
         self.videoItems = items
         self.outputFolder = outputFolder
 
@@ -68,10 +74,10 @@ class DownloadManager {
         )
         item.sourceURL = urlString
         item.scheduledDownloadTime = scheduledTime
-
         // Apply default automation settings
         item.autoEncodeAfterDownload = UserDefaults.standard.bool(forKey: AppConstants.autoEncodeAfterDownloadKey)
         item.uploadEnabled = UserDefaults.standard.bool(forKey: AppConstants.autoUploadAfterDownloadKey)
+        item.downloadLiveFromStart = liveFromStart
 
         let itemID = item.id
 
@@ -124,7 +130,12 @@ class DownloadManager {
 
         // Start download task
         let task = Task {
-            await self.performDownload(itemID: itemID, urlString: sourceURL, outputFolder: folder)
+            await self.performDownload(
+                itemID: itemID,
+                urlString: sourceURL,
+                outputFolder: folder,
+                liveFromStart: item.downloadLiveFromStart
+            )
         }
         downloadTasks[itemID] = task
     }
@@ -141,7 +152,12 @@ class DownloadManager {
     ///   - outputFolder: The folder to save downloads
     /// - Returns: The UUID of the created VideoItem, or nil if yt-dlp is not configured
     @discardableResult
-    func startDownload(url urlString: String, items: Binding<[VideoItem]>, outputFolder: URL) async -> UUID? {
+    func startDownload(
+        url urlString: String,
+        items: Binding<[VideoItem]>,
+        outputFolder: URL,
+        liveFromStart: Bool = false
+    ) async -> UUID? {
         // Check if yt-dlp is available
         guard await isYTDLPConfigured() else {
             logger.error("yt-dlp not configured. Please configure in Settings > General > Video Downloads.")
@@ -170,6 +186,7 @@ class DownloadManager {
         item.downloadProgress = 0
         item.downloadHasProgress = false
         item.downloadSpeed = nil
+        item.downloadLiveFromStart = liveFromStart
 
         // Apply default automation settings
         item.autoEncodeAfterDownload = UserDefaults.standard.bool(forKey: AppConstants.autoEncodeAfterDownloadKey)
@@ -182,7 +199,7 @@ class DownloadManager {
 
         // Start download task (using unowned self since DownloadManager is a singleton)
         let task = Task {
-            await self.performDownload(itemID: itemID, urlString: urlString, outputFolder: outputFolder)
+            await self.performDownload(itemID: itemID, urlString: urlString, outputFolder: outputFolder, liveFromStart: liveFromStart)
         }
         downloadTasks[itemID] = task
 
@@ -190,7 +207,7 @@ class DownloadManager {
     }
 
     /// Performs the actual download
-    private func performDownload(itemID: UUID, urlString: String, outputFolder: URL) async {
+    private func performDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool) async {
         let downloadStartTime = Date()
         logger.info("[TIMING] performDownload started at \(downloadStartTime)")
 
@@ -199,10 +216,17 @@ class DownloadManager {
             let actualDownloadStartTime = Date()
             logger.info("[TIMING] Starting download immediately for: \(urlString)")
 
+            updateItem(itemID) { item in
+                if liveFromStart {
+                    item.isLiveStreamRecording = true
+                }
+            }
+
             let result = try await ytdlpService.download(
                 url: urlString,
                 outputFolder: outputFolder,
-                forceOverwrite: false
+                forceOverwrite: false,
+                liveFromStart: liveFromStart
             ) { [weak self] progress, speed in
                 Task { @MainActor in
                     self?.updateItem(itemID) { item in
@@ -236,6 +260,7 @@ class DownloadManager {
                 item.url = result.outputURL
                 item.name = result.outputURL.lastPathComponent
                 item.isDownloading = false
+                item.isLiveStreamRecording = false
                 item.downloadProgress = 1.0
                 item.downloadSpeed = nil
                 item.progress = 0  // Reset for encoding
@@ -245,8 +270,8 @@ class DownloadManager {
                 // Get file size
                 if let attrs = try? FileManager.default.attributesOfItem(atPath: result.outputURL.path),
                    let size = attrs[.size] as? Int64 {
-                    item.size = size
-                }
+                item.size = size
+            }
             }
 
             // Trigger details and metadata loading for the downloaded file
@@ -289,12 +314,21 @@ class DownloadManager {
                     item.status = .failed
                     item.name = title
                 }
+            case .liveRecordingStopped:
+                logger.info("Live stream recording stopped for item: \(itemID)")
+                updateItem(itemID) { item in
+                    item.isDownloading = false
+                    item.isLiveStreamRecording = false
+                    item.downloadError = nil
+                    item.status = .waiting
+                }
             default:
                 logger.error("Download failed: \(error.localizedDescription)")
                 updateItem(itemID) { item in
                     item.isDownloading = false
                     item.downloadError = error.localizedDescription
                     item.status = .failed
+                    item.isLiveStreamRecording = false
                 }
             }
         } catch {
@@ -304,6 +338,7 @@ class DownloadManager {
                 item.isDownloading = false
                 item.downloadError = error.localizedDescription
                 item.status = .failed
+                item.isLiveStreamRecording = false
             }
         }
 
@@ -312,20 +347,33 @@ class DownloadManager {
     }
 
     /// Cancels a download
-    func cancelDownload(itemID: UUID) async {
+    func cancelDownload(itemID: UUID) {
+        logger.info("Cancel download requested for item: \(itemID)")
+
         if let task = downloadTasks[itemID] {
             task.cancel()
             downloadTasks.removeValue(forKey: itemID)
         }
 
-        await ytdlpService.cancelDownload()
+        // Cancel the yt-dlp process (nonisolated, immediate)
+        ytdlpService.cancelDownload()
 
         // Update item state
         updateItem(itemID) { item in
             item.isDownloading = false
+            item.isLiveStreamRecording = false
             item.downloadError = "Cancelled"
             item.status = .cancelled
         }
+    }
+
+    func stopLiveDownload(itemID: UUID) {
+        logger.info("Stop live download requested for item: \(itemID)")
+
+        // Stop the yt-dlp process (nonisolated, immediate) - keeps the partial file
+        ytdlpService.stopLiveDownload()
+
+        // Note: The item state will be updated by performDownload when it catches liveRecordingStopped
     }
 
     /// Retries a failed download
@@ -349,7 +397,12 @@ class DownloadManager {
 
         // Start new download
         let task = Task {
-            await self.performDownload(itemID: itemID, urlString: sourceURL, outputFolder: outputFolder)
+            await self.performDownload(
+                itemID: itemID,
+                urlString: sourceURL,
+                outputFolder: outputFolder,
+                liveFromStart: item.downloadLiveFromStart
+            )
         }
         downloadTasks[itemID] = task
     }
@@ -375,13 +428,18 @@ class DownloadManager {
 
         // Start download with force overwrite
         let task = Task {
-            await self.performForceDownload(itemID: itemID, urlString: sourceURL, outputFolder: outputFolder)
+            await self.performForceDownload(
+                itemID: itemID,
+                urlString: sourceURL,
+                outputFolder: outputFolder,
+                liveFromStart: item.downloadLiveFromStart
+            )
         }
         downloadTasks[itemID] = task
     }
 
     /// Performs a forced download (overwrites existing files)
-    private func performForceDownload(itemID: UUID, urlString: String, outputFolder: URL) async {
+    private func performForceDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool) async {
         do {
             // Start the actual download with force overwrite
             logger.info("Starting forced download for: \(urlString)")
@@ -389,7 +447,8 @@ class DownloadManager {
             let result = try await ytdlpService.download(
                 url: urlString,
                 outputFolder: outputFolder,
-                forceOverwrite: true
+                forceOverwrite: true,
+                liveFromStart: liveFromStart
             ) { [weak self] progress, speed in
                 Task { @MainActor in
                     self?.updateItem(itemID) { item in

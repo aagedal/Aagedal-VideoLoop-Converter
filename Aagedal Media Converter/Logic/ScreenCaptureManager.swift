@@ -479,17 +479,22 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         includeMicrophone: Bool,
         microphoneDeviceID: String?,
         hideCursor: Bool,
-        excludeCurrentApp: Bool
+        excludeCurrentApp: Bool,
+        cachedContent: SCShareableContent? = nil
     ) async {
         guard !isPreviewing, !isRecording else { return }
 
         errorMessage = nil
-        previewImage = nil
         audioLevels = .silence
         microphoneLevels = .silence
 
         do {
-            let content = try await ScreenCaptureManager.shareableContent()
+            let content: SCShareableContent
+            if let cachedContent {
+                content = cachedContent
+            } else {
+                content = try await ScreenCaptureManager.shareableContent()
+            }
             guard let display = selectDisplay(from: content, preferredDisplayID: displayID) else {
                 throw CaptureError.unavailableDisplay
             }
@@ -969,7 +974,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         case bookmark(URL)
     }
 
-    private static func shareableContent() async throws -> SCShareableContent {
+    static func shareableContent() async throws -> SCShareableContent {
         try await SCShareableContent.current
     }
 
@@ -1138,6 +1143,10 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
     static func availableDisplays() async throws -> [CaptureDisplay] {
         let content = try await shareableContent()
+        return displays(from: content)
+    }
+
+    static func displays(from content: SCShareableContent) -> [CaptureDisplay] {
         let mainDisplayID = mainDisplayID()
         return content.displays.map { display in
             let name = displayName(for: display.displayID)

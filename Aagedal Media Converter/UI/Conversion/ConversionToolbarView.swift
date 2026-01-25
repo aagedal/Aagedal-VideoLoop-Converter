@@ -60,6 +60,7 @@ struct ConversionToolbarView: ToolbarContent {
                 Label("Watch Mode", systemImage: watchFolderModeEnabled ? "eye.fill" : "eye")
             }
             .toggleStyle(.button)
+            .foregroundStyle(.yellow)
             .help(watchFolderPath.isEmpty ? "Select a watch folder to enable Watch Mode" : (watchFolderModeEnabled ? "Stop watching \(watchFolderPath)" : "Start watching \(watchFolderPath)"))
 
             Button(action: onShowCapture) {
@@ -78,6 +79,7 @@ struct ConversionToolbarView: ToolbarContent {
             Button(action: onShowDownload) {
                 Label("Download", systemImage: "arrow.down.circle")
             }
+            .foregroundStyle(.mint)
             .help("Download video from URL")
         }
 

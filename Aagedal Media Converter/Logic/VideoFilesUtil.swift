@@ -133,20 +133,9 @@ struct VideoFileUtils: Sendable {
 
         let durationString = formatDuration(seconds: durationSec)
 
-        var hasVideoStream = false
-        do {
-            let videoTracks = try await asset.loadTracks(withMediaType: .video)
-            hasVideoStream = !videoTracks.isEmpty
-        } catch {
-            logger.debug("AVFoundation failed to inspect video tracks for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
-        }
-
-        if !hasVideoStream {
-            if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
-                hasVideoStream = !metadata.videoStreams.isEmpty
-                logger.debug("FFprobe detected video stream: \(hasVideoStream, privacy: .public) for \(fileName, privacy: .public)")
-            }
-        }
+        // Use VideoMetadataService's fast hasVideoStream check which uses -read_intervals
+        // This is fast even for very large files (50+ GB) and results are cached
+        let hasVideoStream = await VideoMetadataService.shared.hasVideoStream(for: url)
 
         let thumbnailData = await getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generateRowThumbnailIfMissing)
 
@@ -593,6 +582,10 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var scheduledDownloadTime: Date? = nil
     /// Whether to automatically start encoding after download completes
     var autoEncodeAfterDownload: Bool = false
+    /// Whether to start the live stream download from the beginning
+    var downloadLiveFromStart: Bool = false
+    /// Whether a live stream download is currently recording
+    var isLiveStreamRecording: Bool = false
 
     // MARK: - Upload State
     /// Whether upload is enabled for this item

@@ -207,6 +207,7 @@ actor VideoMetadataService {
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "VideoMetadata")
     private let cache = NSCache<NSURL, CachedMetadata>()
     private let essentialInfoCache = NSCache<NSURL, CachedEssentialInfo>()
+    private let hasVideoStreamCache = NSCache<NSURL, CachedBool>()
 
     private final class CachedMetadata: NSObject {
         let metadata: VideoMetadata
@@ -219,6 +220,84 @@ actor VideoMetadataService {
         let info: EssentialVideoInfo
         init(info: EssentialVideoInfo) {
             self.info = info
+        }
+    }
+
+    private final class CachedBool: NSObject {
+        let value: Bool
+        init(value: Bool) {
+            self.value = value
+        }
+    }
+
+    // MARK: - Fast Video Stream Detection
+
+    /// Quickly checks if a file has video streams using FFprobe with -read_intervals
+    /// This reads only the first few packets, making it fast even for very large files
+    func hasVideoStream(for url: URL) async -> Bool {
+        // Check cache first
+        if let cached = hasVideoStreamCache.object(forKey: url as NSURL) {
+            return cached.value
+        }
+
+        // Check if we already have essential info cached (which includes hasVideoStream)
+        if let cached = essentialInfoCache.object(forKey: url as NSURL) {
+            hasVideoStreamCache.setObject(CachedBool(value: cached.info.hasVideoStream), forKey: url as NSURL)
+            return cached.info.hasVideoStream
+        }
+
+        var didStartDirectAccess = false
+        var didStartBookmarkAccess = false
+        if url.startAccessingSecurityScopedResource() {
+            didStartDirectAccess = true
+        } else if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
+            didStartBookmarkAccess = true
+        }
+
+        defer {
+            if didStartDirectAccess {
+                url.stopAccessingSecurityScopedResource()
+            } else if didStartBookmarkAccess {
+                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
+            }
+        }
+
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
+            logger.warning("FFprobe not available for hasVideoStream check")
+            return false
+        }
+
+        do {
+            // Use -read_intervals to only read the first 2 packets - this is extremely fast
+            // even for very large files (50+ GB) as it doesn't need to parse the entire container
+            let data = try await runFFprobeJSON(
+                url: url,
+                ffprobePath: ffprobePath,
+                arguments: [
+                    "-v", "error",
+                    "-read_intervals", "%+#2",  // Read only first 2 packets
+                    "-show_streams",
+                    "-select_streams", "v",     // Only video streams
+                    "-of", "json"
+                ],
+                timeoutSeconds: 5  // Short timeout since this should be very fast
+            )
+
+            let response = try decodeFFprobeResponse(jsonData: data)
+
+            // Filter out cover art (attached pictures)
+            let videoStreams = response.streams.filter { stream in
+                stream.codecType == "video" && stream.disposition?.attachedPic != 1
+            }
+
+            let hasVideo = !videoStreams.isEmpty
+            hasVideoStreamCache.setObject(CachedBool(value: hasVideo), forKey: url as NSURL)
+            logger.debug("Fast hasVideoStream check for \(url.lastPathComponent, privacy: .public): \(hasVideo)")
+            return hasVideo
+        } catch {
+            logger.warning("Fast hasVideoStream check failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public). Assuming video exists.")
+            // On error, assume video exists to avoid incorrectly treating video files as audio-only
+            return true
         }
     }
 
@@ -345,7 +424,7 @@ actor VideoMetadataService {
         return metadata
     }
 
-    private func runFFprobeJSON(url: URL, ffprobePath: String, arguments: [String]) async throws -> Data {
+    private func runFFprobeJSON(url: URL, ffprobePath: String, arguments: [String], timeoutSeconds: TimeInterval = 30) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             Task.detached(priority: .userInitiated) {
                 let process = Process()
@@ -366,16 +445,15 @@ actor VideoMetadataService {
                     return
                 }
 
-                // Wait with timeout (10 seconds - must be less than fetchMetadata timeout)
-                let timeoutSeconds: TimeInterval = 10
+                // Wait with configurable timeout (default 30 seconds for large files)
                 let checkInterval: TimeInterval = 0.5
                 var elapsed: TimeInterval = 0
-                
+
                 while process.isRunning && elapsed < timeoutSeconds {
                     try? await Task.sleep(for: .seconds(checkInterval))
                     elapsed += checkInterval
                 }
-                
+
                 if process.isRunning {
                     // Timeout - terminate the process
                     process.terminate()

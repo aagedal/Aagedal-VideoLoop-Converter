@@ -145,6 +145,8 @@ struct MetadataComparisonView: View {
             comparisonRow("Note") { _ in
                 "Presence only. This app does not verify C2PA signatures."
             }
+            verificationLinksRow
+            
             comparisonRow("Content Credentials") { item in
                 c2paStatusValue(for: item)
             }
@@ -562,6 +564,33 @@ struct MetadataComparisonView: View {
 
             content()
         }
+    }
+
+    private var verificationLinksRow: some View {
+        let links: [(title: String, url: URL)] = [
+            ("Content Credentials", URL(string: "https://verify.contentauthenticity.org/")!),
+            ("Adobe Content Authenticity", URL(string: "https://contentauthenticity.adobe.com/inspect")!),
+            ("Sony Self Checker", URL(string: "https://digitalsignatureself-checker.authenticity.sony.net")!)
+        ]
+
+        return HStack(alignment: .top, spacing: columnSpacing) {
+            Text("Verification Resources")
+                .font(.subheadline.weight(.semibold))
+                .frame(width: labelColumnWidth, alignment: .leading)
+
+            ForEach(items, id: \.id) { _ in
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(links, id: \.title) { link in
+                        Link(link.title, destination: link.url)
+                            .font(.subheadline)
+                            .foregroundColor(.accentColor)
+                    }
+                }
+                .frame(width: valueColumnWidth, alignment: .leading)
+                .padding(.vertical, 2)
+            }
+        }
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder

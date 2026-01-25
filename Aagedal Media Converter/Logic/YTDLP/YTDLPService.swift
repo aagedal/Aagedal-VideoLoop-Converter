@@ -23,8 +23,40 @@ struct YTDLPDownloadResult: Sendable {
 /// Service for executing yt-dlp downloads
 actor YTDLPService {
     private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "YTDLPService")
-    private var currentProcess: Process?
     private let updateService = YTDLPUpdateService.shared
+
+    private enum CancelReason {
+        case userRequested
+        case liveRecordingStop
+    }
+
+    /// Thread-safe storage for the current process (accessible from any thread for cancellation)
+    private final class ProcessHolder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _process: Process?
+        private var _cancelReason: CancelReason?
+
+        var process: Process? {
+            get { lock.lock(); defer { lock.unlock() }; return _process }
+            set { lock.lock(); defer { lock.unlock() }; _process = newValue }
+        }
+
+        var cancelReason: CancelReason? {
+            get { lock.lock(); defer { lock.unlock() }; return _cancelReason }
+            set { lock.lock(); defer { lock.unlock() }; _cancelReason = newValue }
+        }
+
+        func terminate(reason: CancelReason) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let proc = _process, proc.isRunning else { return false }
+            _cancelReason = reason
+            proc.terminate()
+            return true
+        }
+    }
+
+    private let processHolder = ProcessHolder()
 
     private final class DateBox: @unchecked Sendable {
         var value: Date
@@ -168,16 +200,19 @@ actor YTDLPService {
     ///   - url: The video URL to download
     ///   - outputFolder: The folder to save the downloaded video
     ///   - forceOverwrite: If true, overwrites existing files instead of skipping
+    ///   - liveFromStart: Whether to rewind live streams to the beginning
     ///   - progress: Callback for progress updates (progress 0-1, speed string)
     /// - Returns: The path to the downloaded file
     func download(
         url: String,
         outputFolder: URL,
         forceOverwrite: Bool = false,
+        liveFromStart: Bool = false,
         progress: @escaping @Sendable (Double, String?) -> Void
     ) async throws -> YTDLPDownloadResult {
         let downloadStartTime = Date()
         logger.info("[TIMING] download() started")
+        processHolder.cancelReason = nil
 
         let pathResolveStart = Date()
         guard let ytdlpPath = await updateService.resolveYTDLPPath() else {
@@ -227,6 +262,11 @@ actor YTDLPService {
             logger.info("[YTDLPService] Using cookies from browser: \(cookiesBrowser)")
         }
 
+        if liveFromStart {
+            args.append(contentsOf: ["--live-from-start", "--no-part"])
+            logger.info("[YTDLPService] Downloading live stream from start (no-part)")
+        }
+
         args.append(contentsOf: [
             "-f", "bestvideo+bestaudio/best",
             "--no-playlist",
@@ -244,8 +284,9 @@ actor YTDLPService {
         process.standardError = stderrPipe
         process.standardInput = FileHandle.nullDevice
 
-        // Store process for cancellation
-        currentProcess = process
+        // Store process for cancellation (thread-safe)
+        processHolder.cancelReason = nil
+        processHolder.process = process
 
         // Use a class to hold mutable state for thread-safe access from the handler
         final class ParsedState: @unchecked Sendable {
@@ -408,15 +449,39 @@ actor YTDLPService {
         logger.info("[TIMING] Process setup completed in \(String(format: "%.3f", processSetupElapsed))s, starting download process...")
 
         processStartBox.value = Date()
-        try process.run()
-        process.waitUntilExit()
+
+        // Run process in background to avoid blocking the actor (allows cancel to work)
+        let terminationStatus: Int32 = try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { proc in
+                continuation.resume(returning: proc.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+
         let processRunElapsed = Date().timeIntervalSince(processStartBox.value)
         logger.info("[TIMING] Download process completed in \(String(format: "%.2f", processRunElapsed))s")
 
         // Clean up
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        currentProcess = nil
+        processHolder.process = nil
+
+        let finalCancelReason = processHolder.cancelReason
+        processHolder.cancelReason = nil
+        if let finalCancelReason {
+            switch finalCancelReason {
+            case .userRequested:
+                logger.info("Download cancelled")
+                throw YTDLPError.cancelled
+            case .liveRecordingStop:
+                logger.info("Live stream recording stopped")
+                throw YTDLPError.liveRecordingStopped
+            }
+        }
 
         // Read final state
         let lastError = parsedState.read { $0.lastError }
@@ -433,8 +498,8 @@ actor YTDLPService {
         }
 
         // Check exit status
-        guard process.terminationStatus == 0 else {
-            let errorMessage = lastError ?? "Download failed with exit code \(process.terminationStatus)"
+        guard terminationStatus == 0 else {
+            let errorMessage = lastError ?? "Download failed with exit code \(terminationStatus)"
             throw YTDLPError.downloadFailed(errorMessage)
         }
 
@@ -464,12 +529,17 @@ actor YTDLPService {
         return YTDLPDownloadResult(outputURL: outputURL, title: videoTitle)
     }
 
-    /// Cancels the current download
-    func cancelDownload() {
-        if let process = currentProcess, process.isRunning {
-            process.terminate()
-            currentProcess = nil
-            logger.info("Download cancelled")
+    /// Cancels the current download (nonisolated for immediate response)
+    nonisolated func cancelDownload() {
+        if processHolder.terminate(reason: .userRequested) {
+            print("[YTDLPService] Download cancelled by user")
+        }
+    }
+
+    /// Stops a live stream download but keeps the partial file (nonisolated for immediate response)
+    nonisolated func stopLiveDownload() {
+        if processHolder.terminate(reason: .liveRecordingStop) {
+            print("[YTDLPService] Live stream recording stopped (keeping partial file)")
         }
     }
 }
@@ -480,6 +550,7 @@ enum YTDLPError: Error, LocalizedError {
     case downloadFailed(String)
     case outputNotFound
     case cancelled
+    case liveRecordingStopped
     case fileAlreadyExists(path: String, title: String)
 
     var errorDescription: String? {
@@ -494,6 +565,8 @@ enum YTDLPError: Error, LocalizedError {
             return "Downloaded file not found"
         case .cancelled:
             return "Download was cancelled"
+        case .liveRecordingStopped:
+            return "Live stream recording stopped"
         case .fileAlreadyExists(let path, _):
             return "File already exists: \(path)"
         }

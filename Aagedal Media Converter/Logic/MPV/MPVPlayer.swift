@@ -37,6 +37,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
     @Published var isBusy = false
     @Published var isFileLoaded = false
     @Published var error: String?
+    @Published var reachedEnd = false
 
     private var isInitialized = false
     private var startPaused = false
@@ -92,6 +93,9 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
     }
 
     private func setupMPV() {
+        let setupStart = CFAbsoluteTimeGetCurrent()
+        logger.info("⏱️ MPV setup starting...")
+
         guard mpv == nil else {
             logger.info("MPV already initialized, skipping setup")
             return
@@ -102,6 +106,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
             return
         }
 
+        logger.info("⏱️ Creating mpv context...")
         mpv = mpv_create()
         guard mpv != nil else {
             logger.error("Failed to create MPV context")
@@ -130,6 +135,16 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         // Keep file open after EOF to prevent Vulkan context destruction
         // This allows seeking back after playback ends
         checkError(mpv_set_option_string(mpv, "keep-open", "yes"))
+
+        // Fast file opening options
+        // Don't pause when cache runs low (cache-pause-initial was deprecated)
+        checkError(mpv_set_option_string(mpv, "cache-pause", "no"))
+        // Force file to be seekable (helps with MKV)
+        checkError(mpv_set_option_string(mpv, "force-seekable", "yes"))
+        // Drop frames during seeking for faster seek response
+        checkError(mpv_set_option_string(mpv, "hr-seek-framedrop", "yes"))
+        // Reduce initial demuxer readahead for faster start (default ~1s is fine)
+        checkError(mpv_set_option_string(mpv, "demuxer-readahead-secs", "1"))
 
         // Auto-detect interlaced content and deinterlace only when needed
         checkError(mpv_set_option_string(mpv, "deinterlace", "auto"))
@@ -174,15 +189,21 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         }, wakeupContext)
 
         isInitialized = true
-        logger.info("MPV initialized successfully")
+        let setupDuration = CFAbsoluteTimeGetCurrent() - setupStart
+        logger.info("⏱️ MPV initialized successfully in \(String(format: "%.3f", setupDuration))s")
     }
 
     // MARK: - Playback Control
 
+    private var loadStartTime: CFAbsoluteTime = 0
+
     func load(url: URL, startTime: Double = 0, autostart: Bool = false) {
+        loadStartTime = CFAbsoluteTimeGetCurrent()
+        logger.info("⏱️ [0.000s] Load starting for: \(url.lastPathComponent)")
+
         // If MPV not initialized yet, store for later
         guard mpv != nil else {
-            logger.info("MPV not initialized yet, storing pending load for: \(url.lastPathComponent)")
+            logger.info("⏱️ MPV not initialized yet, storing pending load for: \(url.lastPathComponent)")
             pendingURL = url
             pendingStartTime = startTime
             pendingAutostart = autostart
@@ -192,7 +213,11 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         // Reset file loaded state when loading a new file
         isFileLoaded = false
 
-        logger.info("Loading file: \(url.lastPathComponent), startTime: \(startTime), autostart: \(autostart)")
+        // Reset EOF tracking for the new file
+        reachedEnd = false
+
+        var elapsed = CFAbsoluteTimeGetCurrent() - loadStartTime
+        logger.info("⏱️ [\(String(format: "%.3f", elapsed))s] Preparing loadfile command...")
 
         startPaused = !autostart
         // Store start time to seek after file loads (loadfile start= has parsing issues with floats)
@@ -205,17 +230,18 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
         // Build command string with proper escaping (don't use start= option, seek after load instead)
         let cmd = "loadfile \"\(path.replacingOccurrences(of: "\"", with: "\\\""))\" replace"
 
-        logger.info("Executing loadfile: \(cmd)")
+        elapsed = CFAbsoluteTimeGetCurrent() - loadStartTime
+        logger.info("⏱️ [\(String(format: "%.3f", elapsed))s] Executing loadfile...")
         commandString(cmd)
-        logger.info("Loadfile command completed")
+        elapsed = CFAbsoluteTimeGetCurrent() - loadStartTime
+        logger.info("⏱️ [\(String(format: "%.3f", elapsed))s] Loadfile command returned")
 
         // If not autostarting, pause immediately after load
         if !autostart {
-            logger.info("Setting pause flag...")
             setFlag(MPVProperty.pause, true)
-            logger.info("Pause flag set")
         }
-        logger.info("Load function completed")
+        elapsed = CFAbsoluteTimeGetCurrent() - loadStartTime
+        logger.info("⏱️ [\(String(format: "%.3f", elapsed))s] Load function completed (async file loading continues)")
     }
 
     func play() {
@@ -482,7 +508,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                        let property = UnsafePointer<mpv_event_property>(dataPtr)?.pointee {
                         let propertyName = String(cString: property.name)
 
-                        switch propertyName {
+                    switch propertyName {
                         case MPVProperty.timePos:
                             if let value = UnsafePointer<Double>(OpaquePointer(property.data))?.pointee {
                                 DispatchQueue.main.async { self.timePos = value }
@@ -504,12 +530,14 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                                 DispatchQueue.main.async { self.isSeekable = value != 0 }
                             }
                         case MPVProperty.eofReached:
-                            if let value = UnsafePointer<Int>(OpaquePointer(property.data))?.pointee, value != 0 {
-                                // EOF reached - with keep-open=yes, player stays at last frame
-                                // Just ensure we're paused and update state
+                            if let value = UnsafePointer<Int>(OpaquePointer(property.data))?.pointee {
+                                let reached = value != 0
                                 DispatchQueue.main.async {
-                                    self.logger.info("EOF reached, pausing at last frame")
+                                    self.logger.info("EOF reached (\(reached)), pausing at last frame if needed")
                                     self.isPlaying = false
+                                    if reached {
+                                        self.reachedEnd = true
+                                    }
                                 }
                             }
                         default:
@@ -534,12 +562,14 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
 
                 case MPV_EVENT_FILE_LOADED:
                     DispatchQueue.main.async {
-                        self.logger.info("MPV file loaded")
+                        let loadDuration = CFAbsoluteTimeGetCurrent() - self.loadStartTime
+                        self.logger.info("⏱️ [\(String(format: "%.3f", loadDuration))s] MPV_EVENT_FILE_LOADED received")
                         self.isFileLoaded = true
                         // Seek to pending start time if set (workaround for loadfile start= issues)
                         if self.pendingSeekAfterLoad > 0 {
-                            self.logger.info("Seeking to pending start time: \(self.pendingSeekAfterLoad)")
+                            self.logger.info("⏱️ [\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - self.loadStartTime))s] Seeking to start time: \(self.pendingSeekAfterLoad)")
                             self.seek(to: self.pendingSeekAfterLoad)
+                            self.logger.info("⏱️ [\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - self.loadStartTime))s] Seek command sent")
                             self.pendingSeekAfterLoad = 0
                         }
                         // If we requested paused start, ensure we're paused
@@ -547,6 +577,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                             self.setFlag(MPVProperty.pause, true)
                             self.startPaused = false
                         }
+                        self.logger.info("⏱️ [\(String(format: "%.3f", CFAbsoluteTimeGetCurrent() - self.loadStartTime))s] File load handling complete")
                     }
 
                 case MPV_EVENT_END_FILE:
@@ -562,10 +593,12 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                     }
                     DispatchQueue.main.async {
                         self.isPlaying = false
+                        self.reachedEnd = true
                     }
 
                 case MPV_EVENT_START_FILE:
-                    self.logger.info("MPV start file event")
+                    let startElapsed = CFAbsoluteTimeGetCurrent() - self.loadStartTime
+                    self.logger.info("⏱️ [\(String(format: "%.3f", startElapsed))s] MPV_EVENT_START_FILE received")
 
                 default:
                     break

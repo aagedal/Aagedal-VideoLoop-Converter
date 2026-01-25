@@ -6,6 +6,7 @@ import SwiftUI
 import AppKit
 import CoreGraphics
 import AVFoundation
+import ScreenCaptureKit
 
 struct CaptureModeView: View {
     @Environment(\.dismiss) private var dismiss
@@ -88,10 +89,29 @@ struct CaptureModeView: View {
                 capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
             }
             Task {
-                await loadDisplays()
-                await loadMicrophones()
-                captureManager.refreshMicrophoneAuthorizationStatus()
-                await refreshPreview()
+                // Fetch shareable content once and reuse for both displays and preview
+                async let microphonesTask: () = loadMicrophones()
+
+                do {
+                    let content = try await ScreenCaptureManager.shareableContent()
+                    let displays = ScreenCaptureManager.displays(from: content)
+                    await MainActor.run {
+                        availableDisplays = displays
+                        if captureDisplayID != 0,
+                           !displays.contains(where: { Int($0.id) == captureDisplayID }) {
+                            captureDisplayID = 0
+                        }
+                    }
+                    captureManager.refreshMicrophoneAuthorizationStatus()
+                    await startPreview(with: content)
+                } catch {
+                    await MainActor.run {
+                        availableDisplays = []
+                        captureDisplayID = 0
+                    }
+                }
+
+                await microphonesTask
             }
         }
         .onDisappear {
@@ -250,9 +270,7 @@ struct CaptureModeView: View {
 
     private var controlRow: some View {
         VStack(spacing: 12) {
-            
-            
-            HStack {
+            HStack(spacing: 10) {
                 Button(action: toggleRecording) {
                     Label(captureManager.isRecording ? "Stop" : "Record", systemImage: captureManager.isRecording ? "stop.circle.fill" : "record.circle")
                 }
@@ -260,6 +278,9 @@ struct CaptureModeView: View {
                 .tint(captureManager.isRecording ? .red : .green)
                 .controlSize(.regular)
                 .disabled(captureManager.isProcessing)
+
+                cursorToggleButton
+                excludeAppToggleButton
 
                 Spacer()
             }
@@ -380,6 +401,50 @@ struct CaptureModeView: View {
 
     private var microphoneButtonActive: Bool {
         captureIncludeMicrophone && captureManager.microphoneCaptureStatus == .authorized
+    }
+
+    private var cursorToggleButton: some View {
+        Button {
+            captureHideCursor.toggle()
+        } label: {
+            Image(systemName: captureHideCursor ? "cursorarrow.slash" : "cursorarrow")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(captureHideCursor ? .secondary : .primary)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(captureHideCursor ? Color.primary.opacity(0.06) : Color.accentColor.opacity(0.2))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(captureHideCursor ? Color.primary.opacity(0.2) : Color.accentColor, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(captureHideCursor ? "Cursor hidden in capture" : "Cursor visible in capture")
+        .disabled(captureManager.isRecording || captureManager.isProcessing)
+    }
+
+    private var excludeAppToggleButton: some View {
+        Button {
+            captureExcludeCurrentApp.toggle()
+        } label: {
+            Image(systemName: captureExcludeCurrentApp ? "macwindow.on.rectangle" : "macwindow")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(captureExcludeCurrentApp ? .secondary : .primary)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(captureExcludeCurrentApp ? Color.primary.opacity(0.06) : Color.accentColor.opacity(0.2))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(captureExcludeCurrentApp ? Color.primary.opacity(0.2) : Color.accentColor, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(captureExcludeCurrentApp ? "This app excluded from capture" : "This app visible in capture")
+        .disabled(captureManager.isRecording || captureManager.isProcessing)
     }
 
     @ViewBuilder
@@ -525,6 +590,10 @@ struct CaptureModeView: View {
     }
 
     private func refreshPreview() async {
+        await startPreview(with: nil)
+    }
+
+    private func startPreview(with cachedContent: SCShareableContent?) async {
         guard isViewActive, !captureManager.isRecording else { return }
         await captureManager.stopPreview()
         let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
@@ -534,7 +603,8 @@ struct CaptureModeView: View {
             includeMicrophone: captureIncludeMicrophone,
             microphoneDeviceID: selectedMicrophoneDeviceID,
             hideCursor: captureHideCursor,
-            excludeCurrentApp: captureExcludeCurrentApp
+            excludeCurrentApp: captureExcludeCurrentApp,
+            cachedContent: cachedContent
         )
     }
 }
