@@ -41,9 +41,9 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 - Lots of settings if you want to customize
 - Language support: English and Norwegian
 - Automatically check for updates with a subtle update notification, can be turned off.
-- Download (yt-dlp)
-- Transcribe (whisper.cpp)
-- Upload (rclone)
+- Download from YouTube, TikTok etc. (yt-dlp)
+- Transcribe to SRT (whisper.cpp)
+- Upload to FTP (rclone)
 - Check for C2PA signature (exiftool)
 
 ### Batch conversion
@@ -113,50 +113,47 @@ Web browsers often refuse to autoplay long, looping videos with sound. The app s
 All presets can be set as default on launch, and all except the default can be hidden from the preset selector.
 
 #### Video Loop
-x264 very slow 1080p max resolution, keeping original aspect ratio, removing all audio channels, nice for compact web distribution such as GIF-replacements, slow export.
-Automatic duration warning if a VideoLoop clip exceeds 15s (short videos are best for auto-playing and looping on webpages)
-  
+Optimized for seamless silent loops. Encodes with x264 at CRF 23 (roughly 3–9 Mbps variable bitrate), strips audio, and limits the shortest edge to 1080 px for web playback.
+Automatic duration warning shows when a Video Loop clip exceeds 15 seconds so you can trim it before autoplaying on the web.
+
 #### Video Loop w/ Audio
-Same as above but keeping a stereo AAC track.
+Same x264 settings as the muted loop but keeps every audio track as 128 kbps AAC while still capping the shortest edge at 1080 px.
 
 #### H.264 / AVC
-Generic H.264 codec, with lots of options to change quality and chose between software or hardware encoding. Container and audio format is also adjustable.
+Highly compatible H.264/AVC encoding with a choice between fast VideoToolbox hardware encoding or quality-focused libx264 software encoding with CRF control plus MP4, MOV, and MKV containers.
 
 #### H.265 / HEVC
-Generic H.264 codec, with lots of options to change quality and chose between software or hardware encoding. Container and audio format is also adjustable.
+Modern 10-bit H.265/HEVC encoding. Hardware encoding via VideoToolbox keeps exports quick, while libx265 software encoding can be chosen for maximum compression efficiency.
 
 #### AV1
-Generic H.264 codec, with lots of options to change quality. Container and audio format is also adjustable.
+Next-generation SVT-AV1 encoding with 10-bit support. The best compression efficiency in the app, but it is software only (no hardware acceleration on macOS).
 
 #### TV (HEVC 10-bit 4:2:2)
-HEVC hardware encoding for fast high quality exports, compatible with most editing software, 10-bit 4:2:2, limit short side resolution to either 1080p or 2160p.
+Broadcast delivery format with hardware HEVC 10-bit 4:2:2, configurable resolution/framerate, automatic bitrate scaling, and preservation of all audio channels as 24-bit PCM.
 
 #### TV (AVC-Intra)
-Limits the aspect ratio to 16:9, with options for resolution, frame rate and audio channels.
+Broadcast delivery format in an MXF container. AVC-Intra 10-bit 4:2:2 offers selectable classes (50/100/200 Mbps), resolution, and frame rate plus 4/8/16 mono audio channels as 24-bit PCM.
 
 #### Stream copy
-Copy the input codecs into a new file, most useful when combined with merge or trim as it will keep the same file extension as the source. Keeps extra metadata. Compatible with trimming, timecode adjustments and merging, but not cropping.
+Copies the existing audio and video streams into a new file. Its strength is keeping the original codecs, metadata, and extension, so it pairs well with trimming or merging tasks.
 
 #### ProRes
-High quality file maintaining original resolution. The default ProRes version can be set in the Preset Settings Menu.
+Apple ProRes (yuv422p10) for edit-friendly masters. Includes the first video and audio streams, keeps 24-bit PCM audio, and targets standard ProRes bitrates. The default ProRes profile can be chosen in Preset Settings.
 
 #### Proxy
-Make edit proxies in ProRes Proxy, DNxHR, or HEVC. Tips: Useful if combined with the option to export in a "Proxy" sub-folder next to originals.
+Lightweight proxy creation in HEVC, ProRes Proxy, or DNxHR with configurable resolution limits. Retains every audio channel as uncompressed PCM, which is ideal for offline editing and pairing with a dedicated Proxy sub-folder next to the source material.
 
 #### Animated Stills
-Option to chose between AVIF, GIF and Animated PNG.
-
-#### HEVC Proxy 1080p
-Compact proxy file format, 10-bit 4:2:0, can be used fast file sharing
+Animated still sequence built as GIF, AVIF, or animated PNG (APNG), selectable from the Preset Settings menu.
 
 #### Audio Only AAC
-Extract a small stereo audio file from video
+Stereo down-mix AAC file that keeps stereo spacing while drastically reducing file size.
 
 #### Audio Only WAV
-Extract uncompressed audio from video, keeping all audio channels
+Uncompressed WAV export that retains every audio channel wherever possible.
 
 #### 10 Custom FFMPEG presets
-If you don't like my presets you can make your own and give them a name. There is a toggle to apply crop and audio routing, but -copy won't work with those features.
+Ten custom presets (C1–C10) let you supply your own output arguments, suffixes, and extensions. Input parameters are handled for you, but note that -copy paths cannot combine with the crop or audio-routing toggles that live in Preset Settings.
 
 
 

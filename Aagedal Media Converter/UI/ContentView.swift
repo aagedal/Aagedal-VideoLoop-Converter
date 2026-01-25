@@ -57,6 +57,8 @@ struct ContentView: View {
             refreshExpectedOutputURLs(for: selectedPreset)
         }
     }
+    @AppStorage(AppConstants.downloadFolderKey) private var downloadFolder = AppConstants.defaultDownloadDirectory.path
+
     @State private var isConverting: Bool = false
     @State private var overallProgress: Double = 0.0
     @State private var isFileImporterPresented = false
@@ -110,6 +112,12 @@ struct ContentView: View {
         presetManager.visiblePresets
     }
 
+    private var downloadFolderURL: URL {
+        let url = URL(fileURLWithPath: downloadFolder)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     private var fileListView: some View {
         VideoFileListView(
             droppedFiles: $droppedFiles,
@@ -159,7 +167,7 @@ struct ContentView: View {
                 }
             },
             onURLDrop: { urlString in
-                handleURLDownload(urlString)
+                handleURLDownload(urlString, liveFromStart: false)
             },
             onRenameOutputFileName: { id, newName in
                 handleOutputFileNameOverride(itemID: id, newName: newName)
@@ -175,21 +183,14 @@ struct ContentView: View {
 
         for item in itemsToRemove {
             if item.isDownloading {
-                Task { await DownloadManager.shared.cancelDownload(itemID: item.id) }
+                DownloadManager.shared.cancelDownload(itemID: item.id)
             } else if let _ = item.scheduledDownloadTime {
                 ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
             }
         }
 
-        // Clean up cache for removed items
-        for index in indexSet {
-            if index < droppedFiles.count {
-                let fileURL = droppedFiles[index].url
-                Task {
-                    await PreviewAssetGenerator.shared.cleanupAssets(for: fileURL)
-                }
-            }
-        }
+        // Note: Cache cleanup is handled by the user's cleanup policy (on app launch or manually)
+        // We don't delete cache immediately when files are removed, allowing re-import to reuse cached assets
         droppedFiles.remove(atOffsets: indexSet)
     }
 
@@ -313,11 +314,11 @@ struct ContentView: View {
             if showURLInputOverlay {
                 URLInputOverlay(
                     isPresented: $showURLInputOverlay,
-                    onSubmit: { urlString in
-                        handleURLDownload(urlString)
+                    onSubmit: { urlString, liveFromStart in
+                        handleURLDownload(urlString, liveFromStart: liveFromStart)
                     },
-                    onSchedule: { urlString, scheduledDate in
-                        handleScheduledDownload(urlString, at: scheduledDate)
+                    onSchedule: { urlString, scheduledDate, liveFromStart in
+                        handleScheduledDownload(urlString, at: scheduledDate, liveFromStart: liveFromStart)
                     }
                 )
             }
@@ -333,7 +334,7 @@ struct ContentView: View {
     }
 
     /// Handles URL download from the overlay
-    private func handleURLDownload(_ urlString: String) {
+    private func handleURLDownload(_ urlString: String, liveFromStart: Bool) {
         Task {
             // Check if yt-dlp is configured
             guard await DownloadManager.shared.isYTDLPConfigured() else {
@@ -344,19 +345,21 @@ struct ContentView: View {
             await DownloadManager.shared.startDownload(
                 url: urlString,
                 items: $droppedFiles,
-                outputFolder: currentOutputFolder
+                outputFolder: downloadFolderURL,
+                liveFromStart: liveFromStart
             )
         }
     }
 
     /// Handles scheduling a download for later
-    private func handleScheduledDownload(_ urlString: String, at date: Date) {
+    private func handleScheduledDownload(_ urlString: String, at date: Date, liveFromStart: Bool) {
         Task {
             await DownloadManager.shared.scheduleDownload(
                 url: urlString,
                 at: date,
                 items: $droppedFiles,
-                outputFolder: currentOutputFolder
+                outputFolder: downloadFolderURL,
+                liveFromStart: liveFromStart
             )
         }
     }
@@ -365,7 +368,7 @@ struct ContentView: View {
     private func setupScheduledDownloads() {
         // Store references in DownloadManager so scheduled downloads can access them
         DownloadManager.shared.videoItems = $droppedFiles
-        DownloadManager.shared.outputFolder = currentOutputFolder
+        DownloadManager.shared.outputFolder = downloadFolderURL
 
         // Store references in UploadManager for upload functionality
         UploadManager.shared.videoItems = $droppedFiles
@@ -994,12 +997,8 @@ struct ContentView: View {
             }
         }
 
-        for file in droppedFiles {
-            Task {
-                await PreviewAssetGenerator.shared.cleanupAssets(for: file.url)
-            }
-        }
-
+        // Note: Cache cleanup is handled by the user's cleanup policy (on app launch or manually)
+        // We don't delete cache immediately when files are removed, allowing re-import to reuse cached assets
         droppedFiles.removeAll()
         overallProgress = 0.0
         dockProgressUpdater.reset()
@@ -1430,8 +1429,6 @@ private struct ContentViewChangeHandlers: ViewModifier {
         } else {
             refreshExpectedOutputURLs(selectedPreset)
         }
-        // Keep DownloadManager in sync for scheduled downloads
-        DownloadManager.shared.outputFolder = updatedFolderURL
     }
 }
 

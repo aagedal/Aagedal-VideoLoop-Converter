@@ -29,7 +29,8 @@ struct PreviewTrimControls: View {
     @FocusState private var isTimecodeFocused: Bool
 
     var body: some View {
-        let duration = max(item.durationSeconds, 0)
+        // Use controller's effectiveDuration which falls back to player duration if metadata isn't loaded yet
+        let duration = max(controller.effectiveDuration, item.durationSeconds, 0)
         let isCompactMode = isCropControlsExpanded
         return VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 6) {

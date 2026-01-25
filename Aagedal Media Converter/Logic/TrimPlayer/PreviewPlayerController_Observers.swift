@@ -33,6 +33,7 @@ extension PreviewPlayerController {
     }
     
     func handlePlaybackEnded() {
+        playbackDidFinish?()
         guard videoItem.loopPlayback, let player else { return }
         let target = CMTime(seconds: videoItem.effectiveTrimStart, preferredTimescale: 600)
         player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { _ in

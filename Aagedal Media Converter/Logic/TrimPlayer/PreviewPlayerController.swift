@@ -81,6 +81,7 @@ final class PreviewPlayerController: ObservableObject {
     var previewAssetTask: Task<Void, Never>?
     private var previewAssetURL: URL?  // Track URL being processed to avoid redundant cancellation
     var loopObserver: Any?
+    var playbackDidFinish: (() -> Void)?
     var timeObserver: Any?
     var playbackTimeObserver: Any?
     var audioSyncObserver: Any?
@@ -88,6 +89,7 @@ final class PreviewPlayerController: ObservableObject {
     weak var playbackTimeObserverOwner: AVPlayer?
     weak var audioSyncObserverOwner: AVPlayer?
     var playerItemStatusObserver: Any?
+    var mpvEndObserver: AnyCancellable?
     var hasSecurityScope = false
     weak var playerView: AVPlayerView?
     var selectedAudioTrackOrderIndex: Int = 0
@@ -97,12 +99,31 @@ final class PreviewPlayerController: ObservableObject {
     // UniversalAudioMeterService is defined below in Audio Metering section
     
     // MARK: - MPV State
-    var mpvPlayer: MPVPlayer?
-    var useMPV = false
+    @Published var mpvPlayer: MPVPlayer?
+    @Published var useMPV = false
 
     // MARK: - Initialization
     
     var playbackTimePublisher: Published<Double>.Publisher { $currentPlaybackTime }
+
+    /// Returns the effective duration, preferring video item metadata but falling back to player duration
+    /// This allows the timeline to be interactive even before metadata loads
+    var effectiveDuration: Double {
+        // First try the video item's duration (from metadata)
+        if videoItem.durationSeconds > 0 {
+            return videoItem.durationSeconds
+        }
+        // Fall back to MPV player's duration if available
+        if let mpvDuration = mpvPlayer?.duration, mpvDuration > 0 {
+            return mpvDuration
+        }
+        // Fall back to AVPlayer's duration if available
+        if let playerDuration = player?.currentItem?.duration.seconds,
+           playerDuration.isFinite && playerDuration > 0 {
+            return playerDuration
+        }
+        return 0
+    }
 
     init(videoItem: VideoItem) {
         self.videoItem = videoItem
@@ -165,6 +186,17 @@ final class PreviewPlayerController: ObservableObject {
         useMPV = false
 
         let url = videoItem.url
+        let fileExtension = url.pathExtension.lowercased()
+
+        // Force MPV for container formats that AVPlayer doesn't support well
+        // MKV, WebM, AVI, FLV etc. often fail silently with AVPlayer
+        let avPlayerUnsupportedContainers = ["mkv", "webm", "avi", "flv", "wmv", "ogv", "ts", "mts", "m2ts"]
+        if avPlayerUnsupportedContainers.contains(fileExtension) {
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+                .info("Using MPV for \(fileExtension.uppercased()) container: \(url.lastPathComponent)")
+            setupMPV(url: url, startTime: startTime)
+            return
+        }
 
         // Force MPV for surround audio files - but not for ProRes
         // ProRes handles surround audio correctly, other codecs (HEVC, H.264) may have silent audio
@@ -223,6 +255,16 @@ final class PreviewPlayerController: ObservableObject {
         self.mpvPlayer = mpv
         self.useMPV = true
         self.isPreparing = false
+
+        mpvEndObserver?.cancel()
+        mpvEndObserver = mpv.$reachedEnd
+            .removeDuplicates()
+            .sink { [weak self] reached in
+                guard reached else { return }
+                Task { @MainActor in
+                    self?.playbackDidFinish?()
+                }
+            }
 
         // Apply volume/mute state before loading
         mpv.volume = volume
@@ -841,6 +883,8 @@ final class PreviewPlayerController: ObservableObject {
             mpv.stop()
             mpvPlayer = nil
         }
+        mpvEndObserver?.cancel()
+        mpvEndObserver = nil
         useMPV = false
 
         isPreparing = false
@@ -864,6 +908,8 @@ final class PreviewPlayerController: ObservableObject {
 
         // Stop audio monitoring
         isAudioMeterEnabled = false
+
+        playbackDidFinish = nil
     }
     
     // MARK: - Playback Control
@@ -894,8 +940,8 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func seekTo(_ time: Double) {
-        // Ignore if player is not ready yet
-        guard isReady else { return }
+        // Allow seeking even before player is fully ready - seeks will queue up
+        // This enables scrubbing the timeline while player is still loading
 
         // Update playback time immediately for UI responsiveness
         currentPlaybackTime = time

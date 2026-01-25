@@ -10,15 +10,26 @@
 import Foundation
 
 enum AppConstants {
-    // Default output directory
+    // Default output directory for encoded exports
     static let defaultOutputDirectory: URL = {
         let defaultDir = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
             .appendingPathComponent("VideoLoopExports")
-        
+
         // Create the directory if it doesn't exist
         try? FileManager.default.createDirectory(at: defaultDir, withIntermediateDirectories: true)
         return defaultDir
     }()
+
+    // Default download directory (Downloads)
+    static let defaultDownloadDirectory: URL = {
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        let fallback = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
+        let directory = downloads ?? fallback
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }()
+
+    static let downloadFolderKey = "downloadFolder"
 
     static let defaultScreenshotDirectory: URL = {
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
@@ -465,6 +476,7 @@ enum AppConstants {
 
     // yt-dlp authentication
     static let ytdlpCookiesBrowserKey = "ytdlpCookiesBrowser"
+    static let ytdlpLiveFromStartKey = "ytdlpLiveFromStart"
 
     // MARK: - Upload Settings
 

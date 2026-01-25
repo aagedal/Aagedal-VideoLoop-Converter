@@ -7,14 +7,15 @@ import SwiftUI
 /// Overlay for entering a URL to download via yt-dlp
 struct URLInputOverlay: View {
     @Binding var isPresented: Bool
-    var onSubmit: (String) -> Void
-    var onSchedule: ((String, Date) -> Void)?
+    var onSubmit: (String, Bool) -> Void
+    var onSchedule: ((String, Date, Bool) -> Void)?
 
     @State private var urlText = ""
     @State private var history: [DownloadHistoryEntry] = []
     @State private var isScheduled = false
     @State private var scheduledDate = Self.defaultScheduleDate()
     @FocusState private var isTextFieldFocused: Bool
+    @AppStorage(AppConstants.ytdlpLiveFromStartKey) private var downloadLiveFromStart = false
 
     /// Returns a default schedule date: 2 minutes from now, rounded to the next full minute
     private static func defaultScheduleDate() -> Date {
@@ -127,6 +128,30 @@ struct URLInputOverlay: View {
                     }
                 }
 
+                HStack(spacing: 8) {
+                    Button {
+                        downloadLiveFromStart.toggle()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: downloadLiveFromStart ? "backward.end.fill" : "backward.end")
+                                .font(.system(size: 14, weight: .medium))
+                            Text("Record from start")
+                                .font(.subheadline)
+                        }
+                        .foregroundColor(downloadLiveFromStart ? .white : .secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(downloadLiveFromStart ? Color.accentColor : Color.gray.opacity(0.15))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("When enabled, yt-dlp will rewind live streams to the beginning before recording")
+
+                    Spacer()
+                }
+
                 // History section
                 if !history.isEmpty {
                     Divider()
@@ -212,16 +237,16 @@ struct URLInputOverlay: View {
             let calendar = Calendar.current
             let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: scheduledDate)
             let roundedDate = calendar.date(from: components) ?? scheduledDate
-            onSchedule(trimmed, roundedDate)
+            onSchedule(trimmed, roundedDate, downloadLiveFromStart)
         } else {
-            onSubmit(trimmed)
+            onSubmit(trimmed, downloadLiveFromStart)
         }
         isPresented = false
     }
 }
 
 #Preview {
-    URLInputOverlay(isPresented: .constant(true)) { url in
-        print("Download: \(url)")
+    URLInputOverlay(isPresented: .constant(true)) { url, liveFromStart in
+        print("Download: \(url), liveFromStart: \(liveFromStart)")
     }
 }

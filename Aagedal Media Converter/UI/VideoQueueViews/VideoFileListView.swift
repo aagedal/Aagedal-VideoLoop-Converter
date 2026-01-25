@@ -824,7 +824,10 @@ struct VideoFileListView: View {
                 onReset(index, optionKeyPressed)
             },
             onCancelDownload: {
-                Task { await DownloadManager.shared.cancelDownload(itemID: file.wrappedValue.id) }
+                DownloadManager.shared.cancelDownload(itemID: file.wrappedValue.id)
+            },
+            onStopLiveRecording: {
+                DownloadManager.shared.stopLiveDownload(itemID: file.wrappedValue.id)
             },
             onRetryDownload: {
                 Task { await DownloadManager.shared.retryDownload(itemID: file.wrappedValue.id) }

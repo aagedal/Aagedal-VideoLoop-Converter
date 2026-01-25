@@ -1343,25 +1343,11 @@ actor PreviewAssetGenerator {
     }
 
     private func hasVideoStream(for url: URL) async -> Bool {
-        let asset = AVURLAsset(url: url)
-        do {
-            let tracks = try await asset.loadTracks(withMediaType: .video)
-            if !tracks.isEmpty {
-                return true
-            }
-        } catch {
-            logger.debug("AVFoundation failed to inspect video tracks for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to FFprobe.")
-        }
-
-        // Fallback to FFprobe via VideoMetadataService for formats AVFoundation struggles with
-        if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
-            let hasVideo = !metadata.videoStreams.isEmpty
-            logger.debug("FFprobe detected video stream: \(hasVideo) for \(url.lastPathComponent, privacy: .public)")
-            return hasVideo
-        }
-        
-        logger.warning("Both AVFoundation and FFprobe failed to determine video stream presence for \(url.lastPathComponent, privacy: .public)")
-        return false
+        // Use VideoMetadataService's fast hasVideoStream check which uses -read_intervals
+        // This is fast even for very large files (50+ GB) and results are cached
+        let hasVideo = await VideoMetadataService.shared.hasVideoStream(for: url)
+        logger.debug("hasVideoStream for \(url.lastPathComponent, privacy: .public): \(hasVideo)")
+        return hasVideo
     }
 
     private func makeAudioWaveformRequest(for url: URL) -> WaveformVideoRequest {

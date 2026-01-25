@@ -97,17 +97,19 @@ struct PreviewPlayerView: View {
                 return
             }
 
-            // Ensure metadata is loaded before preparing preview
-            Task {
-                if item.metadata == nil {
+            // Prepare preview IMMEDIATELY - don't wait for metadata
+            controller.preparePreview(startTime: item.effectiveTrimStart)
+
+            // Fetch metadata in background (non-blocking) - only if needed
+            if item.metadata == nil {
+                Task {
                     if let metadata = await VideoFileUtils.fetchMetadata(for: item.url) {
                         await MainActor.run {
                             item.metadata = metadata
+                            // Update controller with new metadata if still relevant
+                            controller.updateVideoItem(item)
                         }
                     }
-                }
-                await MainActor.run {
-                    controller.preparePreview(startTime: item.effectiveTrimStart)
                 }
             }
         }

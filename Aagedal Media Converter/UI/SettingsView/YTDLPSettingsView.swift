@@ -2,10 +2,27 @@
 // Copyright 2025 Truls Aagedal
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct YTDLPSettingsView: View {
+    private struct BrowserOption: Hashable {
+        let label: String
+        let value: String
+    }
+
+    private let cookieBrowserOptions: [BrowserOption] = [
+        .init(label: "Safari", value: "safari"),
+        .init(label: "Chrome", value: "chrome"),
+        .init(label: "Chromium", value: "chromium"),
+        .init(label: "Edge", value: "edge"),
+        .init(label: "Brave", value: "brave"),
+        .init(label: "Firefox", value: "firefox"),
+        .init(label: "Opera", value: "opera"),
+        .init(label: "Vivaldi", value: "vivaldi"),
+        .init(label: "Whale", value: "whale")
+    ]
     @State private var ytdlpVersion: String?
     @State private var denoVersion: String?
     @State private var ffmpegVersion: String?
@@ -33,9 +50,11 @@ struct YTDLPSettingsView: View {
     @AppStorage(AppConstants.autoEncodeAfterDownloadKey) private var autoEncodeAfterDownload = false
     @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
     @AppStorage(AppConstants.ytdlpCookiesBrowserKey) private var cookiesBrowser = ""
+    @AppStorage(AppConstants.downloadFolderKey) private var downloadFolder = AppConstants.defaultDownloadDirectory.path
 
     var body: some View {
         Form {
+            downloadDirectorySection
             ytdlpSection
             denoSection
             authenticationSection
@@ -578,23 +597,20 @@ struct YTDLPSettingsView: View {
                     Picker("", selection: $cookiesBrowser) {
                         Text("None").tag("")
                         Divider()
-                        Text("Safari").tag("safari")
-                        Text("Chrome").tag("chrome")
-                        Text("Firefox").tag("firefox")
-                        Text("Edge").tag("edge")
-                        Text("Brave").tag("brave")
-                        Text("Opera").tag("opera")
-                        Text("Vivaldi").tag("vivaldi")
+                        ForEach(cookieBrowserOptions, id: \.value) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
                     .labelsHidden()
                     .frame(width: 150)
                 }
 
                 if !cookiesBrowser.isEmpty {
+                    let friendlyBrowserName = browserLabel(for: cookiesBrowser)
                     HStack(spacing: 4) {
                         Image(systemName: "info.circle")
                             .foregroundColor(.blue)
-                        Text("yt-dlp will extract cookies from \(cookiesBrowser.capitalized) when downloading.")
+                        Text("yt-dlp will extract cookies from \(friendlyBrowserName) when downloading.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -637,6 +653,45 @@ struct YTDLPSettingsView: View {
                         Text("Upload not configured")
                             .font(.caption)
                             .foregroundColor(.orange)
+                    }
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    private var downloadDirectorySection: some View {
+        Section(header: Text("Download Folder")) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Downloads from yt-dlp are saved here before conversion.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(downloadFolder)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(downloadFolder)
+                        Button("Reveal in Finder") {
+                            let url = URL(fileURLWithPath: downloadFolder)
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption2)
+                    }
+                    Spacer()
+                    VStack(spacing: 6) {
+                        Button("Select Folder…") {
+                            chooseDownloadFolder()
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button("Use default") {
+                            downloadFolder = AppConstants.defaultDownloadDirectory.path
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
             }
@@ -895,6 +950,18 @@ struct YTDLPSettingsView: View {
         }
     }
 
+    private func chooseDownloadFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Select Folder"
+        panel.directoryURL = URL(fileURLWithPath: downloadFolder)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        downloadFolder = url.path
+    }
+
     private func defaultYTDLPSourceSelection() -> BinarySourceSelection {
         if let customPath = YTDLPUpdateService.shared.getCustomPath(),
            fileExists(at: customPath) {
@@ -943,6 +1010,10 @@ struct YTDLPSettingsView: View {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         return FileManager.default.fileExists(atPath: trimmed)
+    }
+
+    private func browserLabel(for value: String) -> String {
+        cookieBrowserOptions.first { $0.value == value }?.label ?? value.capitalized
     }
 
     private func selectBinary(for type: BinaryType) {

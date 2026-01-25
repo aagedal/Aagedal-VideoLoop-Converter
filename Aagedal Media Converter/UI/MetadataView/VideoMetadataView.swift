@@ -212,6 +212,8 @@ struct VideoMetadataView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
 
+            verificationLinksView
+
             if isLoadingC2PA {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -274,6 +276,25 @@ struct VideoMetadataView: View {
                 }
             }
         }
+    }
+
+    private var verificationLinksView: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(verificationLinks, id: \.title) { link in
+                Link(link.title, destination: link.url)
+                    .font(.subheadline)
+                    .foregroundColor(.accentColor)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var verificationLinks: [(title: String, url: URL)] {
+        [
+            ("Content Credentials Verification", URL(string: "https://verify.contentauthenticity.org/")!),
+            ("Adobe Content Authenticity Inspector", URL(string: "https://contentauthenticity.adobe.com/inspect")!),
+            ("Sony Self Checker", URL(string: "https://digitalsignatureself-checker.authenticity.sony.net")!)
+        ]
     }
 
     @ViewBuilder

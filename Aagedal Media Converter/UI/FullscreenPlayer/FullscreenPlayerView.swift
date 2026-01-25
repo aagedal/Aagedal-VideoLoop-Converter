@@ -18,6 +18,10 @@ struct FullscreenPlayerView: View {
     let onTimecodeDisplayModeChanged: ((TimecodeDisplayMode) -> Void)?
     let canGoToPrevious: Bool
     let canGoToNext: Bool
+    let onToggleQueueAutoAdvance: () -> Void
+    let onToggleQueueLoop: () -> Void
+    let onPlaybackDidFinish: () -> Void
+    let autoPlayOnReady: Bool
     let startTime: Double?
 
     @StateObject private var controller: PreviewPlayerController
@@ -29,6 +33,7 @@ struct FullscreenPlayerView: View {
     @State private var isHoveringRightEdge = false
     @State private var overlayHideTask: Task<Void, Never>?
     @State private var isDraggingTimeline = false
+    @State private var waveformSamples: [CGFloat] = []
 
     // Timecode display state
     @State private var timecodeDisplayMode: TimecodeDisplayMode
@@ -37,8 +42,13 @@ struct FullscreenPlayerView: View {
     @State private var timecodeJustActivated = false
     @State private var pendingTimecodeCharacter: String?
     @FocusState private var isTimecodeFocused: Bool
+    @State private var queueAutoAdvanceState: Bool
+    @State private var queueLoopState: Bool
+    @State private var autoAdvanceTriggered = false
+    @State private var autoPlayPending = false
 
     private let rightEdgeWidth: CGFloat = 60
+    private let maxWaveformSamples = AudioVisualizer.maxSampleCount
 
     init(
         item: VideoItem,
@@ -52,7 +62,13 @@ struct FullscreenPlayerView: View {
         onOverlayVisibilityChanged: ((Bool) -> Void)? = nil,
         onTimecodeDisplayModeChanged: ((TimecodeDisplayMode) -> Void)? = nil,
         canGoToPrevious: Bool = false,
-        canGoToNext: Bool = false
+        canGoToNext: Bool = false,
+        queueAutoAdvanceEnabled: Bool = false,
+        queueLoopEnabled: Bool = false,
+        onToggleQueueAutoAdvance: @escaping () -> Void = {},
+        onToggleQueueLoop: @escaping () -> Void = {},
+        onPlaybackDidFinish: @escaping () -> Void = {},
+        autoPlayOnReady: Bool = false
     ) {
         self.item = item
         self.onClose = onClose
@@ -63,12 +79,19 @@ struct FullscreenPlayerView: View {
         self.onTimecodeDisplayModeChanged = onTimecodeDisplayModeChanged
         self.canGoToPrevious = canGoToPrevious
         self.canGoToNext = canGoToNext
+        self.onToggleQueueAutoAdvance = onToggleQueueAutoAdvance
+        self.onToggleQueueLoop = onToggleQueueLoop
+        self.onPlaybackDidFinish = onPlaybackDidFinish
         self.startTime = startTime
         self._itemState = State(initialValue: item)
         self._controller = StateObject(wrappedValue: PreviewPlayerController(videoItem: item))
         self._showOverlay = State(initialValue: !initialOverlayHidden)
         self._isMouseIdle = State(initialValue: initialOverlayHidden)
         self._timecodeDisplayMode = State(initialValue: initialTimecodeDisplayMode)
+        self._queueAutoAdvanceState = State(initialValue: queueAutoAdvanceEnabled)
+        self._queueLoopState = State(initialValue: queueLoopEnabled)
+        self.autoPlayOnReady = autoPlayOnReady
+        self._autoPlayPending = State(initialValue: autoPlayOnReady)
     }
     
     private var aspectRatio: CGFloat {
@@ -208,7 +231,25 @@ struct FullscreenPlayerView: View {
                 isEditingTimecode: isEditingTimecode
             )
         )
+        .onReceive(controller.playbackTimePublisher) { time in
+            handleAutoAdvanceProximity(time)
+        }
+        .onReceive(controller.$audioLevels) { levels in
+            guard !itemState.hasVideoStream else { return }
+            guard let levels else { return }
+            appendWaveformSample(from: levels)
+        }
+        .onChange(of: controller.isReady) { isReady, _ in
+            guard isReady, autoPlayPending else { return }
+            if !isPlaybackActive {
+                controller.togglePlayback()
+            }
+            autoPlayPending = false
+        }
         .onAppear {
+            updateAudioMeterState(for: itemState.hasVideoStream)
+            autoAdvanceTriggered = false
+            controller.playbackDidFinish = onPlaybackDidFinish
             // Schedule overlay hide if it's currently visible
             if showOverlay {
                 scheduleOverlayHide()
@@ -217,25 +258,30 @@ struct FullscreenPlayerView: View {
             // Capture startTime immediately on appear to avoid any SwiftUI state issues
             let capturedStartTime = startTime
 
-            Task {
-                if itemState.metadata == nil {
+            // Prepare preview IMMEDIATELY - don't wait for metadata
+            controller.updateVideoItem(itemState)
+            let initialTime = capturedStartTime ?? itemState.effectiveTrimStart
+            NSLog("FullscreenPlayerView: startTime=\(String(describing: capturedStartTime)), effectiveTrimStart=\(itemState.effectiveTrimStart), using initialTime=\(initialTime)")
+            controller.preparePreview(startTime: initialTime)
+
+            // Fetch metadata in background (non-blocking) - only if needed
+            if itemState.metadata == nil {
+                Task {
                     if let metadata = await VideoFileUtils.fetchMetadata(for: itemState.url) {
                         await MainActor.run {
                             itemState.metadata = metadata
+                            // Update controller with new metadata if still relevant
+                            controller.updateVideoItem(itemState)
                         }
                     }
                 }
-
-                await MainActor.run {
-                    controller.updateVideoItem(itemState)
-                    // Use provided startTime if available, otherwise fall back to effectiveTrimStart
-                    let initialTime = capturedStartTime ?? itemState.effectiveTrimStart
-                    NSLog("FullscreenPlayerView: startTime=\(String(describing: capturedStartTime)), effectiveTrimStart=\(itemState.effectiveTrimStart), using initialTime=\(initialTime)")
-                    controller.preparePreview(startTime: initialTime)
-                }
             }
         }
+        .onChange(of: itemState.hasVideoStream) { _, hasVideo in
+            updateAudioMeterState(for: hasVideo)
+        }
         .onDisappear {
+            controller.playbackDidFinish = nil
             overlayHideTask?.cancel()
             overlayHideTask = nil
 
@@ -249,16 +295,81 @@ struct FullscreenPlayerView: View {
         }
     }
     
+    private func handleAutoAdvanceProximity(_ currentTime: Double) {
+        guard queueAutoAdvanceState else {
+            autoAdvanceTriggered = false
+            return
+        }
+
+        guard isPlaybackActive else { return }
+        let duration = observedDuration
+        guard duration > 0 else { return }
+
+        let threshold = max(0, duration - 0.03)
+        if currentTime >= threshold && !autoAdvanceTriggered {
+            autoAdvanceTriggered = true
+            onPlaybackDidFinish()
+        } else if currentTime < threshold {
+            autoAdvanceTriggered = false
+        }
+    }
+
+    private var observedDuration: Double {
+        // Prefer item's metadata duration, but fall back to player duration if not available yet
+        if itemState.durationSeconds > 0 {
+            return itemState.durationSeconds
+        }
+        // Try MPV player duration
+        if let mpvDuration = controller.mpvPlayer?.duration, mpvDuration > 0 {
+            return mpvDuration
+        }
+        // Try AVPlayer duration
+        if let avDuration = controller.player?.currentItem?.duration.seconds,
+           avDuration.isFinite && avDuration > 0 {
+            return avDuration
+        }
+        return 0
+    }
+
+    private func appendWaveformSample(from levels: UniversalAudioMeterService.AudioLevels) {
+        let dB = max(levels.leftChannel, levels.rightChannel, levels.peak)
+        let normalized = AudioVisualizer.normalizedLevel(from: dB)
+        waveformSamples.append(normalized)
+        if waveformSamples.count > maxWaveformSamples {
+            waveformSamples.removeFirst(waveformSamples.count - maxWaveformSamples)
+        }
+    }
+
+    private func updateAudioMeterState(for hasVideoStream: Bool) {
+        let shouldEnable = !hasVideoStream
+        if controller.isAudioMeterEnabled != shouldEnable {
+            controller.isAudioMeterEnabled = shouldEnable
+        }
+        if hasVideoStream && !waveformSamples.isEmpty {
+            waveformSamples = []
+        }
+    }
+
     // MARK: - Video Content
 
     @ViewBuilder
     private var videoContent: some View {
-        if let player = controller.player {
-            FullscreenAVPlayerView(player: player)
-        } else if controller.useMPV, let mpvPlayer = controller.mpvPlayer {
-            FullscreenMPVView(player: mpvPlayer)
-        } else {
-            Color.black
+        ZStack {
+            if !itemState.hasVideoStream {
+                AudioVisualizerView(samples: waveformSamples)
+            }
+
+            if let player = controller.player {
+                FullscreenAVPlayerView(player: player)
+                    .opacity(itemState.hasVideoStream ? 1 : 0.001)
+            } else if controller.useMPV, let mpvPlayer = controller.mpvPlayer {
+                FullscreenMPVView(player: mpvPlayer)
+                    .opacity(itemState.hasVideoStream ? 1 : 0.001)
+            } else if itemState.hasVideoStream {
+                Color.black
+            } else {
+                Color.clear
+            }
         }
     }
     
@@ -342,10 +453,12 @@ struct FullscreenPlayerView: View {
             // Timeline slider
             timelineSlider
 
+            queueToggleRow
+
             // Playback controls
             HStack(spacing: 24) {
                 let currentTime = controller.currentPlaybackTime
-                let duration = max(itemState.durationSeconds, 0)
+                let duration = observedDuration
 
                 // Timecode display with mode prefix
                 timecodeDisplay(for: currentTime)
@@ -481,10 +594,8 @@ struct FullscreenPlayerView: View {
     
     private var timelineSlider: some View {
         GeometryReader { geo in
-            // Use itemState duration, falling back to MPV player duration if available
-            let duration = itemState.durationSeconds > 0
-                ? itemState.durationSeconds
-                : (controller.mpvPlayer?.duration ?? 0)
+            // Use observedDuration which includes MPV fallback
+            let duration = observedDuration
             let progress = duration > 0 ? controller.currentPlaybackTime / duration : 0
             
             ZStack(alignment: .leading) {
@@ -520,7 +631,69 @@ struct FullscreenPlayerView: View {
         }
         .frame(height: 14)
     }
-    
+
+    private var queueToggleRow: some View {
+        HStack(spacing: 12) {
+            queueToggleButton(
+                icon: "arrow.right.circle",
+                title: "Auto Next",
+                isOn: queueAutoAdvanceState,
+                isDisabled: false,
+                action: toggleQueueAutoAdvance
+            )
+
+            queueToggleButton(
+                icon: "repeat",
+                title: "Loop Queue",
+                isOn: queueLoopState,
+                isDisabled: !queueAutoAdvanceState,
+                action: toggleQueueLoop
+            )
+
+            Spacer()
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .frame(maxWidth: 1200)
+    }
+
+    private func queueToggleButton(icon: String, title: String, isOn: Bool, isDisabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(title)
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(isOn ? 0.25 : 0.08))
+                    .overlay(
+                        Capsule()
+                            .stroke(Color.white.opacity(isOn ? 0.9 : 0.55), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.45 : 1)
+    }
+
+    private func toggleQueueAutoAdvance() {
+        queueAutoAdvanceState.toggle()
+        if !queueAutoAdvanceState {
+            autoAdvanceTriggered = false
+            autoPlayPending = false
+        }
+        onToggleQueueAutoAdvance()
+    }
+
+    private func toggleQueueLoop() {
+        queueLoopState.toggle()
+        onToggleQueueLoop()
+    }
+
     // MARK: - Loading & Error Overlays
     
     private var loadingOverlay: some View {
@@ -572,7 +745,9 @@ struct FullscreenPlayerView: View {
 
     private var isPlaybackActive: Bool {
         if controller.isReverseSimulating { return true }
-        if controller.useMPV { return controller.mpvPlayer?.isPlaying ?? false }
+        if controller.useMPV, let mpv = controller.mpvPlayer {
+            return mpv.isPlaying || mpv.reachedEnd
+        }
         return (controller.player?.rate ?? 0) != 0
     }
 
