@@ -991,7 +991,7 @@ struct ContentView: View {
 
         for item in droppedFiles {
             if item.isDownloading {
-                Task { await DownloadManager.shared.cancelDownload(itemID: item.id) }
+                DownloadManager.shared.cancelDownload(itemID: item.id)
             } else if let _ = item.scheduledDownloadTime {
                 ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
             }
