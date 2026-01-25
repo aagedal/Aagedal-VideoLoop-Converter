@@ -232,8 +232,58 @@ struct YTDLPSettingsView: View {
                         .foregroundColor(.red)
                 }
 
+                // Show performance tip when using app-downloaded binary
+                if selectedYTDLPSource == .app && ytdlpStatus == .configured {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "hare.fill")
+                                .foregroundColor(.orange)
+                            Text("The app-downloaded yt-dlp has slower startup (~20-30 seconds). For faster downloads, install via Homebrew.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+
+                        DisclosureGroup("Install Homebrew version for faster startup") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("1. Run this command in Terminal:")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                HStack {
+                                    Text("brew install yt-dlp")
+                                        .font(.system(.body, design: .monospaced))
+                                        .padding(8)
+                                        .background(Color(nsColor: .textBackgroundColor))
+                                        .cornerRadius(6)
+
+                                    Button {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString("brew install yt-dlp", forType: .string)
+                                    } label: {
+                                        Image(systemName: "doc.on.doc")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .help("Copy to clipboard")
+                                }
+
+                                Text("2. After installing, select \"Homebrew\" above as the source.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                Link("Don't have Homebrew? Install it first", destination: URL(string: "https://brew.sh")!)
+                                    .font(.caption)
+                            }
+                            .padding(.top, 4)
+                        }
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                    }
+                }
+
                 if case .homebrewAvailable = installationStatus {
-                    Text("Tip: Homebrew yt-dlp may start downloads slightly faster. Use the Homebrew binary if it is installed.")
+                    Text("Tip: You have Homebrew yt-dlp installed. Select \"Homebrew\" above for faster download startup.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -272,12 +322,24 @@ struct YTDLPSettingsView: View {
                     }
                 }
 
-                // Alternative install info (Homebrew)
-                if ytdlpStatus == .notAvailable {
+                // Alternative install info (Homebrew) - shown when yt-dlp not installed
+                if ytdlpStatus == .notAvailable && selectedYTDLPSource == .app {
                     Divider()
 
-                    DisclosureGroup("Alternative: Install via Homebrew") {
+                    DisclosureGroup("Alternative: Install via Homebrew (Recommended)") {
                         VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "hare.fill")
+                                    .foregroundColor(.green)
+                                Text("Homebrew yt-dlp starts downloads much faster than the app-downloaded version.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Text("1. Run this command in Terminal:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
                             HStack {
                                 Text("brew install yt-dlp")
                                     .font(.system(.body, design: .monospaced))
@@ -295,11 +357,7 @@ struct YTDLPSettingsView: View {
                                 .help("Copy to clipboard")
                             }
 
-                            Text("After installing, set custom path to: /opt/homebrew/bin/yt-dlp")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                            Text("Homebrew builds can start downloads slightly faster than the auto-downloaded binary.")
+                            Text("2. After installing, select \"Homebrew\" above as the source.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 

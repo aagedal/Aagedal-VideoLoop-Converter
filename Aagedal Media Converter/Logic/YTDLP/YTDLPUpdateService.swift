@@ -476,6 +476,44 @@ actor YTDLPUpdateService {
         return nil
     }
 
+    /// Pre-warms the yt-dlp binary by running it once in the background.
+    /// This is useful for PyInstaller-frozen binaries (darwin_exe) which have slow startup
+    /// due to extracting the embedded Python environment. Running --version once caches
+    /// the extraction, making subsequent runs faster (~6 seconds improvement).
+    /// Only warms up if using the app-downloaded binary (not Homebrew or custom).
+    nonisolated func warmUp() {
+        Task {
+            await _warmUp()
+        }
+    }
+
+    private func _warmUp() {
+        // Only warm up if using the app-downloaded binary
+        guard let selection = selectedYTDLPSource(), selection == .app else {
+            return
+        }
+
+        let downloadedPathString = downloadedPath.path
+        guard FileManager.default.isExecutableFile(atPath: downloadedPathString) else {
+            return
+        }
+
+        logger.debug("Warming up yt-dlp binary...")
+
+        let process = Process()
+        HomebrewPythonExecutor.configureProcess(process, scriptPath: downloadedPathString, arguments: ["--version"])
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            // Don't wait for completion - just starting the process warms up the cache
+            logger.debug("yt-dlp warm-up process started (PID: \(process.processIdentifier))")
+        } catch {
+            logger.warning("Failed to start yt-dlp warm-up: \(error.localizedDescription)")
+        }
+    }
+
     /// Checks GitHub for the latest yt-dlp release version
     func getLatestReleaseVersion() async throws -> (version: String, downloadURL: URL)? {
         guard let url = URL(string: AppConstants.ytdlpGitHubReleasesURL) else {

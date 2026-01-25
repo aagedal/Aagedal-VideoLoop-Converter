@@ -214,6 +214,9 @@ struct URLInputOverlay: View {
             .shadow(radius: 20)
         }
         .onAppear {
+            // Pre-warm yt-dlp binary in background (helps with PyInstaller startup)
+            YTDLPUpdateService.shared.warmUp()
+
             // Load history
             history = DownloadHistoryService.getHistory()
 
