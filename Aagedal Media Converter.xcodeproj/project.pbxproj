@@ -18,12 +18,12 @@
 		69E06BBF03A135EC5011AF14 /* RcloneProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */; };
 		6FEB07F32A610D999000F78C /* mxf2raw in Resources */ = {isa = PBXBuildFile; fileRef = D8EBD41EE1711E209C16F57C /* mxf2raw */; };
 		76BD664F0B33ABE9B21F4135 /* ExifToolService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 795A68DEA8807C90745338E2 /* ExifToolService.swift */; };
+		775BFDA5FA3CD2AB28D8DB57 /* AudioVisualizerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E572B258276C95FCD18159 /* AudioVisualizerView.swift */; };
 		7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */; };
 		8567742F36A93E24233F8006 /* YTDLPProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */; };
 		8D704F6D27B209AE39BB2423 /* UploadSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A560B1F81955A156AB0F1D /* UploadSettingsView.swift */; };
 		8E04BE122ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */; };
 		8E04BE152ED329FA005AD3D8 /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */; };
-		775BFDA5FA3CD2AB28D8DB57 /* AudioVisualizerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E572B258276C95FCD18159 /* AudioVisualizerView.swift */; };
 		8E04BE1B2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */; };
 		8E08B2822EAA2871000148A8 /* WatchFolderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E08B2812EAA2871000148A8 /* WatchFolderManager.swift */; };
 		8E08B2842EAA3BFD000148A8 /* WatchFolderDurationUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E08B2832EAA3BFD000148A8 /* WatchFolderDurationUnit.swift */; };
@@ -185,7 +185,6 @@
 		8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSpeedIndicator.swift; sourceTree = "<group>"; };
 		8E04BE132ED274D7005AD3D8 /* Aagedal-Media-Converter-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Aagedal-Media-Converter-Info.plist"; sourceTree = SOURCE_ROOT; };
 		8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
-		B0E572B258276C95FCD18159 /* AudioVisualizerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioVisualizerView.swift; sourceTree = "<group>"; };
 		8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalAudioMeterService.swift; sourceTree = "<group>"; };
 		8E08B27E2EAA284A000148A8 /* WATCH_FOLDER_FEATURE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = WATCH_FOLDER_FEATURE.md; sourceTree = "<group>"; };
 		8E08B2812EAA2871000148A8 /* WatchFolderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderManager.swift; sourceTree = "<group>"; };
@@ -279,6 +278,7 @@
 		A1B2C3D4E5F60718293A4B5D /* CaptureModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureModeView.swift; sourceTree = "<group>"; };
 		A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelManager.swift; sourceTree = "<group>"; };
 		ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = URLInputOverlay.swift; sourceTree = "<group>"; };
+		B0E572B258276C95FCD18159 /* AudioVisualizerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioVisualizerView.swift; sourceTree = "<group>"; };
 		B1C2D3E4F5061728394A5B6F /* ScreenCaptureSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureSettingsView.swift; sourceTree = "<group>"; };
 		BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneProgressParser.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneProgressParser.swift"; sourceTree = "<group>"; };
 		C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureManager.swift; sourceTree = "<group>"; };
@@ -1845,7 +1845,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.6.0;
+				MARKETING_VERSION = 3.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2506,7 +2506,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.6.0;
+				MARKETING_VERSION = 3.7.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
