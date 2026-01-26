@@ -187,6 +187,7 @@
 		8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
 		8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalAudioMeterService.swift; sourceTree = "<group>"; };
 		8E0556A62F276F0000BCFB49 /* TODO.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = TODO.md; sourceTree = "<group>"; };
+		8E0556A72F27725100BCFB49 /* KeyboardShortcuts.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = KeyboardShortcuts.md; sourceTree = "<group>"; };
 		8E08B27E2EAA284A000148A8 /* WATCH_FOLDER_FEATURE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = WATCH_FOLDER_FEATURE.md; sourceTree = "<group>"; };
 		8E08B2812EAA2871000148A8 /* WatchFolderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderManager.swift; sourceTree = "<group>"; };
 		8E08B2832EAA3BFD000148A8 /* WatchFolderDurationUnit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderDurationUnit.swift; sourceTree = "<group>"; };
@@ -528,6 +529,7 @@
 				8EE6EE972C31FC6B007B629D /* Products */,
 				8E0C32C72E09E58F00F22B21 /* LICENSE */,
 				8E2CA2A52E09AA03008D93F1 /* readme.md */,
+				8E0556A72F27725100BCFB49 /* KeyboardShortcuts.md */,
 				8E0556A62F276F0000BCFB49 /* TODO.md */,
 				8E08B27F2EAA284A000148A8 /* Documentation */,
 				C2B27EE304EA98FE0019804D /* Aagedal Media Converter */,
