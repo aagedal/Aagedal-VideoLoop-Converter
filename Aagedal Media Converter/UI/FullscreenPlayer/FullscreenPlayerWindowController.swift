@@ -425,32 +425,43 @@ final class FullscreenPlayerWindowController {
     
     @MainActor
     private func handlePlaybackDidFinish() {
+        NSLog("📍 handlePlaybackDidFinish called - autoAdvance: \(queueAutoAdvanceEnabled), currentIndex: \(currentIndex), queueCount: \(queue.count)")
+
         guard queueAutoAdvanceEnabled,
               queue.indices.contains(currentIndex) else {
+            NSLog("📍 handlePlaybackDidFinish: returning early (autoAdvance=\(queueAutoAdvanceEnabled), validIndex=\(queue.indices.contains(currentIndex)))")
             return
         }
 
         let currentItem = queue[currentIndex]
-        guard !currentItem.loopPlayback else { return }
+        guard !currentItem.loopPlayback else {
+            NSLog("📍 handlePlaybackDidFinish: returning early (loopPlayback enabled)")
+            return
+        }
 
         // Find next playable item, skipping downloading/recording items
         let nextItem: VideoItem?
         if let nextIndex = findNextPlayableIndex() {
+            NSLog("📍 handlePlaybackDidFinish: found next playable index \(nextIndex)")
             currentIndex = nextIndex
             nextItem = queue[nextIndex]
         } else if queueLoopEnabled {
             // When looping, find first playable item from beginning
             if let firstPlayableIndex = findFirstPlayableIndex() {
+                NSLog("📍 handlePlaybackDidFinish: looping to first playable index \(firstPlayableIndex)")
                 currentIndex = firstPlayableIndex
                 nextItem = queue[firstPlayableIndex]
             } else {
+                NSLog("📍 handlePlaybackDidFinish: no playable items found for loop")
                 nextItem = nil
             }
         } else {
+            NSLog("📍 handlePlaybackDidFinish: no next item and loop disabled")
             nextItem = nil
         }
 
         if let nextItem {
+            NSLog("📍 handlePlaybackDidFinish: advancing to \(nextItem.name)")
             reopenWithItem(nextItem, autoPlayOnReady: true)
         }
     }

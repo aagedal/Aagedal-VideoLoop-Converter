@@ -260,8 +260,11 @@ final class PreviewPlayerController: ObservableObject {
         mpvEndObserver = mpv.$reachedEnd
             .removeDuplicates()
             .sink { [weak self] reached in
+                NSLog("📍 mpvEndObserver: reachedEnd changed to \(reached)")
                 guard reached else { return }
                 Task { @MainActor in
+                    let hasCallback = self?.playbackDidFinish != nil
+                    NSLog("📍 mpvEndObserver: calling playbackDidFinish (callback exists: \(hasCallback))")
                     self?.playbackDidFinish?()
                 }
             }
@@ -909,7 +912,8 @@ final class PreviewPlayerController: ObservableObject {
         // Stop audio monitoring
         isAudioMeterEnabled = false
 
-        playbackDidFinish = nil
+        // NOTE: Do NOT clear playbackDidFinish here - it's owned by the View
+        // and is set before preparePreview() is called. The View clears it in onDisappear.
     }
     
     // MARK: - Playback Control
