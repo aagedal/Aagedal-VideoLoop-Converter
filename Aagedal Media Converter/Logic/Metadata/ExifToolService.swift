@@ -17,10 +17,6 @@ struct C2PAMetadata: Codable, Sendable, Equatable {
     let assertions: [String]?
     let userDescriptiveMetadataName: String?
     let userDescriptiveMetadataContent: String?
-    let deviceManufacturer: String?
-    let deviceModelName: String?
-    let deviceSerialNumber: String?
-    let lensModelName: String?
     let creationDateValue: String?
 
     static let empty = C2PAMetadata(
@@ -34,12 +30,43 @@ struct C2PAMetadata: Codable, Sendable, Equatable {
         assertions: nil,
         userDescriptiveMetadataName: nil,
         userDescriptiveMetadataContent: nil,
+        creationDateValue: nil
+    )
+}
+
+/// Camera metadata from XML (device info, lens, recording settings)
+struct CameraMetadata: Codable, Sendable, Equatable {
+    let deviceManufacturer: String?
+    let deviceModelName: String?
+    let deviceSerialNumber: String?
+    let lensModelName: String?
+    let timeZone: String?
+    let captureGammaEquation: String?
+    let recordingModeType: String?
+    let captureFps: String?
+
+    static let empty = CameraMetadata(
         deviceManufacturer: nil,
         deviceModelName: nil,
         deviceSerialNumber: nil,
         lensModelName: nil,
-        creationDateValue: nil
+        timeZone: nil,
+        captureGammaEquation: nil,
+        recordingModeType: nil,
+        captureFps: nil
     )
+
+    /// Whether any camera metadata fields have values
+    var hasAnyData: Bool {
+        deviceManufacturer != nil ||
+        deviceModelName != nil ||
+        deviceSerialNumber != nil ||
+        lensModelName != nil ||
+        timeZone != nil ||
+        captureGammaEquation != nil ||
+        recordingModeType != nil ||
+        captureFps != nil
+    }
 }
 
 /// Service for extracting metadata using ExifTool
@@ -195,10 +222,6 @@ actor ExifToolService {
             "-JUMBF:all",
             "-XML:UserDescriptiveMetadataMetaName",
             "-XML:UserDescriptiveMetadataMetaContent",
-            "-XML:DeviceManufacturer",
-            "-XML:DeviceModelName",
-            "-XML:DeviceSerialNo",
-            "-XML:LensModelName",
             "-XML:CreationDateValue",
             url.path
         ]
@@ -251,10 +274,6 @@ actor ExifToolService {
             "-JUMBF:all",
             "-XML:UserDescriptiveMetadataMetaName",
             "-XML:UserDescriptiveMetadataMetaContent",
-            "-XML:DeviceManufacturer",
-            "-XML:DeviceModelName",
-            "-XML:DeviceSerialNo",
-            "-XML:LensModelName",
             "-XML:CreationDateValue",
             url.path
         ]
@@ -293,10 +312,6 @@ actor ExifToolService {
         let manifestStore = stringValue(in: metadata, matchingKeys: ["ManifestStore", "Manifest Store"])
         let userDescriptiveMetadataName = stringValue(in: metadata, matchingKeys: ["UserDescriptiveMetadataMetaName", "User Descriptive Metadata Meta Name"])
         let userDescriptiveMetadataContent = stringValue(in: metadata, matchingKeys: ["UserDescriptiveMetadataMetaContent", "User Descriptive Metadata Meta Content"])
-        let deviceManufacturer = stringValue(in: metadata, matchingKeys: ["DeviceManufacturer", "Device Manufacturer"])
-        let deviceModelName = stringValue(in: metadata, matchingKeys: ["DeviceModelName", "Device Model Name"])
-        let deviceSerialNumber = stringValue(in: metadata, matchingKeys: ["DeviceSerialNo", "Device Serial No"])
-        let lensModelName = stringValue(in: metadata, matchingKeys: ["LensModelName", "Lens Model Name"])
         let creationDateValue = stringValue(in: metadata, matchingKeys: ["CreationDateValue", "Creation Date Value"])
 
         // Try to get assertions if present
@@ -313,12 +328,96 @@ actor ExifToolService {
             assertions: assertions,
             userDescriptiveMetadataName: userDescriptiveMetadataName,
             userDescriptiveMetadataContent: userDescriptiveMetadataContent,
+            creationDateValue: creationDateValue
+        )
+    }
+
+    /// Gets camera metadata from XML if present
+    /// - Parameter url: The file to analyze
+    /// - Returns: CameraMetadata structure, or nil if no camera data found
+    func getCameraMetadata(for url: URL) async throws -> CameraMetadata? {
+        guard let exiftoolPath = getExifToolPath() else {
+            throw ExifToolServiceError.notInstalled
+        }
+
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw ExifToolServiceError.fileNotFound
+        }
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: exiftoolPath)
+        // Get camera/device metadata from XML
+        process.arguments = [
+            "-json", "-G", "-s",
+            "-XML:DeviceManufacturer",
+            "-XML:DeviceModelName",
+            "-XML:DeviceSerialNo",
+            "-XML:LensModelName",
+            "-XML:TimeZone",
+            "-XML:AcquisitionRecordGroupItemValue",
+            "-XML:RecordingModeType",
+            "-XML:VideoFormatVideoFrameCaptureFps",
+            url.path
+        ]
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            throw ExifToolServiceError.executionFailed(error.localizedDescription)
+        }
+
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+
+        guard let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let metadata = jsonArray.first else {
+            return nil
+        }
+
+        // Extract camera-specific fields
+        let deviceManufacturer = stringValue(in: metadata, matchingKeys: ["DeviceManufacturer", "Device Manufacturer"])
+        let deviceModelName = stringValue(in: metadata, matchingKeys: ["DeviceModelName", "Device Model Name"])
+        let deviceSerialNumber = stringValue(in: metadata, matchingKeys: ["DeviceSerialNo", "Device Serial No"])
+        let lensModelName = stringValue(in: metadata, matchingKeys: ["LensModelName", "Lens Model Name"])
+        let timeZone = stringValue(in: metadata, matchingKeys: ["TimeZone", "Time Zone"])
+        let captureGammaEquation = stringValue(in: metadata, matchingKeys: ["AcquisitionRecordGroupItemValue", "Acquisition Record Group Item Value"])
+        let recordingModeType = stringValue(in: metadata, matchingKeys: ["RecordingModeType", "Recording Mode Type"])
+        let captureFps = stringValue(in: metadata, matchingKeys: ["VideoFormatVideoFrameCaptureFps", "Video Format Video Frame Capture Fps"])
+
+        let cameraMetadata = CameraMetadata(
             deviceManufacturer: deviceManufacturer,
             deviceModelName: deviceModelName,
             deviceSerialNumber: deviceSerialNumber,
             lensModelName: lensModelName,
-            creationDateValue: creationDateValue
+            timeZone: timeZone,
+            captureGammaEquation: captureGammaEquation,
+            recordingModeType: recordingModeType,
+            captureFps: captureFps
         )
+
+        // Only return if there's any actual data
+        return cameraMetadata.hasAnyData ? cameraMetadata : nil
+    }
+
+    /// Checks camera metadata when ExifTool is available
+    /// - Parameter url: The file to check
+    /// - Returns: CameraMetadata if found, nil otherwise
+    func checkCameraMetadataIfEnabled(for url: URL) async -> CameraMetadata? {
+        guard isAvailable else {
+            return nil
+        }
+
+        do {
+            return try await getCameraMetadata(for: url)
+        } catch {
+            logger.warning("Failed to check camera metadata: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     /// Checks C2PA status when ExifTool is available
