@@ -56,7 +56,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.upload)
 
             WhisperSettingsView()
-                .tabItem { Label("Subtitles", systemImage: "captions.bubble") }
+                .tabItem { Label("Transcription", systemImage: "captions.bubble") }
                 .tag(SettingsTab.whisper)
 
             UpdateSettingsView()
@@ -71,33 +71,43 @@ struct SettingsView: View {
         .navigationTitle("Settings – Aagedal Media Converter")
         .padding(.horizontal, 20)
         .background {
-            // Keyboard shortcuts for tab switching
+            // Keyboard shortcuts for tab switching (Control+1-9, 0 to avoid conflict with main window's CMD+1-9, 0 preset selection)
             VStack(spacing: 0) {
                 Button("") { selectedTab = .general }
-                    .keyboardShortcut("1", modifiers: .command)
+                    .keyboardShortcut("1", modifiers: .control)
                 Button("") { selectedTab = .metadata }
-                    .keyboardShortcut("2", modifiers: .command)
+                    .keyboardShortcut("2", modifiers: .control)
                 Button("") { selectedTab = .presets }
-                    .keyboardShortcut("3", modifiers: .command)
+                    .keyboardShortcut("3", modifiers: .control)
                 Button("") { selectedTab = .screenCapture }
-                    .keyboardShortcut("4", modifiers: .command)
+                    .keyboardShortcut("4", modifiers: .control)
                 Button("") { selectedTab = .waveform }
-                    .keyboardShortcut("5", modifiers: .command)
+                    .keyboardShortcut("5", modifiers: .control)
                 Button("") { selectedTab = .watchFolder }
-                    .keyboardShortcut("6", modifiers: .command)
+                    .keyboardShortcut("6", modifiers: .control)
                 Button("") { selectedTab = .ytdlp }
-                    .keyboardShortcut("7", modifiers: .command)
+                    .keyboardShortcut("7", modifiers: .control)
                 Button("") { selectedTab = .upload }
-                    .keyboardShortcut("8", modifiers: .command)
+                    .keyboardShortcut("8", modifiers: .control)
                 Button("") { selectedTab = .whisper }
-                    .keyboardShortcut("9", modifiers: .command)
+                    .keyboardShortcut("9", modifiers: .control)
                 Button("") { selectedTab = .updates }
-                    .keyboardShortcut("0", modifiers: .command)
+                    .keyboardShortcut("0", modifiers: .control)
                 Button("") { selectedTab = .shortcuts }
-                    .keyboardShortcut("=", modifiers: [.command, .shift])
+                    .keyboardShortcut("k", modifiers: .control)
             }
             .frame(width: 0, height: 0)
             .opacity(0)
+        }
+        .onAppear {
+            // Check if we should open to a specific tab (e.g., from Control+K in main window)
+            if let tabToOpen = UserDefaults.standard.string(forKey: AppConstants.settingsTabToOpenKey) {
+                if tabToOpen == "shortcuts" {
+                    selectedTab = .shortcuts
+                }
+                // Clear the key so subsequent opens go to the default tab
+                UserDefaults.standard.removeObject(forKey: AppConstants.settingsTabToOpenKey)
+            }
         }
     }
 }

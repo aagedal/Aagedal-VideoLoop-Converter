@@ -84,14 +84,12 @@ struct PreviewPlayerContent: View {
                 ZStack {
                     playbackBackground()
 
-                    HStack {
-                            PlayerContainerView(
-                                player: player,
-                                controller: controller,
-                                showsPlaybackControls: showsPlaybackControls,
-                                keyHandler: keyHandler
-                            )
-                    }
+                    PlayerContainerView(
+                        player: player,
+                        controller: controller,
+                        showsPlaybackControls: showsPlaybackControls,
+                        keyHandler: keyHandler
+                    )
                     .aspectRatio(playerAspectRatio, contentMode: .fit)
 
                     // Crop overlay
@@ -346,6 +344,9 @@ private struct PlayerContainerView: NSViewRepresentable {
         playerView.videoGravity = .resizeAspect
         playerView.allowsVideoFrameAnalysis = false
         playerView.player = player
+        // Make background transparent so checkerboard shows through
+        playerView.wantsLayer = true
+        playerView.layer?.backgroundColor = NSColor.clear.cgColor
     }
 
     final class Coordinator: NSObject {

@@ -884,10 +884,21 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let resolution = TVResolutionLimit(rawValue: resolutionRaw) ?? .r1080
 
             // Build scale filter based on resolution
+            // When a resolution limit is set, force 16:9 aspect ratio with pillarbox/letterbox (matching AVC-Intra)
+            // When unlimited, just desqueeze and export at source/cropped resolution
             let scaleFilter: String
-            if let maxHeight = resolution.maxHeight {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
-            } else {
+            switch resolution {
+            case .r720:
+                // 1. Desqueeze anamorphic to square pixels
+                // 2. Scale to fit within 16:9 frame while preserving aspect ratio
+                // 3. Pad to exact 16:9 resolution with black bars (centered)
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:-1:-1:color=black"
+            case .r1080:
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1:color=black"
+            case .r2160:
+                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=3840:2160:force_original_aspect_ratio=decrease,pad=3840:2160:-1:-1:color=black"
+            case .unlimited:
+                // No resolution limit: just desqueeze, export at source/cropped resolution
                 scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
             }
 

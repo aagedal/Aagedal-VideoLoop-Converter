@@ -228,7 +228,18 @@ struct FullscreenPlayerView: View {
                 onNextItem: onNextItem,
                 canGoToPrevious: canGoToPrevious,
                 canGoToNext: canGoToNext,
-                isEditingTimecode: isEditingTimecode
+                isEditingTimecode: isEditingTimecode,
+                onToggleAutoNext: { @Sendable in
+                    Task { @MainActor in
+                        toggleQueueAutoAdvance()
+                    }
+                },
+                onToggleLoop: { @Sendable in
+                    Task { @MainActor in
+                        toggleQueueLoop()
+                    }
+                },
+                isAutoNextEnabled: queueAutoAdvanceState
             )
         )
         .onReceive(controller.playbackTimePublisher) { time in
@@ -1337,6 +1348,9 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
     let canGoToPrevious: Bool
     let canGoToNext: Bool
     let isEditingTimecode: Bool
+    let onToggleAutoNext: @Sendable () -> Void
+    let onToggleLoop: @Sendable () -> Void
+    let isAutoNextEnabled: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -1349,7 +1363,10 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             onNextItem: onNextItem,
             canGoToPrevious: canGoToPrevious,
             canGoToNext: canGoToNext,
-            isEditingTimecode: isEditingTimecode
+            isEditingTimecode: isEditingTimecode,
+            onToggleAutoNext: onToggleAutoNext,
+            onToggleLoop: onToggleLoop,
+            isAutoNextEnabled: isAutoNextEnabled
         )
     }
 
@@ -1371,6 +1388,9 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
         context.coordinator.canGoToPrevious = canGoToPrevious
         context.coordinator.canGoToNext = canGoToNext
         context.coordinator.isEditingTimecode = isEditingTimecode
+        context.coordinator.onToggleAutoNext = onToggleAutoNext
+        context.coordinator.onToggleLoop = onToggleLoop
+        context.coordinator.isAutoNextEnabled = isAutoNextEnabled
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -1388,6 +1408,9 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
         var canGoToPrevious: Bool
         var canGoToNext: Bool
         var isEditingTimecode: Bool
+        var onToggleAutoNext: @Sendable () -> Void
+        var onToggleLoop: @Sendable () -> Void
+        var isAutoNextEnabled: Bool
         private var monitor: Any?
 
         init(
@@ -1400,7 +1423,10 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             onNextItem: (@Sendable () -> Void)?,
             canGoToPrevious: Bool,
             canGoToNext: Bool,
-            isEditingTimecode: Bool
+            isEditingTimecode: Bool,
+            onToggleAutoNext: @Sendable @escaping () -> Void,
+            onToggleLoop: @Sendable @escaping () -> Void,
+            isAutoNextEnabled: Bool
         ) {
             self.controller = controller
             self.onClose = onClose
@@ -1412,6 +1438,9 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             self.canGoToPrevious = canGoToPrevious
             self.canGoToNext = canGoToNext
             self.isEditingTimecode = isEditingTimecode
+            self.onToggleAutoNext = onToggleAutoNext
+            self.onToggleLoop = onToggleLoop
+            self.isAutoNextEnabled = isAutoNextEnabled
         }
 
         func install() {
@@ -1463,6 +1492,22 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
                 if noModifiers && !self.isEditingTimecode && lower == "t" {
                     DispatchQueue.main.async { [weak self] in
                         self?.onToggleTimecodeMode()
+                    }
+                    return nil
+                }
+
+                // A (no modifiers): Toggle Auto Next
+                if noModifiers && !self.isEditingTimecode && lower == "a" {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onToggleAutoNext()
+                    }
+                    return nil
+                }
+
+                // CMD+L: Toggle Loop Queue (only when Auto Next is enabled)
+                if hasCommand && !hasShift && !hasOption && !hasControl && lower == "l" && self.isAutoNextEnabled {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onToggleLoop()
                     }
                     return nil
                 }

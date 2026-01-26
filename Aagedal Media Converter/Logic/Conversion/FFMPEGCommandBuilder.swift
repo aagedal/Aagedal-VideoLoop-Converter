@@ -1427,22 +1427,36 @@ extension FFMPEGCommandBuilder {
             filterChain = cropFilter
         } else if let desqueezeRange = (filterChain.range(of: "scale='trunc(ih*dar") ?? filterChain.range(of: "scale=trunc(ih*dar")) {
             // Built-in presets start by normalizing display aspect ratio (DAR) into square pixels.
-            // The crop rect is stored in SOURCE PIXEL coordinates, so it must be applied BEFORE this DAR-based desqueeze.
-            let beforeDesqueeze = String(filterChain[..<desqueezeRange.lowerBound])
-            let afterDesqueeze = String(filterChain[desqueezeRange.lowerBound...])
+            // When crop is applied, we should SKIP the DAR-based desqueeze entirely because:
+            // 1. The crop rect is defined in source pixel coordinates
+            // 2. After cropping, we have the exact pixels we want
+            // 3. The DAR-based desqueeze uses source metadata which can stretch the cropped content incorrectly
+            // Instead, we replace the desqueeze+setsar with just crop+setsar, then continue to final scale/pad.
 
-            var newChain = beforeDesqueeze
-            if !newChain.isEmpty, !newChain.hasSuffix(",") {
-                newChain.append(",")
-            }
+            // Find where the desqueeze ends (look for the setsar=1/1 that follows)
+            let afterDesqueezeStart = String(filterChain[desqueezeRange.lowerBound...])
 
-            newChain.append(cropFilter)
+            // The desqueeze pattern is: scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1
+            // We want to remove this entire segment and replace with crop,setsar=1/1
+            var newChain = ""
 
-            if !afterDesqueeze.isEmpty {
-                if !afterDesqueeze.hasPrefix(",") {
-                    newChain.append(",")
+            // Find the setsar=1/1 that follows the desqueeze
+            if let setsarRange = afterDesqueezeStart.range(of: ",setsar=1/1") {
+                // Get everything after the setsar=1/1
+                let afterSetsar = String(afterDesqueezeStart[setsarRange.upperBound...])
+
+                // Build new chain: crop,setsar=1/1,<rest of filters>
+                newChain = "\(cropFilter),setsar=1/1"
+
+                if !afterSetsar.isEmpty {
+                    if !afterSetsar.hasPrefix(",") {
+                        newChain.append(",")
+                    }
+                    newChain.append(afterSetsar)
                 }
-                newChain.append(afterDesqueeze)
+            } else {
+                // No setsar found after desqueeze, just prepend crop with setsar
+                newChain = "\(cropFilter),setsar=1/1,\(filterChain)"
             }
 
             filterChain = newChain

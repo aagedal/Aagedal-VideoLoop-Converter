@@ -230,6 +230,40 @@ actor VideoMetadataService {
         }
     }
 
+    // MARK: - Cached Duration Lookup
+
+    /// Returns cached duration if available from either metadata cache or essential info cache.
+    /// Returns nil if not cached (caller should fall back to FFprobe or AVFoundation).
+    func cachedDuration(for url: URL) -> Double? {
+        // Check full metadata cache first
+        if let cached = cache.object(forKey: url as NSURL) {
+            return cached.metadata.duration
+        }
+        // Check essential info cache
+        if let cached = essentialInfoCache.object(forKey: url as NSURL) {
+            return cached.info.duration
+        }
+        return nil
+    }
+
+    /// Returns cached hasVideoStream if available from either cache.
+    /// Returns nil if not cached (caller should use hasVideoStream(for:) which will probe).
+    func cachedHasVideoStream(for url: URL) -> Bool? {
+        // Check hasVideoStream cache
+        if let cached = hasVideoStreamCache.object(forKey: url as NSURL) {
+            return cached.value
+        }
+        // Check full metadata cache
+        if let cached = cache.object(forKey: url as NSURL) {
+            return !cached.metadata.videoStreams.isEmpty
+        }
+        // Check essential info cache
+        if let cached = essentialInfoCache.object(forKey: url as NSURL) {
+            return cached.info.hasVideoStream
+        }
+        return nil
+    }
+
     // MARK: - Fast Video Stream Detection
 
     /// Quickly checks if a file has video streams using FFprobe with -read_intervals
@@ -330,11 +364,14 @@ actor VideoMetadataService {
         }
 
         // Single FFprobe call that gets both format and all streams
+        // Use probing limits to prevent very long scans on large files (especially MKV)
         let response = try await fetchFFprobeResponse(
             url: url,
             ffprobePath: ffprobePath,
             arguments: [
                 "-v", "error",
+                "-analyzeduration", "10000000",  // 10 seconds of data analysis
+                "-probesize", "10000000",        // 10MB probe size
                 "-show_format",
                 "-show_streams",
                 "-of", "json"
@@ -398,11 +435,14 @@ actor VideoMetadataService {
             throw VideoMetadataError.ffprobeMissing
         }
 
+        // Use probing limits to prevent very long scans on large files (especially MKV)
         let response = try await fetchFFprobeResponse(
             url: url,
             ffprobePath: ffprobePath,
             arguments: [
                 "-v", "error",
+                "-analyzeduration", "10000000",  // 10 seconds of data analysis
+                "-probesize", "10000000",        // 10MB probe size
                 "-show_format",
                 "-show_streams",
                 "-of", "json"
@@ -421,6 +461,27 @@ actor VideoMetadataService {
             subtitleStreams: subtitleStreams
         )
         cache.setObject(CachedMetadata(metadata: metadata), forKey: url as NSURL)
+
+        // Also populate secondary caches to prevent redundant ffprobe calls later
+        // Filter video streams to exclude cover art (same logic as fetchEssentialInfo)
+        let filteredVideoStreams = videoStreams.filter { stream in
+            stream.disposition?.attachedPic != 1
+        }
+        let hasVideoStream = !filteredVideoStreams.isEmpty
+        hasVideoStreamCache.setObject(CachedBool(value: hasVideoStream), forKey: url as NSURL)
+
+        // Populate essential info cache
+        let essentialInfo = EssentialVideoInfo(
+            duration: metadata.duration ?? 0,
+            hasVideoStream: hasVideoStream,
+            videoStreamCount: filteredVideoStreams.count,
+            hasAudioStream: !audioStreams.isEmpty,
+            primaryCodec: filteredVideoStreams.first?.codecName,
+            width: filteredVideoStreams.first?.width,
+            height: filteredVideoStreams.first?.height
+        )
+        essentialInfoCache.setObject(CachedEssentialInfo(info: essentialInfo), forKey: url as NSURL)
+
         return metadata
     }
 
@@ -438,9 +499,51 @@ actor VideoMetadataService {
                 process.standardOutput = stdoutPipe
                 process.standardError = stderrPipe
 
+                // IMPORTANT: Read stdout/stderr asynchronously to prevent pipe buffer deadlock.
+                // If the output exceeds the pipe buffer size (~64KB), the process will block
+                // waiting for the buffer to be drained. We must drain it while the process runs.
+                // Use thread-safe collection with NSLock for concurrent access.
+                final class DataCollector: @unchecked Sendable {
+                    private var data = Data()
+                    private let lock = NSLock()
+
+                    func append(_ newData: Data) {
+                        lock.lock()
+                        defer { lock.unlock() }
+                        data.append(newData)
+                    }
+
+                    func getData() -> Data {
+                        lock.lock()
+                        defer { lock.unlock() }
+                        return data
+                    }
+                }
+
+                let stdoutCollector = DataCollector()
+                let stderrCollector = DataCollector()
+
+                // Set up async reading from stdout
+                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if !data.isEmpty {
+                        stdoutCollector.append(data)
+                    }
+                }
+
+                // Set up async reading from stderr
+                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if !data.isEmpty {
+                        stderrCollector.append(data)
+                    }
+                }
+
                 do {
                     try process.run()
                 } catch {
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    stderrPipe.fileHandleForReading.readabilityHandler = nil
                     continuation.resume(throwing: error)
                     return
                 }
@@ -454,6 +557,10 @@ actor VideoMetadataService {
                     elapsed += checkInterval
                 }
 
+                // Clean up handlers before reading any remaining data
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+
                 if process.isRunning {
                     // Timeout - terminate the process
                     process.terminate()
@@ -465,13 +572,16 @@ actor VideoMetadataService {
                     return
                 }
 
-                let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                // Read any remaining data that might be buffered
+                let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                stdoutCollector.append(remainingStdout)
+                stderrCollector.append(remainingStderr)
 
                 if process.terminationStatus == 0 {
-                    continuation.resume(returning: stdoutData)
+                    continuation.resume(returning: stdoutCollector.getData())
                 } else {
-                    let message = String(data: stderrData, encoding: .utf8) ?? "Unknown ffprobe error"
+                    let message = String(data: stderrCollector.getData(), encoding: .utf8) ?? "Unknown ffprobe error"
                     continuation.resume(throwing: VideoMetadataError.processFailed(message))
                 }
             }

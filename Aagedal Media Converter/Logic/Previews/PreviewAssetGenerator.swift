@@ -769,6 +769,12 @@ actor PreviewAssetGenerator {
     }
 
     private func determineDuration(for url: URL, ffprobePath: String) async throws -> Double? {
+        // First check if duration is already cached (avoids redundant ffprobe calls)
+        if let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url), cachedDuration > 0 {
+            return cachedDuration
+        }
+
+        // Fall back to FFprobe if not cached
         if let duration = await FFMPEGConverter.getVideoDuration(url: url), duration > 0 {
             return duration
         }

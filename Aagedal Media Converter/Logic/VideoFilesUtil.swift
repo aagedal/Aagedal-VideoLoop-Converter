@@ -113,9 +113,13 @@ struct VideoFileUtils: Sendable {
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
 
         var durationSec: Double = 0.0
-        let asset = AVURLAsset(url: url)
 
-        if BinaryPathResolver.ffprobePath != nil {
+        // First check if duration is already cached (avoids redundant ffprobe calls)
+        if let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url), cachedDuration > 0 {
+            durationSec = cachedDuration
+            logger.debug("Using cached duration: \(durationSec, privacy: .public)s for \(fileName, privacy: .public)")
+        } else if BinaryPathResolver.ffprobePath != nil {
+            // Fall back to FFprobe if not cached
             logger.info("Attempting to get duration using FFprobe for: \(fileName, privacy: .public)")
             durationSec = await FFMPEGConverter.getVideoDuration(url: url) ?? 0.0
 
@@ -126,16 +130,24 @@ struct VideoFileUtils: Sendable {
             }
         }
 
+        // Fall back to AVFoundation if still no duration
         if durationSec <= 0 {
+            let asset = AVURLAsset(url: url)
             let cmDuration = try? await asset.load(.duration)
             durationSec = CMTimeGetSeconds(cmDuration ?? CMTime.zero)
         }
 
         let durationString = formatDuration(seconds: durationSec)
 
-        // Use VideoMetadataService's fast hasVideoStream check which uses -read_intervals
-        // This is fast even for very large files (50+ GB) and results are cached
-        let hasVideoStream = await VideoMetadataService.shared.hasVideoStream(for: url)
+        // Check cached hasVideoStream first (avoids redundant ffprobe calls)
+        let hasVideoStream: Bool
+        if let cached = await VideoMetadataService.shared.cachedHasVideoStream(for: url) {
+            hasVideoStream = cached
+            logger.debug("Using cached hasVideoStream: \(hasVideoStream) for \(fileName, privacy: .public)")
+        } else {
+            // Fall back to fast hasVideoStream check which uses -read_intervals
+            hasVideoStream = await VideoMetadataService.shared.hasVideoStream(for: url)
+        }
 
         let thumbnailData = await getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generateRowThumbnailIfMissing)
 
@@ -340,8 +352,12 @@ struct VideoFileUtils: Sendable {
     static func getVideoDuration(url: URL) async -> String {
         let fileName = url.lastPathComponent
         var duration: Double = 0.0
-        
-        if BinaryPathResolver.ffprobePath != nil {
+
+        // First check if duration is already cached (avoids redundant ffprobe calls)
+        if let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url), cachedDuration > 0 {
+            duration = cachedDuration
+            Logger().debug("[getVideoDuration] Using cached duration: \(duration) seconds for \(fileName)")
+        } else if BinaryPathResolver.ffprobePath != nil {
             Logger().info("[getVideoDuration] Attempting FFprobe for: \(fileName)")
             let ffprobeDuration = await FFMPEGConverter.getVideoDuration(url: url)
 

@@ -22,8 +22,8 @@ enum RandomTips {
         "Tip: Press F to play the selected video in fullscreen.",
         "Tip: Use ⌘↑ and ⌘↓ to move selected items up and down in the queue.",
         "Tip: Set up a Watch Folder in Settings to automatically import new files.",
-        "Tip: Use Option+A to configure audio routing for the selected file.",
-        "Tip: Press ⌘D to toggle the date tag on the selected item.",
+        "Tip: Use Option + A to configure audio routing for the selected file.",
+        "Tip: Press Control + D to toggle the date tag on the selected item.",
         "Tip: In both the Trim Player and the Fullscreen Player, you can use JKL to play backwards, pause, and play forwards. Just like in most NLEs.",
         "Tip: In both the Trim Player and the Fullscreen Player, you can use arrow keys to jump between frames.",
         "Tip: In both the Trim Player and the Fullscreen Player, you can start typing a number to enter a timecode. Press enter to jump to that timecode.",
@@ -31,14 +31,19 @@ enum RandomTips {
         "Tip: Use T while in either player view, will change the timecode display to show source timecode, relative timecode or frame counter.",
         "Tip: Use Command + S while in either player view will save a still image of the current frame.",
         "Tip: Use Control + M will mute the selected files in the queue.",
-        "Tip: In the trim view hold ⌘ while dragging to set both in and out trim point in a single drag.",
-        "Tip: In the trim view hold Shift while dragging in between trim points to move both in and out trim point at once.",
+        "Tip: In the Trim View hold Command ⌘ while dragging to set both in and out trim point in a single drag.",
+        "Tip: In the Trim View hold Shift ⇧ while dragging in between trim points to move both in and out trim point at once.",
         "Tip: In the full screen player you can use Command + N to go to the next video in the queue, and Command + B to go back to the previous video in the queue.",
         "Tip: In the full screen player the UI overlay disappears immidiately if you place the mouse on the very right side of the screen.",
         "Tip: In the player views you can press T to toggle between relative timecode, source timecode and frame counter.",
         "Tip: Press Control + R to load a random tip here.",
         "Tip: In the Audio Routing overlay use Control + M to mute all audio. You can also use Command + [1...8] to enable or disable a specific audio source track.",
         "Tip: In the Crop view you can also use Command + [1...8] to switch between different crop modes. Use CMD + ↑←↓→ to move the crop box. Use CMD + -/+ to resize the crop box.",
+        "Tip: Press Control + K to see all keyboard shortcuts.",
+        "Tip: Command + P opens a preset selector.",
+        "Tip: Command + D opens the Download view",
+        "Tip: Command + 1-9 will quickly change the selected preset.",
+        "Tip: In the full screen player press A to turn on Auto Next. This will automatically play the next item in the queue. Command + L when Auto Next is on, will activate looping, so that you can watch the entire queue on repeat."
     ]
 
     static func randomTip() -> LocalizedStringKey {
