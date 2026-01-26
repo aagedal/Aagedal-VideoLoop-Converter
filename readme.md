@@ -2,7 +2,7 @@
 
 A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE and MPV under the hood and written entirely in Swift / SwiftUI.
 
-Completely free and open source. Sandboxed, private and local. (An optional update checker is activated by default, but it can be turned off.)
+Completely free and open source. Private and local. (An optional update checker is activated by default, but it can be turned off.)
 
 A passion project; I made this for myself, I just wanted to share.
 
@@ -21,7 +21,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 ```
 
 ### Manual download
-[Latest version (3.5.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.5.0/Aagedal-Media-Converter_3-5-0.zip) 
+[Latest version (3.7.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.7.0/Aagedal-Media-Converter_3-7-0.zip)
 
 
 ---
@@ -45,6 +45,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 - Transcribe to SRT (whisper.cpp)
 - Upload to FTP (rclone)
 - Check for C2PA signature (exiftool)
+- Screen recording in HDR with system sound
 
 ### Batch conversion
 - Automatically encode all the files in the queue
