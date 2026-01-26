@@ -25,6 +25,7 @@
 		8E04BE122ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */; };
 		8E04BE152ED329FA005AD3D8 /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */; };
 		8E04BE1B2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */; };
+		8E0556A82F2774B200BCFB49 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8EE0BBBB2E0980560096171D /* Localizable.xcstrings */; };
 		8E08B2822EAA2871000148A8 /* WatchFolderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E08B2812EAA2871000148A8 /* WatchFolderManager.swift */; };
 		8E08B2842EAA3BFD000148A8 /* WatchFolderDurationUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E08B2832EAA3BFD000148A8 /* WatchFolderDurationUnit.swift */; };
 		8E09F7422EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E09F7412EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift */; };
@@ -875,6 +876,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8E0556A82F2774B200BCFB49 /* Localizable.xcstrings in Resources */,
 				8E501CFD2EF1807000717373 /* done.mp3 in Resources */,
 				8E501CFE2EF1807000717373 /* error.mp3 in Resources */,
 				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
@@ -1214,7 +1216,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 211;
+				CURRENT_PROJECT_VERSION = 215;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -1849,7 +1851,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.7.0;
+				MARKETING_VERSION = 3.7.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1875,7 +1877,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 211;
+				CURRENT_PROJECT_VERSION = 215;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2510,7 +2512,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.7.0;
+				MARKETING_VERSION = 3.7.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

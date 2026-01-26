@@ -223,17 +223,20 @@ struct URLInputOverlay: View {
             // Auto-focus the text field
             isTextFieldFocused = true
 
-            // Check clipboard for URL
-            if let clipboardString = NSPasteboard.general.string(forType: .string),
-               DownloadManager.isValidURL(clipboardString) {
-                urlText = clipboardString
+            // Check clipboard for URL (sanitize to first line only)
+            if let clipboardString = NSPasteboard.general.string(forType: .string) {
+                let sanitized = DownloadManager.sanitizeURLInput(clipboardString)
+                if DownloadManager.isValidURL(sanitized) {
+                    urlText = sanitized
+                }
             }
         }
     }
 
     private func submit() {
-        let trimmed = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, DownloadManager.isValidURL(trimmed) else { return }
+        let sanitized = DownloadManager.sanitizeURLInput(urlText)
+        guard !sanitized.isEmpty, DownloadManager.isValidURL(sanitized) else { return }
+        let trimmed = sanitized
 
         if isScheduled, let onSchedule = onSchedule {
             // Round to the start of the minute (remove seconds)
