@@ -239,7 +239,7 @@ struct FullscreenPlayerView: View {
             guard let levels else { return }
             appendWaveformSample(from: levels)
         }
-        .onChange(of: controller.isReady) { isReady, _ in
+        .onChange(of: controller.isReady) { _, isReady in
             guard isReady, autoPlayPending else { return }
             if !isPlaybackActive {
                 controller.togglePlayback()
@@ -400,12 +400,20 @@ struct FullscreenPlayerView: View {
     
     private var topBar: some View {
         HStack {
-            // File name
-            Text(item.name)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.white)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            // File name and player backend indicator
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                #if DEBUG
+                Text(controller.useMPV ? "MPV" : "AVPlayer")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.5))
+                #endif
+            }
 
             if isLowQualityPreview {
                 Text("Low quality preview")

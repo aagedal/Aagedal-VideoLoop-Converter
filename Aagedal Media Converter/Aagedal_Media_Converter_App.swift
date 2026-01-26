@@ -18,6 +18,9 @@ struct Aagedal_Media_Converter_App: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
+        // Suppress MoltenVK info logs (level 2 = warnings only, no info spam)
+        setenv("MVK_CONFIG_LOG_LEVEL", "2", 1)
+
         UserDefaults.standard.register(defaults: [
             AppConstants.watchFolderIgnoreOlderThan24hKey: false,
             AppConstants.watchFolderAutoDeleteOlderThanWeekKey: false,

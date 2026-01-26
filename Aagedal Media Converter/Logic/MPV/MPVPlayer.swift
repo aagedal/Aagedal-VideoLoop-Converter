@@ -534,9 +534,11 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                                 let reached = value != 0
                                 DispatchQueue.main.async {
                                     self.logger.info("EOF reached (\(reached)), pausing at last frame if needed")
-                                    self.isPlaying = false
+                                    // Always update reachedEnd to match MPV's state
+                                    // This ensures the observer can fire again after seeking away from EOF
+                                    self.reachedEnd = reached
                                     if reached {
-                                        self.reachedEnd = true
+                                        self.isPlaying = false
                                     }
                                 }
                             }
