@@ -531,6 +531,7 @@ class DownloadManager {
                         item.name = finalFile.lastPathComponent
                         item.isDownloading = false
                         item.isLiveStreamRecording = false
+                        item.downloadStopping = false
                         item.liveRecordingFileSize = nil
                         item.liveRecordingDuration = nil
                         item.downloadError = nil
@@ -577,6 +578,7 @@ class DownloadManager {
                     updateItem(itemID) { item in
                         item.isDownloading = false
                         item.isLiveStreamRecording = false
+                        item.downloadStopping = false
                         item.liveRecordingFileSize = nil
                         item.liveRecordingDuration = nil
                         item.downloadError = "Stopped - partial file not found"
@@ -618,6 +620,9 @@ class DownloadManager {
     func cancelDownload(itemID: UUID) {
         logger.info("Cancel download requested for item: \(itemID)")
 
+        // Stop live recording stat updates immediately
+        stopLiveRecordingStatUpdates(itemID: itemID)
+
         if let task = downloadTasks[itemID] {
             task.cancel()
             downloadTasks.removeValue(forKey: itemID)
@@ -630,6 +635,8 @@ class DownloadManager {
         updateItem(itemID) { item in
             item.isDownloading = false
             item.isLiveStreamRecording = false
+            item.liveRecordingFileSize = nil
+            item.liveRecordingDuration = nil
             item.downloadError = "Cancelled"
             item.status = .cancelled
         }
@@ -637,6 +644,14 @@ class DownloadManager {
 
     func stopLiveDownload(itemID: UUID) {
         logger.info("Stop live download requested for item: \(itemID)")
+
+        // Immediately update UI to show stopping state (provides instant feedback)
+        updateItem(itemID) { item in
+            item.downloadStopping = true
+        }
+
+        // Stop live recording stat updates immediately to prevent further polling
+        stopLiveRecordingStatUpdates(itemID: itemID)
 
         // Stop the yt-dlp process (nonisolated, immediate) - keeps the partial file
         ytdlpService.stopLiveDownload()

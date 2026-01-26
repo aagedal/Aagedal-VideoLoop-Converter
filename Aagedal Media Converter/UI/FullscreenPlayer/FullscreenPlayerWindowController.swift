@@ -45,6 +45,9 @@ final class FullscreenPlayerWindowController {
     
     /// Opens a fullscreen player for the given video item
     func openFullscreenPlayer(for item: VideoItem, on screen: NSScreen? = nil) {
+        // Don't open player for items that are downloading, recording, or scheduled
+        guard item.isPlayable else { return }
+
         // Close any existing fullscreen player
         dismissWindow()
 
@@ -173,6 +176,9 @@ final class FullscreenPlayerWindowController {
         startTime: Double,
         onCloseWithPosition: @escaping (Double) -> Void
     ) {
+        // Don't open player for items that are downloading, recording, or scheduled
+        guard item.isPlayable else { return }
+
         // Store the callback
         self.onCloseWithPosition = onCloseWithPosition
 
@@ -280,36 +286,56 @@ final class FullscreenPlayerWindowController {
         window.toggleFullScreen(nil)
     }
 
-    /// Navigate to the previous item in the queue
+    /// Navigate to the previous playable item in the queue (skips downloading/recording items)
     func goToPreviousItem() {
-        guard !queue.isEmpty else { return }
-        let newIndex = currentIndex - 1
-        guard newIndex >= 0 else { return }
+        guard let newIndex = findPreviousPlayableIndex() else { return }
 
         currentIndex = newIndex
         let item = queue[newIndex]
         reopenWithItem(item)
     }
 
-    /// Navigate to the next item in the queue
+    /// Navigate to the next playable item in the queue (skips downloading/recording items)
     func goToNextItem() {
-        guard !queue.isEmpty else { return }
-        let newIndex = currentIndex + 1
-        guard newIndex < queue.count else { return }
+        guard let newIndex = findNextPlayableIndex() else { return }
 
         currentIndex = newIndex
         let item = queue[newIndex]
         reopenWithItem(item)
     }
 
-    /// Returns true if navigation to the previous item is possible
+    /// Returns true if navigation to a previous playable item is possible
     var canGoToPrevious: Bool {
-        !queue.isEmpty && currentIndex > 0
+        findPreviousPlayableIndex() != nil
     }
 
-    /// Returns true if navigation to the next item is possible
+    /// Returns true if navigation to a next playable item is possible
     var canGoToNext: Bool {
-        !queue.isEmpty && currentIndex < queue.count - 1
+        findNextPlayableIndex() != nil
+    }
+
+    /// Find the index of the previous playable item (not downloading, recording, or scheduled)
+    private func findPreviousPlayableIndex() -> Int? {
+        guard !queue.isEmpty, currentIndex > 0 else { return nil }
+
+        for index in stride(from: currentIndex - 1, through: 0, by: -1) {
+            if queue[index].isPlayable {
+                return index
+            }
+        }
+        return nil
+    }
+
+    /// Find the index of the next playable item (not downloading, recording, or scheduled)
+    private func findNextPlayableIndex() -> Int? {
+        guard !queue.isEmpty, currentIndex < queue.count - 1 else { return nil }
+
+        for index in (currentIndex + 1)..<queue.count {
+            if queue[index].isPlayable {
+                return index
+            }
+        }
+        return nil
     }
 
     private func reopenWithItem(_ item: VideoItem, autoPlayOnReady: Bool = false) {
@@ -407,13 +433,19 @@ final class FullscreenPlayerWindowController {
         let currentItem = queue[currentIndex]
         guard !currentItem.loopPlayback else { return }
 
+        // Find next playable item, skipping downloading/recording items
         let nextItem: VideoItem?
-        if currentIndex + 1 < queue.count {
-            currentIndex += 1
-            nextItem = queue[currentIndex]
-        } else if queueLoopEnabled, let firstItem = queue.first {
-            currentIndex = 0
-            nextItem = firstItem
+        if let nextIndex = findNextPlayableIndex() {
+            currentIndex = nextIndex
+            nextItem = queue[nextIndex]
+        } else if queueLoopEnabled {
+            // When looping, find first playable item from beginning
+            if let firstPlayableIndex = findFirstPlayableIndex() {
+                currentIndex = firstPlayableIndex
+                nextItem = queue[firstPlayableIndex]
+            } else {
+                nextItem = nil
+            }
         } else {
             nextItem = nil
         }
@@ -421,6 +453,16 @@ final class FullscreenPlayerWindowController {
         if let nextItem {
             reopenWithItem(nextItem, autoPlayOnReady: true)
         }
+    }
+
+    /// Find the index of the first playable item in the queue
+    private func findFirstPlayableIndex() -> Int? {
+        for index in 0..<queue.count {
+            if queue[index].isPlayable {
+                return index
+            }
+        }
+        return nil
     }
 
     @MainActor

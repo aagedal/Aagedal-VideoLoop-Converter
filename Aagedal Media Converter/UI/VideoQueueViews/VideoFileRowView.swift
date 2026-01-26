@@ -481,19 +481,22 @@ struct VideoFileRowView: View {
                                             }
                                             onDelete()
                                         }) {
-                                            Image(systemName: "clear")
-                                                .foregroundColor(.red)
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.system(size: 14))
+                                                .frame(width: 20, height: 20)
+                                                .contentShape(Rectangle())
                                         }
-                                        .buttonStyle(BorderlessButtonStyle())
+                                        .buttonStyle(.borderless)
+                                        .foregroundColor(.red)
                                         .help("Remove from list")
 
                                         FileResetButton(
                                             isEnabled: file.status != .converting && file.status != .waiting && !file.isDownloading,
                                             onReset: onReset
                                         )
+                                        .frame(width: 20, height: 20)
                                     }
                                 }
-                                .frame(minWidth: 44, alignment: .trailing)
                             }
                         }
 
@@ -613,10 +616,16 @@ struct VideoFileRowView: View {
             .highPriorityGesture(
                 TapGesture(count: 2)
                     .onEnded {
+                        // Only play fullscreen if the item is playable (not downloading/recording)
+                        guard file.isPlayable else { return }
                         onPlayFullscreen()
                     }
             )
-            .onTapGesture { showPreview = true }
+            .onTapGesture {
+                // Only show preview if the item is playable (not downloading/recording)
+                guard file.isPlayable else { return }
+                showPreview = true
+            }
     }
 
     private var thumbnailWidth: CGFloat { isCompactMode ? 133 : 200 }
@@ -798,7 +807,7 @@ struct VideoFileRowView: View {
 
                 Spacer()
 
-                // Center: Fullscreen play button (only for video files)
+                // Center: Fullscreen play button (only for video files, disabled during download/recording)
                 if file.hasVideoStream {
                     Button {
                         onPlayFullscreen()
@@ -809,14 +818,16 @@ struct VideoFileRowView: View {
                             .shadow(color: .black.opacity(0.4), radius: isCompactMode ? 2 : 4, x: 0, y: isCompactMode ? 1 : 2)
                     }
                     .buttonStyle(.plain)
-                    .help("Play fullscreen")
+                    .disabled(!file.isPlayable)
+                    .opacity(file.isPlayable ? 1 : 0.5)
+                    .help(file.isPlayable ? "Play fullscreen" : "Cannot play while downloading")
                 }
 
                 Spacer()
 
                 // Bottom row: Preview (left), Info (right)
                 HStack(spacing: isCompactMode ? 8 : 16) {
-                    // Preview button (bottom-left)
+                    // Preview button (bottom-left, disabled during download/recording)
                     Button {
                         showPreview = true
                     } label: {
@@ -826,7 +837,9 @@ struct VideoFileRowView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.white)
-                    .help("Open preview and trim editor")
+                    .disabled(!file.isPlayable)
+                    .opacity(file.isPlayable ? 1 : 0.5)
+                    .help(file.isPlayable ? "Open preview and trim editor" : "Cannot preview while downloading")
 
                     Spacer()
 
@@ -876,7 +889,7 @@ struct VideoFileRowView: View {
             .foregroundColor(file.timecodeConfig?.isActive == true ? .accentColor : .secondary)
             .help("Timecode")
 
-            // Preview/Trim button
+            // Preview/Trim button (disabled during download/recording)
             Button { showPreview = true } label: {
                 Image(systemName: "timeline.selection")
                     .font(.system(size: 12, weight: .medium))
@@ -884,9 +897,11 @@ struct VideoFileRowView: View {
             }
             .buttonStyle(.borderless)
             .foregroundColor(.secondary)
-            .help("Preview & trim")
+            .disabled(!file.isPlayable)
+            .opacity(file.isPlayable ? 1 : 0.5)
+            .help(file.isPlayable ? "Preview & trim" : "Cannot preview while downloading")
 
-            // Fullscreen button (video only)
+            // Fullscreen button (video only, disabled during download/recording)
             if file.hasVideoStream {
                 Button {
                     onPlayFullscreen()
@@ -897,7 +912,9 @@ struct VideoFileRowView: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundColor(.secondary)
-                .help("Play fullscreen")
+                .disabled(!file.isPlayable)
+                .opacity(file.isPlayable ? 1 : 0.5)
+                .help(file.isPlayable ? "Play fullscreen" : "Cannot play while downloading")
             }
 
             // Metadata button
@@ -1224,6 +1241,10 @@ struct VideoFileRowView: View {
     }
     
     private var progressText: String {
+        // Show stopping state immediately when user presses stop (before process fully terminates)
+        if file.downloadStopping {
+            return "Stopping..."
+        }
         if file.isLiveStreamRecording {
             var parts: [String] = ["Recording live stream"]
 
@@ -1291,6 +1312,10 @@ struct VideoFileRowView: View {
     }
 
     private var statusColor: Color {
+        // Show orange when stopping (provides immediate visual feedback)
+        if file.downloadStopping {
+            return .orange
+        }
         if file.isLiveStreamRecording {
             return .red
         }
@@ -1508,6 +1533,9 @@ private struct FileResetButtonNSViewWrapper: NSViewRepresentable {
         button.imagePosition = .imageOnly
         button.target = context.coordinator
         button.action = #selector(Coordinator.buttonClicked(_:))
+        // Set explicit size to match SwiftUI button sizing
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentHuggingPriority(.required, for: .vertical)
         return button
     }
 
