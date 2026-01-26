@@ -158,6 +158,9 @@ Ten custom presets (C1–C10) let you supply your own output arguments, suffixes
 
 
 
+#### [TODO / Known issues](TODO.md)
+
+
 ## Screenshots
 
 #### Main window
@@ -281,23 +284,6 @@ Esc to close the overlay (settings are automatically saved)
 2. Drag video files onto the window **or** click the plus button to import files.
 3. Select an **Export Preset** from the toolbar menu.
 4. Hit the green *Convert* button or press ⌘⏎.
-
-
----
-
-## Known issues
-- Lagging scrolling when many items are queued. Seems to maybe be an issue with SwiftUI.
-- Some UI differences in the trim view if using macOS 15 (renders correctly in macOS 26)
-
----
-
-## Future ideas (under consideration, no promises)
-1. yt-dlp video downloader with built in yt-dlp updater
-2. Add option to download whisper binary + model for transcribing audio to srt.
-3. Per item preset adjustment?
-4. Save/export encoding queue with settings as json/yaml
-5. Import/Export app settings as json/yaml
-6. Auto upload to server after export? RCLONE?
 
 
 
