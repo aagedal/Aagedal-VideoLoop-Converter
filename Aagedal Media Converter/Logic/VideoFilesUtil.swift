@@ -586,6 +586,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var downloadLiveFromStart: Bool = false
     /// Whether a live stream download is currently recording
     var isLiveStreamRecording: Bool = false
+    /// Whether the download is in the process of stopping (provides immediate UI feedback)
+    var downloadStopping: Bool = false
     /// Current file size during live recording (updated periodically)
     var liveRecordingFileSize: Int64? = nil
     /// Estimated duration during live recording (updated periodically)
@@ -639,6 +641,11 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     /// Whether this item can be encoded (not downloading, no error, not scheduled)
     var isEncodable: Bool {
         !isDownloading && downloadError == nil && scheduledDownloadTime == nil
+    }
+
+    /// Whether this item can be played/previewed (file is available, not downloading or recording)
+    var isPlayable: Bool {
+        !isDownloading && !isLiveStreamRecording && scheduledDownloadTime == nil
     }
 
     mutating func apply(details: VideoFileUtils.VideoItemDetails) {

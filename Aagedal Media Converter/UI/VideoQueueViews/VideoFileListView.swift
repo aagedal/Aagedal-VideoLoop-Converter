@@ -802,82 +802,137 @@ struct VideoFileListView: View {
     }
 
     // MARK: - Row Builder
+
+    /// Creates a stable binding to an item by UUID, rather than by index.
+    /// This ensures the binding remains valid even when the list is reordered.
+    /// The initialIndex is used as a fallback only if the ID lookup fails.
+    private func bindingForItem(id: UUID, initialIndex: Int) -> Binding<VideoItem> {
+        Binding(
+            get: {
+                // Re-lookup by ID to handle reordering
+                if let currentIndex = droppedFiles.firstIndex(where: { $0.id == id }) {
+                    return droppedFiles[currentIndex]
+                }
+                // Fallback to initial index if ID not found (during deletion)
+                if initialIndex < droppedFiles.count {
+                    return droppedFiles[initialIndex]
+                }
+                // Last resort: return first item or a placeholder (shouldn't happen)
+                return droppedFiles.first ?? VideoItem(
+                    url: URL(fileURLWithPath: "/"),
+                    name: "",
+                    size: 0,
+                    duration: "",
+                    thumbnailData: nil,
+                    status: .waiting,
+                    progress: 0,
+                    eta: nil,
+                    outputURL: nil,
+                    comment: ""
+                )
+            },
+            set: { newValue in
+                // Re-lookup by ID to handle reordering
+                if let currentIndex = droppedFiles.firstIndex(where: { $0.id == id }) {
+                    droppedFiles[currentIndex] = newValue
+                }
+            }
+        )
+    }
+
+    /// Finds the current index for an item by UUID
+    private func currentIndex(for id: UUID) -> Int? {
+        droppedFiles.firstIndex(where: { $0.id == id })
+    }
+
     @ViewBuilder
     private func cardRow(for index: Int) -> some View {
         // Guard against index out of bounds (can happen during async array updates)
         if index >= droppedFiles.count {
             EmptyView()
         } else {
-            // Get a binding to the file in the array
-            let file = $droppedFiles[index]
+            // Capture the item ID for stable reference across reordering
+            let itemID = droppedFiles[index].id
+
+            // Create a stable binding that looks up by ID, not index
+            let fileBinding = bindingForItem(id: itemID, initialIndex: index)
+
             VideoFileRowView(
-            file: file,
-            focusedCommentID: $focusedCommentID,
-            preset: preset,
-            onCancel: {
-                Task { await ConversionManager.shared.cancelItem(with: file.wrappedValue.id) }
-            },
-            onDelete: {
-                onDelete(IndexSet(integer: index))
-            },
-            onReset: { optionKeyPressed in
-                onReset(index, optionKeyPressed)
-            },
-            onCancelDownload: {
-                DownloadManager.shared.cancelDownload(itemID: file.wrappedValue.id)
-            },
-            onStopLiveRecording: {
-                DownloadManager.shared.stopLiveDownload(itemID: file.wrappedValue.id)
-            },
-            onRetryDownload: {
-                Task { await DownloadManager.shared.retryDownload(itemID: file.wrappedValue.id) }
-            },
-            onForceRedownload: {
-                Task { await DownloadManager.shared.forceRedownload(itemID: file.wrappedValue.id) }
-            },
-            onCancelScheduledDownload: {
-                ScheduledDownloadService.shared.cancelScheduledItem(itemID: file.wrappedValue.id)
-                // Remove the item from the queue
-                onDelete(IndexSet(integer: index))
-            },
-            onTranscribeOnly: {
-                Task {
-                    await transcribeOnly(itemID: file.wrappedValue.id)
-                }
-            },
-            onRenameOutputFileName: { newName in
-                onRenameOutputFileName?(file.wrappedValue.id, newName)
-            },
-            isSelected: selection.contains(file.wrappedValue.id),
-            onCommentFocusChange: { id, isFocused in
-                guard index < droppedFiles.count, droppedFiles[index].id == id else { return }
-                if isFocused {
-                    // Don't override multi-selection when comment field is focused
-                    // Only update focusedCommentID for Tab navigation
-                    if !selection.contains(id) {
-                        selection = [id]
+                file: fileBinding,
+                focusedCommentID: $focusedCommentID,
+                preset: preset,
+                onCancel: {
+                    Task { await ConversionManager.shared.cancelItem(with: itemID) }
+                },
+                onDelete: {
+                    // Look up current index by ID to handle reordering
+                    if let currentIdx = currentIndex(for: itemID) {
+                        onDelete(IndexSet(integer: currentIdx))
                     }
-                    // Guard against redundant updates to prevent feedback loop
-                    if focusedCommentID != id {
-                        focusedCommentID = id
+                },
+                onReset: { optionKeyPressed in
+                    // Look up current index by ID to handle reordering
+                    if let currentIdx = currentIndex(for: itemID) {
+                        onReset(currentIdx, optionKeyPressed)
                     }
-                } else if focusedCommentID == id {
-                    focusedCommentID = nil
-                }
-            },
-            onPlayFullscreen: {
-                onPlayFullscreen?(file.wrappedValue.id)
-            },
-            mergeClipsEnabled: mergeClipsEnabled,
-            mergeClipsAvailable: mergeClipsAvailable,
-            showCommentField: showCommentField,
-            showDateTagButton: showDateTagButton,
-            isCompactMode: isCompactMode
-        )
+                },
+                onCancelDownload: {
+                    DownloadManager.shared.cancelDownload(itemID: itemID)
+                },
+                onStopLiveRecording: {
+                    DownloadManager.shared.stopLiveDownload(itemID: itemID)
+                },
+                onRetryDownload: {
+                    Task { await DownloadManager.shared.retryDownload(itemID: itemID) }
+                },
+                onForceRedownload: {
+                    Task { await DownloadManager.shared.forceRedownload(itemID: itemID) }
+                },
+                onCancelScheduledDownload: {
+                    ScheduledDownloadService.shared.cancelScheduledItem(itemID: itemID)
+                    // Remove the item from the queue - look up current index
+                    if let currentIdx = currentIndex(for: itemID) {
+                        onDelete(IndexSet(integer: currentIdx))
+                    }
+                },
+                onTranscribeOnly: {
+                    Task {
+                        await transcribeOnly(itemID: itemID)
+                    }
+                },
+                onRenameOutputFileName: { newName in
+                    onRenameOutputFileName?(itemID, newName)
+                },
+                isSelected: selection.contains(itemID),
+                onCommentFocusChange: { id, isFocused in
+                    guard droppedFiles.contains(where: { $0.id == id }) else { return }
+                    if isFocused {
+                        // Don't override multi-selection when comment field is focused
+                        // Only update focusedCommentID for Tab navigation
+                        if !selection.contains(id) {
+                            selection = [id]
+                        }
+                        // Guard against redundant updates to prevent feedback loop
+                        if focusedCommentID != id {
+                            focusedCommentID = id
+                        }
+                    } else if focusedCommentID == id {
+                        focusedCommentID = nil
+                    }
+                },
+                onPlayFullscreen: {
+                    onPlayFullscreen?(itemID)
+                },
+                mergeClipsEnabled: mergeClipsEnabled,
+                mergeClipsAvailable: mergeClipsAvailable,
+                showCommentField: showCommentField,
+                showDateTagButton: showDateTagButton,
+                isCompactMode: isCompactMode
+            )
             .padding([.vertical], 4)
             .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets())
-            .tag(file.wrappedValue.id)
+            .tag(itemID)
         }
     }
 }
