@@ -322,6 +322,39 @@ struct VideoFileUtils: Sendable {
         }
     }
 
+    /// Fetches camera metadata from XML for a video item
+    /// This is done lazily when the user opens the metadata view
+    static func fetchCameraMetadata(for url: URL) async -> CameraMetadata? {
+        let fileName = url.lastPathComponent
+
+        // Skip if file doesn't exist
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            print(" [fetchCameraMetadata] ⏭️ Skipping - file doesn't exist: \(fileName)")
+            return nil
+        }
+
+        // Check if ExifTool is available
+        guard ExifToolService.shared.isAvailable else {
+            print(" [fetchCameraMetadata] ⏭️ ExifTool not available")
+            return nil
+        }
+
+        print(" [fetchCameraMetadata] ⏱️ Checking camera metadata for: \(fileName)")
+
+        do {
+            let cameraMetadata = try await ExifToolService.shared.getCameraMetadata(for: url)
+            if cameraMetadata != nil {
+                print(" [fetchCameraMetadata] ✅ Found camera metadata for: \(fileName)")
+            } else {
+                print(" [fetchCameraMetadata] ℹ️ No camera metadata found for: \(fileName)")
+            }
+            return cameraMetadata
+        } catch {
+            print(" [fetchCameraMetadata] ❌ Error fetching camera metadata: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     /// Utility to format seconds into hh:mm:ss or mm:ss
     static func formatDuration(seconds: Double) -> String {
         let totalSeconds = Int(seconds)
@@ -576,6 +609,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var outputFileSizeBytes: Int64? = nil
     /// C2PA (Content Authenticity) metadata if present
     var c2paMetadata: C2PAMetadata? = nil
+    /// Camera metadata from XML (device info, lens, recording settings)
+    var cameraMetadata: CameraMetadata? = nil
     /// Whether audio should be muted (removed) in the output
     var isMuted: Bool = false
 

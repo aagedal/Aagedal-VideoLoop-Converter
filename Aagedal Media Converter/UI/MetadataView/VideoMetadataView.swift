@@ -5,6 +5,7 @@ struct VideoMetadataView: View {
     @Binding var item: VideoItem
 
     @State private var isLoadingC2PA = false
+    @State private var isLoadingCamera = false
 
     private var metadata: VideoMetadata? { item.metadata }
 
@@ -40,6 +41,8 @@ struct VideoMetadataView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     c2paSection
                     Divider()
+                    cameraSection
+                    Divider()
                     generalSection
                     Divider()
                     videoSection
@@ -56,6 +59,7 @@ struct VideoMetadataView: View {
         .frame(minWidth: 520, idealWidth: 560, minHeight: 420, idealHeight: 520)
         .task {
             await fetchC2PAIfNeeded()
+            await fetchCameraMetadataIfNeeded()
         }
     }
 
@@ -241,10 +245,6 @@ struct VideoMetadataView: View {
                 infoRow("Actions Digital Source Type", value: c2pa.actionsDigitalSourceType)
                 infoRow("Signature Types", value: c2pa.userDescriptiveMetadataName)
                 infoRow("Signature Content", value: c2pa.userDescriptiveMetadataContent)
-                infoRow("Device Manufacturer", value: c2pa.deviceManufacturer)
-                infoRow("Device Model", value: c2pa.deviceModelName)
-                infoRow("Device Serial", value: c2pa.deviceSerialNumber)
-                infoRow("Lens Model", value: c2pa.lensModelName)
                 infoRow("C2PA Creation Date", value: c2pa.creationDateValue)
                 if let manifestStore = c2pa.manifestStore, !manifestStore.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
@@ -275,6 +275,58 @@ struct VideoMetadataView: View {
                         .foregroundColor(.secondary)
                 }
             }
+        }
+    }
+
+    private var cameraSection: some View {
+        section(title: "Camera") {
+            if isLoadingCamera {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Checking for camera metadata...")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            } else if let camera = item.cameraMetadata, camera.hasAnyData {
+                HStack(spacing: 6) {
+                    Image(systemName: "camera.fill")
+                        .foregroundColor(.blue)
+                    Text("Camera Metadata Present")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+                .padding(.bottom, 8)
+
+                infoRow("Manufacturer", value: camera.deviceManufacturer)
+                infoRow("Model", value: camera.deviceModelName)
+                infoRow("Serial Number", value: camera.deviceSerialNumber)
+                infoRow("Lens", value: camera.lensModelName)
+                infoRow("Time Zone", value: camera.timeZone)
+                infoRow("Gamma/Color Profile", value: camera.captureGammaEquation)
+                infoRow("Recording Mode", value: camera.recordingModeType)
+                infoRow("Capture FPS", value: camera.captureFps)
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "camera")
+                        .foregroundColor(.secondary)
+                    Text("Camera metadata not available")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    private func fetchCameraMetadataIfNeeded() async {
+        // Skip if already loaded or loading
+        guard item.cameraMetadata == nil, !isLoadingCamera else { return }
+
+        isLoadingCamera = true
+        defer { isLoadingCamera = false }
+
+        if let camera = await VideoFileUtils.fetchCameraMetadata(for: item.url) {
+            item.cameraMetadata = camera
         }
     }
 

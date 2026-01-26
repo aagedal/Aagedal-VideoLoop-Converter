@@ -13,6 +13,10 @@ struct ComparisonMetadataView: View {
     @State private var c2paCheckedIDs: Set<UUID> = []
     @State private var c2paLoadingIDs: Set<UUID> = []
 
+    @State private var cameraByID: [UUID: CameraMetadata] = [:]
+    @State private var cameraCheckedIDs: Set<UUID> = []
+    @State private var cameraLoadingIDs: Set<UUID> = []
+
     private let labelColumnWidth: CGFloat = 140
     private let valueColumnWidth: CGFloat = 200
     private let columnSpacing: CGFloat = 16
@@ -27,6 +31,8 @@ struct ComparisonMetadataView: View {
                         fileNamesRow
                         Divider()
                         c2paSection
+                        Divider()
+                        cameraSection
                         Divider()
                         generalSection
                         Divider()
@@ -48,11 +54,14 @@ struct ComparisonMetadataView: View {
             await loadC2PAIfNeeded()
         }
         .onChange(of: items.map(\.id)) { _, newIDs in
-            // Clear C2PA state for items no longer in the selection
+            // Clear C2PA and Camera state for items no longer in the selection
             let newIDSet = Set(newIDs)
             c2paByID = c2paByID.filter { newIDSet.contains($0.key) }
             c2paCheckedIDs = c2paCheckedIDs.intersection(newIDSet)
             c2paLoadingIDs = c2paLoadingIDs.intersection(newIDSet)
+            cameraByID = cameraByID.filter { newIDSet.contains($0.key) }
+            cameraCheckedIDs = cameraCheckedIDs.intersection(newIDSet)
+            cameraLoadingIDs = cameraLoadingIDs.intersection(newIDSet)
         }
     }
 
@@ -175,18 +184,6 @@ struct ComparisonMetadataView: View {
             comparisonRow("Signature Content") { item in
                 c2paMetadata(for: item)?.userDescriptiveMetadataContent
             }
-            comparisonRow("Device Manufacturer") { item in
-                c2paMetadata(for: item)?.deviceManufacturer
-            }
-            comparisonRow("Device Model") { item in
-                c2paMetadata(for: item)?.deviceModelName
-            }
-            comparisonRow("Device Serial") { item in
-                c2paMetadata(for: item)?.deviceSerialNumber
-            }
-            comparisonRow("Lens Model") { item in
-                c2paMetadata(for: item)?.lensModelName
-            }
             comparisonRow("C2PA Creation Date") { item in
                 c2paMetadata(for: item)?.creationDateValue
             }
@@ -196,6 +193,40 @@ struct ComparisonMetadataView: View {
             comparisonRow("Assertions") { item in
                 guard let assertions = c2paMetadata(for: item)?.assertions else { return nil }
                 return assertions.joined(separator: ", ")
+            }
+        }
+    }
+
+    // MARK: - Camera Section
+
+    private var cameraSection: some View {
+        sectionView(title: "CAMERA") {
+            comparisonRow("Status") { item in
+                cameraStatusValue(for: item)
+            }
+            comparisonRow("Manufacturer") { item in
+                cameraMetadata(for: item)?.deviceManufacturer
+            }
+            comparisonRow("Model") { item in
+                cameraMetadata(for: item)?.deviceModelName
+            }
+            comparisonRow("Serial Number") { item in
+                cameraMetadata(for: item)?.deviceSerialNumber
+            }
+            comparisonRow("Lens") { item in
+                cameraMetadata(for: item)?.lensModelName
+            }
+            comparisonRow("Time Zone") { item in
+                cameraMetadata(for: item)?.timeZone
+            }
+            comparisonRow("Gamma/Color Profile") { item in
+                cameraMetadata(for: item)?.captureGammaEquation
+            }
+            comparisonRow("Recording Mode") { item in
+                cameraMetadata(for: item)?.recordingModeType
+            }
+            comparisonRow("Capture FPS") { item in
+                cameraMetadata(for: item)?.captureFps
             }
         }
     }
@@ -510,7 +541,33 @@ struct ComparisonMetadataView: View {
         return "Not available"
     }
 
+    // MARK: - Camera Helpers
+
+    private func cameraMetadata(for item: VideoItem) -> CameraMetadata? {
+        item.cameraMetadata ?? cameraByID[item.id]
+    }
+
+    private func cameraStatusValue(for item: VideoItem) -> String? {
+        if let camera = cameraMetadata(for: item), camera.hasAnyData {
+            return "Present"
+        }
+        if cameraLoadingIDs.contains(item.id) {
+            return "Checking..."
+        }
+        if cameraCheckedIDs.contains(item.id) {
+            return "Not available"
+        }
+        return nil
+    }
+
+    // MARK: - Loading
+
     private func loadC2PAIfNeeded() async {
+        await loadC2PAMetadata()
+        await loadCameraMetadata()
+    }
+
+    private func loadC2PAMetadata() async {
         let itemsToLoad = items.filter { item in
             item.c2paMetadata == nil
                 && c2paByID[item.id] == nil
@@ -540,6 +597,41 @@ struct ComparisonMetadataView: View {
                     }
                     c2paCheckedIDs.insert(id)
                     c2paLoadingIDs.remove(id)
+                }
+            }
+        }
+    }
+
+    private func loadCameraMetadata() async {
+        let itemsToLoad = items.filter { item in
+            item.cameraMetadata == nil
+                && cameraByID[item.id] == nil
+                && !cameraCheckedIDs.contains(item.id)
+                && !cameraLoadingIDs.contains(item.id)
+        }
+
+        guard !itemsToLoad.isEmpty else { return }
+
+        let loadingIDs = Set(itemsToLoad.map(\.id))
+        await MainActor.run {
+            cameraLoadingIDs.formUnion(loadingIDs)
+        }
+
+        await withTaskGroup(of: (UUID, CameraMetadata?).self) { group in
+            for item in itemsToLoad {
+                group.addTask {
+                    let metadata = await VideoFileUtils.fetchCameraMetadata(for: item.url)
+                    return (item.id, metadata)
+                }
+            }
+
+            for await (id, metadata) in group {
+                await MainActor.run {
+                    if let metadata {
+                        cameraByID[id] = metadata
+                    }
+                    cameraCheckedIDs.insert(id)
+                    cameraLoadingIDs.remove(id)
                 }
             }
         }
