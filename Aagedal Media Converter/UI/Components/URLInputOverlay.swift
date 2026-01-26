@@ -17,6 +17,10 @@ struct URLInputOverlay: View {
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage(AppConstants.ytdlpLiveFromStartKey) private var downloadLiveFromStart = false
 
+    // History navigation state (like terminal history)
+    @State private var historyIndex: Int = -1  // -1 means not navigating history
+    @State private var originalText: String = ""  // Text before starting history navigation
+
     /// Returns a default schedule date: 2 minutes from now, rounded to the next full minute
     private static func defaultScheduleDate() -> Date {
         let now = Date()
@@ -46,172 +50,7 @@ struct URLInputOverlay: View {
                 }
 
             // Input panel
-            VStack(spacing: 16) {
-                HStack {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-
-                    Text("Download from URL")
-                        .font(.headline)
-
-                    Spacer()
-
-                    Button {
-                        isPresented = false
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(.escape, modifiers: [])
-                }
-
-                TextField("Paste video URL (YouTube, Vimeo, etc.)...", text: $urlText)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
-                    .focused($isTextFieldFocused)
-                    .onSubmit {
-                        submit()
-                    }
-
-                // Invalid URL warning
-                if !urlText.isEmpty && !DownloadManager.isValidURL(urlText) {
-                    HStack {
-                        Label("Invalid URL", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                        Spacer()
-                    }
-                }
-
-                // Schedule toggle with date picker and action button
-                if onSchedule != nil {
-                    HStack(spacing: 12) {
-                        Toggle(isOn: $isScheduled) {
-                            Label("Schedule", systemImage: "clock")
-                                .font(.subheadline)
-                        }
-                        .toggleStyle(.checkbox)
-
-                        DatePicker(
-                            "",
-                            selection: $scheduledDate,
-                            in: minimumScheduleDate...,
-                            displayedComponents: [.date, .hourAndMinute]
-                        )
-                        .labelsHidden()
-                        .datePickerStyle(.field)
-                        .disabled(!isScheduled)
-                        .opacity(isScheduled ? 1.0 : 0.5)
-
-                        Spacer()
-
-                        Button(isScheduled ? "Schedule" : "Download") {
-                            submit()
-                        }
-                        .keyboardShortcut(.return, modifiers: [])
-                        .disabled(urlText.isEmpty || !DownloadManager.isValidURL(urlText))
-                        .buttonStyle(.borderedProminent)
-                    }
-                    .padding(.vertical, 4)
-                } else {
-                    HStack {
-                        Spacer()
-                        Button("Download") {
-                            submit()
-                        }
-                        .keyboardShortcut(.return, modifiers: [])
-                        .disabled(urlText.isEmpty || !DownloadManager.isValidURL(urlText))
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    Button {
-                        downloadLiveFromStart.toggle()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: downloadLiveFromStart ? "backward.end.fill" : "backward.end")
-                                .font(.system(size: 14, weight: .medium))
-                            Text("Record from start")
-                                .font(.subheadline)
-                        }
-                        .foregroundColor(downloadLiveFromStart ? .white : .secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(downloadLiveFromStart ? Color.accentColor : Color.gray.opacity(0.15))
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .help("When enabled, yt-dlp will rewind live streams to the beginning before recording")
-
-                    Spacer()
-                }
-
-                // History section
-                if !history.isEmpty {
-                    Divider()
-                        .padding(.top, 4)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .foregroundStyle(.secondary)
-                            Text("Recent Downloads")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(history) { entry in
-                                    Button {
-                                        urlText = entry.url
-                                    } label: {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(entry.title)
-                                                    .font(.callout)
-                                                    .lineLimit(1)
-                                                    .foregroundStyle(.primary)
-
-                                                Text(entry.url)
-                                                    .font(.caption)
-                                                    .lineLimit(1)
-                                                    .foregroundStyle(.secondary)
-                                            }
-
-                                            Spacer()
-
-                                            Text(entry.downloadedAt, style: .relative)
-                                                .font(.caption2)
-                                                .foregroundStyle(.tertiary)
-                                        }
-                                        .padding(.vertical, 4)
-                                        .padding(.horizontal, 8)
-                                        .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(.primary.opacity(0.05))
-                                    )
-                                }
-                            }
-                        }
-                        .frame(maxHeight: 150)
-                    }
-                }
-            }
-            .padding(20)
-            .frame(width: 540)
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .shadow(radius: 20)
+            inputPanel
         }
         .onAppear {
             // Pre-warm yt-dlp binary in background (helps with PyInstaller startup)
@@ -220,9 +59,6 @@ struct URLInputOverlay: View {
             // Load history
             history = DownloadHistoryService.getHistory()
 
-            // Auto-focus the text field
-            isTextFieldFocused = true
-
             // Check clipboard for URL (sanitize to first line only)
             if let clipboardString = NSPasteboard.general.string(forType: .string) {
                 let sanitized = DownloadManager.sanitizeURLInput(clipboardString)
@@ -230,6 +66,280 @@ struct URLInputOverlay: View {
                     urlText = sanitized
                 }
             }
+
+            // Auto-focus the text field (with slight delay for SwiftUI to finish layout)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isTextFieldFocused = true
+            }
+        }
+    }
+
+    // MARK: - Extracted Subviews
+
+    private var inputPanel: some View {
+        VStack(spacing: 16) {
+            headerSection
+            urlInputSection
+            invalidURLWarning
+            actionSection
+            liveFromStartButton
+            historySection
+        }
+        .padding(20)
+        .frame(width: 540)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(radius: 20)
+    }
+
+    private var headerSection: some View {
+        HStack {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+
+            Text("Download from URL")
+                .font(.headline)
+
+            Spacer()
+
+            Button {
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.escape, modifiers: [])
+        }
+    }
+
+    private var urlInputSection: some View {
+        TextField("Paste video URL (YouTube, Vimeo, etc.)...", text: $urlText)
+            .textFieldStyle(.roundedBorder)
+            .font(.system(.body, design: .monospaced))
+            .focused($isTextFieldFocused)
+            .onSubmit {
+                submit()
+            }
+            .onKeyPress(.downArrow) {
+                // Down arrow goes into history (visually downward into the list)
+                navigateHistoryForward()
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                // Up arrow goes back toward original text (visually upward)
+                navigateHistoryBackward()
+                return .handled
+            }
+            .onKeyPress(.tab) {
+                // Prevent Tab from cycling focus out of the overlay
+                return .handled
+            }
+            .onChange(of: urlText) { oldValue, newValue in
+                // Reset history navigation when user types manually
+                // (but not when we're programmatically setting from history)
+                if historyIndex >= 0 && !history.isEmpty && historyIndex < history.count && newValue != history[historyIndex].url {
+                    historyIndex = -1
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var invalidURLWarning: some View {
+        if !urlText.isEmpty && !DownloadManager.isValidURL(urlText) {
+            HStack {
+                Label("Invalid URL", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actionSection: some View {
+        if onSchedule != nil {
+            scheduleSection
+        } else {
+            simpleDownloadSection
+        }
+    }
+
+    private var scheduleSection: some View {
+        HStack(spacing: 12) {
+            Toggle(isOn: $isScheduled) {
+                Label("Schedule", systemImage: "clock")
+                    .font(.subheadline)
+            }
+            .toggleStyle(.checkbox)
+
+            DatePicker(
+                "",
+                selection: $scheduledDate,
+                in: minimumScheduleDate...,
+                displayedComponents: [.date, .hourAndMinute]
+            )
+            .labelsHidden()
+            .datePickerStyle(.field)
+            .disabled(!isScheduled)
+            .opacity(isScheduled ? 1.0 : 0.5)
+
+            Spacer()
+
+            Button(isScheduled ? "Schedule" : "Download") {
+                submit()
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(urlText.isEmpty || !DownloadManager.isValidURL(urlText))
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var simpleDownloadSection: some View {
+        HStack {
+            Spacer()
+            Button("Download") {
+                submit()
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(urlText.isEmpty || !DownloadManager.isValidURL(urlText))
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private var liveFromStartButton: some View {
+        HStack(spacing: 8) {
+            Button {
+                downloadLiveFromStart.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: downloadLiveFromStart ? "backward.end.fill" : "backward.end")
+                        .font(.system(size: 14, weight: .medium))
+                    Text("Record from start")
+                        .font(.subheadline)
+                }
+                .foregroundColor(downloadLiveFromStart ? .white : .secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(downloadLiveFromStart ? Color.accentColor : Color.gray.opacity(0.15))
+                )
+            }
+            .buttonStyle(.plain)
+            .help("When enabled, yt-dlp will rewind live streams to the beginning before recording")
+
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private var historySection: some View {
+        if !history.isEmpty {
+            Divider()
+                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: 8) {
+                historyHeader
+                historyList
+            }
+        }
+    }
+
+    private var historyHeader: some View {
+        HStack {
+            Image(systemName: "clock.arrow.circlepath")
+                .foregroundStyle(.secondary)
+            Text("Recent Downloads")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text("↑↓ to navigate")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var historyList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(history.indices, id: \.self) { index in
+                    historyRow(index: index, entry: history[index])
+                }
+            }
+        }
+        .frame(maxHeight: 150)
+    }
+
+    private func historyRow(index: Int, entry: DownloadHistoryEntry) -> some View {
+        let isSelected = index == historyIndex
+        return Button {
+            urlText = entry.url
+            historyIndex = index
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title)
+                        .font(.callout)
+                        .lineLimit(1)
+                        .foregroundStyle(isSelected ? .white : .primary)
+
+                    Text(entry.url)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .foregroundStyle(isSelected ? .white.opacity(0.8) : .secondary)
+                }
+
+                Spacer()
+
+                Text(entry.downloadedAt, style: .relative)
+                    .font(.caption2)
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.6) : Color.secondary.opacity(0.6))
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.accentColor : .primary.opacity(0.05))
+        )
+    }
+
+    // MARK: - History Navigation
+
+    /// Navigate forward into history (Down arrow - older entries, visually down the list)
+    private func navigateHistoryForward() {
+        guard !history.isEmpty else { return }
+
+        if historyIndex == -1 {
+            // Starting history navigation, save current text
+            originalText = urlText
+            historyIndex = 0
+        } else if historyIndex < history.count - 1 {
+            // Move to older entry (visually down)
+            historyIndex += 1
+        }
+
+        urlText = history[historyIndex].url
+    }
+
+    /// Navigate backward through history (Up arrow - newer entries, visually up toward text field)
+    private func navigateHistoryBackward() {
+        guard historyIndex >= 0 else { return }
+
+        if historyIndex > 0 {
+            // Move to newer entry (visually up)
+            historyIndex -= 1
+            urlText = history[historyIndex].url
+        } else {
+            // At the newest entry, restore original text
+            historyIndex = -1
+            urlText = originalText
         }
     }
 

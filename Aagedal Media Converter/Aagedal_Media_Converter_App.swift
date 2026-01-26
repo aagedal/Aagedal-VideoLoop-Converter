@@ -83,6 +83,12 @@ struct MainAppCommands: Commands {
             }
             .keyboardShortcut("i", modifiers: .command)
         }
+        CommandGroup(after: .windowArrangement) {
+            Button("Show Metadata") {
+                MetadataWindowController.shared.showWindow()
+            }
+            .keyboardShortcut("i", modifiers: .option)
+        }
         CommandGroup(replacing: .appInfo) {
             Button("About Aagedal Media Converter") {
                 openWindow(id: "about")

@@ -82,6 +82,7 @@ struct ContentView: View {
     @State private var showUpdateNotification = false
     @State private var updateNotificationTask: Task<Void, Never>?
     @State private var showURLInputOverlay = false
+    @State private var showPresetQuickSelect = false
     @State private var showYTDLPNotConfiguredAlert = false
     @State private var showCaptureSheet = false
 
@@ -91,7 +92,6 @@ struct ContentView: View {
     @State private var trimWithCropSheetItemID: UUID?
     @State private var timecodeSheetItemID: UUID?
     @State private var audioConfigSheetItemID: UUID?
-    @State private var metadataSheetItemIDs: [UUID]?
     
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
@@ -149,7 +149,10 @@ struct ContentView: View {
             onOpenMetadata: { ids in
                 let validIDs = ids.filter { id in droppedFiles.contains(where: { $0.id == id }) }
                 guard !validIDs.isEmpty else { return }
-                metadataSheetItemIDs = validIDs
+                // Update the shared state and show the window
+                MetadataWindowState.shared.selectedItemIDs = Set(validIDs)
+                MetadataWindowState.shared.allItems = droppedFiles
+                MetadataWindowController.shared.showWindow()
             },
             onToggleDateTag: { index in
                 droppedFiles[index].includeDateTag.toggle()
@@ -171,7 +174,8 @@ struct ContentView: View {
             },
             onRenameOutputFileName: { id, newName in
                 handleOutputFileNameOverride(itemID: id, newName: newName)
-            }
+            },
+            disableKeyboardNavigation: showPresetQuickSelect || showURLInputOverlay || showCaptureSheet || trimSheetItemID != nil || trimWithCropSheetItemID != nil || timecodeSheetItemID != nil || audioConfigSheetItemID != nil
         )
     }
 
@@ -232,7 +236,6 @@ struct ContentView: View {
                 trimWithCropSheetItemID: $trimWithCropSheetItemID,
                 timecodeSheetItemID: $timecodeSheetItemID,
                 audioConfigSheetItemID: $audioConfigSheetItemID,
-                metadataSheetItemIDs: $metadataSheetItemIDs,
                 selectedPreset: selectedPreset,
                 showCaptureSheet: $showCaptureSheet
             ))
@@ -322,6 +325,30 @@ struct ContentView: View {
                     }
                 )
             }
+        }
+        .sheet(isPresented: $showPresetQuickSelect) {
+            PresetQuickSelectOverlay(
+                isPresented: $showPresetQuickSelect,
+                presets: visiblePresets,
+                currentPreset: selectedPreset,
+                displayName: { displayName(for: $0) },
+                onSelect: { preset in
+                    hasUserChangedPreset = true
+                    let oldValue = selectedPreset
+                    selectedPreset = preset
+                    refreshExpectedOutputURLs(for: preset)
+                    Task { @MainActor in
+                        await Task.yield()
+                        self.scheduleMergeCompatibilityEvaluation()
+                    }
+                    presetManager.applyAutoMuteSettings(
+                        to: &droppedFiles,
+                        oldPreset: oldValue,
+                        newPreset: preset,
+                        videoLoopDefaultMuted: videoLoopDefaultMuted
+                    )
+                }
+            )
         }
         .alert("yt-dlp Not Available", isPresented: $showYTDLPNotConfiguredAlert) {
             Button("Open Settings") {
@@ -430,6 +457,43 @@ struct ContentView: View {
             },
             onShowCapture: {
                 showCaptureSheet = true
+            },
+            onShowPresetQuickSelect: {
+                showPresetQuickSelect = true
+            },
+            onSelectPresetByIndex: { index in
+                // Only handle if no sheets/overlays are open
+                let anySheetOpen = trimSheetItemID != nil ||
+                    trimWithCropSheetItemID != nil ||
+                    timecodeSheetItemID != nil ||
+                    audioConfigSheetItemID != nil ||
+                    showCaptureSheet ||
+                    showURLInputOverlay ||
+                    showPresetQuickSelect
+                guard !anySheetOpen else { return false }
+                guard index < visiblePresets.count else { return false }
+
+                let preset = visiblePresets[index]
+                let oldValue = selectedPreset
+                hasUserChangedPreset = true
+                selectedPreset = preset
+                refreshExpectedOutputURLs(for: preset)
+                Task { @MainActor in
+                    await Task.yield()
+                    self.scheduleMergeCompatibilityEvaluation()
+                }
+                presetManager.applyAutoMuteSettings(
+                    to: &droppedFiles,
+                    oldPreset: oldValue,
+                    newPreset: preset,
+                    videoLoopDefaultMuted: videoLoopDefaultMuted
+                )
+                return true
+            },
+            onShowShortcuts: {
+                // Set the tab to open before opening Settings
+                UserDefaults.standard.set("shortcuts", forKey: AppConstants.settingsTabToOpenKey)
+                openSettings()
             }
         )
     }
@@ -572,34 +636,6 @@ struct ContentView: View {
                 }
             }
         )
-    }
-
-    /// Creates a Binding<Bool> for metadata sheet presentation (supports multiple items).
-    private var metadataSheetBinding: Binding<Bool> {
-        Binding(
-            get: { metadataSheetItemIDs != nil && !metadataSheetItemIDs!.isEmpty },
-            set: { isPresented in
-                if !isPresented {
-                    metadataSheetItemIDs = nil
-                }
-            }
-        )
-    }
-
-    /// Content for the metadata sheet - shows single item or comparison view.
-    @ViewBuilder
-    private var metadataSheetContent: some View {
-        if let ids = metadataSheetItemIDs {
-            if ids.count == 1,
-               let id = ids.first,
-               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                VideoMetadataView(item: $droppedFiles[index])
-            } else {
-                // Sort items by their position in the queue for consistent display order
-                let sortedItems = droppedFiles.filter { ids.contains($0.id) }
-                MetadataComparisonView(items: sortedItems)
-            }
-        }
     }
 
     private func expectedOutputURL(for item: VideoItem, preset: ExportPreset) -> URL? {
@@ -1089,6 +1125,9 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
     var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
     var onShowURLInput: () -> Void
     var onShowCapture: () -> Void
+    var onShowPresetQuickSelect: () -> Void
+    var onSelectPresetByIndex: (Int) -> Bool
+    var onShowShortcuts: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -1098,7 +1137,10 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             onResetAll: onResetAll,
             onToggleConversion: onToggleConversion,
             onShowURLInput: onShowURLInput,
-            onShowCapture: onShowCapture
+            onShowCapture: onShowCapture,
+            onShowPresetQuickSelect: onShowPresetQuickSelect,
+            onSelectPresetByIndex: onSelectPresetByIndex,
+            onShowShortcuts: onShowShortcuts
         )
     }
     
@@ -1117,6 +1159,9 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         context.coordinator.onToggleConversion = onToggleConversion
         context.coordinator.onShowURLInput = onShowURLInput
         context.coordinator.onShowCapture = onShowCapture
+        context.coordinator.onShowPresetQuickSelect = onShowPresetQuickSelect
+        context.coordinator.onSelectPresetByIndex = onSelectPresetByIndex
+        context.coordinator.onShowShortcuts = onShowShortcuts
     }
     
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -1131,6 +1176,9 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
         var onToggleConversion: (_ optionKeyPressed: Bool) -> Void
         var onShowURLInput: () -> Void
         var onShowCapture: () -> Void
+        var onShowPresetQuickSelect: () -> Void
+        var onSelectPresetByIndex: (Int) -> Bool
+        var onShowShortcuts: () -> Void
         private var monitor: Any?
 
         init(
@@ -1140,7 +1188,10 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             onResetAll: @escaping () -> Void,
             onToggleConversion: @escaping (_ optionKeyPressed: Bool) -> Void,
             onShowURLInput: @escaping () -> Void,
-            onShowCapture: @escaping () -> Void
+            onShowCapture: @escaping () -> Void,
+            onShowPresetQuickSelect: @escaping () -> Void,
+            onSelectPresetByIndex: @escaping (Int) -> Bool,
+            onShowShortcuts: @escaping () -> Void
         ) {
             self.onToggleWatchFolder = onToggleWatchFolder
             self.onSelectOutputFolder = onSelectOutputFolder
@@ -1149,6 +1200,9 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
             self.onToggleConversion = onToggleConversion
             self.onShowURLInput = onShowURLInput
             self.onShowCapture = onShowCapture
+            self.onShowPresetQuickSelect = onShowPresetQuickSelect
+            self.onSelectPresetByIndex = onSelectPresetByIndex
+            self.onShowShortcuts = onShowShortcuts
         }
         
         func install() {
@@ -1191,8 +1245,8 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
                     return nil
                 }
 
-                // Cmd+L: Show URL Input Overlay (L for Load)
-                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_L {
+                // Cmd+D: Show URL Input Overlay (D for Download)
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_D {
                     self.onShowURLInput()
                     return nil
                 }
@@ -1201,6 +1255,36 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
                 if hasCommand && hasShift && !hasOption && !hasControl && event.keyCode == kVK_ANSI_C {
                     self.onShowCapture()
                     return nil
+                }
+
+                // Cmd+P: Show Preset Quick Select
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_P {
+                    self.onShowPresetQuickSelect()
+                    return nil
+                }
+
+                // Control+K: Show Shortcuts (opens Settings to Shortcuts tab)
+                if hasControl && !hasCommand && !hasOption && !hasShift && event.keyCode == kVK_ANSI_K {
+                    self.onShowShortcuts()
+                    return nil
+                }
+
+                // Cmd+1 through Cmd+0: Quick select preset by index (only when no sheets are open)
+                if hasCommand && !hasOption && !hasShift && !hasControl {
+                    let numberKeyCodes: [UInt16] = [
+                        UInt16(kVK_ANSI_1), UInt16(kVK_ANSI_2), UInt16(kVK_ANSI_3),
+                        UInt16(kVK_ANSI_4), UInt16(kVK_ANSI_5), UInt16(kVK_ANSI_6),
+                        UInt16(kVK_ANSI_7), UInt16(kVK_ANSI_8), UInt16(kVK_ANSI_9),
+                        UInt16(kVK_ANSI_0)  // 0 = 10th preset
+                    ]
+                    if let index = numberKeyCodes.firstIndex(of: event.keyCode) {
+                        // Only consume event if it was actually handled
+                        if self.onSelectPresetByIndex(index) {
+                            return nil
+                        }
+                        // Otherwise pass through to let sheets handle it
+                        return event
+                    }
                 }
 
                 return event
@@ -1225,7 +1309,6 @@ private struct ContentViewSheets: ViewModifier {
     @Binding var trimWithCropSheetItemID: UUID?
     @Binding var timecodeSheetItemID: UUID?
     @Binding var audioConfigSheetItemID: UUID?
-    @Binding var metadataSheetItemIDs: [UUID]?
     let selectedPreset: ExportPreset
     @Binding var showCaptureSheet: Bool
 
@@ -1242,9 +1325,6 @@ private struct ContentViewSheets: ViewModifier {
             }
             .sheet(isPresented: sheetBinding(for: $audioConfigSheetItemID)) {
                 audioConfigSheetContent
-            }
-            .sheet(isPresented: metadataSheetBinding) {
-                metadataSheetContent
             }
             .sheet(isPresented: $showCaptureSheet) {
                 CaptureModeView()
@@ -1283,37 +1363,12 @@ private struct ContentViewSheets: ViewModifier {
         }
     }
 
-    @ViewBuilder
-    private var metadataSheetContent: some View {
-        if let ids = metadataSheetItemIDs {
-            if ids.count == 1,
-               let id = ids.first,
-               let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                VideoMetadataView(item: $droppedFiles[index])
-            } else {
-                let sortedItems = droppedFiles.filter { ids.contains($0.id) }
-                MetadataComparisonView(items: sortedItems)
-            }
-        }
-    }
-
     private func sheetBinding(for itemID: Binding<UUID?>) -> Binding<Bool> {
         Binding(
             get: { itemID.wrappedValue != nil },
             set: { isPresented in
                 if !isPresented {
                     itemID.wrappedValue = nil
-                }
-            }
-        )
-    }
-
-    private var metadataSheetBinding: Binding<Bool> {
-        Binding(
-            get: { metadataSheetItemIDs != nil && !(metadataSheetItemIDs?.isEmpty ?? true) },
-            set: { isPresented in
-                if !isPresented {
-                    metadataSheetItemIDs = nil
                 }
             }
         )

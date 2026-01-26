@@ -646,6 +646,9 @@ private final class ShortcutAwarePlayerView: AVPlayerView {
         videoGravity = .resizeAspect
         allowsVideoFrameAnalysis = false
         self.player = player
+        // Make background transparent so checkerboard shows through
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
 
         Task { @MainActor in
             controller.playerView = self

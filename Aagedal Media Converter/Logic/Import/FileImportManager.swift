@@ -241,28 +241,31 @@ actor FileImportManager {
         preset: ExportPreset,
         continuation: AsyncStream<ImportUpdate>.Continuation
     ) async {
-        // Use the optimized fetchEssentialInfo for basic details
-        // This is a single FFprobe call instead of multiple
+        // Consolidated: Single FFprobe call via metadata(), then derive essential info from it
+        // This eliminates the duplicate ffprobe calls that were happening before
         do {
-            let essentialInfo = try await VideoMetadataService.shared.fetchEssentialInfo(for: url)
+            // Single FFprobe call that gets everything we need
+            let metadata = try await VideoMetadataService.shared.metadata(for: url)
 
-            // Build VideoItemDetails from essential info
-            let durationString = VideoFileUtils.formatDuration(seconds: essentialInfo.duration)
+            // Derive essential info from the full metadata
+            let duration = metadata.duration ?? 0
+            let hasVideoStream = !metadata.videoStreams.isEmpty
+
+            // Build VideoItemDetails from metadata
+            let durationString = VideoFileUtils.formatDuration(seconds: duration)
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
             let outputURL = VideoFileUtils.makeOutputURLPublic(for: url, outputFolder: outputFolder, preset: preset)
 
             let details = VideoFileUtils.VideoItemDetails(
                 size: size,
                 duration: durationString,
-                durationSeconds: essentialInfo.duration,
+                durationSeconds: duration,
                 thumbnailData: nil,  // Will be loaded separately
                 outputURL: outputURL,
-                hasVideoStream: essentialInfo.hasVideoStream
+                hasVideoStream: hasVideoStream
             )
 
             continuation.yield(.itemDetailsLoaded(id: id, details: details))
-
-            let metadata = try? await VideoMetadataService.shared.metadata(for: url)
             continuation.yield(.itemMetadataLoaded(id: id, metadata: metadata))
 
             if let thumbnailData = await VideoFileUtils.getCachedThumbnail(
@@ -275,7 +278,7 @@ actor FileImportManager {
         } catch {
             logger.error("Failed to load details for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
 
-            // Fallback to legacy loadDetails if essential info fails
+            // Fallback to legacy loadDetails if metadata fetch fails
             let details = await VideoFileUtils.loadDetails(
                 for: url,
                 outputFolder: outputFolder,
@@ -283,8 +286,9 @@ actor FileImportManager {
                 generateRowThumbnailIfMissing: false
             )
             continuation.yield(.itemDetailsLoaded(id: id, details: details))
-            let metadata = try? await VideoMetadataService.shared.metadata(for: url)
-            continuation.yield(.itemMetadataLoaded(id: id, metadata: metadata))
+
+            // Don't retry metadata fetch - if it failed above, it will fail again
+            continuation.yield(.itemMetadataLoaded(id: id, metadata: nil))
 
             if let thumbnailData = await VideoFileUtils.getCachedThumbnail(
                 url: url,

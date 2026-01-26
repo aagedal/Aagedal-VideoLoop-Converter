@@ -18,13 +18,14 @@
 [] Screen Recording: Make PAL and NTSC presets constant frame rate, rather than a 60fps limit.
 
 ## Full Screen Player
-[] Full Screen Playback: Fix it so that the Auto Next feature automatically plays next video, instead of the next video starting paused.
-[] Full Screen Playback: Fix issues where Auto Next doesn't always work.
+[x] Full Screen Playback: Fix it so that the Auto Next feature automatically plays next video, instead of the next video starting paused.
+[x] Full Screen Playback: Fix issues where Auto Next doesn't always work.
 
 
 ## Metadata View
 [] Metadata Comparison: Improve performance and design of the metadata comparison view. Make the metadata view a separate window rather than an overlay. Make column width adjustable.
 [] Metadata view - both: Separate camera metadata from C2PA metadata.
+[] Merge the single and multi metadata view into a single metadata view.
 
 
 ## Downloads
@@ -35,4 +36,4 @@
 
 ## GitHub
 [] Make readme.md more structured and visual
-[] Update KeyboardShortcuts.md with new keyboard shortcuts: Downloads, Uploads
+[] Update KeyboardShortcuts.md with new keyboard shortcuts: Downloads, Uploads, Full Screen

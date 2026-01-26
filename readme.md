@@ -37,7 +37,7 @@ brew tap aagedal/casks && brew install --cask aagedal-media-converter
 - Batch conversion, watch folder, progress bar, 
 - Trim, crop, reroute or remove audio tracks, merge clips (if in the same format)
 - Metadata comparison
-- Lots of shortcuts: most features are accessible without using a mouse
+- Lots of [keyboard shortcuts](KeyboardShortcuts.md): most features are accessible without using a mouse
 - Lots of settings if you want to customize
 - Language support: English and Norwegian
 - Automatically check for updates with a subtle update notification, can be turned off.

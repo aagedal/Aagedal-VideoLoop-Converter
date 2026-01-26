@@ -31,6 +31,9 @@ enum AppConstants {
 
     static let downloadFolderKey = "downloadFolder"
 
+    // Settings window tab to open (used for opening Settings to a specific tab from main window)
+    static let settingsTabToOpenKey = "settingsTabToOpen"
+
     static let defaultScreenshotDirectory: URL = {
         let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
         let fallback = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)

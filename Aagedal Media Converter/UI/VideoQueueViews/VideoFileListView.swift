@@ -57,6 +57,7 @@ struct VideoFileListView: View {
     var onPlayFullscreen: ((UUID) -> Void)?
     var onURLDrop: ((String) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)? = nil
+    var disableKeyboardNavigation: Bool = false
 
     @State private var isTargeted = false
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
@@ -106,6 +107,10 @@ struct VideoFileListView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
                             .padding(.top, 12)
+                            .padding(.bottom, 30)
+                        Text("Control + R to load a new random tip")
+                            .font(.footnote)
+                            .foregroundColor(.secondary.opacity(0.8))
                         Spacer()
                     }.frame(width: 500,height: 86)
 
@@ -137,6 +142,14 @@ struct VideoFileListView: View {
                         guard shouldScroll, let firstSelectedID = selection.first else { return }
                         proxy.scrollTo(firstSelectedID, anchor: .center)
                         shouldScrollToSelection = false
+                    }
+                    .onChange(of: selection) { _, newSelection in
+                        // Sync selection to metadata window state
+                        MetadataWindowState.shared.selectedItemIDs = newSelection
+                    }
+                    .onChange(of: droppedFiles) { _, newFiles in
+                        // Sync all items to metadata window state
+                        MetadataWindowState.shared.allItems = newFiles
                     }
                 }
             }
@@ -187,7 +200,8 @@ struct VideoFileListView: View {
                     onToggleAutoEncode: handleToggleAutoEncodeShortcut,
                     onNavigateUp: { handleNavigateSelection(direction: .up) },
                     onNavigateDown: { handleNavigateSelection(direction: .down) },
-                    onSort: handleSortShortcut
+                    onSort: handleSortShortcut,
+                    disableNavigation: disableKeyboardNavigation
                 )
 
                 Button(action: deleteSelectedItems) {
@@ -1011,6 +1025,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onNavigateDown: () -> Void
     // Sort shortcut
     var onSort: () -> Void
+    // Flag to disable navigation when overlays are open
+    var disableNavigation: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -1034,7 +1050,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onToggleAutoEncode: onToggleAutoEncode,
             onNavigateUp: onNavigateUp,
             onNavigateDown: onNavigateDown,
-            onSort: onSort
+            onSort: onSort,
+            disableNavigation: disableNavigation
         )
     }
 
@@ -1067,6 +1084,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onNavigateUp = onNavigateUp
         context.coordinator.onNavigateDown = onNavigateDown
         context.coordinator.onSort = onSort
+        context.coordinator.disableNavigation = disableNavigation
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -1095,6 +1113,7 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onNavigateUp: () -> Void
         var onNavigateDown: () -> Void
         var onSort: () -> Void
+        var disableNavigation: Bool
         private var monitor: Any?
 
         init(
@@ -1118,7 +1137,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onToggleAutoEncode: @escaping () -> Void,
             onNavigateUp: @escaping () -> Void,
             onNavigateDown: @escaping () -> Void,
-            onSort: @escaping () -> Void
+            onSort: @escaping () -> Void,
+            disableNavigation: Bool
         ) {
             self.onForward = onForward
             self.onBackward = onBackward
@@ -1141,12 +1161,19 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onNavigateUp = onNavigateUp
             self.onNavigateDown = onNavigateDown
             self.onSort = onSort
+            self.disableNavigation = disableNavigation
         }
 
         func install() {
             guard monitor == nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self else { return event }
+
+                // When navigation is disabled (overlay is open), pass through all key events
+                // This allows overlays like URLInputOverlay to handle their own keyboard input
+                if self.disableNavigation {
+                    return event
+                }
 
                 // Check if a text field or text view is the first responder
                 // If so, pass through Arrow keys for cursor movement within the text
@@ -1232,8 +1259,8 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                     return nil
                 }
                 
-                // CMD+D: Toggle Date Tag
-                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_D {
+                // CTRL+D: Toggle Date Tag
+                if hasControl && !hasOption && !hasShift && !hasCommand && event.keyCode == kVK_ANSI_D {
                     self.onToggleDateTag()
                     return nil
                 }
@@ -1257,13 +1284,33 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 }
                 
                 // CMD+Up Arrow: Move selection up in queue
+                // Skip if we're in a sheet (crop view uses CMD+Up to move crop box)
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_UpArrow {
+                    let isInSheet = MainActor.assumeIsolated {
+                        if let keyWindow = NSApp.keyWindow {
+                            return keyWindow.sheetParent != nil || keyWindow.attachedSheet != nil
+                        }
+                        return false
+                    }
+                    if isInSheet {
+                        return event  // Pass through to let the sheet handle it
+                    }
                     self.onMoveUp()
                     return nil
                 }
-                
+
                 // CMD+Down Arrow: Move selection down in queue
+                // Skip if we're in a sheet (crop view uses CMD+Down to move crop box)
                 if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_DownArrow {
+                    let isInSheet = MainActor.assumeIsolated {
+                        if let keyWindow = NSApp.keyWindow {
+                            return keyWindow.sheetParent != nil || keyWindow.attachedSheet != nil
+                        }
+                        return false
+                    }
+                    if isInSheet {
+                        return event  // Pass through to let the sheet handle it
+                    }
                     self.onMoveDown()
                     return nil
                 }
@@ -1298,16 +1345,22 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                     return nil
                 }
 
-                // Plain Up Arrow: Navigate selection up
+                // Plain Up Arrow: Navigate selection up (skip if navigation disabled for overlays)
                 if !hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_UpArrow {
-                    self.onNavigateUp()
-                    return nil
+                    if !self.disableNavigation {
+                        self.onNavigateUp()
+                        return nil
+                    }
+                    return event
                 }
 
-                // Plain Down Arrow: Navigate selection down
+                // Plain Down Arrow: Navigate selection down (skip if navigation disabled for overlays)
                 if !hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_DownArrow {
-                    self.onNavigateDown()
-                    return nil
+                    if !self.disableNavigation {
+                        self.onNavigateDown()
+                        return nil
+                    }
+                    return event
                 }
 
                 return event
