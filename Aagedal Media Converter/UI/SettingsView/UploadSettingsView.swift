@@ -348,7 +348,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Server:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("ftp.example.com", text: $server)
+                    TextField("", text: $server)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .server)
                         .onSubmit { focusedField = .port }
@@ -358,7 +358,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Port:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("21", value: $port, format: .number)
+                    TextField("", value: $port, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         .focused($focusedField, equals: .port)
@@ -370,7 +370,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Username:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("username", text: $username)
+                    TextField("", text: $username)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .username)
                         .onSubmit { focusedField = .password }
@@ -383,7 +383,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Path:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("/uploads/videos", text: $remotePath)
+                    TextField("", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .remotePath)
                         .onSubmit { focusedField = nil }
@@ -462,7 +462,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Server:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("sftp.example.com", text: $server)
+                    TextField("", text: $server)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .server)
                         .onSubmit { focusedField = .port }
@@ -472,7 +472,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Port:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("22", value: $port, format: .number)
+                    TextField("", value: $port, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         .focused($focusedField, equals: .port)
@@ -484,7 +484,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Username:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("username", text: $username)
+                    TextField("", text: $username)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .username)
                         .onSubmit { focusedField = useSFTPKeyAuth ? .sftpKeyFile : .password }
@@ -509,7 +509,7 @@ struct UploadSettingsView: View {
                     HStack {
                         Text("Key File:")
                             .frame(width: 80, alignment: .trailing)
-                        TextField("~/.ssh/id_rsa", text: $sftpKeyFilePath)
+                        TextField("", text: $sftpKeyFilePath)
                             .textFieldStyle(.roundedBorder)
                             .focused($focusedField, equals: .sftpKeyFile)
                         Button("Browse...") {
@@ -525,7 +525,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Path:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("/uploads/videos", text: $remotePath)
+                    TextField("", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .remotePath)
                         .onSubmit { focusedField = nil }
@@ -596,7 +596,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Server:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("server.local or 192.168.1.100", text: $server)
+                    TextField("", text: $server)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .server)
                         .onSubmit { focusedField = .port }
@@ -606,7 +606,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Port:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("445", value: $port, format: .number)
+                    TextField("", value: $port, format: .number)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 80)
                         .focused($focusedField, equals: .port)
@@ -618,7 +618,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Share:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("ShareName", text: $smbShare)
+                    TextField("", text: $smbShare)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .smbShare)
                         .onSubmit { focusedField = .username }
@@ -628,7 +628,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Domain:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("WORKGROUP (optional)", text: $smbDomain)
+                    TextField("", text: $smbDomain)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .smbDomain)
                         .onSubmit { focusedField = .username }
@@ -638,7 +638,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Username:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("username", text: $username)
+                    TextField("", text: $username)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .username)
                         .onSubmit { focusedField = .password }
@@ -651,7 +651,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Path:")
                         .frame(width: 80, alignment: .trailing)
-                    TextField("Videos/Uploads (within share)", text: $remotePath)
+                    TextField("", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .remotePath)
                         .onSubmit { focusedField = nil }
@@ -722,7 +722,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Bucket:")
                         .frame(width: 100, alignment: .trailing)
-                    TextField("my-bucket-name", text: $s3Bucket)
+                    TextField("", text: $s3Bucket)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .s3Bucket)
                         .onSubmit { focusedField = .s3Region }
@@ -765,7 +765,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Access Key:")
                         .frame(width: 100, alignment: .trailing)
-                    TextField("AKIAIOSFODNN7EXAMPLE", text: $s3AccessKeyID)
+                    TextField("", text: $s3AccessKeyID)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .s3AccessKey)
                         .onSubmit { focusedField = .s3SecretKey }
@@ -796,7 +796,7 @@ struct UploadSettingsView: View {
                 HStack {
                     Text("Path/Prefix:")
                         .frame(width: 100, alignment: .trailing)
-                    TextField("uploads/videos (optional prefix)", text: $remotePath)
+                    TextField("", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .remotePath)
                 }

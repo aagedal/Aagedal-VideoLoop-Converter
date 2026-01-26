@@ -913,9 +913,18 @@ class DownloadManager {
     }
 
     /// Checks if a string is a valid URL for yt-dlp
+    /// Extracts the first line and trims whitespace before validation
     nonisolated static func isValidURL(_ string: String) -> Bool {
-        guard let url = URL(string: string) else { return false }
+        let sanitized = sanitizeURLInput(string)
+        guard !sanitized.isEmpty, let url = URL(string: sanitized) else { return false }
         return url.scheme == "http" || url.scheme == "https"
+    }
+
+    /// Sanitizes URL input by extracting the first line and trimming whitespace
+    nonisolated static func sanitizeURLInput(_ string: String) -> String {
+        // Extract first line only (handles multi-line pastes)
+        let firstLine = string.components(separatedBy: .newlines).first ?? string
+        return firstLine.trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: - Private Helpers

@@ -590,7 +590,7 @@ struct CaptureModeView: View {
                         .foregroundStyle(.green)
                 }
                 .buttonStyle(.plain)
-                .help("Send recording to the main queue")
+                .help("Send recording to the conversion queue")
                 .disabled(captureManager.lastOutputURL == nil)
             }
         }

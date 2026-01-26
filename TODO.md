@@ -3,6 +3,7 @@
 
 ## General
 [] Settings: Fix UI inconsistencies between subviews.
+[x] Fix missing Norwegian translations.
 
 
 ## Main App Window
@@ -11,7 +12,7 @@
 [] Fix layout problems for files with long filenames (often an issue with yt-dlp downloads)
 
 ## Presets
-[] Preset Settings Vew: Fix missing preset descriptions
+[x] Preset Settings Vew: Fix missing preset descriptions
 
 ## Screen Recoring
 [] Screen Recording: Make PAL and NTSC presets constant frame rate, rather than a 60fps limit.
@@ -28,7 +29,8 @@
 
 ## Downloads
 [] Downloads Overlay View: Make it clearer that the Downloads Overlay automatically copies the clipboard. Small clipboard icon animation next to the text field. 
-[] Downloads Overlay View:Fix an issue where it was possible to enter a long multi-line text into the Download URL input. Filter first line and validate that it is a URL.
+[x] Downloads Overlay View:Fix an issue where it was possible to enter a long multi-line text into the Download URL input. Filter first line and validate that it is a URL.
+[] Improve Homebrew install guide, include the homebrew install code instead of linking to website. Can homebrew install be automated?
 
 
 ## GitHub
