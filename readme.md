@@ -172,21 +172,24 @@ Ten custom presets (C1–C10) let you supply your own output arguments, suffixes
 
 ## Screenshots
 
-#### Main window
-<img width="1124" height="1037" alt="SCR-20251217-novq" src="https://github.com/user-attachments/assets/14a6506b-528b-4573-ba3e-14d64c240b70" />
-
 #### Trim View
 ![SCR-20251217-npls](https://github.com/user-attachments/assets/fb6bf721-66d9-445d-97eb-ffd1334deadc)
 
+
 #### Crop view
 ![SCR-20251217-nptb](https://github.com/user-attachments/assets/97745a95-7bda-43bf-873a-bd865e886690)
+
 
 #### Audio rerouting
 <img width="702" height="535" alt="SCR-20251217-nqcb" src="https://github.com/user-attachments/assets/b7f0ab61-a6f1-4f90-8ec6-2f90b05c6022" />
 
 
+#### Download view
+<img width="862" height="734" alt="SCR-20260127-ihuc" src="https://github.com/user-attachments/assets/48df405a-3970-4bc7-8cb3-ea6d941d3589" />
+
+
 #### Metadata view
-<img width="522" height="522" alt="SCR-20251217-nqgb" src="https://github.com/user-attachments/assets/bb8bfbba-0cf2-4387-a750-53367951ec8c" />
+<img width="1800" height="1169" alt="SCR-20260127-iier" src="https://github.com/user-attachments/assets/0c95a06d-0c8a-44f2-9707-6b1eb08802fb" />
 
 
 #### Timecode override view
@@ -197,7 +200,8 @@ Ten custom presets (C1–C10) let you supply your own output arguments, suffixes
 <img width="642" height="650" alt="SCR-20251217-nokk" src="https://github.com/user-attachments/assets/e5dd5a16-a052-45a5-8a12-8b529ecbe1b5" />
 
 #### Full screen player
-![SCR-20251217-nrlx](https://github.com/user-attachments/assets/832317e5-17ad-4063-9a36-dc1b5c510b22)
+![SCR-20260127-iine](https://github.com/user-attachments/assets/8e200905-9e84-4ea8-8e28-9cfb00223363)
+
 
 
 ---
