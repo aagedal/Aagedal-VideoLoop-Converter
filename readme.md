@@ -27,32 +27,30 @@ brew install aagedal/casks/aagedal-media-converter
 
 
 ## Key Features
-- Quick to launch and easy to use for common things
-- **Batch Convert** almost every video and audio file (ffmpeg, alternative to Shutter Encoder or Handbrake)
-- **Play** almost every video and audio file with support for TimeCode view and JKL playback controls (mpv, alternative to IINA or VLC)
-- **View and compare metadata** across multiple files, including C2PA presence check (ffprobe and exiftool, alternative to MediaInfo)
-- **Download** videos from websites, with support for scheduling and live stream download (yt-dlp via Homebrew or optional download, alternative to Shutter Encoder)
+- **Quick to launch and easy to use**
+- **Batch Convert** almost every video and audio file (alternative to Shutter Encoder or Handbrake)
+- **Play** in full screen with TimeCode view and JKL playback controls (alternative to IINA or VLC)
+- **View and compare metadata**, including C2PA presence check (alternative to MediaInfo and ExifTool)
+- **Download** videos from websites, with support for scheduling and live stream download
 - **Screen recording** with system sound, and optional separate microphone track (alternative to OBS)
-- **Transcribe** video and audio files to SRT subtitles (whisper.cpp embedded in ffmpeg binary)
-- **Upload** to server after conversion (rclone, via optional download)
+- **Transcribe** video and audio files to SRT subtitles
+- **Upload** to server after conversion
 
 
 ### General
-- Launches quickly and is lightweight
-- Can play and encode almost every video file that exists (MPV and FFMPEG backend)
-- Minimalist and easy to understand
+- Preview and encode almost every video file that exists
 - Batch conversion, watch folder, progress bar, 
 - Trim, crop, reroute or remove audio tracks, merge clips (if in the same format)
-- Metadata comparison
+- Metadata view with comparison
 - Lots of [keyboard shortcuts](KeyboardShortcuts.md): most features are accessible without using a mouse
 - Lots of settings if you want to customize
-- Language support: English and Norwegian
 - Automatically check for updates with a subtle update notification, can be turned off.
 - Download from YouTube, TikTok etc. (yt-dlp)
 - Transcribe to SRT (whisper.cpp)
 - Upload to FTP (rclone)
 - Check for C2PA signature (exiftool)
-- Screen recording in HDR with system sound
+- Screen recording in HDR with system sound, and optional microphone recording to separate audio track
+
 
 ### Batch conversion
 - Automatically encode all the files in the queue
