@@ -1,14 +1,13 @@
 # Aagedal Media Converter
+<img width="862" height="734" alt="SCR-20260127-hzmw" src="https://github.com/user-attachments/assets/3890d95e-0e9f-493b-8dcc-6aa76fa35258" />
 
-A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE and MPV under the hood and written entirely in Swift / SwiftUI.
+A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE, MPV, ExifTool, yt-dlp, rclone, whisper.cpp under the hood and written entirely in Swift / SwiftUI.
 
 Completely free and open source. Private and local. (An optional update checker is activated by default, but it can be turned off.)
 
-A passion project; I made this for myself, I just wanted to share.
+A passion project; I made this for myself because I need it to be efficient at my job. I just wanted to share.
 
 Note that most of this app is vibe-coded.
-
-<img width="1062" height="575" alt="SCR-20251217-npcv-2" src="https://github.com/user-attachments/assets/1ae1a20d-ed3b-4e86-8b64-9b02ba79344c" />
 
 
 ---
@@ -28,12 +27,20 @@ brew install aagedal/casks/aagedal-media-converter
 
 
 ## Key Features
+- Quick to launch and easy to use for common things
+- **Batch Convert** almost every video and audio file (ffmpeg, alternative to Shutter Encoder or Handbrake)
+- **Play** almost every video and audio file with support for TimeCode view and JKL playback controls (mpv, alternative to IINA or VLC)
+- **View and compare metadata** across multiple files, including C2PA presence check (ffprobe and exiftool, alternative to MediaInfo)
+- **Download** videos from websites, with support for scheduling and live stream download (yt-dlp via Homebrew or optional download, alternative to Shutter Encoder)
+- **Screen recording** with system sound, and optional separate microphone track (alternative to OBS)
+- **Transcribe** video and audio files to SRT subtitles (whisper.cpp embedded in ffmpeg binary)
+- **Upload** to server after conversion (rclone, via optional download)
+
 
 ### General
 - Launches quickly and is lightweight
-- Can play and encode almost every video file that exists (VLC and FFMPEG backend)
+- Can play and encode almost every video file that exists (MPV and FFMPEG backend)
 - Minimalist and easy to understand
-- Advanced features available if you need it
 - Batch conversion, watch folder, progress bar, 
 - Trim, crop, reroute or remove audio tracks, merge clips (if in the same format)
 - Metadata comparison
@@ -109,6 +116,8 @@ Web browsers often refuse to autoplay long, looping videos with sound. The app s
 1. Add to Encode Cue
 2. Convert Video Immediately (using the default preset).
 
+
+---
 
 ## Export Presets
 All presets can be set as default on launch, and all except the default can be hidden from the preset selector.
