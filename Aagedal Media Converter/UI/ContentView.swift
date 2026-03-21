@@ -165,7 +165,13 @@ struct ContentView: View {
                     }
                     FullscreenPlayerWindowController.shared.openFullscreenPlayer(
                         for: selectedItem,
-                        in: droppedFiles
+                        in: droppedFiles,
+                        onItemTrimChanged: { [self] itemID, trimStart, trimEnd in
+                            if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                                droppedFiles[idx].trimStart = trimStart
+                                droppedFiles[idx].trimEnd = trimEnd
+                            }
+                        }
                     )
                 }
             },

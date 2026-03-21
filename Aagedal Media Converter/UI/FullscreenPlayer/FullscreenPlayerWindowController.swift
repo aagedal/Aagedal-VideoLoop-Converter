@@ -38,6 +38,12 @@ final class FullscreenPlayerWindowController {
     // Callback to notify when fullscreen player closes with final position
     private var onCloseWithPosition: ((Double) -> Void)?
 
+    // Callback to notify when trim points change in fullscreen player
+    private var onTrimChanged: ((Double?, Double?) -> Void)?
+
+    // Callback to notify when trim points change for any item (includes item ID for queue context)
+    private var onItemTrimChanged: ((UUID, Double?, Double?) -> Void)?
+
     // Reference to current player view to get final position
     private var currentPlayerView: FullscreenPlayerView?
 
@@ -48,8 +54,14 @@ final class FullscreenPlayerWindowController {
         // Don't open player for items that are downloading, recording, or scheduled
         guard item.isPlayable else { return }
 
+        // Save callbacks intended for the new window before dismiss clears them
+        let savedItemTrimCallback = onItemTrimChanged
+
         // Close any existing fullscreen player
         dismissWindow()
+
+        // Restore callbacks for the new window
+        onItemTrimChanged = savedItemTrimCallback
 
         // Clear queue if opening without queue context
         if queue.isEmpty || queue.first(where: { $0.id == item.id }) == nil {
@@ -85,6 +97,7 @@ final class FullscreenPlayerWindowController {
         currentTimecodeDisplayMode = .preferred
 
         // Create the SwiftUI view with navigation callbacks
+        let itemID = item.id
         let playerView = FullscreenPlayerView(
             item: item,
             initialOverlayHidden: false,
@@ -92,6 +105,9 @@ final class FullscreenPlayerWindowController {
             onClose: { [weak self] in
                 self?.closeFullscreenPlayer()
             },
+            onTrimChanged: onItemTrimChanged != nil ? { [weak self] trimStart, trimEnd in
+                self?.onItemTrimChanged?(itemID, trimStart, trimEnd)
+            } : nil,
             onPreviousItem: { [weak self] in
                 MainActor.assumeIsolated { self?.goToPreviousItem() }
             },
@@ -160,9 +176,15 @@ final class FullscreenPlayerWindowController {
     }
 
     /// Opens fullscreen player with queue navigation support
-    func openFullscreenPlayer(for item: VideoItem, in queue: [VideoItem], on screen: NSScreen? = nil) {
+    func openFullscreenPlayer(
+        for item: VideoItem,
+        in queue: [VideoItem],
+        on screen: NSScreen? = nil,
+        onItemTrimChanged: ((UUID, Double?, Double?) -> Void)? = nil
+    ) {
         self.queue = queue
         self.currentIndex = queue.firstIndex(where: { $0.id == item.id }) ?? 0
+        self.onItemTrimChanged = onItemTrimChanged
         openFullscreenPlayer(for: item, on: screen)
     }
 
@@ -174,16 +196,18 @@ final class FullscreenPlayerWindowController {
     func openFullscreenPlayerFromTrimView(
         for item: VideoItem,
         startTime: Double,
-        onCloseWithPosition: @escaping (Double) -> Void
+        onCloseWithPosition: @escaping (Double) -> Void,
+        onTrimChanged: ((Double?, Double?) -> Void)? = nil
     ) {
         // Don't open player for items that are downloading, recording, or scheduled
         guard item.isPlayable else { return }
 
-        // Store the callback
-        self.onCloseWithPosition = onCloseWithPosition
-
         // Close any existing fullscreen player
         dismissWindow()
+
+        // Store the callbacks after dismiss to prevent them from being cleared
+        self.onCloseWithPosition = onCloseWithPosition
+        self.onTrimChanged = onTrimChanged
 
         // Clear queue since we're opening from trim view (single item context)
         queue = []
@@ -227,6 +251,9 @@ final class FullscreenPlayerWindowController {
             },
             onCloseWithPosition: { [weak self] position in
                 self?.onCloseWithPosition?(position)
+            },
+            onTrimChanged: { [weak self] trimStart, trimEnd in
+                self?.onTrimChanged?(trimStart, trimEnd)
             },
             onPreviousItem: nil,
             onNextItem: nil,
@@ -344,6 +371,7 @@ final class FullscreenPlayerWindowController {
         guard let window = currentWindow else { return }
 
         // Create new player view with updated item, preserving overlay and timecode state
+        let itemID = item.id
         let playerView = FullscreenPlayerView(
             item: item,
             initialOverlayHidden: isOverlayHidden,
@@ -351,6 +379,9 @@ final class FullscreenPlayerWindowController {
             onClose: { [weak self] in
                 self?.closeFullscreenPlayer()
             },
+            onTrimChanged: onItemTrimChanged != nil ? { [weak self] trimStart, trimEnd in
+                self?.onItemTrimChanged?(itemID, trimStart, trimEnd)
+            } : onTrimChanged,
             onPreviousItem: { [weak self] in
                 MainActor.assumeIsolated { self?.goToPreviousItem() }
             },
@@ -419,8 +450,10 @@ final class FullscreenPlayerWindowController {
 
         currentlyPlayingItemID = nil
 
-        // Clear the position callback after window is dismissed
+        // Clear callbacks after window is dismissed
         onCloseWithPosition = nil
+        onTrimChanged = nil
+        onItemTrimChanged = nil
     }
     
     @MainActor
