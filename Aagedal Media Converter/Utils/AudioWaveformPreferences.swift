@@ -108,6 +108,11 @@ struct AudioWaveformPreferences {
         let swiftStyle: SwiftWaveformStyle
         let bandCount: Int
         let frequencyDistribution: FrequencyDistribution
+        let foregroundGradientEnabled: Bool
+        let foregroundGradientEndHex: String
+        let backgroundGradientEnabled: Bool
+        let backgroundGradientEndHex: String
+        let waveformOpacity: Double
 
         var resolutionString: String {
             "\(width)x\(height)"
@@ -127,6 +132,14 @@ struct AudioWaveformPreferences {
 
         var foregroundColor: Color {
             Color(hex: foregroundHex)
+        }
+
+        var foregroundGradientEndColor: Color {
+            Color(hex: foregroundGradientEndHex)
+        }
+
+        var backgroundGradientEndColor: Color {
+            Color(hex: backgroundGradientEndHex)
         }
     }
 
@@ -153,8 +166,16 @@ struct AudioWaveformPreferences {
         let swiftStyle = SwiftWaveformStyle(rawValue: swiftStyleRaw) ?? .capsules
         let bandCount = defaults.integer(forKey: AppConstants.audioWaveformBandCountKey)
         let effectiveBandCount = bandCount > 0 ? bandCount : 32
-        let distRaw = defaults.string(forKey: AppConstants.audioWaveformFrequencyDistributionKey) ?? "logarithmic"
-        let frequencyDistribution = FrequencyDistribution(rawValue: distRaw) ?? .logarithmic
+        let distRaw = defaults.string(forKey: AppConstants.audioWaveformFrequencyDistributionKey) ?? "mel"
+        let frequencyDistribution = FrequencyDistribution(rawValue: distRaw) ?? .mel
+
+        let fgGradientEnabled = defaults.bool(forKey: AppConstants.audioWaveformForegroundGradientEnabledKey)
+        let fgGradientEnd = sanitizeHex(defaults.string(forKey: AppConstants.audioWaveformForegroundGradientEndColorKey), fallback: "FF0000")
+        let bgGradientEnabled = defaults.bool(forKey: AppConstants.audioWaveformBackgroundGradientEnabledKey)
+        let bgGradientEnd = sanitizeHex(defaults.string(forKey: AppConstants.audioWaveformBackgroundGradientEndColorKey), fallback: "333333")
+        let opacity = defaults.object(forKey: AppConstants.audioWaveformOpacityKey) != nil
+            ? min(1.0, max(0.5, defaults.double(forKey: AppConstants.audioWaveformOpacityKey)))
+            : 1.0
 
         return WaveformVideoConfig(
             resolution: CGSize(width: width, height: height),
@@ -168,7 +189,12 @@ struct AudioWaveformPreferences {
             renderingEngine: renderingEngine,
             swiftStyle: swiftStyle,
             bandCount: effectiveBandCount,
-            frequencyDistribution: frequencyDistribution
+            frequencyDistribution: frequencyDistribution,
+            foregroundGradientEnabled: fgGradientEnabled,
+            foregroundGradientEndHex: fgGradientEnd,
+            backgroundGradientEnabled: bgGradientEnabled,
+            backgroundGradientEndHex: bgGradientEnd,
+            waveformOpacity: opacity
         )
     }
 

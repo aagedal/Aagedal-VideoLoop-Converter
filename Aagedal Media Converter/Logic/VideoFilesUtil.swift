@@ -688,6 +688,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var hasVideoStream: Bool = true
     var audioRoutingConfig: AudioRoutingConfig? = nil
     var cropConfig: CropConfig? = nil
+    /// Custom background image URL for waveform video rendering (audio-only items)
+    var waveformBackgroundImageURL: URL? = nil
     var timecodeConfig: TimecodeConfig? = nil
     /// Stored output file size in bytes, set when conversion completes
     var outputFileSizeBytes: Int64? = nil

@@ -193,7 +193,12 @@ actor ConversionManager: Sendable {
                 renderingEngine: waveformPreferences.renderingEngine,
                 swiftStyle: waveformPreferences.swiftStyle,
                 bandCount: waveformPreferences.bandCount,
-                frequencyDistribution: waveformPreferences.frequencyDistribution
+                frequencyDistribution: waveformPreferences.frequencyDistribution,
+                foregroundGradientEnabled: waveformPreferences.foregroundGradientEnabled,
+                foregroundGradientEndHex: waveformPreferences.foregroundGradientEndHex,
+                backgroundGradientEnabled: waveformPreferences.backgroundGradientEnabled,
+                backgroundGradientEndHex: waveformPreferences.backgroundGradientEndHex,
+                waveformOpacity: waveformPreferences.waveformOpacity
             )
         }() : nil
 
@@ -475,6 +480,7 @@ actor ConversionManager: Sendable {
             isMuted: primaryInput.isMuted,
             expectedDuration: plan.totalDuration,
             videoFrameRate: primaryInput.metadata?.primaryVideoStream?.frameRate?.value,
+            waveformBackgroundImageURL: primaryInput.waveformBackgroundImageURL,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     for index in indices {
@@ -1047,7 +1053,12 @@ actor ConversionManager: Sendable {
                 renderingEngine: waveformPreferences.renderingEngine,
                 swiftStyle: waveformPreferences.swiftStyle,
                 bandCount: waveformPreferences.bandCount,
-                frequencyDistribution: waveformPreferences.frequencyDistribution
+                frequencyDistribution: waveformPreferences.frequencyDistribution,
+                foregroundGradientEnabled: waveformPreferences.foregroundGradientEnabled,
+                foregroundGradientEndHex: waveformPreferences.foregroundGradientEndHex,
+                backgroundGradientEnabled: waveformPreferences.backgroundGradientEnabled,
+                backgroundGradientEndHex: waveformPreferences.backgroundGradientEndHex,
+                waveformOpacity: waveformPreferences.waveformOpacity
             )
         }() : nil
 
@@ -1089,6 +1100,7 @@ actor ConversionManager: Sendable {
             isMuted: currentItem.isMuted,
             expectedDuration: imageSeqExpectedDuration,
             videoFrameRate: currentItem.metadata?.primaryVideoStream?.frameRate?.value,
+            waveformBackgroundImageURL: currentItem.waveformBackgroundImageURL,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
