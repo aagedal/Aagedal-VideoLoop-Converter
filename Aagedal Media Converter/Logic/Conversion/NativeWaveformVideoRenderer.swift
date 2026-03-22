@@ -15,8 +15,6 @@ enum NativeWaveformVideoRenderer {
 
     /// Fraction of capsule width used as horizontal gap between capsules.
     private static let gapFraction: CGFloat = 0.4
-    /// Minimum capsule height in points (visible even during silence).
-    private static let minCapsuleHeight: CGFloat = 4
     /// Vertical margin (fraction of frame height) above/below tallest capsule.
     private static let verticalMarginFraction: CGFloat = 0.08
 
@@ -26,6 +24,7 @@ enum NativeWaveformVideoRenderer {
     ///
     /// - Parameters:
     ///   - bandMagnitudes: Per-band magnitude values in 0.0–1.0 (already smoothed).
+    ///   - previousMagnitudes: Previous frame's smoothed magnitudes for motion blur trail.
     ///   - width: Frame width in pixels.
     ///   - height: Frame height in pixels.
     ///   - foregroundColor: RGB tuple for capsule fill color.
@@ -33,6 +32,7 @@ enum NativeWaveformVideoRenderer {
     /// - Returns: Raw BGRA pixel data (width × height × 4 bytes).
     static func renderFrame(
         bandMagnitudes: [Float],
+        previousMagnitudes: [Float]?,
         width: Int,
         height: Int,
         foregroundColor: (r: UInt8, g: UInt8, b: UInt8),
@@ -68,11 +68,9 @@ enum NativeWaveformVideoRenderer {
         ctx.setFillColor(red: bgR, green: bgG, blue: bgB, alpha: 1.0)
         ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
 
-        // Capsule layout
         let fgR = CGFloat(foregroundColor.r) / 255.0
         let fgG = CGFloat(foregroundColor.g) / 255.0
         let fgB = CGFloat(foregroundColor.b) / 255.0
-        ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 1.0)
 
         let frameWidth = CGFloat(width)
         let frameHeight = CGFloat(height)
@@ -81,15 +79,31 @@ enum NativeWaveformVideoRenderer {
         let centerY = frameHeight / 2.0
 
         // Calculate capsule dimensions
-        // Total width = bandCount * capsuleWidth + (bandCount - 1) * gap
-        // gap = capsuleWidth * gapFraction
-        // totalWidth = bandCount * capsuleWidth * (1 + gapFraction) - capsuleWidth * gapFraction
-        let horizontalPadding = frameWidth * 0.04  // Small padding on edges
+        let horizontalPadding = frameWidth * 0.04
         let availableWidth = frameWidth - 2 * horizontalPadding
         let capsuleStride = availableWidth / CGFloat(bandCount)
         let capsuleWidth = capsuleStride / (1.0 + gapFraction)
         let cornerRadius = capsuleWidth / 2.0  // Pill shape
+        // Minimum height = capsuleWidth so the capsule is never shorter than a circle
+        let minCapsuleHeight = capsuleWidth
 
+        // Motion blur pass: draw previous frame's capsules at reduced opacity
+        if let prevMags = previousMagnitudes {
+            ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 0.25)
+            for band in 0..<bandCount {
+                let prevMag = CGFloat(max(0, min(1, prevMags[band])))
+                let prevHeight = max(minCapsuleHeight, prevMag * maxCapsuleHeight)
+                let x = horizontalPadding + CGFloat(band) * capsuleStride + (capsuleStride - capsuleWidth) / 2.0
+                let y = centerY - prevHeight / 2.0
+                let rect = CGRect(x: x, y: y, width: capsuleWidth, height: prevHeight)
+                let path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+                ctx.addPath(path)
+                ctx.fillPath()
+            }
+        }
+
+        // Main capsules at full opacity
+        ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 1.0)
         for band in 0..<bandCount {
             let magnitude = CGFloat(max(0, min(1, bandMagnitudes[band])))
             let capsuleHeight = max(minCapsuleHeight, magnitude * maxCapsuleHeight)

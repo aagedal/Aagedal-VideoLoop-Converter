@@ -50,6 +50,7 @@ enum WaveformFramePipeWriter {
 
         // Smoothed magnitudes for animation (fast attack, slow release)
         var smoothed = [Float](repeating: 0, count: bandCount)
+        var previousSmoothed: [Float]? = nil
 
         // Ignore SIGPIPE so broken pipe returns an error instead of crashing
         signal(SIGPIPE, SIG_IGN)
@@ -63,16 +64,21 @@ enum WaveformFramePipeWriter {
                 break
             }
 
+            // Snapshot previous smoothed values for motion blur
+            let prevForBlur = previousSmoothed
+
             // Apply smoothing: fast attack (instant), slow release (decay)
             let rawMagnitudes = frequencyData.magnitudes[frame]
+            previousSmoothed = smoothed
             for band in 0..<bandCount {
                 let raw = rawMagnitudes[band]
                 smoothed[band] = max(raw, smoothed[band] * decayFactor)
             }
 
-            // Render frame
+            // Render frame with motion blur trail from previous frame
             let frameData = NativeWaveformVideoRenderer.renderFrame(
                 bandMagnitudes: smoothed,
+                previousMagnitudes: prevForBlur,
                 width: width,
                 height: height,
                 foregroundColor: fg,
