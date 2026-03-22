@@ -1247,7 +1247,17 @@ actor ConversionManager: Sendable {
         self.isConverting = false
         await ffmpegConverter.cancelConversion()
         currentProcess = nil
-        // Update status to cancelled for all converting items
+
+        // Update UI-bound items to cancelled
+        if let droppedFiles = currentDroppedFiles {
+            for idx in droppedFiles.wrappedValue.indices
+                where droppedFiles.wrappedValue[idx].status == .converting {
+                droppedFiles.wrappedValue[idx].status = .cancelled
+                droppedFiles.wrappedValue[idx].progress = 0.0
+            }
+        }
+
+        // Update internal queue
         for idx in conversionQueue.indices where conversionQueue[idx].status == .converting {
             conversionQueue[idx].status = .cancelled
         }
@@ -1288,13 +1298,19 @@ actor ConversionManager: Sendable {
     func cancelAllConversions() async {
         self.isConverting = false
         await ffmpegConverter.cancelConversion()
-        // Clear the conversion queue
-        conversionQueue.removeAll()
-        isConverting = false
-        // Update status to cancelled
-        for idx in conversionQueue.indices {
-            conversionQueue[idx].status = .cancelled
+
+        // Update UI-bound items to cancelled
+        if let droppedFiles = currentDroppedFiles {
+            for idx in droppedFiles.wrappedValue.indices
+                where droppedFiles.wrappedValue[idx].status == .converting
+                   || droppedFiles.wrappedValue[idx].status == .waiting {
+                droppedFiles.wrappedValue[idx].status = .cancelled
+                droppedFiles.wrappedValue[idx].progress = 0.0
+            }
         }
+
+        // Clear internal queue
+        conversionQueue.removeAll()
         progressContinuation?.yield(0.0)
         stopProgressTimer()
         releaseAllSecurityScopedAccess()
