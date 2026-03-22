@@ -53,6 +53,7 @@ final class PreviewPlayerController: ObservableObject {
     @Published var errorMessage: String?
     @Published private(set) var currentWaveformURL: URL?
     @Published private(set) var currentWaveformChunks: [WaveformChunk] = []
+    @Published private(set) var currentNativeWaveformImage: NSImage?
     @Published private(set) var totalDuration: Double = 0  // For chunk width calculation
     @Published var currentPlaybackTime: Double = 0
     @Published private(set) var currentPlaybackSpeed: Float = 1.0
@@ -805,12 +806,14 @@ final class PreviewPlayerController: ObservableObject {
 
     private func updateCurrentWaveform() {
         let streamIndex = selectedAudioStreamIndex()
+        // Native waveform image (preferred, fast)
+        currentNativeWaveformImage = previewAssets?.nativeWaveform(forAudioStream: streamIndex)
         // Legacy single-image waveform (kept for backwards compatibility)
         currentWaveformURL = previewAssets?.waveform(forAudioStream: streamIndex)
-        // Chunked waveform support
+        // Chunked waveform support (fallback)
         currentWaveformChunks = previewAssets?.waveformChunks(forAudioStream: streamIndex) ?? []
         totalDuration = previewAssets?.totalDuration ?? 0
-        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform: \(self.currentWaveformChunks.count) chunks, totalDuration: \(self.totalDuration)s for stream index: \(streamIndex ?? -1)")
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform: native=\(self.currentNativeWaveformImage != nil), \(self.currentWaveformChunks.count) chunks, totalDuration: \(self.totalDuration)s for stream index: \(streamIndex ?? -1)")
     }
 
     // MARK: - Subtitle Track Selection
@@ -903,6 +906,7 @@ final class PreviewPlayerController: ObservableObject {
         subtitleTrackOptions = []
         currentWaveformURL = nil
         currentWaveformChunks = []
+        currentNativeWaveformImage = nil
         totalDuration = 0
 
         // Stop asset refresh polling

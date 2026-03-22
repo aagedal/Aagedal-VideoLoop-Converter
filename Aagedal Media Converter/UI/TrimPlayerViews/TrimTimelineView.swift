@@ -20,6 +20,7 @@ struct TrimTimelineView: View {
     let playbackTime: Double
     let thumbnails: [URL]?
     let quickThumbnailImages: [NSImage]
+    let nativeWaveformImage: NSImage?
     let waveformURL: URL?
     let waveformChunks: [WaveformChunk]
     let chunkTotalDuration: Double
@@ -57,6 +58,7 @@ struct TrimTimelineView: View {
         playbackTime: Double,
         thumbnails: [URL]?,
         quickThumbnailImages: [NSImage] = [],
+        nativeWaveformImage: NSImage? = nil,
         waveformURL: URL?,
         waveformChunks: [WaveformChunk] = [],
         chunkTotalDuration: Double = 0,
@@ -73,6 +75,7 @@ struct TrimTimelineView: View {
         self.playbackTime = playbackTime
         self.thumbnails = thumbnails
         self.quickThumbnailImages = quickThumbnailImages
+        self.nativeWaveformImage = nativeWaveformImage
         self.waveformURL = waveformURL
         self.waveformChunks = waveformChunks
         self.chunkTotalDuration = chunkTotalDuration
@@ -492,11 +495,15 @@ private struct TrimHandlesInteractionLayer: View {
 
     @ViewBuilder
     private func waveformContent(width: CGFloat, height: CGFloat) -> some View {
-        // Use chunked waveforms when:
-        // 1. We already have some chunks, OR
-        // 2. We have a totalDuration from assets, OR
-        // 3. The video duration exceeds 10 minutes (would need chunks)
-        if !waveformChunks.isEmpty || chunkTotalDuration > 0 || duration > 600 {
+        if let image = nativeWaveformImage {
+            // Native waveform — direct NSImage, no disk I/O
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: width, height: height)
+                .clipped()
+        } else if !waveformChunks.isEmpty || chunkTotalDuration > 0 || duration > 600 {
+            // Fallback to chunked waveform (legacy/cached)
             chunkedWaveformContent(width: width, height: height)
         } else if let image = cachedWaveformImage {
             // Fallback to legacy single-image waveform

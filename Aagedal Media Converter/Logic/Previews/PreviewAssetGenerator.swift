@@ -8,6 +8,7 @@
 // (at your option) any later version.
 
 import Foundation
+import AppKit
 import OSLog
 import CryptoKit
 import AVFoundation
@@ -31,6 +32,10 @@ struct PreviewAssets: Sendable {
     let audioWaveformChunks: [Int: [WaveformChunk]]
     let totalDuration: Double  // Total media duration for chunk width calculation
 
+    // Native waveform images (in-memory, no disk I/O)
+    let nativeWaveformImage: SendableImage?
+    let nativePerStreamWaveformImages: [Int: SendableImage]
+
     /// Expected total number of chunks based on duration
     var expectedChunkCount: Int {
         guard totalDuration > 0 else { return 0 }
@@ -45,6 +50,11 @@ struct PreviewAssets: Sendable {
     func waveformChunks(forAudioStream streamIndex: Int?) -> [WaveformChunk] {
         guard let streamIndex else { return waveformChunks }
         return audioWaveformChunks[streamIndex] ?? waveformChunks
+    }
+
+    func nativeWaveform(forAudioStream streamIndex: Int?) -> NSImage? {
+        guard let streamIndex else { return nativeWaveformImage?.image }
+        return nativePerStreamWaveformImages[streamIndex]?.image ?? nativeWaveformImage?.image
     }
 }
 
@@ -321,7 +331,9 @@ actor PreviewAssetGenerator {
                 audioWaveforms: audioWaveforms,
                 waveformChunks: waveformChunks,
                 audioWaveformChunks: audioWaveformChunks,
-                totalDuration: estimatedDuration
+                totalDuration: estimatedDuration,
+                nativeWaveformImage: nil,
+                nativePerStreamWaveformImages: [:]
             )
         } catch {
             logger.debug("Failed to load cached assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -582,42 +594,81 @@ actor PreviewAssetGenerator {
         // Load metadata for waveform generation
         let metadata = try? await VideoMetadataService.shared.metadata(for: url)
 
-        // Calculate expected chunk count to determine if generation is needed
-        let expectedChunkCount = Int(ceil(duration / chunkDurationSeconds))
-        let chunksAreMissing = existingWaveformChunks.count < expectedChunkCount
+        // Generate native waveform images (fast: single FFmpeg PCM decode + Swift render)
+        var nativeWaveformImage: SendableImage?
+        var nativePerStreamImages: [Int: SendableImage] = [:]
 
-        // Generate chunked waveforms (replaces single-image waveform generation)
-        if chunksAreMissing {
-            do {
-                try await generateChunkedWaveform(
-                    url: url,
-                    ffmpegPath: ffmpegPath,
-                    assetDirectory: assetDirectory,
-                    duration: duration,
-                    audioStreamIndex: 0,
-                    existingChunks: &existingWaveformChunks
-                )
-            } catch {
-                logger.warning("Chunked waveform generation failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        do {
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let image = try await NativeWaveformRenderer.generateWaveform(
+                url: url,
+                ffmpegPath: ffmpegPath,
+                streamIndex: 0,
+                duration: duration,
+                width: totalWaveformWidth,
+                height: chunkHeight
+            )
+            nativeWaveformImage = SendableImage(image: image)
+            let t1 = CFAbsoluteTimeGetCurrent()
+            logger.info("Native waveform generated in \(String(format: "%.2f", t1 - t0))s for \(url.lastPathComponent, privacy: .public)")
+
+            // Generate per-stream waveforms for files with multiple audio tracks
+            if let metadata, metadata.audioStreams.count > 1 {
+                for (index, _) in metadata.audioStreams.enumerated() {
+                    try Task.checkCancellation()
+                    do {
+                        let streamImage = try await NativeWaveformRenderer.generateWaveform(
+                            url: url,
+                            ffmpegPath: ffmpegPath,
+                            streamIndex: index,
+                            duration: duration,
+                            width: totalWaveformWidth,
+                            height: chunkHeight
+                        )
+                        nativePerStreamImages[index] = SendableImage(image: streamImage)
+                    } catch {
+                        logger.warning("Native waveform failed for stream \(index) of \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
             }
-        }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            logger.warning("Native waveform generation failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to FFmpeg showwavespic.")
 
-        // Generate per-stream chunked waveforms for files with multiple audio tracks
-        if let metadata, metadata.audioStreams.count > 1 {
-            // Check if per-stream chunks are missing
-            let perStreamChunksAreMissing = metadata.audioStreams.enumerated().contains { index, _ in
-                (existingPerStreamWaveformChunks[index]?.count ?? 0) < expectedChunkCount
+            // Fallback: generate chunked waveforms using legacy showwavespic approach
+            let expectedChunkCount = Int(ceil(duration / chunkDurationSeconds))
+            let chunksAreMissing = existingWaveformChunks.count < expectedChunkCount
+
+            if chunksAreMissing {
+                do {
+                    try await generateChunkedWaveform(
+                        url: url,
+                        ffmpegPath: ffmpegPath,
+                        assetDirectory: assetDirectory,
+                        duration: duration,
+                        audioStreamIndex: 0,
+                        existingChunks: &existingWaveformChunks
+                    )
+                } catch {
+                    logger.warning("Chunked waveform fallback also failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
             }
 
-            if perStreamChunksAreMissing {
-                await generatePerStreamChunkedWaveforms(
-                    url: url,
-                    ffmpegPath: ffmpegPath,
-                    assetDirectory: assetDirectory,
-                    duration: duration,
-                    metadata: metadata,
-                    existingChunks: &existingPerStreamWaveformChunks
-                )
+            if let metadata, metadata.audioStreams.count > 1 {
+                let perStreamChunksAreMissing = metadata.audioStreams.enumerated().contains { index, _ in
+                    (existingPerStreamWaveformChunks[index]?.count ?? 0) < expectedChunkCount
+                }
+                if perStreamChunksAreMissing {
+                    await generatePerStreamChunkedWaveforms(
+                        url: url,
+                        ffmpegPath: ffmpegPath,
+                        assetDirectory: assetDirectory,
+                        duration: duration,
+                        metadata: metadata,
+                        existingChunks: &existingPerStreamWaveformChunks
+                    )
+                }
             }
         }
 
@@ -627,7 +678,7 @@ actor PreviewAssetGenerator {
             logger.warning("Only \(availableThumbnails.count) / \(expectedThumbnailURLs.count) filmstrip thumbnails available for \(url.lastPathComponent, privacy: .public)")
         }
         let generatedWaveformURL = existingWaveformURL
-        logger.info("Asset generation complete. Row thumbnail: \(generatedRowThumbnail != nil), filmstrip: \(availableThumbnails.count), waveform chunks: \(existingWaveformChunks.count)")
+        logger.info("Asset generation complete. Row thumbnail: \(generatedRowThumbnail != nil), filmstrip: \(availableThumbnails.count), native waveform: \(nativeWaveformImage != nil), per-stream: \(nativePerStreamImages.count)")
         return PreviewAssets(
             rowThumbnail: generatedRowThumbnail,
             thumbnails: availableThumbnails,
@@ -635,7 +686,9 @@ actor PreviewAssetGenerator {
             audioWaveforms: existingPerStreamWaveforms,
             waveformChunks: existingWaveformChunks,
             audioWaveformChunks: existingPerStreamWaveformChunks,
-            totalDuration: duration
+            totalDuration: duration,
+            nativeWaveformImage: nativeWaveformImage,
+            nativePerStreamWaveformImages: nativePerStreamImages
         )
     }
 
@@ -709,14 +762,47 @@ actor PreviewAssetGenerator {
         let prefs = AudioWaveformPreferences.loadConfig()
         let width = Int(prefs.resolution.width)
         let height = Int(prefs.resolution.height)
-        let foreground = prefs.foregroundFFmpegColor
-        
-        // Use showwavespic for static waveform image
+        let colorHex = prefs.foregroundFFmpegColor.replacingOccurrences(of: "0x", with: "")
+
+        // Try native rendering first (fast)
+        do {
+            guard let ffprobePath = BinaryPathResolver.ffprobePath else {
+                throw PreviewAssetError.ffprobeBinaryMissing
+            }
+            guard let duration = try await determineDuration(for: url, ffprobePath: ffprobePath), duration > 0 else {
+                throw PreviewAssetError.durationUnavailable
+            }
+
+            let image = try await NativeWaveformRenderer.generateWaveform(
+                url: url,
+                ffmpegPath: ffmpegPath,
+                streamIndex: 0,
+                duration: duration,
+                width: width,
+                height: height,
+                colorHex: colorHex
+            )
+
+            // Save NSImage as PNG to disk for queue row caching
+            guard let tiff = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiff),
+                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
+                throw PreviewAssetError.generationFailed("Failed to encode waveform image as PNG")
+            }
+            try pngData.write(to: destination)
+            return
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            logger.warning("Native audio row thumbnail failed, falling back to FFmpeg showwavespic: \(error.localizedDescription, privacy: .public)")
+        }
+
+        // Fallback: use FFmpeg showwavespic
         var filterChain = "[0:a]aformat=channel_layouts=mono,"
         if prefs.normalizeAudio {
             filterChain += "dynaudnorm=f=250:g=30:p=0.9,"
         }
-        filterChain += "showwavespic=s=\(width)x\(height):colors=\(foreground.replacingOccurrences(of: "0x", with: "")),"
+        filterChain += "showwavespic=s=\(width)x\(height):colors=\(colorHex),"
         filterChain += "format=yuv420p[out]"
 
         let arguments: [String] = [
