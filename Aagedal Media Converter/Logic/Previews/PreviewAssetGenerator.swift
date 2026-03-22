@@ -116,6 +116,10 @@ actor PreviewAssetGenerator {
     /// When multiple callers request assets for the same URL, they all await the same task
     private var inProgressGenerations: [URL: Task<PreviewAssets, Error>] = [:]
 
+    /// In-memory cache for per-channel waveforms (keyed by URL, then stream index)
+    /// Survives across trim view open/close cycles since PreviewAssetGenerator is a singleton actor
+    private var channelWaveformCache: [URL: [Int: SendableChannelWaveform]] = [:]
+
     /// Terminates all running FFmpeg/FFprobe processes
     /// Call this when the app is about to quit to prevent orphaned processes
     func terminateAllProcesses() {
@@ -329,7 +333,12 @@ actor PreviewAssetGenerator {
             // Estimate total duration from chunk count (actual duration may vary)
             let estimatedDuration = waveformChunks.isEmpty ? 0 : Double(waveformChunks.count) * chunkDurationSeconds
 
-            if rowURL == nil && thumbnailURLs.isEmpty && waveform == nil && audioWaveforms.isEmpty && waveformChunks.isEmpty {
+            // Merge in-memory channel waveform cache
+            let cachedChannelWaveforms = channelWaveformCache[url] ?? [:]
+            let channelWaveform = cachedChannelWaveforms[0]
+            let perStreamChannelWaveforms = cachedChannelWaveforms.filter { $0.key != 0 || channelWaveform == nil }
+
+            if rowURL == nil && thumbnailURLs.isEmpty && waveform == nil && audioWaveforms.isEmpty && waveformChunks.isEmpty && channelWaveform == nil {
                 return nil
             }
 
@@ -343,8 +352,8 @@ actor PreviewAssetGenerator {
                 totalDuration: estimatedDuration,
                 nativeWaveformImage: nil,
                 nativePerStreamWaveformImages: [:],
-                nativeChannelWaveform: nil,
-                nativePerStreamChannelWaveforms: [:]
+                nativeChannelWaveform: channelWaveform,
+                nativePerStreamChannelWaveforms: perStreamChannelWaveforms
             )
         } catch {
             logger.debug("Failed to load cached assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -448,6 +457,57 @@ actor PreviewAssetGenerator {
         } catch {
             inProgressGenerations.removeValue(forKey: url)
             throw error
+        }
+    }
+
+    /// Generates per-channel waveform for a specific audio stream on demand.
+    /// Called when the user switches to an audio track that hasn't been generated yet.
+    /// Returns nil if generation fails (non-fatal).
+    func generateChannelWaveformForStream(
+        url: URL,
+        streamIndex: Int,
+        channelCount: Int,
+        channelLayout: String?,
+        duration: Double
+    ) async -> SendableChannelWaveform? {
+        // Check cache first
+        if let cached = channelWaveformCache[url]?[streamIndex] {
+            return cached
+        }
+
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else { return nil }
+
+        let accessGranted = startAccessingSecurityScope(for: url)
+        defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
+
+        let width = max(800, min(12000, Int(duration * 8.0)))
+        let height = 160
+
+        do {
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let (images, labels) = try await NativeWaveformRenderer.generatePerChannelWaveforms(
+                url: url,
+                ffmpegPath: ffmpegPath,
+                streamIndex: streamIndex,
+                channelCount: channelCount,
+                channelLayout: channelLayout,
+                duration: duration,
+                width: width,
+                heightPerChannel: height
+            )
+            let waveform = SendableChannelWaveform(channelImages: images, channelLabels: labels)
+
+            // Cache the result
+            var urlCache = channelWaveformCache[url] ?? [:]
+            urlCache[streamIndex] = waveform
+            channelWaveformCache[url] = urlCache
+
+            let t1 = CFAbsoluteTimeGetCurrent()
+            logger.info("On-demand per-channel waveform for stream \(streamIndex) generated in \(String(format: "%.2f", t1 - t0))s (\(channelCount) channels) for \(url.lastPathComponent, privacy: .public)")
+            return waveform
+        } catch {
+            logger.warning("On-demand per-channel waveform failed for stream \(streamIndex) of \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
@@ -683,14 +743,14 @@ actor PreviewAssetGenerator {
             }
         }
 
-        // Generate per-channel waveform images (one image per audio channel)
+        // Generate per-channel waveform images for the first audio stream only.
+        // Additional streams are generated on demand when the user switches audio tracks.
         let perChannelWidth = max(800, min(12000, Int(duration * 8.0)))
         let perChannelHeight = 160
         var nativeChannelWaveform: SendableChannelWaveform?
         var nativePerStreamChannelWaveforms: [Int: SendableChannelWaveform] = [:]
 
         if let metadata, !metadata.audioStreams.isEmpty {
-            // Stream 0
             let stream0 = metadata.audioStreams[0]
             let channels0 = stream0.channels ?? 2
             do {
@@ -705,38 +765,18 @@ actor PreviewAssetGenerator {
                     width: perChannelWidth,
                     heightPerChannel: perChannelHeight
                 )
-                nativeChannelWaveform = SendableChannelWaveform(channelImages: images, channelLabels: labels)
+                let waveform = SendableChannelWaveform(channelImages: images, channelLabels: labels)
+                nativeChannelWaveform = waveform
+                // Cache for persistence across trim view open/close cycles
+                var urlCache = channelWaveformCache[url] ?? [:]
+                urlCache[0] = waveform
+                channelWaveformCache[url] = urlCache
                 let t1 = CFAbsoluteTimeGetCurrent()
                 logger.info("Per-channel waveform generated in \(String(format: "%.2f", t1 - t0))s (\(channels0) channels) for \(url.lastPathComponent, privacy: .public)")
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 logger.warning("Per-channel waveform failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
-
-            // Additional streams for multi-track files
-            if metadata.audioStreams.count > 1 {
-                for (index, stream) in metadata.audioStreams.enumerated() {
-                    try Task.checkCancellation()
-                    let channels = stream.channels ?? 2
-                    do {
-                        let (images, labels) = try await NativeWaveformRenderer.generatePerChannelWaveforms(
-                            url: url,
-                            ffmpegPath: ffmpegPath,
-                            streamIndex: index,
-                            channelCount: channels,
-                            channelLayout: stream.channelLayout,
-                            duration: duration,
-                            width: perChannelWidth,
-                            heightPerChannel: perChannelHeight
-                        )
-                        nativePerStreamChannelWaveforms[index] = SendableChannelWaveform(channelImages: images, channelLabels: labels)
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        logger.warning("Per-channel waveform failed for stream \(index) of \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                    }
-                }
             }
         }
 
