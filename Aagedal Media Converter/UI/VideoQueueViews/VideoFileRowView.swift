@@ -325,7 +325,7 @@ struct VideoFileRowView: View {
                             }
                         }
 
-                        // Progress bar (shown when converting, downloading, uploading, or transcribing)
+                        // Progress bar (always present to prevent layout shifts on selection)
                         if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading || file.subtitleStatus.isInProgress {
                             if (file.isDownloading && isDownloadPreparing) || isSubtitlePreparing || file.isLiveStreamRecording {
                                 // Indeterminate progress for preparing or live stream recording
@@ -337,6 +337,10 @@ struct VideoFileRowView: View {
                                     .progressViewStyle(LinearProgressViewStyle())
                                     .tint(progressBarColor)
                             }
+                        } else {
+                            ProgressView(value: 0)
+                                .progressViewStyle(LinearProgressViewStyle())
+                                .opacity(0)
                         }
 
                         // Standard mode: duration and size line
