@@ -187,13 +187,24 @@ enum FFMPEGCommandBuilder {
         }
 
         var ffmpegArgs = preset.ffmpegArguments
-        await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
-        await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
 
-        // Filter out unsupported audio codecs (e.g., APAC spatial audio from iPhone)
-        // Skip for stream copy (which doesn't decode) and when audio routing is applied (has its own mapping)
-        if preset != .streamCopy && (audioRoutingConfig == nil || !preset.appliesAudioRouting) {
-            await filterUnsupportedAudioStreams(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+        // Image sequence inputs (via customInputArguments) have no audio streams and
+        // the inputURL points to a directory, so skip all audio probing/adjustment and
+        // strip audio mapping to prevent FFmpeg errors about missing audio streams.
+        let isImageSequenceInput = customInputArguments != nil
+        if isImageSequenceInput {
+            stripAudioArguments(from: &ffmpegArgs)
+        }
+
+        if !isImageSequenceInput {
+            await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
+            await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+
+            // Filter out unsupported audio codecs (e.g., APAC spatial audio from iPhone)
+            // Skip for stream copy (which doesn't decode) and when audio routing is applied (has its own mapping)
+            if preset != .streamCopy && (audioRoutingConfig == nil || !preset.appliesAudioRouting) {
+                await filterUnsupportedAudioStreams(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+            }
         }
 
         // Apply crop to video filter if configured and preset supports it
@@ -252,12 +263,13 @@ enum FFMPEGCommandBuilder {
         }
         
         // Apply audio routing configuration if provided and preset supports audio and audio routing
-        if let audioRoutingConfig, preset.outputsAudioTrack, preset.appliesAudioRouting {
+        // Skip for image sequence inputs (no audio streams)
+        if !isImageSequenceInput, let audioRoutingConfig, preset.outputsAudioTrack, preset.appliesAudioRouting {
             applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
         }
 
         // Apply mute if requested - removes all audio from output
-        if isMuted {
+        if !isImageSequenceInput, isMuted {
             applyMute(to: &ffmpegArgs)
         }
 
@@ -1204,6 +1216,32 @@ extension FFMPEGCommandBuilder {
         // Add to ffmpeg arguments
         ffmpegArgs.append(contentsOf: ["-filter_complex", filterGraph])
         ffmpegArgs.append(contentsOf: mapArgs)
+    }
+
+    /// Strips all audio-related arguments from FFmpeg args.
+    /// Used for image sequence inputs which have no audio streams.
+    static func stripAudioArguments(from args: inout [String]) {
+        // Remove audio stream mappings: -map 0:a, -map 0:a?, -map 0:a:N
+        var index = 0
+        while index < args.count {
+            if args[index] == "-map", index + 1 < args.count {
+                let value = args[index + 1]
+                if value.hasPrefix("0:a") {
+                    args.remove(at: index)
+                    args.remove(at: index)
+                    continue
+                }
+            }
+            index += 1
+        }
+        // Remove audio codec and bitrate settings
+        removeArgumentPair("-c:a", value: nil, from: &args)
+        removeArgumentPair("-b:a", value: nil, from: &args)
+        removeArgumentPair("-ac", value: nil, from: &args)
+        // Add -an to explicitly disable audio output
+        if !args.contains("-an") {
+            args.append("-an")
+        }
     }
 
     static func removeArgumentPair(_ key: String, value: String?, from args: inout [String]) {

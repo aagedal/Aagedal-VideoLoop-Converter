@@ -274,6 +274,12 @@ actor FFMPEGConverter {
         let capturedFinalOutputURL = outputFileURL
         let capturedNeedsBMXRewrap = needsBMXRewrap
         let capturedInputBaseName = inputURL.deletingPathExtension().lastPathComponent
+        let capturedIsImageSequenceExport = isImageSequenceExport
+        let capturedInputURL = inputURL
+        let capturedFfmpegPath = ffmpegPath
+        let capturedTrimStart = trimStart
+        let capturedTrimEnd = trimEnd
+        let capturedCustomInputArguments = customInputArguments
 
         process.terminationHandler = { [weak self] _ in
             // Stop the readability handler to prevent log spam after process ends
@@ -330,6 +336,19 @@ actor FFMPEGConverter {
                 if let tempURL = capturedTempAudioURL {
                     try? FileManager.default.removeItem(at: tempURL)
                     Self.logger.debug("Cleaned up temp audio file: \(tempURL.lastPathComponent)")
+                }
+
+                // Extract audio as WAV for image sequence exports (if source has audio)
+                if success && capturedIsImageSequenceExport && capturedCustomInputArguments == nil {
+                    let outputFolder = capturedFinalOutputURL.deletingLastPathComponent()
+                    await Self.extractAudioAsWAV(
+                        inputURL: capturedInputURL,
+                        outputFolder: outputFolder,
+                        baseName: capturedInputBaseName,
+                        ffmpegPath: capturedFfmpegPath,
+                        trimStart: capturedTrimStart,
+                        trimEnd: capturedTrimEnd
+                    )
                 }
 
                 completion(success)
@@ -537,6 +556,73 @@ actor FFMPEGConverter {
                     progressUpdate(overall, "Rendering waveform…")
                 }
             )
+        }
+    }
+
+    // MARK: - Audio Extraction for Image Sequence Export
+
+    /// Extracts the audio track from a video file as a WAV file alongside the image sequence output.
+    /// Only runs if the input has audio streams. The WAV file is placed in the same subfolder as the images.
+    private static func extractAudioAsWAV(
+        inputURL: URL,
+        outputFolder: URL,
+        baseName: String,
+        ffmpegPath: String,
+        trimStart: Double?,
+        trimEnd: Double?
+    ) async {
+        // Check if source has audio streams
+        guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
+              !audioStreams.isEmpty else {
+            logger.debug("No audio streams in source, skipping WAV extraction")
+            return
+        }
+
+        let wavOutputURL = outputFolder.appendingPathComponent("\(baseName).wav")
+
+        var args: [String] = ["-y", "-nostdin"]
+
+        // Apply trim start (input seeking)
+        let normalizedStart = FFMPEGCommandBuilder.normalizedTrimPoint(trimStart)
+        if let start = normalizedStart {
+            args.append(contentsOf: ["-ss", FFMPEGCommandBuilder.ffmpegTimeString(from: start)])
+        }
+
+        args.append(contentsOf: ["-i", inputURL.path])
+
+        // Apply trim duration
+        if let durationArgs = FFMPEGCommandBuilder.trimDurationArgument(start: normalizedStart, end: FFMPEGCommandBuilder.normalizedTrimPoint(trimEnd)) {
+            args.append(contentsOf: durationArgs)
+        }
+
+        args.append(contentsOf: [
+            "-vn",           // No video
+            "-c:a", "pcm_s24le",  // 24-bit WAV
+            "-rf64", "auto", // Use RF64 for files >4GB
+            wavOutputURL.path
+        ])
+
+        logger.info("Extracting audio as WAV: \(wavOutputURL.lastPathComponent)")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = args
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus == 0 {
+                logger.info("Audio WAV extraction complete: \(wavOutputURL.lastPathComponent)")
+            } else {
+                logger.warning("Audio WAV extraction failed with status \(process.terminationStatus)")
+                // Clean up partial WAV file
+                try? FileManager.default.removeItem(at: wavOutputURL)
+            }
+        } catch {
+            logger.error("Failed to start audio extraction: \(error.localizedDescription)")
         }
     }
 
