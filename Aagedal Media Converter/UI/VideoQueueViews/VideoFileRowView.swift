@@ -129,10 +129,6 @@ struct VideoFileRowView: View {
         ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(NSColor.controlBackgroundColor))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isSelected ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: isSelected ? 2 : 0.8)
-                )
                 .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
             
             VStack(spacing: 0) {
@@ -534,6 +530,11 @@ struct VideoFileRowView: View {
                 }
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isSelected ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: isSelected ? 2 : 0.8)
+        )
         .padding(.horizontal, 4)
         .sheet(isPresented: $showPreview) {
             // Don't show preview for scheduled downloads or items being downloaded
