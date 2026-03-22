@@ -14,6 +14,7 @@ struct FullscreenPlayerView: View {
     let onCloseWithPosition: ((Double) -> Void)?
     let onPreviousItem: (@Sendable () -> Void)?
     let onNextItem: (@Sendable () -> Void)?
+    let onTrimChanged: ((Double?, Double?) -> Void)?
     let onOverlayVisibilityChanged: ((Bool) -> Void)?
     let onTimecodeDisplayModeChanged: ((TimecodeDisplayMode) -> Void)?
     let canGoToPrevious: Bool
@@ -57,6 +58,7 @@ struct FullscreenPlayerView: View {
         startTime: Double? = nil,
         onClose: @escaping () -> Void,
         onCloseWithPosition: ((Double) -> Void)? = nil,
+        onTrimChanged: ((Double?, Double?) -> Void)? = nil,
         onPreviousItem: (@Sendable () -> Void)? = nil,
         onNextItem: (@Sendable () -> Void)? = nil,
         onOverlayVisibilityChanged: ((Bool) -> Void)? = nil,
@@ -73,6 +75,7 @@ struct FullscreenPlayerView: View {
         self.item = item
         self.onClose = onClose
         self.onCloseWithPosition = onCloseWithPosition
+        self.onTrimChanged = onTrimChanged
         self.onPreviousItem = onPreviousItem
         self.onNextItem = onNextItem
         self.onOverlayVisibilityChanged = onOverlayVisibilityChanged
@@ -239,7 +242,42 @@ struct FullscreenPlayerView: View {
                         toggleQueueLoop()
                     }
                 },
-                isAutoNextEnabled: queueAutoAdvanceState
+                isAutoNextEnabled: queueAutoAdvanceState,
+                onSetTrimIn: { @Sendable in
+                    Task { @MainActor in
+                        handleTrimInPoint(clearToStart: false)
+                    }
+                },
+                onSetTrimOut: { @Sendable in
+                    Task { @MainActor in
+                        handleTrimOutPoint(clearToEnd: false)
+                    }
+                },
+                onClearTrimIn: { @Sendable in
+                    Task { @MainActor in
+                        handleTrimInPoint(clearToStart: true)
+                    }
+                },
+                onClearTrimOut: { @Sendable in
+                    Task { @MainActor in
+                        handleTrimOutPoint(clearToEnd: true)
+                    }
+                },
+                onClearAllTrim: { @Sendable in
+                    Task { @MainActor in
+                        clearAllTrimPoints()
+                    }
+                },
+                onSeekToTrimIn: { @Sendable in
+                    Task { @MainActor in
+                        seekToTrimIn()
+                    }
+                },
+                onSeekToTrimOut: { @Sendable in
+                    Task { @MainActor in
+                        seekToTrimOut()
+                    }
+                }
             )
         )
         .onReceive(controller.playbackTimePublisher) { time in
@@ -616,30 +654,53 @@ struct FullscreenPlayerView: View {
             // Use observedDuration which includes MPV fallback
             let duration = observedDuration
             let progress = duration > 0 ? controller.currentPlaybackTime / duration : 0
-            
+            let width = geo.size.width
+            let trimInFrac: CGFloat = duration > 0 ? CGFloat((itemState.trimStart ?? 0) / duration) : 0
+            let trimOutFrac: CGFloat = duration > 0 ? CGFloat((itemState.trimEnd ?? duration) / duration) : 1
+            let hasTrim = itemState.trimStart != nil || itemState.trimEnd != nil
+
             ZStack(alignment: .leading) {
                 // Track background
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white.opacity(0.28))
+                    .fill(Color.white.opacity(0.3))
                     .frame(height: 4)
 
-                // Progress
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.white)
-                    .frame(width: geo.size.width * CGFloat(progress), height: 4)
+                // Trim region overlay
+                if duration > 0 && hasTrim {
+                    Rectangle()
+                        .fill(Color.blue.opacity(0.25))
+                        .frame(width: max(0, (trimOutFrac - trimInFrac) * width), height: 6)
+                        .offset(x: trimInFrac * width)
+                }
 
-                // Scrubber handle
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 14, height: 14)
-                    .offset(x: geo.size.width * CGFloat(progress) - 7)
+                // Trim-in marker
+                if itemState.trimStart != nil {
+                    Rectangle()
+                        .fill(Color.blue.opacity(0.8))
+                        .frame(width: 2, height: 14)
+                        .offset(x: max(0, min(width - 2, trimInFrac * width - 1)))
+                }
+
+                // Trim-out marker
+                if itemState.trimEnd != nil {
+                    Rectangle()
+                        .fill(Color.blue.opacity(0.8))
+                        .frame(width: 2, height: 14)
+                        .offset(x: max(0, min(width - 2, trimOutFrac * width - 1)))
+                }
+
+                // Playhead — thin vertical line
+                Rectangle()
+                    .fill(Color(red: 1.0, green: 0.071, blue: 0.361)) // #FF125C
+                    .frame(width: 2, height: 14)
+                    .offset(x: max(0, min(width - 2, width * CGFloat(progress) - 1)))
             }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         isDraggingTimeline = true
-                        let fraction = max(0, min(1, value.location.x / geo.size.width))
+                        let fraction = max(0, min(1, value.location.x / width))
                         let targetTime = Double(fraction) * duration
                         controller.seekTo(targetTime)
                     }
@@ -648,7 +709,7 @@ struct FullscreenPlayerView: View {
                     }
             )
         }
-        .frame(height: 14)
+        .frame(height: 20)
     }
 
     private var queueToggleRow: some View {
@@ -1169,6 +1230,55 @@ struct FullscreenPlayerView: View {
         timecodeDisplayMode.toggle()
         onTimecodeDisplayModeChanged?(timecodeDisplayMode)
     }
+
+    // MARK: - Trim Handling
+
+    private func handleTrimInPoint(clearToStart: Bool) {
+        if clearToStart {
+            itemState.trimStart = nil
+        } else {
+            let currentTime = controller.currentPlaybackTime
+            let duration = max(itemState.durationSeconds, 0)
+            let clamped = max(0, min(currentTime, duration))
+            itemState.trimStart = clamped <= 0.05 ? nil : clamped
+            if let end = itemState.trimEnd, end < itemState.effectiveTrimStart {
+                itemState.trimEnd = itemState.trimStart
+            }
+        }
+        onTrimChanged?(itemState.trimStart, itemState.trimEnd)
+    }
+
+    private func handleTrimOutPoint(clearToEnd: Bool) {
+        if clearToEnd {
+            itemState.trimEnd = nil
+        } else {
+            let currentTime = controller.currentPlaybackTime
+            let duration = max(itemState.durationSeconds, 0)
+            let clamped = max(0, min(currentTime, duration))
+            let minEnd = itemState.effectiveTrimStart
+            let sanitizedValue = max(clamped, minEnd)
+            if sanitizedValue >= duration - 0.05 {
+                itemState.trimEnd = nil
+            } else {
+                itemState.trimEnd = sanitizedValue
+            }
+        }
+        onTrimChanged?(itemState.trimStart, itemState.trimEnd)
+    }
+
+    private func clearAllTrimPoints() {
+        itemState.trimStart = nil
+        itemState.trimEnd = nil
+        onTrimChanged?(nil, nil)
+    }
+
+    private func seekToTrimIn() {
+        controller.seekTo(itemState.effectiveTrimStart)
+    }
+
+    private func seekToTrimOut() {
+        controller.seekTo(itemState.effectiveTrimEnd)
+    }
 }
 
 // MARK: - Cursor Modifier
@@ -1351,6 +1461,13 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
     let onToggleAutoNext: @Sendable () -> Void
     let onToggleLoop: @Sendable () -> Void
     let isAutoNextEnabled: Bool
+    let onSetTrimIn: @Sendable () -> Void
+    let onSetTrimOut: @Sendable () -> Void
+    let onClearTrimIn: @Sendable () -> Void
+    let onClearTrimOut: @Sendable () -> Void
+    let onClearAllTrim: @Sendable () -> Void
+    let onSeekToTrimIn: @Sendable () -> Void
+    let onSeekToTrimOut: @Sendable () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -1366,7 +1483,14 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             isEditingTimecode: isEditingTimecode,
             onToggleAutoNext: onToggleAutoNext,
             onToggleLoop: onToggleLoop,
-            isAutoNextEnabled: isAutoNextEnabled
+            isAutoNextEnabled: isAutoNextEnabled,
+            onSetTrimIn: onSetTrimIn,
+            onSetTrimOut: onSetTrimOut,
+            onClearTrimIn: onClearTrimIn,
+            onClearTrimOut: onClearTrimOut,
+            onClearAllTrim: onClearAllTrim,
+            onSeekToTrimIn: onSeekToTrimIn,
+            onSeekToTrimOut: onSeekToTrimOut
         )
     }
 
@@ -1391,6 +1515,13 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
         context.coordinator.onToggleAutoNext = onToggleAutoNext
         context.coordinator.onToggleLoop = onToggleLoop
         context.coordinator.isAutoNextEnabled = isAutoNextEnabled
+        context.coordinator.onSetTrimIn = onSetTrimIn
+        context.coordinator.onSetTrimOut = onSetTrimOut
+        context.coordinator.onClearTrimIn = onClearTrimIn
+        context.coordinator.onClearTrimOut = onClearTrimOut
+        context.coordinator.onClearAllTrim = onClearAllTrim
+        context.coordinator.onSeekToTrimIn = onSeekToTrimIn
+        context.coordinator.onSeekToTrimOut = onSeekToTrimOut
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
@@ -1411,6 +1542,13 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
         var onToggleAutoNext: @Sendable () -> Void
         var onToggleLoop: @Sendable () -> Void
         var isAutoNextEnabled: Bool
+        var onSetTrimIn: @Sendable () -> Void
+        var onSetTrimOut: @Sendable () -> Void
+        var onClearTrimIn: @Sendable () -> Void
+        var onClearTrimOut: @Sendable () -> Void
+        var onClearAllTrim: @Sendable () -> Void
+        var onSeekToTrimIn: @Sendable () -> Void
+        var onSeekToTrimOut: @Sendable () -> Void
         private var monitor: Any?
 
         init(
@@ -1426,7 +1564,14 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             isEditingTimecode: Bool,
             onToggleAutoNext: @Sendable @escaping () -> Void,
             onToggleLoop: @Sendable @escaping () -> Void,
-            isAutoNextEnabled: Bool
+            isAutoNextEnabled: Bool,
+            onSetTrimIn: @Sendable @escaping () -> Void,
+            onSetTrimOut: @Sendable @escaping () -> Void,
+            onClearTrimIn: @Sendable @escaping () -> Void,
+            onClearTrimOut: @Sendable @escaping () -> Void,
+            onClearAllTrim: @Sendable @escaping () -> Void,
+            onSeekToTrimIn: @Sendable @escaping () -> Void,
+            onSeekToTrimOut: @Sendable @escaping () -> Void
         ) {
             self.controller = controller
             self.onClose = onClose
@@ -1441,6 +1586,13 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
             self.onToggleAutoNext = onToggleAutoNext
             self.onToggleLoop = onToggleLoop
             self.isAutoNextEnabled = isAutoNextEnabled
+            self.onSetTrimIn = onSetTrimIn
+            self.onSetTrimOut = onSetTrimOut
+            self.onClearTrimIn = onClearTrimIn
+            self.onClearTrimOut = onClearTrimOut
+            self.onClearAllTrim = onClearAllTrim
+            self.onSeekToTrimIn = onSeekToTrimIn
+            self.onSeekToTrimOut = onSeekToTrimOut
         }
 
         func install() {
@@ -1510,6 +1662,65 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
                         self?.onToggleLoop()
                     }
                     return nil
+                }
+
+                // Trim shortcuts (I, O, Shift+I, Shift+O, Option+I, Option+O, Option+X)
+                if !self.isEditingTimecode && !hasCommand && !hasControl {
+                    // Option+X: Clear all trim points
+                    if hasOption && !hasShift && lower == "x" {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onClearAllTrim()
+                        }
+                        return nil
+                    }
+
+                    // Option+I: Clear trim in
+                    if hasOption && !hasShift && lower == "i" {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onClearTrimIn()
+                        }
+                        return nil
+                    }
+
+                    // Option+O: Clear trim out
+                    if hasOption && !hasShift && lower == "o" {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onClearTrimOut()
+                        }
+                        return nil
+                    }
+
+                    // Shift+I: Seek to trim in
+                    if hasShift && !hasOption && lower == "i" {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onSeekToTrimIn()
+                        }
+                        return nil
+                    }
+
+                    // Shift+O: Seek to trim out
+                    if hasShift && !hasOption && lower == "o" {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onSeekToTrimOut()
+                        }
+                        return nil
+                    }
+
+                    // I (no modifiers): Set trim in at current position
+                    if noModifiers && lower == "i" {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onSetTrimIn()
+                        }
+                        return nil
+                    }
+
+                    // O (no modifiers): Set trim out at current position
+                    if noModifiers && lower == "o" {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onSetTrimOut()
+                        }
+                        return nil
+                    }
                 }
 
                 // Number keys and timecode characters to activate timecode input (when not already editing)
