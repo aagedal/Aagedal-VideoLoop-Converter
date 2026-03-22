@@ -245,8 +245,8 @@ enum WaveformPCMDecoder {
 
         var magnitudes = [[Float]](repeating: [Float](repeating: 0, count: bandCount), count: frameCount)
 
-        // Track global peak for normalization
-        var globalPeak: Float = 0
+        // Track per-band peaks for independent normalization
+        var bandPeaks = [Float](repeating: 0, count: bandCount)
 
         pcmData.withUnsafeBytes { rawBuffer in
             let samples = rawBuffer.bindMemory(to: Float.self)
@@ -319,16 +319,19 @@ enum WaveformPCMDecoder {
                     if bandCounts[band] > 0 {
                         magnitudes[frame][band] = bandSums[band] / Float(bandCounts[band])
                     }
-                    globalPeak = max(globalPeak, magnitudes[frame][band])
+                    bandPeaks[band] = max(bandPeaks[band], magnitudes[frame][band])
                 }
             }
         }
 
-        // Normalize all magnitudes to 0.0–1.0 relative to global peak
-        if globalPeak > 0 {
-            for frame in 0..<frameCount {
-                for band in 0..<bandCount {
-                    magnitudes[frame][band] /= globalPeak
+        // Per-band normalization: each band independently scaled to 0.0–1.0
+        // This ensures treble bands are as visually active as bass bands,
+        // since raw FFT magnitudes drop off steeply with frequency.
+        for band in 0..<bandCount {
+            let peak = bandPeaks[band]
+            if peak > 0 {
+                for frame in 0..<frameCount {
+                    magnitudes[frame][band] /= peak
                 }
             }
         }
