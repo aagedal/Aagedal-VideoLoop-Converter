@@ -219,58 +219,63 @@ enum NativeWaveformVideoRenderer {
         drawWireStroke(ctx: ctx, layout: layout, magnitudes: bandMagnitudes, vMargin: vMargin, above: false)
     }
 
+    /// Builds the array of (x, magnitude) points for the wire curve,
+    /// including virtual zero-magnitude anchors at the frame edges so
+    /// the curve extends edge-to-edge and tapers to flat.
+    private static func wirePoints(layout: FrameLayout, magnitudes: [Float]) -> [(x: CGFloat, mag: CGFloat)] {
+        var pts = [(x: CGFloat, mag: CGFloat)]()
+        // Left edge anchor at zero
+        pts.append((x: 0, mag: 0))
+        // Actual band data
+        for band in 0..<layout.bandCount {
+            pts.append((x: layout.bandCenterX(band), mag: CGFloat(clamp01(magnitudes[band]))))
+        }
+        // Right edge anchor at zero
+        pts.append((x: layout.frameWidth, mag: 0))
+        return pts
+    }
+
     /// Draws a filled area between the curve and center line, optionally mirrored.
     private static func drawWireCurve(
         ctx: CGContext, layout: FrameLayout,
         magnitudes: [Float], vMargin: CGFloat, mirrored: Bool
     ) {
-        guard layout.bandCount > 1 else { return }
+        let pts = wirePoints(layout: layout, magnitudes: magnitudes)
+        guard pts.count > 2 else { return }
+        let halfMax = layout.maxBarHeight / 2.0
 
-        // Top half: curve from center upward
+        // Top half
         let topPath = CGMutablePath()
-        topPath.move(to: CGPoint(x: layout.bandCenterX(0), y: layout.centerY))
-
-        for band in 0..<layout.bandCount {
-            let mag = CGFloat(clamp01(magnitudes[band]))
-            let x = layout.bandCenterX(band)
-            let peakY = layout.centerY - mag * (layout.maxBarHeight / 2.0)
-
-            if band == 0 {
-                topPath.addLine(to: CGPoint(x: x, y: peakY))
+        topPath.move(to: CGPoint(x: pts[0].x, y: layout.centerY))
+        for i in 0..<pts.count {
+            let x = pts[i].x
+            let y = layout.centerY - pts[i].mag * halfMax
+            if i == 0 {
+                topPath.addLine(to: CGPoint(x: x, y: y))
             } else {
-                // Catmull-Rom-like smoothing via quadratic curves
-                let prevX = layout.bandCenterX(band - 1)
-                let cpX = (prevX + x) / 2.0
-                topPath.addQuadCurve(to: CGPoint(x: x, y: peakY), control: CGPoint(x: cpX, y: topPath.currentPoint.y))
+                let cpX = (pts[i - 1].x + x) / 2.0
+                topPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: topPath.currentPoint.y))
             }
         }
-
-        // Close back to center
-        topPath.addLine(to: CGPoint(x: layout.bandCenterX(layout.bandCount - 1), y: layout.centerY))
+        topPath.addLine(to: CGPoint(x: pts.last!.x, y: layout.centerY))
         topPath.closeSubpath()
         ctx.addPath(topPath)
         ctx.fillPath()
 
         if mirrored {
-            // Bottom half: mirror
             let bottomPath = CGMutablePath()
-            bottomPath.move(to: CGPoint(x: layout.bandCenterX(0), y: layout.centerY))
-
-            for band in 0..<layout.bandCount {
-                let mag = CGFloat(clamp01(magnitudes[band]))
-                let x = layout.bandCenterX(band)
-                let valleyY = layout.centerY + mag * (layout.maxBarHeight / 2.0)
-
-                if band == 0 {
-                    bottomPath.addLine(to: CGPoint(x: x, y: valleyY))
+            bottomPath.move(to: CGPoint(x: pts[0].x, y: layout.centerY))
+            for i in 0..<pts.count {
+                let x = pts[i].x
+                let y = layout.centerY + pts[i].mag * halfMax
+                if i == 0 {
+                    bottomPath.addLine(to: CGPoint(x: x, y: y))
                 } else {
-                    let prevX = layout.bandCenterX(band - 1)
-                    let cpX = (prevX + x) / 2.0
-                    bottomPath.addQuadCurve(to: CGPoint(x: x, y: valleyY), control: CGPoint(x: cpX, y: bottomPath.currentPoint.y))
+                    let cpX = (pts[i - 1].x + x) / 2.0
+                    bottomPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: bottomPath.currentPoint.y))
                 }
             }
-
-            bottomPath.addLine(to: CGPoint(x: layout.bandCenterX(layout.bandCount - 1), y: layout.centerY))
+            bottomPath.addLine(to: CGPoint(x: pts.last!.x, y: layout.centerY))
             bottomPath.closeSubpath()
             ctx.addPath(bottomPath)
             ctx.fillPath()
@@ -282,24 +287,22 @@ enum NativeWaveformVideoRenderer {
         ctx: CGContext, layout: FrameLayout,
         magnitudes: [Float], vMargin: CGFloat, above: Bool
     ) {
-        guard layout.bandCount > 1 else { return }
+        let pts = wirePoints(layout: layout, magnitudes: magnitudes)
+        guard pts.count > 2 else { return }
         let sign: CGFloat = above ? -1.0 : 1.0
+        let halfMax = layout.maxBarHeight / 2.0
 
         let path = CGMutablePath()
-        for band in 0..<layout.bandCount {
-            let mag = CGFloat(clamp01(magnitudes[band]))
-            let x = layout.bandCenterX(band)
-            let y = layout.centerY + sign * mag * (layout.maxBarHeight / 2.0)
-
-            if band == 0 {
+        for i in 0..<pts.count {
+            let x = pts[i].x
+            let y = layout.centerY + sign * pts[i].mag * halfMax
+            if i == 0 {
                 path.move(to: CGPoint(x: x, y: y))
             } else {
-                let prevX = layout.bandCenterX(band - 1)
-                let cpX = (prevX + x) / 2.0
+                let cpX = (pts[i - 1].x + x) / 2.0
                 path.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: path.currentPoint.y))
             }
         }
-
         ctx.addPath(path)
         ctx.strokePath()
     }
