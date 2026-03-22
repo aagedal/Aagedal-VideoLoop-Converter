@@ -14,6 +14,12 @@ struct SendableImage: @unchecked Sendable {
     let image: NSImage
 }
 
+/// Per-channel waveform data: one image and label per audio channel.
+struct SendableChannelWaveform: @unchecked Sendable {
+    let channelImages: [NSImage]
+    let channelLabels: [String]
+}
+
 /// Renders audio waveform images natively in Swift from raw PCM data.
 /// Replaces FFmpeg's showwavespic filter for preview waveform generation.
 struct NativeWaveformRenderer {
@@ -31,7 +37,7 @@ struct NativeWaveformRenderer {
         duration: Double,
         width: Int,
         height: Int,
-        colorHex: String = "FFFFFF"
+        colorHex: String = "FF2D78"
     ) async throws -> NSImage {
         let effectiveWidth = max(400, width)
 
@@ -179,6 +185,121 @@ struct NativeWaveformRenderer {
         ) else { return nil }
 
         return NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
+    }
+
+    // MARK: - Per-Channel Generation
+
+    /// Generates one waveform image per audio channel for the given stream.
+    /// Unlike `generateWaveform()` which downmixes to mono, this preserves all channels.
+    static nonisolated func generatePerChannelWaveforms(
+        url: URL,
+        ffmpegPath: String,
+        streamIndex: Int,
+        channelCount: Int,
+        channelLayout: String?,
+        duration: Double,
+        width: Int,
+        heightPerChannel: Int,
+        colorHex: String = "FF2D78"
+    ) async throws -> ([NSImage], [String]) {
+        let effectiveWidth = max(800, width)
+        let effectiveChannelCount = max(1, channelCount)
+
+        let idealRate = max(1000, min(48000, Int(ceil(Double(effectiveWidth) * 100.0 / max(duration, 0.1)))))
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("com.aagedal.MediaConverter.waveforms.\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let pcmFile = tempDir.appendingPathComponent("audio.raw")
+
+        // Decode preserving all channels (no -ac 1)
+        let arguments: [String] = [
+            "-hide_banner", "-loglevel", "error",
+            "-i", url.path,
+            "-vn",
+            "-map", "0:a:\(streamIndex)",
+            "-ar", "\(idealRate)",
+            "-f", "f32le",
+            "-c:a", "pcm_f32le",
+            "-y", pcmFile.path
+        ]
+
+        try await runFFmpeg(path: ffmpegPath, arguments: arguments)
+        try Task.checkCancellation()
+
+        let pcmData = try Data(contentsOf: pcmFile)
+        let floatCount = pcmData.count / MemoryLayout<Float>.size
+        let totalFrames = floatCount / effectiveChannelCount
+        guard totalFrames > 0 else {
+            throw PreviewAssetError.generationFailed("No audio samples decoded")
+        }
+
+        let (r, g, b) = parseHexColor(colorHex)
+        let labels = channelNames(count: effectiveChannelCount, layout: channelLayout)
+        var images: [NSImage] = []
+
+        for ch in 0..<effectiveChannelCount {
+            try Task.checkCancellation()
+
+            let (mins, maxs) = computeAmplitudes(
+                pcmData: pcmData,
+                channelCount: effectiveChannelCount,
+                channel: ch,
+                totalFrames: totalFrames,
+                width: effectiveWidth
+            )
+
+            guard let image = renderWaveformImage(
+                mins: mins, maxs: maxs,
+                width: effectiveWidth, height: heightPerChannel,
+                r: r, g: g, b: b
+            ) else {
+                continue
+            }
+            images.append(image)
+        }
+
+        guard !images.isEmpty else {
+            throw PreviewAssetError.generationFailed("Failed to render any channel waveform images")
+        }
+
+        return (images, labels)
+    }
+
+    // MARK: - Channel Labels
+
+    /// Returns human-readable channel names based on count and layout string from ffprobe.
+    static nonisolated func channelNames(count: Int, layout: String?) -> [String] {
+        if let layout, !layout.isEmpty {
+            let knownLayouts: [String: [String]] = [
+                "mono": ["Mono"],
+                "stereo": ["Left", "Right"],
+                "2.1": ["Left", "Right", "LFE"],
+                "3.0": ["Left", "Right", "Center"],
+                "3.0(back)": ["Left", "Right", "Back Center"],
+                "3.1": ["Left", "Right", "Center", "LFE"],
+                "4.0": ["Left", "Right", "Center", "Back Center"],
+                "quad": ["Left", "Right", "Back Left", "Back Right"],
+                "quad(side)": ["Left", "Right", "Side Left", "Side Right"],
+                "5.0": ["Left", "Right", "Center", "Back Left", "Back Right"],
+                "5.0(side)": ["Left", "Right", "Center", "Side Left", "Side Right"],
+                "5.1": ["Left", "Right", "Center", "LFE", "Back Left", "Back Right"],
+                "5.1(side)": ["Left", "Right", "Center", "LFE", "Side Left", "Side Right"],
+                "6.1": ["Left", "Right", "Center", "LFE", "Back Center", "Side Left", "Side Right"],
+                "7.1": ["Left", "Right", "Center", "LFE", "Back Left", "Back Right", "Side Left", "Side Right"],
+                "7.1(wide)": ["Left", "Right", "Center", "LFE", "Back Left", "Back Right", "Front Left of Center", "Front Right of Center"],
+            ]
+            let normalized = layout.lowercased()
+            if let names = knownLayouts[normalized], names.count == count {
+                return names
+            }
+        }
+
+        if count == 1 { return ["Mono"] }
+        if count == 2 { return ["Left", "Right"] }
+        return (0..<count).map { "Channel \($0 + 1)" }
     }
 
     // MARK: - Utilities

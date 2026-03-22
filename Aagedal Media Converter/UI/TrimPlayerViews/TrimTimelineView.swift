@@ -21,6 +21,8 @@ struct TrimTimelineView: View {
     let thumbnails: [URL]?
     let quickThumbnailImages: [NSImage]
     let nativeWaveformImage: NSImage?
+    let channelWaveformImages: [NSImage]
+    let channelWaveformLabels: [String]
     let waveformURL: URL?
     let waveformChunks: [WaveformChunk]
     let chunkTotalDuration: Double
@@ -59,6 +61,8 @@ struct TrimTimelineView: View {
         thumbnails: [URL]?,
         quickThumbnailImages: [NSImage] = [],
         nativeWaveformImage: NSImage? = nil,
+        channelWaveformImages: [NSImage] = [],
+        channelWaveformLabels: [String] = [],
         waveformURL: URL?,
         waveformChunks: [WaveformChunk] = [],
         chunkTotalDuration: Double = 0,
@@ -76,6 +80,8 @@ struct TrimTimelineView: View {
         self.thumbnails = thumbnails
         self.quickThumbnailImages = quickThumbnailImages
         self.nativeWaveformImage = nativeWaveformImage
+        self.channelWaveformImages = channelWaveformImages
+        self.channelWaveformLabels = channelWaveformLabels
         self.waveformURL = waveformURL
         self.waveformChunks = waveformChunks
         self.chunkTotalDuration = chunkTotalDuration
@@ -495,8 +501,11 @@ private struct TrimHandlesInteractionLayer: View {
 
     @ViewBuilder
     private func waveformContent(width: CGFloat, height: CGFloat) -> some View {
-        if let image = nativeWaveformImage {
-            // Native waveform — direct NSImage, no disk I/O
+        if !channelWaveformImages.isEmpty {
+            // Per-channel waveform — one waveform per audio channel, stacked vertically
+            perChannelWaveformContent(width: width, height: height)
+        } else if let image = nativeWaveformImage {
+            // Native waveform — direct NSImage, no disk I/O (mono fallback)
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -527,6 +536,40 @@ private struct TrimHandlesInteractionLayer: View {
             )
             .frame(width: width, height: height)
         }
+    }
+
+    @ViewBuilder
+    private func perChannelWaveformContent(width: CGFloat, height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(channelWaveformImages.enumerated()), id: \.offset) { index, image in
+                ZStack(alignment: .leading) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.medium)
+
+                    // Channel label (top-left)
+                    if index < channelWaveformLabels.count {
+                        Text(channelWaveformLabels[index])
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundColor(Color(white: 0.5))
+                            .padding(.leading, 4)
+                            .padding(.top, 2)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
+
+                    // Subtle separator line between channels
+                    if index < channelWaveformImages.count - 1 {
+                        VStack {
+                            Spacer()
+                            Rectangle()
+                                .fill(Color(white: 0.2))
+                                .frame(height: 0.5)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: width, height: height)
     }
 
     /// Expected number of chunks based on duration

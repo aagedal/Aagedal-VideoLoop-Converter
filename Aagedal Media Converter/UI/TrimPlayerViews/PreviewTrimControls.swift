@@ -42,6 +42,8 @@ struct PreviewTrimControls: View {
                     playbackTime: currentPlaybackTime,
                     thumbnails: controller.previewAssets?.thumbnails,
                     nativeWaveformImage: controller.currentNativeWaveformImage,
+                    channelWaveformImages: controller.currentChannelWaveformImages,
+                    channelWaveformLabels: controller.currentChannelWaveformLabels,
                     waveformURL: controller.currentWaveformURL,
                     waveformChunks: controller.currentWaveformChunks,
                     chunkTotalDuration: controller.totalDuration,

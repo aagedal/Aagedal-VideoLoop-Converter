@@ -36,6 +36,10 @@ struct PreviewAssets: Sendable {
     let nativeWaveformImage: SendableImage?
     let nativePerStreamWaveformImages: [Int: SendableImage]
 
+    // Per-channel waveform images (one image per audio channel, not just per stream)
+    let nativeChannelWaveform: SendableChannelWaveform?
+    let nativePerStreamChannelWaveforms: [Int: SendableChannelWaveform]
+
     /// Expected total number of chunks based on duration
     var expectedChunkCount: Int {
         guard totalDuration > 0 else { return 0 }
@@ -55,6 +59,11 @@ struct PreviewAssets: Sendable {
     func nativeWaveform(forAudioStream streamIndex: Int?) -> NSImage? {
         guard let streamIndex else { return nativeWaveformImage?.image }
         return nativePerStreamWaveformImages[streamIndex]?.image ?? nativeWaveformImage?.image
+    }
+
+    func nativeChannelWaveforms(forAudioStream streamIndex: Int?) -> SendableChannelWaveform? {
+        guard let streamIndex else { return nativeChannelWaveform }
+        return nativePerStreamChannelWaveforms[streamIndex] ?? nativeChannelWaveform
     }
 }
 
@@ -333,7 +342,9 @@ actor PreviewAssetGenerator {
                 audioWaveformChunks: audioWaveformChunks,
                 totalDuration: estimatedDuration,
                 nativeWaveformImage: nil,
-                nativePerStreamWaveformImages: [:]
+                nativePerStreamWaveformImages: [:],
+                nativeChannelWaveform: nil,
+                nativePerStreamChannelWaveforms: [:]
             )
         } catch {
             logger.debug("Failed to load cached assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -672,13 +683,70 @@ actor PreviewAssetGenerator {
             }
         }
 
+        // Generate per-channel waveform images (one image per audio channel)
+        let perChannelWidth = max(800, min(12000, Int(duration * 8.0)))
+        let perChannelHeight = 160
+        var nativeChannelWaveform: SendableChannelWaveform?
+        var nativePerStreamChannelWaveforms: [Int: SendableChannelWaveform] = [:]
+
+        if let metadata, !metadata.audioStreams.isEmpty {
+            // Stream 0
+            let stream0 = metadata.audioStreams[0]
+            let channels0 = stream0.channels ?? 2
+            do {
+                let t0 = CFAbsoluteTimeGetCurrent()
+                let (images, labels) = try await NativeWaveformRenderer.generatePerChannelWaveforms(
+                    url: url,
+                    ffmpegPath: ffmpegPath,
+                    streamIndex: 0,
+                    channelCount: channels0,
+                    channelLayout: stream0.channelLayout,
+                    duration: duration,
+                    width: perChannelWidth,
+                    heightPerChannel: perChannelHeight
+                )
+                nativeChannelWaveform = SendableChannelWaveform(channelImages: images, channelLabels: labels)
+                let t1 = CFAbsoluteTimeGetCurrent()
+                logger.info("Per-channel waveform generated in \(String(format: "%.2f", t1 - t0))s (\(channels0) channels) for \(url.lastPathComponent, privacy: .public)")
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                logger.warning("Per-channel waveform failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+
+            // Additional streams for multi-track files
+            if metadata.audioStreams.count > 1 {
+                for (index, stream) in metadata.audioStreams.enumerated() {
+                    try Task.checkCancellation()
+                    let channels = stream.channels ?? 2
+                    do {
+                        let (images, labels) = try await NativeWaveformRenderer.generatePerChannelWaveforms(
+                            url: url,
+                            ffmpegPath: ffmpegPath,
+                            streamIndex: index,
+                            channelCount: channels,
+                            channelLayout: stream.channelLayout,
+                            duration: duration,
+                            width: perChannelWidth,
+                            heightPerChannel: perChannelHeight
+                        )
+                        nativePerStreamChannelWaveforms[index] = SendableChannelWaveform(channelImages: images, channelLabels: labels)
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        logger.warning("Per-channel waveform failed for stream \(index) of \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+            }
+        }
+
         let generatedRowThumbnail = fileManager.fileExists(atPath: rowThumbnailURL.path) ? rowThumbnailURL : nil
         let availableThumbnails = expectedThumbnailURLs.filter { fileManager.fileExists(atPath: $0.path) }
         if availableThumbnails.count < expectedThumbnailURLs.count {
             logger.warning("Only \(availableThumbnails.count) / \(expectedThumbnailURLs.count) filmstrip thumbnails available for \(url.lastPathComponent, privacy: .public)")
         }
         let generatedWaveformURL = existingWaveformURL
-        logger.info("Asset generation complete. Row thumbnail: \(generatedRowThumbnail != nil), filmstrip: \(availableThumbnails.count), native waveform: \(nativeWaveformImage != nil), per-stream: \(nativePerStreamImages.count)")
+        logger.info("Asset generation complete. Row thumbnail: \(generatedRowThumbnail != nil), filmstrip: \(availableThumbnails.count), native waveform: \(nativeWaveformImage != nil), per-stream: \(nativePerStreamImages.count), per-channel: \(nativeChannelWaveform != nil)")
         return PreviewAssets(
             rowThumbnail: generatedRowThumbnail,
             thumbnails: availableThumbnails,
@@ -688,7 +756,9 @@ actor PreviewAssetGenerator {
             audioWaveformChunks: existingPerStreamWaveformChunks,
             totalDuration: duration,
             nativeWaveformImage: nativeWaveformImage,
-            nativePerStreamWaveformImages: nativePerStreamImages
+            nativePerStreamWaveformImages: nativePerStreamImages,
+            nativeChannelWaveform: nativeChannelWaveform,
+            nativePerStreamChannelWaveforms: nativePerStreamChannelWaveforms
         )
     }
 
