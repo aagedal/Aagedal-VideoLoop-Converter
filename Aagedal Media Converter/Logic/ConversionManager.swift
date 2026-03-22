@@ -189,7 +189,8 @@ actor ConversionManager: Sendable {
                 foregroundHex: waveformPreferences.foregroundHex,
                 normalizeAudio: waveformPreferences.normalizeAudio,
                 style: waveformPreferences.style,
-                frameRate: waveformPreferences.frameRate
+                frameRate: waveformPreferences.frameRate,
+                renderingEngine: waveformPreferences.renderingEngine
             )
         }() : nil
 
@@ -1038,7 +1039,8 @@ actor ConversionManager: Sendable {
                 foregroundHex: waveformPreferences.foregroundHex,
                 normalizeAudio: waveformPreferences.normalizeAudio,
                 style: waveformPreferences.style,
-                frameRate: waveformPreferences.frameRate
+                frameRate: waveformPreferences.frameRate,
+                renderingEngine: waveformPreferences.renderingEngine
             )
         }() : nil
 

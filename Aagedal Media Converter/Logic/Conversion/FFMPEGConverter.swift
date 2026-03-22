@@ -129,6 +129,32 @@ actor FFMPEGConverter {
             }
         }
 
+        // MARK: Native waveform rendering branch (Swift engine)
+        if let waveformRequest, waveformRequest.renderingEngine == .swift {
+            await runNativeWaveformConversion(
+                inputURL: inputURL,
+                ffmpegOutputURL: ffmpegOutputURL,
+                ffmpegPath: ffmpegPath,
+                preset: preset,
+                waveformRequest: waveformRequest,
+                audioRoutingConfig: audioRoutingConfig,
+                trimStart: trimStart,
+                trimEnd: trimEnd,
+                comment: comment,
+                includeDateTag: includeDateTag,
+                isMuted: isMuted,
+                additionalOutputArguments: additionalOutputArguments,
+                expectedDuration: expectedDuration,
+                videoFrameRate: videoFrameRate,
+                needsBMXRewrap: needsBMXRewrap,
+                tempMXFURL: tempMXFURL,
+                outputFileURL: outputFileURL,
+                progressUpdate: progressUpdate,
+                completion: completion
+            )
+            return
+        }
+
         let process = Process()
         await setCurrentProcess(process)
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
@@ -153,7 +179,7 @@ actor FFMPEGConverter {
         )
 
         process.arguments = command.arguments
-        
+
         print("FFmpeg command: \(ffmpegPath) \(command.arguments.joined(separator: " "))")
 
         // Only process stderr as that's where FFMPEG sends its progress updates
@@ -276,6 +302,185 @@ actor FFMPEGConverter {
         } catch {
             print("Failed to run process: \(error)")
             completion(false)
+        }
+    }
+
+    // MARK: - Native Waveform Conversion (Swift Renderer)
+
+    /// Runs the native waveform pipeline: decode PCM → FFT → Swift-rendered frames → pipe to FFmpeg.
+    private func runNativeWaveformConversion(
+        inputURL: URL,
+        ffmpegOutputURL: URL,
+        ffmpegPath: String,
+        preset: ExportPreset,
+        waveformRequest: WaveformVideoRequest,
+        audioRoutingConfig: AudioRoutingConfig?,
+        trimStart: Double?,
+        trimEnd: Double?,
+        comment: String,
+        includeDateTag: Bool,
+        isMuted: Bool,
+        additionalOutputArguments: [String]?,
+        expectedDuration: Double?,
+        videoFrameRate: Double?,
+        needsBMXRewrap: Bool,
+        tempMXFURL: URL?,
+        outputFileURL: URL,
+        progressUpdate: @escaping @Sendable (Double, String?) -> Void,
+        completion: @escaping @Sendable (Bool) -> Void
+    ) async {
+        Self.logger.info("Starting native waveform conversion (Swift engine)")
+
+        // Compute effective duration for the render
+        let effectiveDuration: Double
+        if let trimStart, let trimEnd, trimEnd > trimStart {
+            effectiveDuration = trimEnd - trimStart
+        } else if let expected = expectedDuration {
+            effectiveDuration = expected
+        } else if let duration = await FFMPEGProbeService.getVideoDuration(for: inputURL) {
+            effectiveDuration = duration
+        } else {
+            Self.logger.error("Cannot determine audio duration for native waveform")
+            completion(false)
+            return
+        }
+
+        // Phase 1: Decode audio and compute frequency bands (~10% of progress)
+        progressUpdate(0.02, "Analyzing audio…")
+        let frequencyData: FrequencyBandData
+        do {
+            frequencyData = try await WaveformPCMDecoder.decode(
+                url: inputURL,
+                ffmpegPath: ffmpegPath,
+                frameRate: waveformRequest.frameRate,
+                duration: effectiveDuration,
+                normalizeAudio: waveformRequest.normalizeAudio,
+                audioRoutingConfig: audioRoutingConfig,
+                trimStart: trimStart,
+                trimEnd: trimEnd
+            )
+        } catch {
+            Self.logger.error("PCM decode/FFT failed: \(error.localizedDescription)")
+            completion(false)
+            return
+        }
+
+        progressUpdate(0.10, "Rendering waveform…")
+
+        // Phase 2: Build FFmpeg encoding command with rawvideo pipe input
+        let command = await FFMPEGCommandBuilder.nativeWaveformEncodingCommand(
+            audioInputURL: inputURL,
+            outputFileURL: ffmpegOutputURL,
+            preset: preset,
+            width: waveformRequest.width,
+            height: waveformRequest.height,
+            frameRate: waveformRequest.frameRate,
+            audioRoutingConfig: audioRoutingConfig,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            isMuted: isMuted,
+            comment: comment,
+            includeDateTag: includeDateTag,
+            additionalOutputArguments: additionalOutputArguments
+        )
+
+        // Phase 3: Start FFmpeg with stdin pipe for video frames
+        let process = Process()
+        await setCurrentProcess(process)
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = command.arguments
+
+        let stdinPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardError = errorPipe
+        process.standardOutput = FileHandle.nullDevice
+
+        print("FFmpeg native waveform command: \(ffmpegPath) \(command.arguments.joined(separator: " "))")
+
+        let stderrCollector = StderrCollector()
+        let capturedNeedsBMXRewrap = needsBMXRewrap
+        let capturedTempMXFURL = tempMXFURL
+        let capturedFinalOutputURL = outputFileURL
+        let capturedInputBaseName = inputURL.deletingPathExtension().lastPathComponent
+
+        // Monitor stderr for encoding progress (secondary to our frame-based progress)
+        errorPipe.fileHandleForReading.readabilityHandler = { fileHandle in
+            let data = fileHandle.availableData
+            if !data.isEmpty {
+                Task { await stderrCollector.append(data) }
+            }
+        }
+
+        process.terminationHandler = { [weak self] _ in
+            errorPipe.fileHandleForReading.readabilityHandler = nil
+
+            Task { [weak self] in
+                await self?.setCurrentProcess(nil)
+                var success = process.terminationStatus == 0
+                Self.logger.info("Native waveform FFmpeg terminated with status: \(process.terminationStatus)")
+
+                if !success {
+                    let collectedStderr = await stderrCollector.snapshot()
+                    let stderrString = String(data: collectedStderr, encoding: .utf8) ?? "(unable to decode)"
+                    print("FFmpeg native waveform stderr:\n\(stderrString)\n-- end --")
+                }
+
+                // BMX rewrap for AVC-Intra if needed
+                if success && capturedNeedsBMXRewrap, let tempMXF = capturedTempMXFURL {
+                    Self.logger.info("Running bmxtranswrap for native waveform output")
+                    progressUpdate(0.95, "Rewrapping to OP1a...")
+
+                    let bmxSuccess = await BMXService.shared.rewrapToOP1a(
+                        inputURL: tempMXF,
+                        outputURL: capturedFinalOutputURL,
+                        clipName: capturedInputBaseName,
+                        progress: { bmxProgress in
+                            let overallProgress = 0.95 + (bmxProgress * 0.05)
+                            Task { @MainActor in
+                                progressUpdate(overallProgress, "Rewrapping to OP1a...")
+                            }
+                        }
+                    )
+
+                    if !bmxSuccess {
+                        Self.logger.error("bmxtranswrap failed for native waveform")
+                        do {
+                            try FileManager.default.copyItem(at: tempMXF, to: capturedFinalOutputURL)
+                        } catch {
+                            success = false
+                        }
+                    }
+                    try? FileManager.default.removeItem(at: tempMXF)
+                }
+
+                completion(success)
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            print("Failed to start native waveform FFmpeg: \(error)")
+            completion(false)
+            return
+        }
+
+        // Phase 4: Write rendered frames to the pipe on a background task
+        Task.detached { [frequencyData, waveformRequest] in
+            await WaveformFramePipeWriter.writeFrames(
+                to: stdinPipe,
+                frequencyData: frequencyData,
+                width: waveformRequest.width,
+                height: waveformRequest.height,
+                foregroundHex: waveformRequest.foregroundHex,
+                backgroundHex: waveformRequest.backgroundHex,
+                progressUpdate: { renderProgress in
+                    // Map render progress to 10%–95% of overall progress
+                    let overall = 0.10 + renderProgress * 0.85
+                    progressUpdate(overall, "Rendering waveform…")
+                }
+            )
         }
     }
 

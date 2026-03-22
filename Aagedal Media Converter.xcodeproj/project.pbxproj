@@ -58,6 +58,9 @@
 		8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */; };
 		8E545D892C34030C0088C274 /* VideoFileListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D882C34030C0088C274 /* VideoFileListView.swift */; };
 		8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */; };
+		978C1F6A9DF43EE4E1E9FDD4 /* WaveformPCMDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9609862A8EC6964A0A45885F /* WaveformPCMDecoder.swift */; };
+		00B3F16A9264F886CA667DAC /* NativeWaveformVideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */; };
+		DCAB5042D7F99ED919EF7D29 /* WaveformFramePipeWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F6F70AFCCF6F2348370C3A /* WaveformFramePipeWriter.swift */; };
 		8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D932C3412AE0088C274 /* ConversionManager.swift */; };
 		8E824ABA2EF8A9E1001A6B95 /* MPVKit-GPL in Frameworks */ = {isa = PBXBuildFile; productRef = 8E824AB92EF8A9E1001A6B95 /* MPVKit-GPL */; };
 		8E824ABF2EF8AB02001A6B95 /* MPVProperty.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E824ABD2EF8AB02001A6B95 /* MPVProperty.swift */; };
@@ -233,6 +236,9 @@
 		8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFilesUtil.swift; sourceTree = "<group>"; };
 		8E545D882C34030C0088C274 /* VideoFileListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileListView.swift; sourceTree = "<group>"; };
 		8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGConverter.swift; sourceTree = "<group>"; };
+		9609862A8EC6964A0A45885F /* WaveformPCMDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformPCMDecoder.swift; sourceTree = "<group>"; };
+		9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWaveformVideoRenderer.swift; sourceTree = "<group>"; };
+		B1F6F70AFCCF6F2348370C3A /* WaveformFramePipeWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformFramePipeWriter.swift; sourceTree = "<group>"; };
 		8E545D932C3412AE0088C274 /* ConversionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionManager.swift; sourceTree = "<group>"; };
 		8E824ABB2EF8AB02001A6B95 /* MPVMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVMetalLayer.swift; sourceTree = "<group>"; };
 		8E824ABC2EF8AB02001A6B95 /* MPVPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVPlayer.swift; sourceTree = "<group>"; };
@@ -615,6 +621,9 @@
 				8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */,
 				8EEE452A2EC138FA0049F017 /* ExportPreset.swift */,
 				8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */,
+				9609862A8EC6964A0A45885F /* WaveformPCMDecoder.swift */,
+				9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */,
+				B1F6F70AFCCF6F2348370C3A /* WaveformFramePipeWriter.swift */,
 				8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */,
 				8ECEBC172ED766D200F1F67C /* CropService.swift */,
 				DED542D049B53B34DBA25323 /* BMXService.swift */,
@@ -1006,6 +1015,9 @@
 				8EE6EE9A2C31FC6B007B629D /* Aagedal_Media_Converter_App.swift in Sources */,
 				8E09F7442EC762C200E129CD /* AudioWaveformPreferences.swift in Sources */,
 				8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */,
+				978C1F6A9DF43EE4E1E9FDD4 /* WaveformPCMDecoder.swift in Sources */,
+				00B3F16A9264F886CA667DAC /* NativeWaveformVideoRenderer.swift in Sources */,
+				DCAB5042D7F99ED919EF7D29 /* WaveformFramePipeWriter.swift in Sources */,
 				8EEE451C2EBF4BFD0049F017 /* PreviewAssetGenerator.swift in Sources */,
 				8EA1B0012F0E8A000049F017 /* NativeWaveformRenderer.swift in Sources */,
 				8E545D892C34030C0088C274 /* VideoFileListView.swift in Sources */,

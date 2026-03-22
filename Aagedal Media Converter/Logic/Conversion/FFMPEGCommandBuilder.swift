@@ -32,6 +32,7 @@ struct WaveformVideoRequest {
     let normalizeAudio: Bool
     let style: WaveformStyle
     let frameRate: Double
+    let renderingEngine: WaveformRenderingEngine
 
     var resolutionString: String {
         "\(width)x\(height)"
@@ -528,6 +529,146 @@ extension FFMPEGCommandBuilder {
         arguments.append("-shortest")
 
         return arguments
+    }
+
+    // MARK: - Native Waveform Encoding Command (Swift renderer → rawvideo pipe)
+
+    /// Builds an FFmpeg command that reads raw BGRA video frames from stdin (pipe:0)
+    /// and audio from the original file, then encodes using the given preset.
+    /// Used when the Swift native waveform renderer provides video frames.
+    static func nativeWaveformEncodingCommand(
+        audioInputURL: URL,
+        outputFileURL: URL,
+        preset: ExportPreset,
+        width: Int,
+        height: Int,
+        frameRate: Double,
+        audioRoutingConfig: AudioRoutingConfig? = nil,
+        trimStart: Double?,
+        trimEnd: Double?,
+        isMuted: Bool = false,
+        comment: String = "",
+        includeDateTag: Bool = true,
+        additionalOutputArguments: [String]? = nil
+    ) async -> FFMPEGCommand {
+        let finalWidth = evenDimension(max(width, 2))
+        let finalHeight = evenDimension(max(height, 2))
+        let resolution = "\(finalWidth)x\(finalHeight)"
+        let fpsString = formattedFrameRateString(from: frameRate)
+
+        let normalizedTrimStart = normalizedTrimPoint(trimStart)
+        let normalizedTrimEnd = normalizedTrimPoint(trimEnd)
+
+        var arguments = ["-y", "-nostdin", "-progress", "pipe:2"]
+
+        // Input 0: raw BGRA video from stdin pipe
+        arguments.append(contentsOf: [
+            "-f", "rawvideo",
+            "-pix_fmt", "bgra",
+            "-s", resolution,
+            "-r", fpsString,
+            "-i", "pipe:0"
+        ])
+
+        // Input 1: original audio file (with optional seek)
+        if let normalizedTrimStart {
+            arguments.append(contentsOf: ["-ss", ffmpegTimeString(from: normalizedTrimStart)])
+        }
+        arguments.append(contentsOf: ["-i", audioInputURL.path])
+
+        // Duration limit
+        if let durationArgument = trimDurationArgument(start: normalizedTrimStart, end: normalizedTrimEnd) {
+            arguments.append(contentsOf: durationArgument)
+        }
+
+        // Map video from pipe, audio from file
+        arguments.append(contentsOf: ["-map", "0:v", "-map", "1:a"])
+
+        // Preset encoding arguments (sanitized for our custom video pipeline)
+        var ffmpegArgs = preset.ffmpegArguments
+        await adjustArgumentsForInput(preset: preset, inputURL: audioInputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
+        sanitizeArgumentsForCustomVideoPipeline(&ffmpegArgs)
+
+        // Audio routing uses input index 1 (the audio file)
+        if let audioRoutingConfig, preset.outputsAudioTrack, preset.appliesAudioRouting {
+            applyAudioRoutingForNativePipeline(config: audioRoutingConfig, to: &ffmpegArgs)
+        }
+
+        if isMuted {
+            applyMute(to: &ffmpegArgs)
+            // Remove the audio map we added above
+            removeArgumentPair("-map", value: "1:a", from: &arguments)
+        }
+
+        arguments.append(contentsOf: ffmpegArgs)
+
+        // Comment metadata
+        applyCommentMetadata(
+            to: &arguments,
+            comment: comment,
+            includeDateTag: includeDateTag
+        )
+
+        if let additionalOutputArguments {
+            arguments.append(contentsOf: additionalOutputArguments)
+        }
+
+        // Use -shortest so video stops when audio ends (or vice versa)
+        arguments.append("-shortest")
+
+        arguments.append(outputFileURL.path)
+
+        let effectiveDuration = calculateEffectiveDuration(trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
+
+        return FFMPEGCommand(
+            arguments: arguments,
+            normalizedTrimStart: normalizedTrimStart,
+            normalizedTrimEnd: normalizedTrimEnd,
+            effectiveDuration: effectiveDuration
+        )
+    }
+
+    /// Applies audio routing for the native waveform pipeline where audio is input 1.
+    /// Rewrites `0:a:X` references to `1:a:X` in the routing arguments.
+    private static func applyAudioRoutingForNativePipeline(config: AudioRoutingConfig, to ffmpegArgs: inout [String]) {
+        // Get the standard audio routing arguments (which use 0:a:X)
+        let standardArgs = AudioRoutingService.buildFFmpegMapArguments(config: config)
+
+        // Rewrite input references from 0:a to 1:a for our two-input pipeline
+        var rewrittenArgs: [String] = []
+        for arg in standardArgs {
+            var modified = arg
+            // Replace [0:a:N] with [1:a:N] in filter_complex strings
+            modified = modified.replacingOccurrences(of: "[0:a:", with: "[1:a:")
+            modified = modified.replacingOccurrences(of: "[0:a]", with: "[1:a]")
+            // Replace bare 0:a:N and 0:a in -map values
+            if modified.hasPrefix("0:a") {
+                modified = "1" + modified.dropFirst(1)
+            }
+            rewrittenArgs.append(modified)
+        }
+
+        // Remove existing audio maps from our arguments
+        var index = 0
+        while index < ffmpegArgs.count {
+            if ffmpegArgs[index] == "-map",
+               index + 1 < ffmpegArgs.count,
+               (ffmpegArgs[index + 1].hasPrefix("1:a") || ffmpegArgs[index + 1] == "1:a" || ffmpegArgs[index + 1] == "1:a?") {
+                ffmpegArgs.remove(at: index)
+                ffmpegArgs.remove(at: index)
+                continue
+            }
+            index += 1
+        }
+
+        // Check if routing uses filter_complex
+        if rewrittenArgs.contains("-filter_complex") {
+            // Insert at beginning of ffmpegArgs
+            ffmpegArgs.insert(contentsOf: rewrittenArgs, at: 0)
+        } else {
+            // Simple map arguments — append them
+            ffmpegArgs.append(contentsOf: rewrittenArgs)
+        }
     }
 
     private static func formattedFrameRateString(from value: Double) -> String {
