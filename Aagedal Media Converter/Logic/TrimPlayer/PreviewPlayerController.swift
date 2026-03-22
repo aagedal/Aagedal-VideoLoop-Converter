@@ -1083,6 +1083,8 @@ final class PreviewPlayerController: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     
     @Published var audioLevels: UniversalAudioMeterService.AudioLevels?
+    /// Real-time frequency band magnitudes for the frequency visualizer.
+    @Published var frequencyBands: [Float]?
     @Published var isAudioMeterEnabled = false {
         didSet {
             toggleAudioMeter()
@@ -1095,6 +1097,14 @@ final class PreviewPlayerController: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] levels in
                 self?.audioLevels = levels
+            }
+            .store(in: &cancellables)
+
+        // Subscribe to frequency band updates for visualizer
+        universalAudioMeter.$frequencyBands
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] bands in
+                self?.frequencyBands = bands
             }
             .store(in: &cancellables)
             

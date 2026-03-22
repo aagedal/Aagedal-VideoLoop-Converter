@@ -49,6 +49,26 @@ enum SwiftWaveformStyle: String, CaseIterable, Identifiable {
     }
 }
 
+/// Frequency-to-band mapping strategy for the native Swift renderer.
+enum FrequencyDistribution: String, CaseIterable, Identifiable {
+    /// Logarithmic (base-2) spacing — perceptual, good for music.
+    case logarithmic
+    /// Mel scale — psychoacoustic model, smoother bass-to-treble transition.
+    case mel
+    /// Linear — equal Hz per band, technical/metering look.
+    case linear
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .logarithmic: return "Logarithmic"
+        case .mel: return "Mel Scale"
+        case .linear: return "Linear"
+        }
+    }
+}
+
 enum WaveformStyle: String, CaseIterable, Identifiable {
     case linear
     case circle
@@ -86,6 +106,8 @@ struct AudioWaveformPreferences {
         let frameRate: Double
         let renderingEngine: WaveformRenderingEngine
         let swiftStyle: SwiftWaveformStyle
+        let bandCount: Int
+        let frequencyDistribution: FrequencyDistribution
 
         var resolutionString: String {
             "\(width)x\(height)"
@@ -129,6 +151,10 @@ struct AudioWaveformPreferences {
         let renderingEngine = WaveformRenderingEngine(rawValue: engineRaw) ?? .swift
         let swiftStyleRaw = defaults.string(forKey: AppConstants.audioWaveformSwiftStyleKey) ?? "capsules"
         let swiftStyle = SwiftWaveformStyle(rawValue: swiftStyleRaw) ?? .capsules
+        let bandCount = defaults.integer(forKey: AppConstants.audioWaveformBandCountKey)
+        let effectiveBandCount = bandCount > 0 ? bandCount : 32
+        let distRaw = defaults.string(forKey: AppConstants.audioWaveformFrequencyDistributionKey) ?? "logarithmic"
+        let frequencyDistribution = FrequencyDistribution(rawValue: distRaw) ?? .logarithmic
 
         return WaveformVideoConfig(
             resolution: CGSize(width: width, height: height),
@@ -140,7 +166,9 @@ struct AudioWaveformPreferences {
             style: style,
             frameRate: frameRate,
             renderingEngine: renderingEngine,
-            swiftStyle: swiftStyle
+            swiftStyle: swiftStyle,
+            bandCount: effectiveBandCount,
+            frequencyDistribution: frequencyDistribution
         )
     }
 

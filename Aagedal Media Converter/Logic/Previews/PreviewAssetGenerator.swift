@@ -1453,7 +1453,9 @@ actor PreviewAssetGenerator {
             style: prefs.style,
             frameRate: prefs.frameRate,
             renderingEngine: prefs.renderingEngine,
-            swiftStyle: prefs.swiftStyle
+            swiftStyle: prefs.swiftStyle,
+            bandCount: prefs.bandCount,
+            frequencyDistribution: prefs.frequencyDistribution
         )
     }
 }

@@ -34,6 +34,8 @@ struct WaveformVideoRequest {
     let frameRate: Double
     let renderingEngine: WaveformRenderingEngine
     let swiftStyle: SwiftWaveformStyle
+    let bandCount: Int
+    let frequencyDistribution: FrequencyDistribution
 
     var resolutionString: String {
         "\(width)x\(height)"
