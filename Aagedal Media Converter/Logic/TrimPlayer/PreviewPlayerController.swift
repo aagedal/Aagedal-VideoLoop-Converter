@@ -994,6 +994,8 @@ final class PreviewPlayerController: ObservableObject {
         return audioTrackOptions[position].streamIndex
     }
 
+    private var channelWaveformGenerationTask: Task<Void, Never>?
+
     private func updateCurrentWaveform() {
         let streamIndex = selectedAudioStreamIndex()
         // Per-channel waveform images (preferred, shows one waveform per audio channel)
@@ -1008,6 +1010,42 @@ final class PreviewPlayerController: ObservableObject {
         currentWaveformChunks = previewAssets?.waveformChunks(forAudioStream: streamIndex) ?? []
         totalDuration = previewAssets?.totalDuration ?? 0
         Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform: channels=\(self.currentChannelWaveformImages.count), native=\(self.currentNativeWaveformImage != nil), \(self.currentWaveformChunks.count) chunks, totalDuration: \(self.totalDuration)s for stream index: \(streamIndex ?? -1)")
+
+        // If per-channel waveform is missing for this stream, generate on demand
+        if currentChannelWaveformImages.isEmpty, let streamIndex {
+            generateChannelWaveformOnDemand(for: streamIndex)
+        }
+    }
+
+    private func generateChannelWaveformOnDemand(for streamIndex: Int) {
+        channelWaveformGenerationTask?.cancel()
+        let url = videoItem.url
+        let duration = max(videoItem.durationSeconds, 0.1)
+
+        channelWaveformGenerationTask = Task { [weak self] in
+            guard let self else { return }
+
+            // Get metadata to know channel count and layout
+            guard let metadata = try? await VideoMetadataService.shared.metadata(for: url),
+                  streamIndex < metadata.audioStreams.count else { return }
+
+            let stream = metadata.audioStreams[streamIndex]
+            let channels = stream.channels ?? 2
+
+            guard let waveform = await PreviewAssetGenerator.shared.generateChannelWaveformForStream(
+                url: url,
+                streamIndex: streamIndex,
+                channelCount: channels,
+                channelLayout: stream.channelLayout,
+                duration: duration
+            ) else { return }
+
+            guard !Task.isCancelled else { return }
+
+            // Update the published state
+            self.currentChannelWaveformImages = waveform.channelImages
+            self.currentChannelWaveformLabels = waveform.channelLabels
+        }
     }
 
     // MARK: - Subtitle Track Selection
@@ -1116,6 +1154,8 @@ final class PreviewPlayerController: ObservableObject {
         currentNativeWaveformImage = nil
         currentChannelWaveformImages = []
         currentChannelWaveformLabels = []
+        channelWaveformGenerationTask?.cancel()
+        channelWaveformGenerationTask = nil
         totalDuration = 0
 
         // Stop asset refresh polling
