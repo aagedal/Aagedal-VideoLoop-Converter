@@ -74,6 +74,90 @@ struct VideoFileUtils: Sendable {
         return placeholder
     }
 
+    /// Create a placeholder VideoItem from a detected image sequence
+    static func makePlaceholderItem(
+        fromImageSequence config: ImageSequenceConfig,
+        outputFolder: String? = nil,
+        preset: ExportPreset = .videoLoop
+    ) -> VideoItem {
+        let frameCountStr = config.frameCount == 1 ? "1 frame" : "\(config.frameCount) frames"
+        let name = "\(config.pattern) (\(config.imageFormat.rawValue), \(frameCountStr))"
+
+        let durationSeconds = config.durationSeconds
+        let duration = formatDuration(seconds: durationSeconds)
+
+        let includeDateTagByDefault = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
+        let defaultTimecodeConfig = getDefaultTimecodeConfig()
+
+        // Generate thumbnail from the first frame
+        let firstFrameURL = firstFrameURL(for: config)
+        let thumbnailData = generateImageSequenceThumbnail(from: firstFrameURL)
+
+        let outputURL = makeOutputURL(for: config.directory, outputFolder: outputFolder, preset: preset)
+
+        return VideoItem(
+            url: config.directory,
+            name: name,
+            size: config.totalSizeBytes,
+            duration: duration,
+            durationSeconds: durationSeconds,
+            thumbnailData: thumbnailData,
+            status: .waiting,
+            progress: 0.0,
+            eta: nil,
+            outputURL: outputURL,
+            includeDateTag: includeDateTagByDefault,
+            metadata: nil,
+            detailsLoaded: true,
+            timecodeConfig: defaultTimecodeConfig,
+            imageSequenceConfig: config
+        )
+    }
+
+    /// Build the URL for the first frame in an image sequence
+    private static func firstFrameURL(for config: ImageSequenceConfig) -> URL {
+        // Extract padding width from pattern like "frame_%04d.png"
+        let pattern = config.pattern
+        var paddingWidth = 4
+        if let range = pattern.range(of: "%0") {
+            let afterPercent = pattern[range.upperBound...]
+            if let width = Int(String(afterPercent.prefix(while: { $0.isNumber }))) {
+                paddingWidth = width
+            }
+        }
+        let numberStr = String(format: "%0\(paddingWidth)d", config.startNumber)
+        let fileName = pattern.replacingOccurrences(of: "%0\(paddingWidth)d", with: numberStr)
+        return config.directory.appendingPathComponent(fileName)
+    }
+
+    /// Generate a thumbnail from an image file
+    private static func generateImageSequenceThumbnail(from imageURL: URL) -> Data? {
+        guard let image = NSImage(contentsOf: imageURL) else { return nil }
+
+        let maxSize = AppConstants.maxThumbnailSize
+        let imageSize = image.size
+        guard imageSize.width > 0, imageSize.height > 0 else { return nil }
+
+        let scale = min(maxSize.width / imageSize.width, maxSize.height / imageSize.height, 1.0)
+        let targetSize = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+
+        let resizedImage = NSImage(size: targetSize)
+        resizedImage.lockFocus()
+        image.draw(in: NSRect(origin: .zero, size: targetSize),
+                   from: NSRect(origin: .zero, size: imageSize),
+                   operation: .copy,
+                   fraction: 1.0)
+        resizedImage.unlockFocus()
+
+        guard let tiffData = resizedImage.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) else {
+            return nil
+        }
+
+        return jpegData
+    }
+
     /// Get the default timecode configuration from user preferences
     static func getDefaultTimecodeConfig() -> TimecodeConfig? {
         let defaultModeRaw = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeModeKey) ?? AppConstants.defaultTimecodeModeRaw
@@ -613,6 +697,11 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var cameraMetadata: CameraMetadata? = nil
     /// Whether audio should be muted (removed) in the output
     var isMuted: Bool = false
+    /// Image sequence configuration (nil for regular video/audio files)
+    var imageSequenceConfig: ImageSequenceConfig? = nil
+
+    /// Whether this item represents an image sequence
+    var isImageSequence: Bool { imageSequenceConfig != nil }
 
     // MARK: - yt-dlp Download State
     /// Whether this item is currently being downloaded via yt-dlp

@@ -87,6 +87,11 @@ struct PresetsSettingsView: View {
     // Animated Still format
     @AppStorage(AppConstants.animatedStillFormatKey) private var animatedStillFormat = AppConstants.defaultAnimatedStillFormat
 
+    // Image Sequence export settings
+    @AppStorage(AppConstants.imageSequenceExportFormatKey) private var imageSequenceExportFormat = AppConstants.defaultImageSequenceExportFormat
+    @AppStorage(AppConstants.imageSequenceExportQualityKey) private var imageSequenceExportQuality = AppConstants.defaultImageSequenceExportQuality
+    @AppStorage(AppConstants.imageSequenceNumberingPaddingKey) private var imageSequenceNumberingPadding = AppConstants.defaultImageSequenceNumberingPadding
+
     // TV preset settings
     @AppStorage(AppConstants.tvFramerateModeKey) private var tvFramerateMode = AppConstants.defaultTVFramerateMode
     @AppStorage(AppConstants.tvResolutionLimitKey) private var tvResolutionLimit = AppConstants.defaultTVResolutionLimit
@@ -147,6 +152,7 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.streamCopyVisibleKey) private var streamCopyVisible = true
     @AppStorage(AppConstants.audioWAVVisibleKey) private var audioWAVVisible = true
     @AppStorage(AppConstants.audioAACVisibleKey) private var audioAACVisible = true
+    @AppStorage(AppConstants.imageSequenceVisibleKey) private var imageSequenceVisible = true
 
     @AppStorage(AppConstants.defaultPresetKey) private var storedDefaultPresetRawValue = ExportPreset.videoLoop.rawValue
 
@@ -326,6 +332,59 @@ struct PresetsSettingsView: View {
                     .fixedSize()
                     .labelsHidden()
                     .help("Select the animated image format.")
+                }
+            }
+        }
+
+        if selectedPreset == .imageSequence {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Format")
+                        Spacer()
+                        Picker("", selection: $imageSequenceExportFormat) {
+                            ForEach(ImageSequenceFormat.allCases) { format in
+                                Text(format.rawValue).tag(format.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Select the image format for exported frames.")
+                    }
+
+                    if imageSequenceExportFormat == ImageSequenceFormat.jpeg.rawValue {
+                        HStack {
+                            Text("Quality")
+                            Spacer()
+                            Picker("", selection: $imageSequenceExportQuality) {
+                                Text("Best (1)").tag(1)
+                                Text("High (2)").tag(2)
+                                Text("Good (5)").tag(5)
+                                Text("Medium (10)").tag(10)
+                                Text("Low (20)").tag(20)
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("JPEG quality (lower number = higher quality).")
+                        }
+                    }
+
+                    HStack {
+                        Text("Frame Number Padding")
+                        Spacer()
+                        Picker("", selection: $imageSequenceNumberingPadding) {
+                            Text("4 digits").tag(4)
+                            Text("5 digits").tag(5)
+                            Text("6 digits").tag(6)
+                            Text("8 digits").tag(8)
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Number of digits in frame numbers (e.g., 6 → frame_000001.png).")
+                    }
                 }
             }
         }
@@ -1197,6 +1256,8 @@ struct PresetsSettingsView: View {
             return $audioWAVVisible
         case .audioStereoAAC:
             return $audioAACVisible
+        case .imageSequence:
+            return $imageSequenceVisible
         default:
             // Custom presets use activation, not visibility
             return .constant(true)

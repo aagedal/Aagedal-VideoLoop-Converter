@@ -95,7 +95,15 @@ struct ContentView: View {
     
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
-        AppConstants.supportedVideoTypes.compactMap { UTType($0) }
+        var types = AppConstants.supportedVideoTypes.compactMap { UTType($0) }
+        // Allow folder selection for image sequence imports
+        types.append(.folder)
+        // Allow image file selection for image sequence imports
+        if let pngType = UTType("public.png") { types.append(pngType) }
+        if let jpegType = UTType("public.jpeg") { types.append(jpegType) }
+        if let tiffType = UTType("public.tiff") { types.append(tiffType) }
+        types.append(.image)
+        return types
     }
     
     // Only allow starting conversion when at least one item is still waiting
@@ -541,6 +549,44 @@ struct ContentView: View {
                 // Check for duplicates before creating placeholder
                 guard !droppedFiles.contains(where: { $0.url == url }) else {
                     continue
+                }
+
+                // Check if URL is a directory — detect image sequences
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    _ = url.startAccessingSecurityScopedResource()
+                    let sequences = ImageSequenceDetector.detectSequences(inFolder: url)
+                    _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+                    url.stopAccessingSecurityScopedResource()
+                    for config in sequences {
+                        let item = VideoFileUtils.makePlaceholderItem(
+                            fromImageSequence: config,
+                            outputFolder: outputFolder,
+                            preset: selectedPreset
+                        )
+                        droppedFiles.append(item)
+                    }
+                    continue
+                }
+
+                // Check if it's a single image file that could be part of a sequence
+                let ext = url.pathExtension.lowercased()
+                if AppConstants.supportedImageSequenceExtensions.contains(ext) {
+                    _ = url.startAccessingSecurityScopedResource()
+                    if let config = ImageSequenceDetector.detectSequence(fromFile: url) {
+                        let parentDir = url.deletingLastPathComponent()
+                        _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: parentDir)
+                        url.stopAccessingSecurityScopedResource()
+                        let item = VideoFileUtils.makePlaceholderItem(
+                            fromImageSequence: config,
+                            outputFolder: outputFolder,
+                            preset: selectedPreset
+                        )
+                        droppedFiles.append(item)
+                        continue
+                    }
+                    url.stopAccessingSecurityScopedResource()
+                    continue // Single image without sequence, skip
                 }
 
                 guard let placeholder = VideoFileUtils.makePlaceholderItem(

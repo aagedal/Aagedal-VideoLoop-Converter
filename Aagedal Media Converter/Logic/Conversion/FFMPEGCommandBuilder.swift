@@ -319,11 +319,14 @@ enum FFMPEGCommandBuilder {
         }
 
         // Apply comment metadata AFTER all other arguments to ensure it's not stripped by -map_metadata -1
-        applyCommentMetadata(
-            to: &arguments,
-            comment: comment,
-            includeDateTag: includeDateTag
-        )
+        // Skip for image sequences since individual image files don't support container metadata
+        if preset != .imageSequence {
+            applyCommentMetadata(
+                to: &arguments,
+                comment: comment,
+                includeDateTag: includeDateTag
+            )
+        }
 
         if let additionalOutputArguments {
             arguments.append(contentsOf: additionalOutputArguments)
