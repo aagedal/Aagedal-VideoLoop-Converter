@@ -144,12 +144,15 @@ struct NativeWaveformRenderer {
         let bytesPerRow = width * 4
         var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
         let centerY = Float(height) / 2.0
+        // Leave a few pixels of margin so peaks don't touch the edges
+        let margin: Float = 3.0
+        let halfRange = centerY - margin
 
         for col in 0..<width {
             let maxVal = maxs[col]
             let minVal = mins[col]
-            let topRow = max(0, Int(centerY - maxVal * centerY))
-            let bottomRow = min(height - 1, Int(centerY - minVal * centerY))
+            let topRow = max(0, Int(centerY - maxVal * halfRange))
+            let bottomRow = min(height - 1, Int(centerY - minVal * halfRange))
 
             for row in topRow...bottomRow {
                 let idx = (row * width + col) * 4
