@@ -367,7 +367,11 @@ actor ConversionManager: Sendable {
         if success {
             return tempURL
         } else {
-            try? FileManager.default.removeItem(at: tempURL)
+            do {
+                try FileManager.default.removeItem(at: tempURL)
+            } catch {
+                mergeLogger.warning("Failed to remove temporary trim file \(tempURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
             return nil
         }
     }
@@ -402,7 +406,11 @@ actor ConversionManager: Sendable {
 
     private func cleanupTemporaryFiles(_ urls: [URL]) {
         for url in urls {
-            try? FileManager.default.removeItem(at: url)
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                mergeLogger.warning("Failed to remove temporary file \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -520,7 +528,11 @@ actor ConversionManager: Sendable {
     }
 
     private func cleanupMergeArtifacts(for plan: MergePlan) {
-        try? FileManager.default.removeItem(at: plan.listFileURL)
+        do {
+            try FileManager.default.removeItem(at: plan.listFileURL)
+        } catch {
+            mergeLogger.warning("Failed to remove concat list file \(plan.listFileURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
         cleanupTemporaryFiles(plan.temporaryClipURLs)
     }
 
@@ -605,6 +617,8 @@ actor ConversionManager: Sendable {
                 if fileManager.isReadableFile(atPath: url.path) {
                     return true
                 }
+                resolvedURL.stopAccessingSecurityScopedResource()
+                activeSecurityScopedURLs.remove(resolvedURL)
             }
         }
 
@@ -616,6 +630,8 @@ actor ConversionManager: Sendable {
                 if fileManager.isReadableFile(atPath: url.path) {
                     return true
                 }
+                resolvedParent.stopAccessingSecurityScopedResource()
+                activeSecurityScopedURLs.remove(resolvedParent)
             }
         }
 
@@ -625,6 +641,8 @@ actor ConversionManager: Sendable {
             if fileManager.isReadableFile(atPath: url.path) {
                 return true
             }
+            url.stopAccessingSecurityScopedResource()
+            activeSecurityScopedURLs.remove(url)
         }
 
         // Fifth try: try parent URL directly
@@ -633,6 +651,8 @@ actor ConversionManager: Sendable {
             if fileManager.isReadableFile(atPath: url.path) {
                 return true
             }
+            parentURL.stopAccessingSecurityScopedResource()
+            activeSecurityScopedURLs.remove(parentURL)
         }
 
         print("Failed to access input file with any access method: \(url.path)")
@@ -660,7 +680,8 @@ actor ConversionManager: Sendable {
                     try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
                     return true
                 } catch {
-                    // Failed even with bookmark access
+                    resolvedURL.stopAccessingSecurityScopedResource()
+                    activeSecurityScopedURLs.remove(resolvedURL)
                 }
             }
         }
@@ -674,7 +695,8 @@ actor ConversionManager: Sendable {
                     try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
                     return true
                 } catch {
-                    // Failed even with parent bookmark access
+                    resolvedParent.stopAccessingSecurityScopedResource()
+                    activeSecurityScopedURLs.remove(resolvedParent)
                 }
             }
         }
@@ -686,7 +708,8 @@ actor ConversionManager: Sendable {
                 try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
                 return true
             } catch {
-                // Failed even with direct access
+                url.stopAccessingSecurityScopedResource()
+                activeSecurityScopedURLs.remove(url)
             }
         }
 
@@ -697,7 +720,8 @@ actor ConversionManager: Sendable {
                 try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
                 return true
             } catch {
-                // Failed even with parent access
+                parentURL.stopAccessingSecurityScopedResource()
+                activeSecurityScopedURLs.remove(parentURL)
             }
         }
 

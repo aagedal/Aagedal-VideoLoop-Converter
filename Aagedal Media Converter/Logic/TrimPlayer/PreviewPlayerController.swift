@@ -153,7 +153,6 @@ final class PreviewPlayerController: ObservableObject {
 
         if previous.id != newValue.id || previous.url != newValue.url {
             preparePreview(startTime: newValue.effectiveTrimStart)
-            loadPreviewAssets(for: newValue.url)
         } else if previous.loopPlayback != newValue.loopPlayback {
             updatePlayerActionAtEnd()
         } else if previous.trimStart != newValue.trimStart || previous.trimEnd != newValue.trimEnd {
