@@ -122,9 +122,6 @@ actor FFMPEGConverter {
                 outputFileURL = safeOutputURL
             }
 
-            // Ensure unique output path (don't overwrite existing files)
-            outputFileURL = FileSafetyUtils.uniqueOutputURL(outputFileURL, notOverwriting: inputURL)
-
             // Register this file as created by the app (for safe deletion later if needed)
             FileSafetyUtils.registerCreatedFile(outputFileURL)
         }
