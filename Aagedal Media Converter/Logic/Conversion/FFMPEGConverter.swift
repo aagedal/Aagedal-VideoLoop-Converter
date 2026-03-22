@@ -339,12 +339,14 @@ actor FFMPEGConverter {
                 }
 
                 // Extract audio as WAV for image sequence exports (if source has audio)
+                // Use the output pattern's base name so the WAV matches the image filenames
                 if success && capturedIsImageSequenceExport && capturedCustomInputArguments == nil {
                     let outputFolder = capturedFinalOutputURL.deletingLastPathComponent()
+                    let outputBaseName = outputFolder.lastPathComponent
                     await Self.extractAudioAsWAV(
                         inputURL: capturedInputURL,
                         outputFolder: outputFolder,
-                        baseName: capturedInputBaseName,
+                        baseName: outputBaseName,
                         ffmpegPath: capturedFfmpegPath,
                         trimStart: capturedTrimStart,
                         trimEnd: capturedTrimEnd
@@ -528,6 +530,11 @@ actor FFMPEGConverter {
         }
 
         // Pre-load and scale background image (if set) once before render loop
+        if let imageURL = waveformBackgroundImageURL {
+            Self.logger.info("Loading waveform background image: \(imageURL.path)")
+        } else {
+            Self.logger.info("No waveform background image set")
+        }
         let backgroundCGImage: CGImage? = if let imageURL = waveformBackgroundImageURL {
             NativeWaveformVideoRenderer.loadBackgroundImage(from: imageURL, width: waveformRequest.width, height: waveformRequest.height)
         } else {

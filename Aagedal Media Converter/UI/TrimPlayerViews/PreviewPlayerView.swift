@@ -513,6 +513,9 @@ struct PreviewPlayerView: View {
             case "o":
                 handleTrimOutPoint(clearToEnd: true)
                 return true
+            case "x":
+                resetTrim()
+                return true
             default:
                 return false
             }

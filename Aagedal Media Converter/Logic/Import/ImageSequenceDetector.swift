@@ -155,7 +155,7 @@ enum ImageSequenceDetector {
             let defaultFrameRate = UserDefaults.standard.double(forKey: AppConstants.imageSequenceFrameRateKey)
             let frameRate = defaultFrameRate > 0 ? defaultFrameRate : AppConstants.defaultImageSequenceFrameRate
 
-            let config = ImageSequenceConfig(
+            var config = ImageSequenceConfig(
                 pattern: pattern,
                 directory: directory,
                 startNumber: first.number,
@@ -164,6 +164,18 @@ enum ImageSequenceDetector {
                 imageFormat: format,
                 totalSizeBytes: totalSize
             )
+
+            // Detect associated audio file in the same directory
+            config.associatedAudioURL = detectAssociatedAudio(for: config)
+
+            // If audio was found, derive frame rate from audio duration
+            if let audioURL = config.associatedAudioURL,
+               let audioDuration = probeAudioDuration(audioURL),
+               audioDuration > 0 {
+                let derivedRate = Double(config.frameCount) / audioDuration
+                config.frameRate = derivedRate
+                logger.info("Derived frame rate \(String(format: "%.3f", derivedRate)) fps from audio duration \(String(format: "%.3f", audioDuration))s (\(config.frameCount) frames)")
+            }
 
             sequences.append(config)
         }
@@ -179,5 +191,101 @@ enum ImageSequenceDetector {
         guard let first = sortedFiles.first, let last = sortedFiles.last else { return false }
         let expectedCount = last.number - first.number + 1
         return sortedFiles.count != expectedCount
+    }
+
+    // MARK: - Audio File Detection
+
+    /// Audio file extensions to look for alongside image sequences
+    private static let audioExtensions: Set<String> = [
+        "wav", "aif", "aiff", "mp3", "aac", "m4a", "flac", "ogg", "opus", "wma"
+    ]
+
+    /// Detect an associated audio file for a given image sequence config.
+    /// Searches the sequence directory for audio files matching the sequence prefix
+    /// or common names like "audio.wav".
+    static func detectAssociatedAudio(for config: ImageSequenceConfig) -> URL? {
+        let prefix = extractPrefix(from: config.pattern)
+        let directory = config.directory
+        let fileManager = FileManager.default
+
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        ) else { return nil }
+
+        let audioFiles = contents.filter { url in
+            audioExtensions.contains(url.pathExtension.lowercased())
+        }
+
+        guard !audioFiles.isEmpty else { return nil }
+
+        // Priority 1: Exact prefix match (e.g., "render_.wav" for "render_%04d.exr")
+        let trimmedPrefix = prefix.trimmingCharacters(in: CharacterSet(charactersIn: "._- "))
+        for file in audioFiles {
+            let baseName = file.deletingPathExtension().lastPathComponent
+            if baseName == trimmedPrefix {
+                logger.info("Found matching audio file: \(file.lastPathComponent, privacy: .public)")
+                return file
+            }
+        }
+
+        // Priority 2: Prefix starts with the sequence prefix
+        for file in audioFiles {
+            let baseName = file.deletingPathExtension().lastPathComponent.lowercased()
+            if baseName.hasPrefix(trimmedPrefix.lowercased()) {
+                logger.info("Found prefix-matching audio file: \(file.lastPathComponent, privacy: .public)")
+                return file
+            }
+        }
+
+        // Priority 3: Common audio names
+        let commonNames: Set<String> = ["audio", "sound", "soundtrack", "music", "mix"]
+        for file in audioFiles {
+            let baseName = file.deletingPathExtension().lastPathComponent.lowercased()
+            if commonNames.contains(baseName) {
+                logger.info("Found common-name audio file: \(file.lastPathComponent, privacy: .public)")
+                return file
+            }
+        }
+
+        // Priority 4: If only one audio file in the folder, use it
+        if audioFiles.count == 1 {
+            logger.info("Using sole audio file in folder: \(audioFiles[0].lastPathComponent, privacy: .public)")
+            return audioFiles[0]
+        }
+
+        return nil
+    }
+
+    /// Probes the duration of an audio file using ffprobe (synchronous).
+    private static func probeAudioDuration(_ url: URL) -> Double? {
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else { return nil }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffprobePath)
+        process.arguments = [
+            "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            url.path
+        ]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  let duration = Double(output), duration > 0 else { return nil }
+            return duration
+        } catch {
+            logger.warning("Failed to probe audio duration: \(error.localizedDescription)")
+            return nil
+        }
     }
 }

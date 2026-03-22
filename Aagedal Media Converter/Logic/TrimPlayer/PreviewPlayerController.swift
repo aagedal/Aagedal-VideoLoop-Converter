@@ -106,7 +106,9 @@ final class PreviewPlayerController: ObservableObject {
     // MARK: - Image Sequence State
     @Published var useImageSequence = false
     @Published var imageSequenceFrame: NSImage?
+    @Published var isImageSequencePlaying = false
     private var imageSequenceConfig: ImageSequenceConfig?
+    private var imageSequencePlaybackTimer: Timer?
 
     // MARK: - Initialization
     
@@ -366,6 +368,55 @@ final class PreviewPlayerController: ObservableObject {
 
     private var _lastImageSequenceFrameURL: URL?
 
+    /// Updates the frame rate for image sequence preview and restarts playback timer if active.
+    func updateImageSequenceFrameRate(_ config: ImageSequenceConfig) {
+        self.imageSequenceConfig = config
+        // If playing, restart the timer with the new frame rate
+        if isImageSequencePlaying {
+            stopImageSequencePlayback()
+            startImageSequencePlayback()
+        }
+    }
+
+    /// Starts timer-based playback of the image sequence at the configured frame rate.
+    func startImageSequencePlayback() {
+        guard let config = imageSequenceConfig, !isImageSequencePlaying else { return }
+        isImageSequencePlaying = true
+        currentPlaybackSpeed = 1.0
+
+        let interval = 1.0 / config.frameRate
+        let trimEnd = videoItem.effectiveTrimEnd
+
+        imageSequencePlaybackTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isImageSequencePlaying else { return }
+                let nextTime = self.currentPlaybackTime + interval
+                if nextTime >= trimEnd {
+                    // Reached the end
+                    if self.videoItem.loopPlayback {
+                        self.seekTo(self.videoItem.effectiveTrimStart)
+                    } else {
+                        self.stopImageSequencePlayback()
+                        self.currentPlaybackTime = trimEnd
+                        self.loadImageSequenceFrame(at: trimEnd)
+                        self.playbackDidFinish?()
+                    }
+                } else {
+                    self.currentPlaybackTime = nextTime
+                    self.loadImageSequenceFrame(at: nextTime)
+                }
+            }
+        }
+    }
+
+    /// Stops image sequence playback timer.
+    func stopImageSequencePlayback() {
+        imageSequencePlaybackTimer?.invalidate()
+        imageSequencePlaybackTimer = nil
+        isImageSequencePlaying = false
+        currentPlaybackSpeed = 0
+    }
+
     /// Converts a time position to a frame number within the sequence bounds.
     private func imageSequenceFrameNumber(at time: TimeInterval, config: ImageSequenceConfig) -> Int {
         guard config.frameRate > 0 else { return config.startNumber }
@@ -398,6 +449,16 @@ final class PreviewPlayerController: ObservableObject {
         // If reversing, K/Space should just stop reverse (stay paused)
         if isReverseSimulating {
             stopReverseSimulation()
+            return
+        }
+
+        // Image sequence playback via timer
+        if useImageSequence {
+            if isImageSequencePlaying {
+                stopImageSequencePlayback()
+            } else {
+                startImageSequencePlayback()
+            }
             return
         }
 
@@ -974,6 +1035,7 @@ final class PreviewPlayerController: ObservableObject {
         useMPV = false
 
         // Clean up image sequence state
+        stopImageSequencePlayback()
         useImageSequence = false
         imageSequenceFrame = nil
         imageSequenceConfig = nil

@@ -32,6 +32,9 @@ struct ImageSequenceConfig: Equatable, Sendable {
     /// Total file size of all images in the sequence
     var totalSizeBytes: Int64 = 0
 
+    /// Associated audio file URL (e.g., matching WAV alongside the image frames)
+    var associatedAudioURL: URL? = nil
+
     /// Total frame count
     var frameCount: Int { endNumber - startNumber + 1 }
 
@@ -41,14 +44,21 @@ struct ImageSequenceConfig: Equatable, Sendable {
         return Double(frameCount) / frameRate
     }
 
-    /// FFMPEG input arguments for this sequence
+    /// Whether this sequence has an associated audio file
+    var hasAssociatedAudio: Bool { associatedAudioURL != nil }
+
+    /// FFMPEG input arguments for this sequence, including associated audio if present
     var ffmpegInputArguments: [String] {
         let patternPath = directory.appendingPathComponent(pattern).path
-        return [
+        var args = [
             "-framerate", String(format: "%.3f", frameRate),
             "-start_number", "\(startNumber)",
             "-i", patternPath
         ]
+        if let audioURL = associatedAudioURL {
+            args.append(contentsOf: ["-i", audioURL.path])
+        }
+        return args
     }
 }
 

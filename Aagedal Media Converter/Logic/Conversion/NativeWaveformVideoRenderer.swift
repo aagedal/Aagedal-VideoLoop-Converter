@@ -144,7 +144,11 @@ enum NativeWaveformVideoRenderer {
 
     /// Loads an image from URL and pre-scales it to the target resolution.
     /// Call once before the render loop to avoid per-frame I/O.
+    /// Handles security-scoped resource access for sandboxed apps.
     static func loadBackgroundImage(from url: URL, width: Int, height: Int) -> CGImage? {
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+
         guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
             logger.error("Failed to load background image from \(url.path)")
