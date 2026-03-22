@@ -236,8 +236,8 @@ enum WaveformPCMDecoder {
         let halfN = fftSize / 2
         let binWidth = Double(analysisRate) / Double(fftSize)
 
-        // Precompute which FFT bins map to which band
-        let binToBand = precomputeBinMapping(bandEdges: bandEdges, bandCount: bandCount, halfN: halfN, binWidth: binWidth)
+        // Precompute bin ranges per band (guarantees at least 1 bin per band)
+        let bandBinRanges = precomputeBandBinRanges(bandEdges: bandEdges, bandCount: bandCount, halfN: halfN, binWidth: binWidth)
 
         // Hann window
         var window = [Float](repeating: 0, count: fftSize)
@@ -302,23 +302,16 @@ enum WaveformPCMDecoder {
                 var count = Int32(halfN)
                 vvsqrtf(&binMagnitudes, binMagnitudes, &count)
 
-                // Accumulate into bands
-                var bandSums = [Float](repeating: 0, count: bandCount)
-                var bandCounts = [Int](repeating: 0, count: bandCount)
-
-                for bin in 0..<halfN {
-                    let band = binToBand[bin]
-                    if band >= 0 && band < bandCount {
-                        bandSums[band] += binMagnitudes[bin]
-                        bandCounts[band] += 1
-                    }
-                }
-
-                // Average each band
+                // Accumulate into bands using precomputed bin ranges
                 for band in 0..<bandCount {
-                    if bandCounts[band] > 0 {
-                        magnitudes[frame][band] = bandSums[band] / Float(bandCounts[band])
+                    let (startBin, endBin) = bandBinRanges[band]
+                    var sum: Float = 0
+                    var count = 0
+                    for bin in startBin...endBin {
+                        sum += binMagnitudes[bin]
+                        count += 1
                     }
+                    magnitudes[frame][band] = count > 0 ? sum / Float(count) : 0
                     bandPeaks[band] = max(bandPeaks[band], magnitudes[frame][band])
                 }
             }
@@ -339,19 +332,31 @@ enum WaveformPCMDecoder {
         return magnitudes
     }
 
-    /// Precomputes which FFT bin maps to which frequency band.
-    private static func precomputeBinMapping(bandEdges: [Double], bandCount: Int, halfN: Int, binWidth: Double) -> [Int] {
-        var mapping = [Int](repeating: -1, count: halfN)
-        for bin in 0..<halfN {
-            let freq = Double(bin) * binWidth
-            for band in 0..<bandCount {
-                if freq >= bandEdges[band] && freq < bandEdges[band + 1] {
-                    mapping[bin] = band
-                    break
-                }
+    /// Precomputes the range of FFT bins for each frequency band.
+    /// Guarantees every band has at least one bin by clamping to the nearest bin
+    /// when the band is too narrow to contain one at the current FFT resolution.
+    private static func precomputeBandBinRanges(bandEdges: [Double], bandCount: Int, halfN: Int, binWidth: Double) -> [(Int, Int)] {
+        var ranges = [(Int, Int)](repeating: (0, 0), count: bandCount)
+        for band in 0..<bandCount {
+            // Ideal bin range for this band's frequency range
+            let idealStart = Int(round(bandEdges[band] / binWidth))
+            let idealEnd = Int(round(bandEdges[band + 1] / binWidth)) - 1
+
+            var startBin = max(0, min(halfN - 1, idealStart))
+            var endBin = max(0, min(halfN - 1, idealEnd))
+
+            // Ensure at least one bin per band
+            if endBin < startBin {
+                // Band is too narrow — use the nearest bin to the band center
+                let centerFreq = (bandEdges[band] + bandEdges[band + 1]) / 2.0
+                let nearestBin = max(0, min(halfN - 1, Int(round(centerFreq / binWidth))))
+                startBin = nearestBin
+                endBin = nearestBin
             }
+
+            ranges[band] = (startBin, endBin)
         }
-        return mapping
+        return ranges
     }
 
     // MARK: - FFmpeg Process
