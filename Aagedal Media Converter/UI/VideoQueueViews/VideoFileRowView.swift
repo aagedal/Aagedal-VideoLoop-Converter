@@ -634,27 +634,6 @@ struct VideoFileRowView: View {
                 guard file.isPlayable else { return }
                 showPreview = true
             }
-            .fileImporter(
-                isPresented: $showBackgroundImagePicker,
-                allowedContentTypes: [.png, .jpeg, .tiff, .bmp, .heic, .webP],
-                allowsMultipleSelection: false
-            ) { result in
-                if case .success(let urls) = result, let url = urls.first {
-                    // Save a security-scoped bookmark so the image remains accessible later during conversion
-                    _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-                    file.waveformBackgroundImageURL = url
-                }
-            }
-            .fileImporter(
-                isPresented: $showAudioFilePicker,
-                allowedContentTypes: [.wav, .aiff, .mp3, .audio],
-                allowsMultipleSelection: false
-            ) { result in
-                if case .success(let urls) = result, let url = urls.first {
-                    _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-                    associateAudioFile(url)
-                }
-            }
     }
 
     private var waveformBackgroundImageControl: some View {
@@ -678,6 +657,16 @@ struct VideoFileRowView: View {
         .accessibilityLabel("Background image")
         .accessibilityHint(hasImage ? "Remove background image" : "Add background image for waveform video")
         .help(hasImage ? "Remove background image" : "Add background image for waveform video")
+        .fileImporter(
+            isPresented: $showBackgroundImagePicker,
+            allowedContentTypes: [.png, .jpeg, .tiff, .bmp, .heic, .webP],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+                file.waveformBackgroundImageURL = url
+            }
+        }
     }
 
     private var imageSequenceAudioControl: some View {
@@ -702,6 +691,16 @@ struct VideoFileRowView: View {
         .accessibilityLabel("Audio file")
         .accessibilityHint(hasAudio ? "Remove audio: \(audioName ?? "")" : "Associate an audio file with this image sequence")
         .help(hasAudio ? "Remove audio (\(audioName ?? ""))" : "Associate an audio file")
+        .fileImporter(
+            isPresented: $showAudioFilePicker,
+            allowedContentTypes: [.wav, .aiff, .mp3, .audio],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+                associateAudioFile(url)
+            }
+        }
     }
 
     private func associateAudioFile(_ url: URL) {
