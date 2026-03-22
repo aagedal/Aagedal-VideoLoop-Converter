@@ -183,9 +183,11 @@ struct NativeWaveformRenderer {
 
     // MARK: - Utilities
 
-    /// Parses a hex color string (RRGGBB, with or without 0x prefix) into RGB byte components.
+    /// Parses a hex color string (RRGGBB, with optional #/0x prefix) into RGB byte components.
     static nonisolated func parseHexColor(_ hex: String) -> (UInt8, UInt8, UInt8) {
-        let cleaned = hex.hasPrefix("0x") ? String(hex.dropFirst(2)) : hex
+        var cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.hasPrefix("#") { cleaned = String(cleaned.dropFirst()) }
+        if cleaned.hasPrefix("0x") { cleaned = String(cleaned.dropFirst(2)) }
         guard cleaned.count == 6, let value = UInt32(cleaned, radix: 16) else {
             return (255, 255, 255) // default white
         }
