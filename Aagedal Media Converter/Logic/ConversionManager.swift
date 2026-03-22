@@ -190,7 +190,8 @@ actor ConversionManager: Sendable {
                 normalizeAudio: waveformPreferences.normalizeAudio,
                 style: waveformPreferences.style,
                 frameRate: waveformPreferences.frameRate,
-                renderingEngine: waveformPreferences.renderingEngine
+                renderingEngine: waveformPreferences.renderingEngine,
+                swiftStyle: waveformPreferences.swiftStyle
             )
         }() : nil
 
@@ -1040,7 +1041,8 @@ actor ConversionManager: Sendable {
                 normalizeAudio: waveformPreferences.normalizeAudio,
                 style: waveformPreferences.style,
                 frameRate: waveformPreferences.frameRate,
-                renderingEngine: waveformPreferences.renderingEngine
+                renderingEngine: waveformPreferences.renderingEngine,
+                swiftStyle: waveformPreferences.swiftStyle
             )
         }() : nil
 

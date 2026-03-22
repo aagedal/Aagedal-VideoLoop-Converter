@@ -35,6 +35,7 @@ enum WaveformFramePipeWriter {
     static func writeFrames(
         to pipe: Pipe,
         frequencyData: FrequencyBandData,
+        style: SwiftWaveformStyle,
         width: Int,
         height: Int,
         foregroundHex: String,
@@ -77,6 +78,7 @@ enum WaveformFramePipeWriter {
 
             // Render frame with motion blur trail from previous frame
             let frameData = NativeWaveformVideoRenderer.renderFrame(
+                style: style,
                 bandMagnitudes: smoothed,
                 previousMagnitudes: prevForBlur,
                 width: width,

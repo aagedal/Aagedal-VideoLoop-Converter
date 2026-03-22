@@ -127,6 +127,7 @@ enum AppConstants {
     static let defaultAudioWaveformAspectRatio = "ratio16_9"
     static let defaultAudioWaveformShortEdge = 1080
     static let audioWaveformRenderingEngineKey = "audioWaveformRenderingEngine"
+    static let audioWaveformSwiftStyleKey = "audioWaveformSwiftStyle"
     
     // Maximum thumbnail dimensions
     static let maxThumbnailSize = CGSize(width: 320, height: 320)

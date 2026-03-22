@@ -2,8 +2,9 @@
 // Copyright © 2026 Truls Aagedal
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Renders capsule-style frequency band visualizer frames as raw BGRA pixel data
+// Renders frequency band visualizer frames as raw BGRA pixel data
 // for piping to FFmpeg during native waveform video generation.
+// Supports multiple visual styles: capsules, bars, wire.
 
 import Foundation
 import CoreGraphics
@@ -13,24 +14,18 @@ enum NativeWaveformVideoRenderer {
 
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "NativeWaveformRenderer")
 
-    /// Fraction of capsule width used as horizontal gap between capsules.
+    /// Fraction of band width used as horizontal gap between elements.
     private static let gapFraction: CGFloat = 0.4
-    /// Vertical margin (fraction of frame height) above/below tallest capsule.
+    /// Vertical margin (fraction of frame height) above/below tallest element.
     private static let verticalMarginFraction: CGFloat = 0.08
+    /// Horizontal padding on edges (fraction of frame width).
+    private static let horizontalPaddingFraction: CGFloat = 0.04
 
     // MARK: - Public API
 
-    /// Renders a single video frame with capsule visualizer as raw BGRA pixel data.
-    ///
-    /// - Parameters:
-    ///   - bandMagnitudes: Per-band magnitude values in 0.0–1.0 (already smoothed).
-    ///   - previousMagnitudes: Previous frame's smoothed magnitudes for motion blur trail.
-    ///   - width: Frame width in pixels.
-    ///   - height: Frame height in pixels.
-    ///   - foregroundColor: RGB tuple for capsule fill color.
-    ///   - backgroundColor: RGB tuple for frame background color.
-    /// - Returns: Raw BGRA pixel data (width × height × 4 bytes).
+    /// Renders a single video frame as raw BGRA pixel data.
     static func renderFrame(
+        style: SwiftWaveformStyle,
         bandMagnitudes: [Float],
         previousMagnitudes: [Float]?,
         width: Int,
@@ -61,7 +56,6 @@ enum NativeWaveformVideoRenderer {
             return Data(count: width * height * 4)
         }
 
-        // Fill background
         let bgR = CGFloat(backgroundColor.r) / 255.0
         let bgG = CGFloat(backgroundColor.g) / 255.0
         let bgB = CGFloat(backgroundColor.b) / 255.0
@@ -72,56 +66,247 @@ enum NativeWaveformVideoRenderer {
         let fgG = CGFloat(foregroundColor.g) / 255.0
         let fgB = CGFloat(foregroundColor.b) / 255.0
 
-        let frameWidth = CGFloat(width)
-        let frameHeight = CGFloat(height)
-        let verticalMargin = frameHeight * verticalMarginFraction
-        let maxCapsuleHeight = frameHeight - 2 * verticalMargin
-        let centerY = frameHeight / 2.0
+        let layout = FrameLayout(width: width, height: height, bandCount: bandCount)
 
-        // Calculate capsule dimensions
-        let horizontalPadding = frameWidth * 0.04
-        let availableWidth = frameWidth - 2 * horizontalPadding
-        let capsuleStride = availableWidth / CGFloat(bandCount)
-        let capsuleWidth = capsuleStride / (1.0 + gapFraction)
-        let cornerRadius = capsuleWidth / 2.0  // Pill shape
-        // Minimum height = capsuleWidth so the capsule is never shorter than a circle
-        let minCapsuleHeight = capsuleWidth
+        switch style {
+        case .capsules:
+            renderCapsules(ctx: ctx, layout: layout, bandMagnitudes: bandMagnitudes, previousMagnitudes: previousMagnitudes, fgR: fgR, fgG: fgG, fgB: fgB)
+        case .bars:
+            renderBars(ctx: ctx, layout: layout, bandMagnitudes: bandMagnitudes, previousMagnitudes: previousMagnitudes, fgR: fgR, fgG: fgG, fgB: fgB)
+        case .wire:
+            renderWire(ctx: ctx, layout: layout, bandMagnitudes: bandMagnitudes, previousMagnitudes: previousMagnitudes, fgR: fgR, fgG: fgG, fgB: fgB)
+        }
 
-        // Motion blur pass: draw previous frame's capsules at reduced opacity
+        guard let data = ctx.data else {
+            return Data(count: width * height * 4)
+        }
+        return Data(bytes: data, count: bytesPerRow * height)
+    }
+
+    // MARK: - Shared Layout
+
+    private struct FrameLayout {
+        let frameWidth: CGFloat
+        let frameHeight: CGFloat
+        let centerY: CGFloat
+        let maxBarHeight: CGFloat
+        let horizontalPadding: CGFloat
+        let availableWidth: CGFloat
+        let bandStride: CGFloat
+        let bandWidth: CGFloat
+        let bandCount: Int
+
+        init(width: Int, height: Int, bandCount: Int) {
+            self.frameWidth = CGFloat(width)
+            self.frameHeight = CGFloat(height)
+            self.centerY = frameHeight / 2.0
+            let vMargin = frameHeight * verticalMarginFraction
+            self.maxBarHeight = frameHeight - 2 * vMargin
+            self.horizontalPadding = frameWidth * horizontalPaddingFraction
+            self.availableWidth = frameWidth - 2 * horizontalPadding
+            self.bandStride = availableWidth / CGFloat(bandCount)
+            self.bandWidth = bandStride / (1.0 + gapFraction)
+            self.bandCount = bandCount
+        }
+
+        /// X position of the center of band at given index.
+        func bandCenterX(_ band: Int) -> CGFloat {
+            horizontalPadding + CGFloat(band) * bandStride + bandStride / 2.0
+        }
+
+        /// X position of the left edge of band at given index.
+        func bandLeftX(_ band: Int) -> CGFloat {
+            horizontalPadding + CGFloat(band) * bandStride + (bandStride - bandWidth) / 2.0
+        }
+    }
+
+    // MARK: - Capsules Style
+
+    private static func renderCapsules(
+        ctx: CGContext, layout: FrameLayout,
+        bandMagnitudes: [Float], previousMagnitudes: [Float]?,
+        fgR: CGFloat, fgG: CGFloat, fgB: CGFloat
+    ) {
+        let cornerRadius = layout.bandWidth / 2.0
+        let minHeight = layout.bandWidth  // Never shorter than a circle
+
+        // Motion blur pass
         if let prevMags = previousMagnitudes {
             ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 0.25)
-            for band in 0..<bandCount {
-                let prevMag = CGFloat(max(0, min(1, prevMags[band])))
-                let prevHeight = max(minCapsuleHeight, prevMag * maxCapsuleHeight)
-                let x = horizontalPadding + CGFloat(band) * capsuleStride + (capsuleStride - capsuleWidth) / 2.0
-                let y = centerY - prevHeight / 2.0
-                let rect = CGRect(x: x, y: y, width: capsuleWidth, height: prevHeight)
-                let path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+            for band in 0..<layout.bandCount {
+                let h = max(minHeight, CGFloat(clamp01(prevMags[band])) * layout.maxBarHeight)
+                let x = layout.bandLeftX(band)
+                let y = layout.centerY - h / 2.0
+                let path = CGPath(roundedRect: CGRect(x: x, y: y, width: layout.bandWidth, height: h),
+                                  cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
                 ctx.addPath(path)
                 ctx.fillPath()
             }
         }
 
-        // Main capsules at full opacity
+        // Main pass
         ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 1.0)
-        for band in 0..<bandCount {
-            let magnitude = CGFloat(max(0, min(1, bandMagnitudes[band])))
-            let capsuleHeight = max(minCapsuleHeight, magnitude * maxCapsuleHeight)
-
-            let x = horizontalPadding + CGFloat(band) * capsuleStride + (capsuleStride - capsuleWidth) / 2.0
-            let y = centerY - capsuleHeight / 2.0
-
-            let rect = CGRect(x: x, y: y, width: capsuleWidth, height: capsuleHeight)
-            let path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+        for band in 0..<layout.bandCount {
+            let h = max(minHeight, CGFloat(clamp01(bandMagnitudes[band])) * layout.maxBarHeight)
+            let x = layout.bandLeftX(band)
+            let y = layout.centerY - h / 2.0
+            let path = CGPath(roundedRect: CGRect(x: x, y: y, width: layout.bandWidth, height: h),
+                              cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
             ctx.addPath(path)
             ctx.fillPath()
         }
+    }
 
-        // Extract raw pixel data
-        guard let data = ctx.data else {
-            return Data(count: width * height * 4)
+    // MARK: - Bars Style (mirrored equalizer)
+
+    private static func renderBars(
+        ctx: CGContext, layout: FrameLayout,
+        bandMagnitudes: [Float], previousMagnitudes: [Float]?,
+        fgR: CGFloat, fgG: CGFloat, fgB: CGFloat
+    ) {
+        let minHalfHeight: CGFloat = 2  // Minimum pixel height per half
+
+        // Motion blur pass
+        if let prevMags = previousMagnitudes {
+            ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 0.20)
+            for band in 0..<layout.bandCount {
+                let halfH = max(minHalfHeight, CGFloat(clamp01(prevMags[band])) * layout.maxBarHeight / 2.0)
+                let x = layout.bandLeftX(band)
+                // Top half
+                ctx.fill(CGRect(x: x, y: layout.centerY - halfH, width: layout.bandWidth, height: halfH))
+                // Bottom half (mirror)
+                ctx.fill(CGRect(x: x, y: layout.centerY, width: layout.bandWidth, height: halfH))
+            }
         }
 
-        return Data(bytes: data, count: bytesPerRow * height)
+        // Main pass
+        ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 1.0)
+        for band in 0..<layout.bandCount {
+            let halfH = max(minHalfHeight, CGFloat(clamp01(bandMagnitudes[band])) * layout.maxBarHeight / 2.0)
+            let x = layout.bandLeftX(band)
+            // Top half
+            ctx.fill(CGRect(x: x, y: layout.centerY - halfH, width: layout.bandWidth, height: halfH))
+            // Bottom half (mirror)
+            ctx.fill(CGRect(x: x, y: layout.centerY, width: layout.bandWidth, height: halfH))
+        }
+    }
+
+    // MARK: - Wire Style (smooth curve with filled area)
+
+    private static func renderWire(
+        ctx: CGContext, layout: FrameLayout,
+        bandMagnitudes: [Float], previousMagnitudes: [Float]?,
+        fgR: CGFloat, fgG: CGFloat, fgB: CGFloat
+    ) {
+        let vMargin = layout.frameHeight * verticalMarginFraction
+
+        // Motion blur: previous curve at low opacity
+        if let prevMags = previousMagnitudes {
+            ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 0.15)
+            drawWireCurve(ctx: ctx, layout: layout, magnitudes: prevMags, vMargin: vMargin, mirrored: true)
+        }
+
+        // Main curve — filled area between curve and center, mirrored
+        ctx.setFillColor(red: fgR, green: fgG, blue: fgB, alpha: 1.0)
+        drawWireCurve(ctx: ctx, layout: layout, magnitudes: bandMagnitudes, vMargin: vMargin, mirrored: true)
+
+        // Stroke the outline on top for crispness
+        ctx.setStrokeColor(red: fgR, green: fgG, blue: fgB, alpha: 1.0)
+        ctx.setLineWidth(max(1.5, layout.bandWidth * 0.15))
+        ctx.setLineJoin(.round)
+        ctx.setLineCap(.round)
+        drawWireStroke(ctx: ctx, layout: layout, magnitudes: bandMagnitudes, vMargin: vMargin, above: true)
+        drawWireStroke(ctx: ctx, layout: layout, magnitudes: bandMagnitudes, vMargin: vMargin, above: false)
+    }
+
+    /// Draws a filled area between the curve and center line, optionally mirrored.
+    private static func drawWireCurve(
+        ctx: CGContext, layout: FrameLayout,
+        magnitudes: [Float], vMargin: CGFloat, mirrored: Bool
+    ) {
+        guard layout.bandCount > 1 else { return }
+
+        // Top half: curve from center upward
+        let topPath = CGMutablePath()
+        topPath.move(to: CGPoint(x: layout.bandCenterX(0), y: layout.centerY))
+
+        for band in 0..<layout.bandCount {
+            let mag = CGFloat(clamp01(magnitudes[band]))
+            let x = layout.bandCenterX(band)
+            let peakY = layout.centerY - mag * (layout.maxBarHeight / 2.0)
+
+            if band == 0 {
+                topPath.addLine(to: CGPoint(x: x, y: peakY))
+            } else {
+                // Catmull-Rom-like smoothing via quadratic curves
+                let prevX = layout.bandCenterX(band - 1)
+                let cpX = (prevX + x) / 2.0
+                topPath.addQuadCurve(to: CGPoint(x: x, y: peakY), control: CGPoint(x: cpX, y: topPath.currentPoint.y))
+            }
+        }
+
+        // Close back to center
+        topPath.addLine(to: CGPoint(x: layout.bandCenterX(layout.bandCount - 1), y: layout.centerY))
+        topPath.closeSubpath()
+        ctx.addPath(topPath)
+        ctx.fillPath()
+
+        if mirrored {
+            // Bottom half: mirror
+            let bottomPath = CGMutablePath()
+            bottomPath.move(to: CGPoint(x: layout.bandCenterX(0), y: layout.centerY))
+
+            for band in 0..<layout.bandCount {
+                let mag = CGFloat(clamp01(magnitudes[band]))
+                let x = layout.bandCenterX(band)
+                let valleyY = layout.centerY + mag * (layout.maxBarHeight / 2.0)
+
+                if band == 0 {
+                    bottomPath.addLine(to: CGPoint(x: x, y: valleyY))
+                } else {
+                    let prevX = layout.bandCenterX(band - 1)
+                    let cpX = (prevX + x) / 2.0
+                    bottomPath.addQuadCurve(to: CGPoint(x: x, y: valleyY), control: CGPoint(x: cpX, y: bottomPath.currentPoint.y))
+                }
+            }
+
+            bottomPath.addLine(to: CGPoint(x: layout.bandCenterX(layout.bandCount - 1), y: layout.centerY))
+            bottomPath.closeSubpath()
+            ctx.addPath(bottomPath)
+            ctx.fillPath()
+        }
+    }
+
+    /// Strokes just the curve outline (top or bottom half).
+    private static func drawWireStroke(
+        ctx: CGContext, layout: FrameLayout,
+        magnitudes: [Float], vMargin: CGFloat, above: Bool
+    ) {
+        guard layout.bandCount > 1 else { return }
+        let sign: CGFloat = above ? -1.0 : 1.0
+
+        let path = CGMutablePath()
+        for band in 0..<layout.bandCount {
+            let mag = CGFloat(clamp01(magnitudes[band]))
+            let x = layout.bandCenterX(band)
+            let y = layout.centerY + sign * mag * (layout.maxBarHeight / 2.0)
+
+            if band == 0 {
+                path.move(to: CGPoint(x: x, y: y))
+            } else {
+                let prevX = layout.bandCenterX(band - 1)
+                let cpX = (prevX + x) / 2.0
+                path.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: path.currentPoint.y))
+            }
+        }
+
+        ctx.addPath(path)
+        ctx.strokePath()
+    }
+
+    // MARK: - Helpers
+
+    private static func clamp01(_ value: Float) -> Float {
+        max(0, min(1, value))
     }
 }

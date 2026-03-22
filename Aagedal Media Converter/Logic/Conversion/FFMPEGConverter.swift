@@ -471,6 +471,7 @@ actor FFMPEGConverter {
             await WaveformFramePipeWriter.writeFrames(
                 to: stdinPipe,
                 frequencyData: frequencyData,
+                style: waveformRequest.swiftStyle,
                 width: waveformRequest.width,
                 height: waveformRequest.height,
                 foregroundHex: waveformRequest.foregroundHex,
