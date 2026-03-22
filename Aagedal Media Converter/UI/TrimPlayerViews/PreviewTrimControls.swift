@@ -131,6 +131,11 @@ struct PreviewTrimControls: View {
             .foregroundColor(.accentColor)
             .help("Jump to trim end")
 
+            // Frame rate picker for image sequences
+            if item.isImageSequence, item.imageSequenceConfig != nil {
+                imageSequenceFrameRatePicker
+            }
+
             Spacer()
             
             HStack(spacing: 10) {
@@ -212,6 +217,59 @@ struct PreviewTrimControls: View {
             .help("Reset trim points")
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private static let commonFrameRates: [Double] = [
+        12, 15, 23.976, 24, 25, 29.97, 30, 48, 50, 59.94, 60
+    ]
+
+    private var imageSequenceFrameRatePicker: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "speedometer")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            Menu {
+                ForEach(Self.commonFrameRates, id: \.self) { rate in
+                    Button {
+                        updateImageSequenceFrameRate(rate)
+                    } label: {
+                        HStack {
+                            Text(formatFrameRate(rate))
+                            if let config = item.imageSequenceConfig, abs(config.frameRate - rate) < 0.01 {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Text("\(formatFrameRate(item.imageSequenceConfig?.frameRate ?? 24)) fps")
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.primary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.leading, 12)
+        .help("Set the playback frame rate for this image sequence")
+    }
+
+    private func formatFrameRate(_ rate: Double) -> String {
+        if rate == rate.rounded() {
+            return String(format: "%.0f", rate)
+        }
+        return String(format: "%.3f", rate)
+    }
+
+    private func updateImageSequenceFrameRate(_ newRate: Double) {
+        guard var config = item.imageSequenceConfig else { return }
+        config.frameRate = newRate
+        item.imageSequenceConfig = config
+        // Recalculate duration from new frame rate
+        item.durationSeconds = config.durationSeconds
+        item.duration = VideoFileUtils.formatDuration(seconds: config.durationSeconds)
+        // Restart the preview with the updated config
+        controller.updateImageSequenceFrameRate(config)
     }
 
     private var audioTrackSelector: some View {

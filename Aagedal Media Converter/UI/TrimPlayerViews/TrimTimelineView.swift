@@ -736,7 +736,7 @@ private struct TimelineScrubLayer: View {
     let onSeek: (Double) -> Void
 
     private let handleWidth: CGFloat = 12  // Matches handle visual width
-    private let handleMargin: CGFloat = 6  // Increased margin to compensate for thinner handle
+    private let handleMargin: CGFloat = 1  // Minimal margin so playhead can reach near trim handles
 
     @State private var isScrubbing = false
     @State private var isRangeSelecting = false
@@ -840,7 +840,10 @@ private struct TimelineScrubLayer: View {
                             }
 
                             // Normal scrubbing mode - skip if near handles
-                            if nearStartHandle || nearEndHandle {
+                            // But allow scrubbing at the extreme edges (no trim set)
+                            let startAtEdge = trimStart <= 0
+                            let endAtEdge = trimEnd >= duration
+                            if (nearStartHandle && !startAtEdge) || (nearEndHandle && !endAtEdge) {
                                 return
                             }
 

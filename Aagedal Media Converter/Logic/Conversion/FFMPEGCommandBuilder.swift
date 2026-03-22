@@ -188,12 +188,18 @@ enum FFMPEGCommandBuilder {
 
         var ffmpegArgs = preset.ffmpegArguments
 
-        // Image sequence inputs (via customInputArguments) have no audio streams and
-        // the inputURL points to a directory, so skip all audio probing/adjustment and
-        // strip audio mapping to prevent FFmpeg errors about missing audio streams.
+        // Image sequence inputs (via customInputArguments): the inputURL is a directory
+        // so skip audio probing. If no associated audio, strip audio args entirely.
+        // If associated audio exists (two -i flags), remap audio from the second input.
         let isImageSequenceInput = customInputArguments != nil
         if isImageSequenceInput {
-            stripAudioArguments(from: &ffmpegArgs)
+            let inputCount = customInputArguments?.filter({ $0 == "-i" }).count ?? 0
+            if inputCount >= 2 {
+                // Has associated audio as second input - remap audio from input 1
+                remapAudioForImageSequence(from: &ffmpegArgs)
+            } else {
+                stripAudioArguments(from: &ffmpegArgs)
+            }
         }
 
         if !isImageSequenceInput {
@@ -269,7 +275,7 @@ enum FFMPEGCommandBuilder {
         }
 
         // Apply mute if requested - removes all audio from output
-        if !isImageSequenceInput, isMuted {
+        if isMuted {
             applyMute(to: &ffmpegArgs)
         }
 
@@ -1216,6 +1222,26 @@ extension FFMPEGCommandBuilder {
         // Add to ffmpeg arguments
         ffmpegArgs.append(contentsOf: ["-filter_complex", filterGraph])
         ffmpegArgs.append(contentsOf: mapArgs)
+    }
+
+    /// Remaps audio from the second FFmpeg input (index 1) for image sequences with associated audio.
+    /// Changes `-map 0:a` to `-map 1:a` so audio comes from the audio file, not the image sequence.
+    static func remapAudioForImageSequence(from args: inout [String]) {
+        var index = 0
+        while index < args.count {
+            if args[index] == "-map", index + 1 < args.count {
+                let value = args[index + 1]
+                // Remap any 0:a reference to 1:a (audio from second input)
+                if value == "0:a" {
+                    args[index + 1] = "1:a"
+                } else if value == "0:a?" {
+                    args[index + 1] = "1:a?"
+                } else if value.hasPrefix("0:a:") {
+                    args[index + 1] = "1:a:" + value.dropFirst(4)
+                }
+            }
+            index += 1
+        }
     }
 
     /// Strips all audio-related arguments from FFmpeg args.

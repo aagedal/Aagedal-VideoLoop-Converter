@@ -152,10 +152,17 @@ struct PreviewPlayerContent: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
 
+                    // Invisible view that captures keyboard events for image sequence preview
+                    KeyboardCapturingView(keyHandler: keyHandler)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
                     overlayIndicators
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onReceive(controller.playbackTimePublisher) { time in
+                    currentPlaybackTime = time
+                }
             } else if let message = controller.errorMessage {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -399,5 +406,61 @@ private struct PlayerContainerView: NSViewRepresentable {
                 NSEvent.removeMonitor(monitor)
             }
         }
+    }
+}
+
+/// Invisible NSView that captures keyboard events for image sequence preview.
+/// Uses the same NSEvent local monitor pattern as PlayerContainerView.
+private struct KeyboardCapturingView: NSViewRepresentable {
+    let keyHandler: (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool
+
+    func makeNSView(context: Context) -> KeyCapturingNSView {
+        let view = KeyCapturingNSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+        context.coordinator.attachedView = view
+        return view
+    }
+
+    func updateNSView(_ nsView: KeyCapturingNSView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(keyHandler: keyHandler)
+    }
+
+    final class Coordinator: NSObject {
+        private var monitor: Any?
+        weak var attachedView: NSView?
+        private let keyHandler: (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool
+
+        init(keyHandler: @escaping (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool) {
+            self.keyHandler = keyHandler
+            super.init()
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                guard let view = self.attachedView,
+                      let window = view.window,
+                      window.isKeyWindow else { return event }
+                guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return event }
+                let handled = self.keyHandler(characters, event.modifierFlags, event.specialKey)
+                return handled ? nil : event
+            }
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+    }
+}
+
+/// Simple NSView that accepts first responder for keyboard capture.
+private final class KeyCapturingNSView: NSView {
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.makeFirstResponder(self)
     }
 }

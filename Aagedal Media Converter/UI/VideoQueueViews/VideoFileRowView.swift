@@ -125,6 +125,7 @@ struct VideoFileRowView: View {
     @State private var isEditingOutputName = false
     @State private var outputNameDraft: String = ""
     @State private var showBackgroundImagePicker = false
+    @State private var showAudioFilePicker = false
     @FocusState private var isOutputNameFieldFocused: Bool
 
     var body: some View {
@@ -635,7 +636,19 @@ struct VideoFileRowView: View {
                 allowsMultipleSelection: false
             ) { result in
                 if case .success(let urls) = result, let url = urls.first {
+                    // Save a security-scoped bookmark so the image remains accessible later during conversion
+                    _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
                     file.waveformBackgroundImageURL = url
+                }
+            }
+            .fileImporter(
+                isPresented: $showAudioFilePicker,
+                allowedContentTypes: [.wav, .aiff, .mp3, .audio],
+                allowsMultipleSelection: false
+            ) { result in
+                if case .success(let urls) = result, let url = urls.first {
+                    _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+                    associateAudioFile(url)
                 }
             }
     }
@@ -661,6 +674,71 @@ struct VideoFileRowView: View {
         .accessibilityLabel("Background image")
         .accessibilityHint(hasImage ? "Remove background image" : "Add background image for waveform video")
         .help(hasImage ? "Remove background image" : "Add background image for waveform video")
+    }
+
+    private var imageSequenceAudioControl: some View {
+        let hasAudio = file.imageSequenceConfig?.hasAssociatedAudio == true
+        let audioName = file.imageSequenceConfig?.associatedAudioURL?.lastPathComponent
+        return Button {
+            if hasAudio {
+                file.imageSequenceConfig?.associatedAudioURL = nil
+            } else {
+                showAudioFilePicker = true
+            }
+        } label: {
+            iconToggleLabel(
+                systemName: hasAudio ? "waveform.circle.fill" : "waveform.badge.plus",
+                isActive: hasAudio,
+                disabled: false,
+                size: 28,
+                cornerRadius: 6
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Audio file")
+        .accessibilityHint(hasAudio ? "Remove audio: \(audioName ?? "")" : "Associate an audio file with this image sequence")
+        .help(hasAudio ? "Remove audio (\(audioName ?? ""))" : "Associate an audio file")
+    }
+
+    private func associateAudioFile(_ url: URL) {
+        guard var config = file.imageSequenceConfig else { return }
+        config.associatedAudioURL = url
+
+        // Probe audio duration and derive frame rate
+        if let duration = probeAudioDurationSync(url), duration > 0 {
+            config.frameRate = Double(config.frameCount) / duration
+        }
+
+        file.imageSequenceConfig = config
+        file.durationSeconds = config.durationSeconds
+        file.duration = VideoFileUtils.formatDuration(seconds: config.durationSeconds)
+    }
+
+    /// Synchronous ffprobe duration query for associating audio files.
+    private func probeAudioDurationSync(_ url: URL) -> Double? {
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffprobePath)
+        process.arguments = [
+            "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            url.path
+        ]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  let duration = Double(output) else { return nil }
+            return duration
+        } catch {
+            return nil
+        }
     }
 
     private var thumbnailWidth: CGFloat { isCompactMode ? 133 : 200 }
@@ -1034,7 +1112,8 @@ struct VideoFileRowView: View {
     @ViewBuilder
     private var commentSection: some View {
         let showWaveform = !file.hasVideoStream
-        if showCommentField || showDateTagButton || showWaveform {
+        let showImageSeqAudio = file.isImageSequence
+        if showCommentField || showDateTagButton || showWaveform || showImageSeqAudio {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 12) {
                     if showCommentField {
@@ -1044,6 +1123,9 @@ struct VideoFileRowView: View {
                     if showWaveform {
                         waveformControl
                         waveformBackgroundImageControl
+                    }
+                    if showImageSeqAudio {
+                        imageSequenceAudioControl
                     }
                     if showDateTagButton {
                         dateTagControl
