@@ -121,36 +121,39 @@ struct VideoFileListView: View {
                     onDoubleClick()
                 }
             } else {
-                // File list
-                // Enable multi-selection of rows by index
-                ScrollViewReader { proxy in
-                    List(selection: $selection) {
-                        ForEach(Array(droppedFiles.enumerated()), id: \.element.id) { index, file in
-                            cardRow(for: index)
-                                .id(file.id)
-                        }
-                        .onDelete(perform: onDelete)
-                        .onMove { indices, newOffset in
-                            droppedFiles.move(fromOffsets: indices, toOffset: newOffset)
-                        }
+                // File list - AppKit NSTableView for cell reuse and smooth scrolling
+                VideoQueueTableView(
+                    droppedFiles: $droppedFiles,
+                    selection: $selection,
+                    focusedCommentID: $focusedCommentID,
+                    shouldScrollToSelection: $shouldScrollToSelection,
+                    isCompactMode: isCompactMode,
+                    preset: preset,
+                    mergeClipsEnabled: mergeClipsEnabled,
+                    mergeClipsAvailable: mergeClipsAvailable,
+                    showCommentField: showCommentField,
+                    showDateTagButton: showDateTagButton,
+                    onDelete: onDelete,
+                    onReset: onReset,
+                    onOpenTrim: onOpenTrim,
+                    onOpenTrimWithCrop: onOpenTrimWithCrop,
+                    onOpenTimecode: onOpenTimecode,
+                    onOpenAudioConfig: onOpenAudioConfig,
+                    onOpenMetadata: onOpenMetadata,
+                    onToggleDateTag: onToggleDateTag,
+                    onPlayFullscreen: onPlayFullscreen,
+                    onRenameOutputFileName: onRenameOutputFileName,
+                    transcribeOnly: { itemID in
+                        await transcribeOnly(itemID: itemID)
                     }
-                    .listStyle(PlainListStyle())
-                    .scrollContentBackground(.hidden) // matches new card background
-                    .background(Color.clear)
-                    .onChange(of: shouldScrollToSelection) { _, shouldScroll in
-                        // Scroll to the first selected item only when triggered by keyboard navigation
-                        guard shouldScroll, let firstSelectedID = selection.first else { return }
-                        proxy.scrollTo(firstSelectedID, anchor: .center)
-                        shouldScrollToSelection = false
-                    }
-                    .onChange(of: selection) { _, newSelection in
-                        // Sync selection to metadata window state
-                        MetadataWindowState.shared.selectedItemIDs = newSelection
-                    }
-                    .onChange(of: droppedFiles) { _, newFiles in
-                        // Sync all items to metadata window state
-                        MetadataWindowState.shared.allItems = newFiles
-                    }
+                )
+                .onChange(of: selection) { _, newSelection in
+                    // Sync selection to metadata window state
+                    MetadataWindowState.shared.selectedItemIDs = newSelection
+                }
+                .onChange(of: droppedFiles) { _, newFiles in
+                    // Sync all items to metadata window state
+                    MetadataWindowState.shared.allItems = newFiles
                 }
             }
             
@@ -352,25 +355,6 @@ struct VideoFileListView: View {
         shouldReleaseImmediately = false
     }
     
-    private func progressText(for item: VideoItem) -> String {
-        switch item.status {
-        case .waiting:
-            return "Waiting"
-        case .converting:
-            if let eta = item.eta {
-                return "Converting... ETA: \(eta)"
-            } else {
-                return "Converting..."
-            }
-        case .done:
-            return "Done"
-        case .cancelled:
-            return "Cancelled"
-        case .failed:
-            return "Failed"
-        }
-    }
-
     private func handleTabPress(forward: Bool) {
         focusComment(forward: forward, currentFocused: focusedCommentID)
     }
@@ -815,140 +799,6 @@ struct VideoFileListView: View {
         }
     }
 
-    // MARK: - Row Builder
-
-    /// Creates a stable binding to an item by UUID, rather than by index.
-    /// This ensures the binding remains valid even when the list is reordered.
-    /// The initialIndex is used as a fallback only if the ID lookup fails.
-    private func bindingForItem(id: UUID, initialIndex: Int) -> Binding<VideoItem> {
-        Binding(
-            get: {
-                // Re-lookup by ID to handle reordering
-                if let currentIndex = droppedFiles.firstIndex(where: { $0.id == id }) {
-                    return droppedFiles[currentIndex]
-                }
-                // Fallback to initial index if ID not found (during deletion)
-                if initialIndex < droppedFiles.count {
-                    return droppedFiles[initialIndex]
-                }
-                // Last resort: return first item or a placeholder (shouldn't happen)
-                return droppedFiles.first ?? VideoItem(
-                    url: URL(fileURLWithPath: "/"),
-                    name: "",
-                    size: 0,
-                    duration: "",
-                    thumbnailData: nil,
-                    status: .waiting,
-                    progress: 0,
-                    eta: nil,
-                    outputURL: nil,
-                    comment: ""
-                )
-            },
-            set: { newValue in
-                // Re-lookup by ID to handle reordering
-                if let currentIndex = droppedFiles.firstIndex(where: { $0.id == id }) {
-                    droppedFiles[currentIndex] = newValue
-                }
-            }
-        )
-    }
-
-    /// Finds the current index for an item by UUID
-    private func currentIndex(for id: UUID) -> Int? {
-        droppedFiles.firstIndex(where: { $0.id == id })
-    }
-
-    @ViewBuilder
-    private func cardRow(for index: Int) -> some View {
-        // Guard against index out of bounds (can happen during async array updates)
-        if index >= droppedFiles.count {
-            EmptyView()
-        } else {
-            // Capture the item ID for stable reference across reordering
-            let itemID = droppedFiles[index].id
-
-            // Create a stable binding that looks up by ID, not index
-            let fileBinding = bindingForItem(id: itemID, initialIndex: index)
-
-            VideoFileRowView(
-                file: fileBinding,
-                focusedCommentID: $focusedCommentID,
-                preset: preset,
-                onCancel: {
-                    Task { await ConversionManager.shared.cancelItem(with: itemID) }
-                },
-                onDelete: {
-                    // Look up current index by ID to handle reordering
-                    if let currentIdx = currentIndex(for: itemID) {
-                        onDelete(IndexSet(integer: currentIdx))
-                    }
-                },
-                onReset: { optionKeyPressed in
-                    // Look up current index by ID to handle reordering
-                    if let currentIdx = currentIndex(for: itemID) {
-                        onReset(currentIdx, optionKeyPressed)
-                    }
-                },
-                onCancelDownload: {
-                    DownloadManager.shared.cancelDownload(itemID: itemID)
-                },
-                onStopLiveRecording: {
-                    DownloadManager.shared.stopLiveDownload(itemID: itemID)
-                },
-                onRetryDownload: {
-                    Task { await DownloadManager.shared.retryDownload(itemID: itemID) }
-                },
-                onForceRedownload: {
-                    Task { await DownloadManager.shared.forceRedownload(itemID: itemID) }
-                },
-                onCancelScheduledDownload: {
-                    ScheduledDownloadService.shared.cancelScheduledItem(itemID: itemID)
-                    // Remove the item from the queue - look up current index
-                    if let currentIdx = currentIndex(for: itemID) {
-                        onDelete(IndexSet(integer: currentIdx))
-                    }
-                },
-                onTranscribeOnly: {
-                    Task {
-                        await transcribeOnly(itemID: itemID)
-                    }
-                },
-                onRenameOutputFileName: { newName in
-                    onRenameOutputFileName?(itemID, newName)
-                },
-                isSelected: selection.contains(itemID),
-                onCommentFocusChange: { id, isFocused in
-                    guard droppedFiles.contains(where: { $0.id == id }) else { return }
-                    if isFocused {
-                        // Don't override multi-selection when comment field is focused
-                        // Only update focusedCommentID for Tab navigation
-                        if !selection.contains(id) {
-                            selection = [id]
-                        }
-                        // Guard against redundant updates to prevent feedback loop
-                        if focusedCommentID != id {
-                            focusedCommentID = id
-                        }
-                    } else if focusedCommentID == id {
-                        focusedCommentID = nil
-                    }
-                },
-                onPlayFullscreen: {
-                    onPlayFullscreen?(itemID)
-                },
-                mergeClipsEnabled: mergeClipsEnabled,
-                mergeClipsAvailable: mergeClipsAvailable,
-                showCommentField: showCommentField,
-                showDateTagButton: showDateTagButton,
-                isCompactMode: isCompactMode
-            )
-            .padding([.vertical], 4)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets())
-            .tag(itemID)
-        }
-    }
 }
 
 struct VideoFileListView_Previews: PreviewProvider {
