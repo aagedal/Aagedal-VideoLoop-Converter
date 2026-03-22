@@ -23,7 +23,6 @@
 
 
 ## Metadata View
-[] Metadata Comparison: Improve performance and design of the metadata comparison view. Make the metadata view a separate window rather than an overlay. Make column width adjustable.
 [] Metadata view - both: Separate camera metadata from C2PA metadata.
 [] Merge the single and multi metadata view into a single metadata view.
 

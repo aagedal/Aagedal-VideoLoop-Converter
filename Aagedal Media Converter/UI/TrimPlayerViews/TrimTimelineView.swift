@@ -134,19 +134,12 @@ private struct TrimHandlesInteractionLayer: View {
     }
 
     private func handleView(isLeading: Bool, isActive: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(Color.white.opacity(isActive ? 0.55 : 0.28))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color.white.opacity(isActive ? 0.9 : 0.6), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.35), radius: 3, x: 0, y: 0)
-            .overlay(
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundColor(Color.black.opacity(0.5))
-                    .rotationEffect(.degrees(isLeading ? -90 : 90))
-            )
+        ZStack {
+            Color.clear
+            Rectangle()
+                .fill(Color.blue.opacity(isActive ? 1.0 : 0.8))
+                .frame(width: 2)
+        }
     }
 
     private func startGesture(width: CGFloat) -> some Gesture {
@@ -703,14 +696,14 @@ private struct TrimTimelineOverlay: View {
                     let clampedEnd = min(max(endX, clampedStart), width)
                     path.addRect(CGRect(x: clampedStart, y: 0, width: clampedEnd - clampedStart, height: height))
                 }
-                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                .stroke(Color.blue.opacity(0.4), lineWidth: 1)
 
                 Path { path in
                     let clampedPlayhead = min(max(playheadX, 0), width)
                     path.move(to: CGPoint(x: clampedPlayhead, y: 0))
                     path.addLine(to: CGPoint(x: clampedPlayhead, y: height))
                 }
-                .stroke(Color.white, lineWidth: 2)
+                .stroke(Color(red: 1.0, green: 0.071, blue: 0.361), lineWidth: 2) // #FF125C
                 .shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 0)
             }
         }

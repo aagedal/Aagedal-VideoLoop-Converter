@@ -189,16 +189,24 @@ struct PreviewPlayerView: View {
         // Get current playback position
         let currentPosition = currentPlaybackTime
 
-        // Open fullscreen player with position sync
+        // Open fullscreen player with position sync and trim sync
         FullscreenPlayerWindowController.shared.openFullscreenPlayerFromTrimView(
             for: item,
-            startTime: currentPosition
-        ) { [weak controller] finalPosition in
-            // When fullscreen closes, sync position back to trim player
-            Task { @MainActor in
-                controller?.seekTo(finalPosition)
+            startTime: currentPosition,
+            onCloseWithPosition: { [weak controller] finalPosition in
+                // When fullscreen closes, sync position back to trim player
+                Task { @MainActor in
+                    controller?.seekTo(finalPosition)
+                }
+            },
+            onTrimChanged: { [self] trimStart, trimEnd in
+                // Sync trim changes from fullscreen player back to the item
+                Task { @MainActor in
+                    item.trimStart = trimStart
+                    item.trimEnd = trimEnd
+                }
             }
-        }
+        )
     }
 
 
