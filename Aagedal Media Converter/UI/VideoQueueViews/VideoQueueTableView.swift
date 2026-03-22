@@ -352,46 +352,31 @@ struct VideoQueueTableView: NSViewRepresentable {
             let itemID = parent.droppedFiles[row].id
             let isSelected = parent.selection.contains(itemID)
 
+            let placeholderItem = VideoItem(
+                url: URL(fileURLWithPath: "/"),
+                name: "",
+                size: 0,
+                duration: "",
+                thumbnailData: nil,
+                status: .waiting,
+                progress: 0,
+                eta: nil,
+                outputURL: nil,
+                comment: ""
+            )
+
             let fileBinding = Binding<VideoItem>(
                 get: { [weak self] in
-                    guard let self else {
-                        return VideoItem(
-                            url: URL(fileURLWithPath: "/"),
-                            name: "",
-                            size: 0,
-                            duration: "",
-                            thumbnailData: nil,
-                            status: .waiting,
-                            progress: 0,
-                            eta: nil,
-                            outputURL: nil,
-                            comment: ""
-                        )
+                    guard let self,
+                          let currentIndex = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) else {
+                        return placeholderItem
                     }
-                    if let currentIndex = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                        return self.parent.droppedFiles[currentIndex]
-                    }
-                    if row < self.parent.droppedFiles.count {
-                        return self.parent.droppedFiles[row]
-                    }
-                    return self.parent.droppedFiles.first ?? VideoItem(
-                        url: URL(fileURLWithPath: "/"),
-                        name: "",
-                        size: 0,
-                        duration: "",
-                        thumbnailData: nil,
-                        status: .waiting,
-                        progress: 0,
-                        eta: nil,
-                        outputURL: nil,
-                        comment: ""
-                    )
+                    return self.parent.droppedFiles[currentIndex]
                 },
                 set: { [weak self] newValue in
-                    guard let self else { return }
-                    if let currentIndex = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                        self.parent.droppedFiles[currentIndex] = newValue
-                    }
+                    guard let self,
+                          let currentIndex = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+                    self.parent.droppedFiles[currentIndex] = newValue
                 }
             )
 
