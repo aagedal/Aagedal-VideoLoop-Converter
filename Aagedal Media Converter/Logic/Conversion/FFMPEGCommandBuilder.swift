@@ -33,6 +33,7 @@ struct WaveformVideoRequest {
     let style: WaveformStyle
     let frameRate: Double
     let renderingEngine: WaveformRenderingEngine
+    let swiftStyle: SwiftWaveformStyle
 
     var resolutionString: String {
         "\(width)x\(height)"

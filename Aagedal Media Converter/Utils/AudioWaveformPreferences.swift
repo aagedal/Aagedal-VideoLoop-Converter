@@ -14,7 +14,7 @@ import AppKit
 
 /// Selects which rendering engine produces waveform video frames.
 enum WaveformRenderingEngine: String, CaseIterable, Identifiable {
-    /// Native Swift renderer (capsule frequency visualizer via CoreGraphics).
+    /// Native Swift renderer via CoreGraphics.
     case swift = "swift"
     /// Legacy FFmpeg filter renderer (showwaves / showspectrum).
     case ffmpeg = "ffmpeg"
@@ -23,8 +23,28 @@ enum WaveformRenderingEngine: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .swift: return "Swift (Capsules)"
+        case .swift: return "Swift"
         case .ffmpeg: return "FFmpeg (Classic)"
+        }
+    }
+}
+
+/// Visual styles available in the native Swift waveform renderer.
+enum SwiftWaveformStyle: String, CaseIterable, Identifiable {
+    /// Vertically expanding pill-shaped capsules per frequency band.
+    case capsules
+    /// Classic mirrored equalizer bars, rectangular, reflected across center.
+    case bars
+    /// Smooth curved line connecting band peaks with filled area.
+    case wire
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .capsules: return "Capsules"
+        case .bars: return "Bars"
+        case .wire: return "Wire"
         }
     }
 }
@@ -65,6 +85,7 @@ struct AudioWaveformPreferences {
         let style: WaveformStyle
         let frameRate: Double
         let renderingEngine: WaveformRenderingEngine
+        let swiftStyle: SwiftWaveformStyle
 
         var resolutionString: String {
             "\(width)x\(height)"
@@ -106,6 +127,8 @@ struct AudioWaveformPreferences {
 
         let engineRaw = defaults.string(forKey: AppConstants.audioWaveformRenderingEngineKey) ?? "swift"
         let renderingEngine = WaveformRenderingEngine(rawValue: engineRaw) ?? .swift
+        let swiftStyleRaw = defaults.string(forKey: AppConstants.audioWaveformSwiftStyleKey) ?? "capsules"
+        let swiftStyle = SwiftWaveformStyle(rawValue: swiftStyleRaw) ?? .capsules
 
         return WaveformVideoConfig(
             resolution: CGSize(width: width, height: height),
@@ -116,7 +139,8 @@ struct AudioWaveformPreferences {
             normalizeAudio: normalize,
             style: style,
             frameRate: frameRate,
-            renderingEngine: renderingEngine
+            renderingEngine: renderingEngine,
+            swiftStyle: swiftStyle
         )
     }
 

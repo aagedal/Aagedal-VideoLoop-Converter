@@ -31,6 +31,7 @@ struct WaveformSettingsView: View {
     @AppStorage(AppConstants.audioWaveformStyleKey) private var waveformStyleRaw = AppConstants.defaultAudioWaveformStyleRaw
     @AppStorage(AppConstants.audioWaveformFrameRateKey) private var waveformFrameRate = AppConstants.defaultAudioWaveformFrameRate
     @AppStorage(AppConstants.audioWaveformRenderingEngineKey) private var waveformRenderingEngineRaw = "swift"
+    @AppStorage(AppConstants.audioWaveformSwiftStyleKey) private var waveformSwiftStyleRaw = "capsules"
 
     var bgColorText: String = "Background Color"
     var waveformColorText: String = "Foreground Color"
@@ -39,6 +40,13 @@ struct WaveformSettingsView: View {
         Binding(
             get: { WaveformRenderingEngine(rawValue: waveformRenderingEngineRaw) ?? .swift },
             set: { waveformRenderingEngineRaw = $0.rawValue }
+        )
+    }
+
+    private var selectedSwiftStyle: Binding<SwiftWaveformStyle> {
+        Binding(
+            get: { SwiftWaveformStyle(rawValue: waveformSwiftStyleRaw) ?? .capsules },
+            set: { waveformSwiftStyleRaw = $0.rawValue }
         )
     }
 
@@ -155,7 +163,17 @@ struct WaveformSettingsView: View {
                     .help("Swift renders capsule-style frequency visualizer natively. FFmpeg uses classic waveform filters.")
                 }
 
-                if (WaveformRenderingEngine(rawValue: waveformRenderingEngineRaw) ?? .swift) == .ffmpeg {
+                if (WaveformRenderingEngine(rawValue: waveformRenderingEngineRaw) ?? .swift) == .swift {
+                    HStack {
+                        Picker("Visual style", selection: selectedSwiftStyle) {
+                            ForEach(SwiftWaveformStyle.allCases) { style in
+                                Text(style.displayName).tag(style)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        .help("Choose the visual appearance for the native Swift waveform renderer.")
+                    }
+                } else {
                     HStack {
                         Picker(
                             "Waveform style",
@@ -258,5 +276,6 @@ struct WaveformSettingsView: View {
         waveformStyleRaw = AppConstants.defaultAudioWaveformStyleRaw
         waveformFrameRate = AppConstants.defaultAudioWaveformFrameRate
         waveformRenderingEngineRaw = "swift"
+        waveformSwiftStyleRaw = "capsules"
     }
 }
