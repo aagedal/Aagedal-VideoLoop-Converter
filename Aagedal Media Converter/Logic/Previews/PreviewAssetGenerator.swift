@@ -63,7 +63,14 @@ struct PreviewAssets: Sendable {
 
     func nativeChannelWaveforms(forAudioStream streamIndex: Int?) -> SendableChannelWaveform? {
         guard let streamIndex else { return nativeChannelWaveform }
-        return nativePerStreamChannelWaveforms[streamIndex] ?? nativeChannelWaveform
+        // Don't fall back to the default (stream 0) waveform — return nil so
+        // on-demand generation triggers for the requested stream.
+        if let perStream = nativePerStreamChannelWaveforms[streamIndex] {
+            return perStream
+        }
+        // Stream 0 data is stored in nativeChannelWaveform, not in the per-stream dict
+        if streamIndex == 0 { return nativeChannelWaveform }
+        return nil
     }
 }
 
