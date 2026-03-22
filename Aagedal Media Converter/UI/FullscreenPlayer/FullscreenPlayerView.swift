@@ -424,6 +424,10 @@ struct FullscreenPlayerView: View {
             } else if controller.useMPV, let mpvPlayer = controller.mpvPlayer {
                 FullscreenMPVView(player: mpvPlayer)
                     .opacity(itemState.hasVideoStream ? 1 : 0.001)
+            } else if controller.useImageSequence, let frame = controller.imageSequenceFrame {
+                Image(nsImage: frame)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
             } else if itemState.hasVideoStream {
                 Color.black
             } else {

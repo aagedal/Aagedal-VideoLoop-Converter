@@ -32,7 +32,7 @@ struct PreviewPlayerContent: View {
     }
 
     private var isPreviewAvailable: Bool {
-        controller.player != nil || (controller.useMPV && controller.mpvPlayer != nil)
+        controller.player != nil || (controller.useMPV && controller.mpvPlayer != nil) || controller.useImageSequence
     }
 
     private var previewAvailabilityKey: PreviewAvailabilityKey {
@@ -144,6 +144,18 @@ struct PreviewPlayerContent: View {
                 .onReceive(controller.playbackTimePublisher) { time in
                     currentPlaybackTime = time
                 }
+            } else if controller.useImageSequence, let frame = controller.imageSequenceFrame {
+                ZStack {
+                    CheckerboardBackground()
+
+                    Image(nsImage: frame)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+
+                    overlayIndicators
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let message = controller.errorMessage {
                 VStack(spacing: 12) {
                     Image(systemName: "exclamationmark.triangle.fill")

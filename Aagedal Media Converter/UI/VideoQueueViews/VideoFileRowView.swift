@@ -606,13 +606,7 @@ struct VideoFileRowView: View {
     private var thumbnailView: some View {
         thumbnailImageView
             .overlay(alignment: .topLeading, content: { audioRoutingBadge })
-            .overlay(alignment: .topTrailing, content: {
-                if !file.hasVideoStream {
-                    waveformBackgroundImageButton
-                } else {
-                    timecodeBadge
-                }
-            })
+            .overlay(alignment: .topTrailing, content: { timecodeBadge })
             .overlay(alignment: .bottomLeading, content: { trimBadge })
             .overlay(alignment: .bottomTrailing, content: { cropBadge })
             .overlay(alignment: .trailing, content: { uploadBadge })
@@ -646,36 +640,27 @@ struct VideoFileRowView: View {
             }
     }
 
-    @ViewBuilder
-    private var waveformBackgroundImageButton: some View {
-        if file.waveformBackgroundImageURL != nil {
-            // Remove button
-            Button {
+    private var waveformBackgroundImageControl: some View {
+        let hasImage = file.waveformBackgroundImageURL != nil
+        return Button {
+            if hasImage {
                 file.waveformBackgroundImageURL = nil
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white, .black.opacity(0.6))
-            }
-            .buttonStyle(.plain)
-            .padding(4)
-            .help("Remove background image")
-        } else {
-            // Add button
-            Button {
+            } else {
                 showBackgroundImagePicker = true
-            } label: {
-                Image(systemName: "photo.badge.plus")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.white)
-                    .padding(4)
-                    .background(.black.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
             }
-            .buttonStyle(.plain)
-            .padding(4)
-            .help("Add background image for waveform video")
+        } label: {
+            iconToggleLabel(
+                systemName: hasImage ? "photo.fill.on.rectangle.fill" : "photo.badge.plus",
+                isActive: hasImage,
+                disabled: false,
+                size: 28,
+                cornerRadius: 6
+            )
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Background image")
+        .accessibilityHint(hasImage ? "Remove background image" : "Add background image for waveform video")
+        .help(hasImage ? "Remove background image" : "Add background image for waveform video")
     }
 
     private var thumbnailWidth: CGFloat { isCompactMode ? 133 : 200 }
@@ -1058,6 +1043,7 @@ struct VideoFileRowView: View {
                     }
                     if showWaveform {
                         waveformControl
+                        waveformBackgroundImageControl
                     }
                     if showDateTagButton {
                         dateTagControl

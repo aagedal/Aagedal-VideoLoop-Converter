@@ -103,6 +103,11 @@ final class PreviewPlayerController: ObservableObject {
     @Published var mpvPlayer: MPVPlayer?
     @Published var useMPV = false
 
+    // MARK: - Image Sequence State
+    @Published var useImageSequence = false
+    @Published var imageSequenceFrame: NSImage?
+    private var imageSequenceConfig: ImageSequenceConfig?
+
     // MARK: - Initialization
     
     var playbackTimePublisher: Published<Double>.Publisher { $currentPlaybackTime }
@@ -185,6 +190,13 @@ final class PreviewPlayerController: ObservableObject {
         isLoadingPreviewAssets = true
         previewAssets = nil
         useMPV = false
+        useImageSequence = false
+
+        // Image sequence preview: load frames directly from disk
+        if let config = videoItem.imageSequenceConfig {
+            setupImageSequencePreview(config: config, startTime: startTime)
+            return
+        }
 
         let url = videoItem.url
         let fileExtension = url.pathExtension.lowercased()
@@ -314,7 +326,69 @@ final class PreviewPlayerController: ObservableObject {
         // DON'T call updateCurrentWaveform() here!
         // It will be called automatically via previewAssets.didSet when assets finish loading
     }
-    
+
+    // MARK: - Image Sequence Preview
+
+    private func setupImageSequencePreview(config: ImageSequenceConfig, startTime: TimeInterval) {
+        self.imageSequenceConfig = config
+        self.useImageSequence = true
+        self.isPreparing = false
+
+        // Acquire security-scoped access to the sequence directory
+        let bookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: config.directory)
+        let directAccess = !bookmarkAccess && config.directory.startAccessingSecurityScopedResource()
+        hasSecurityScope = bookmarkAccess || directAccess
+
+        // Load the frame at the start time
+        loadImageSequenceFrame(at: startTime)
+
+        self.isReady = true
+        self.isLoadingPreviewAssets = false
+    }
+
+    /// Loads the image frame corresponding to the given time position in the sequence.
+    func loadImageSequenceFrame(at time: TimeInterval) {
+        guard let config = imageSequenceConfig else { return }
+        let frameNumber = imageSequenceFrameNumber(at: time, config: config)
+        let frameURL = imageSequenceFrameURL(frameNumber: frameNumber, config: config)
+
+        // Avoid reloading the same frame
+        if let current = imageSequenceFrame, frameURL == _lastImageSequenceFrameURL {
+            _ = current // suppress unused warning
+            return
+        }
+        _lastImageSequenceFrameURL = frameURL
+
+        if let image = NSImage(contentsOf: frameURL) {
+            self.imageSequenceFrame = image
+        }
+    }
+
+    private var _lastImageSequenceFrameURL: URL?
+
+    /// Converts a time position to a frame number within the sequence bounds.
+    private func imageSequenceFrameNumber(at time: TimeInterval, config: ImageSequenceConfig) -> Int {
+        guard config.frameRate > 0 else { return config.startNumber }
+        let frame = Int(time * config.frameRate) + config.startNumber
+        return max(config.startNumber, min(frame, config.endNumber))
+    }
+
+    /// Builds the URL for a specific frame number using the sequence pattern.
+    private func imageSequenceFrameURL(frameNumber: Int, config: ImageSequenceConfig) -> URL {
+        let pattern = config.pattern
+        // Extract padding width from pattern like "frame_%04d.png"
+        var paddingWidth = 4
+        if let range = pattern.range(of: "%0") {
+            let afterPercent = pattern[range.upperBound...]
+            if let width = Int(String(afterPercent.prefix(while: { $0.isNumber }))) {
+                paddingWidth = width
+            }
+        }
+        let numberStr = String(format: "%0\(paddingWidth)d", frameNumber)
+        let fileName = pattern.replacingOccurrences(of: "%0\(paddingWidth)d", with: numberStr)
+        return config.directory.appendingPathComponent(fileName)
+    }
+
     // MARK: - Unified Playback Control
 
     func togglePlayback() {
@@ -472,6 +546,12 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func seekByFrames(_ frameCount: Int) {
+        // For image sequences, use the sequence's frame rate
+        if let config = imageSequenceConfig {
+            let secondsPerFrame = 1.0 / config.frameRate
+            seek(by: Double(frameCount) * secondsPerFrame)
+            return
+        }
         // Calculate seconds per frame from video metadata
         if let frameRate = videoItem.metadata?.primaryVideoStream?.frameRate,
            let frameRateValue = frameRate.value, frameRateValue > 0 {
@@ -893,6 +973,12 @@ final class PreviewPlayerController: ObservableObject {
         mpvEndObserver = nil
         useMPV = false
 
+        // Clean up image sequence state
+        useImageSequence = false
+        imageSequenceFrame = nil
+        imageSequenceConfig = nil
+        _lastImageSequenceFrameURL = nil
+
         isPreparing = false
         removeLoopObserver()
         removeTimeObserver()
@@ -953,6 +1039,12 @@ final class PreviewPlayerController: ObservableObject {
 
         // Update playback time immediately for UI responsiveness
         currentPlaybackTime = time
+
+        // Image sequence: load the frame at this time position
+        if useImageSequence {
+            loadImageSequenceFrame(at: time)
+            return
+        }
 
         if useMPV, let mpv = mpvPlayer {
             mpv.seek(to: time)
