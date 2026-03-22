@@ -11,6 +11,7 @@ import SwiftUI
 import AVFoundation
 import AppKit
 import ImageIO
+import UniformTypeIdentifiers
 
 struct VideoFileRowView: View {
     @Binding var file: VideoItem
@@ -123,6 +124,7 @@ struct VideoFileRowView: View {
     @State private var showCommentPreviewPopover = false
     @State private var isEditingOutputName = false
     @State private var outputNameDraft: String = ""
+    @State private var showBackgroundImagePicker = false
     @FocusState private var isOutputNameFieldFocused: Bool
 
     var body: some View {
@@ -604,7 +606,13 @@ struct VideoFileRowView: View {
     private var thumbnailView: some View {
         thumbnailImageView
             .overlay(alignment: .topLeading, content: { audioRoutingBadge })
-            .overlay(alignment: .topTrailing, content: { timecodeBadge })
+            .overlay(alignment: .topTrailing, content: {
+                if !file.hasVideoStream {
+                    waveformBackgroundImageButton
+                } else {
+                    timecodeBadge
+                }
+            })
             .overlay(alignment: .bottomLeading, content: { trimBadge })
             .overlay(alignment: .bottomTrailing, content: { cropBadge })
             .overlay(alignment: .trailing, content: { uploadBadge })
@@ -627,6 +635,47 @@ struct VideoFileRowView: View {
                 guard file.isPlayable else { return }
                 showPreview = true
             }
+            .fileImporter(
+                isPresented: $showBackgroundImagePicker,
+                allowedContentTypes: [.png, .jpeg, .tiff, .bmp, .heic, .webP],
+                allowsMultipleSelection: false
+            ) { result in
+                if case .success(let urls) = result, let url = urls.first {
+                    file.waveformBackgroundImageURL = url
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var waveformBackgroundImageButton: some View {
+        if file.waveformBackgroundImageURL != nil {
+            // Remove button
+            Button {
+                file.waveformBackgroundImageURL = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white, .black.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .padding(4)
+            .help("Remove background image")
+        } else {
+            // Add button
+            Button {
+                showBackgroundImagePicker = true
+            } label: {
+                Image(systemName: "photo.badge.plus")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white)
+                    .padding(4)
+                    .background(.black.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+            .buttonStyle(.plain)
+            .padding(4)
+            .help("Add background image for waveform video")
+        }
     }
 
     private var thumbnailWidth: CGFloat { isCompactMode ? 133 : 200 }
@@ -642,7 +691,15 @@ struct VideoFileRowView: View {
                 .stroke(Color.black.opacity(0.2), lineWidth: 1)
                 .frame(width: thumbnailWidth, height: thumbnailHeight)
 
-            if let cachedImage = cachedThumbnail {
+            if let bgImageURL = file.waveformBackgroundImageURL, !file.hasVideoStream,
+               let bgImage = NSImage(contentsOf: bgImageURL) {
+                Image(nsImage: bgImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: thumbnailWidth, height: thumbnailHeight)
+                    .clipped()
+                    .cornerRadius(isCompactMode ? 3 : 4)
+            } else if let cachedImage = cachedThumbnail {
                 Image(nsImage: cachedImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

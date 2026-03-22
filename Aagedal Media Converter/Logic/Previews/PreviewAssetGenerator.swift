@@ -1455,7 +1455,12 @@ actor PreviewAssetGenerator {
             renderingEngine: prefs.renderingEngine,
             swiftStyle: prefs.swiftStyle,
             bandCount: prefs.bandCount,
-            frequencyDistribution: prefs.frequencyDistribution
+            frequencyDistribution: prefs.frequencyDistribution,
+            foregroundGradientEnabled: prefs.foregroundGradientEnabled,
+            foregroundGradientEndHex: prefs.foregroundGradientEndHex,
+            backgroundGradientEnabled: prefs.backgroundGradientEnabled,
+            backgroundGradientEndHex: prefs.backgroundGradientEndHex,
+            waveformOpacity: prefs.waveformOpacity
         )
     }
 }

@@ -7,6 +7,7 @@
 // a pipe consumed by FFmpeg as rawvideo input.
 
 import Foundation
+import CoreGraphics
 import OSLog
 
 enum WaveformFramePipeWriter {
@@ -31,6 +32,12 @@ enum WaveformFramePipeWriter {
     ///   - height: Frame height in pixels.
     ///   - foregroundHex: Hex color string for capsule fill.
     ///   - backgroundHex: Hex color string for frame background.
+    ///   - foregroundGradientEnabled: Whether to apply a vertical gradient to foreground elements.
+    ///   - foregroundGradientEndHex: End color for foreground gradient (start is foregroundHex).
+    ///   - backgroundGradientEnabled: Whether to apply a vertical gradient to the background.
+    ///   - backgroundGradientEndHex: End color for background gradient (start is backgroundHex).
+    ///   - backgroundImage: Pre-scaled CGImage to use as background (takes priority over gradient/solid).
+    ///   - waveformOpacity: Opacity for waveform shapes (0.5–1.0), allows background to show through.
     ///   - progressUpdate: Called with 0.0–1.0 progress fraction.
     static func writeFrames(
         to pipe: Pipe,
@@ -40,6 +47,12 @@ enum WaveformFramePipeWriter {
         height: Int,
         foregroundHex: String,
         backgroundHex: String,
+        foregroundGradientEnabled: Bool = false,
+        foregroundGradientEndHex: String = "FFFFFF",
+        backgroundGradientEnabled: Bool = false,
+        backgroundGradientEndHex: String = "000000",
+        backgroundImage: CGImage? = nil,
+        waveformOpacity: Double = 1.0,
         progressUpdate: @escaping @Sendable (Double) -> Void
     ) async {
         let writeHandle = pipe.fileHandleForWriting
@@ -48,6 +61,10 @@ enum WaveformFramePipeWriter {
 
         let fg = NativeWaveformRenderer.parseHexColor(foregroundHex)
         let bg = NativeWaveformRenderer.parseHexColor(backgroundHex)
+        let fgGradientEnd: (r: UInt8, g: UInt8, b: UInt8)? = foregroundGradientEnabled
+            ? NativeWaveformRenderer.parseHexColor(foregroundGradientEndHex) : nil
+        let bgGradientEnd: (r: UInt8, g: UInt8, b: UInt8)? = backgroundGradientEnabled
+            ? NativeWaveformRenderer.parseHexColor(backgroundGradientEndHex) : nil
 
         // Smoothed magnitudes for animation (fast attack, slow release)
         var smoothed = [Float](repeating: 0, count: bandCount)
@@ -84,7 +101,11 @@ enum WaveformFramePipeWriter {
                 width: width,
                 height: height,
                 foregroundColor: fg,
-                backgroundColor: bg
+                backgroundColor: bg,
+                foregroundGradientEnd: fgGradientEnd,
+                backgroundGradientEnd: bgGradientEnd,
+                backgroundImage: backgroundImage,
+                waveformOpacity: waveformOpacity
             )
 
             // Write to pipe (blocks if FFmpeg's encoding is slower — natural backpressure)

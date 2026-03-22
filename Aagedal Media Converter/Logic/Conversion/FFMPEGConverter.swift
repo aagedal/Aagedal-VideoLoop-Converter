@@ -8,6 +8,7 @@
 // (at your option) any later version.
 
 import Foundation
+import CoreGraphics
 import OSLog
 
 private actor StderrCollector {
@@ -52,6 +53,7 @@ actor FFMPEGConverter {
         isMuted: Bool = false,
         expectedDuration: Double? = nil,
         videoFrameRate: Double? = nil,
+        waveformBackgroundImageURL: URL? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool) -> Void
     ) async {
@@ -185,6 +187,7 @@ actor FFMPEGConverter {
                 needsBMXRewrap: needsBMXRewrap,
                 tempMXFURL: tempMXFURL,
                 outputFileURL: outputFileURL,
+                waveformBackgroundImageURL: waveformBackgroundImageURL,
                 progressUpdate: progressUpdate,
                 completion: completion
             )
@@ -362,6 +365,7 @@ actor FFMPEGConverter {
         needsBMXRewrap: Bool,
         tempMXFURL: URL?,
         outputFileURL: URL,
+        waveformBackgroundImageURL: URL? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool) -> Void
     ) async {
@@ -504,8 +508,15 @@ actor FFMPEGConverter {
             return
         }
 
+        // Pre-load and scale background image (if set) once before render loop
+        let backgroundCGImage: CGImage? = if let imageURL = waveformBackgroundImageURL {
+            NativeWaveformVideoRenderer.loadBackgroundImage(from: imageURL, width: waveformRequest.width, height: waveformRequest.height)
+        } else {
+            nil
+        }
+
         // Phase 4: Write rendered frames to the pipe on a background task
-        Task.detached { [frequencyData, waveformRequest] in
+        Task.detached { [frequencyData, waveformRequest, backgroundCGImage] in
             await WaveformFramePipeWriter.writeFrames(
                 to: stdinPipe,
                 frequencyData: frequencyData,
@@ -514,6 +525,12 @@ actor FFMPEGConverter {
                 height: waveformRequest.height,
                 foregroundHex: waveformRequest.foregroundHex,
                 backgroundHex: waveformRequest.backgroundHex,
+                foregroundGradientEnabled: waveformRequest.foregroundGradientEnabled,
+                foregroundGradientEndHex: waveformRequest.foregroundGradientEndHex,
+                backgroundGradientEnabled: waveformRequest.backgroundGradientEnabled,
+                backgroundGradientEndHex: waveformRequest.backgroundGradientEndHex,
+                backgroundImage: backgroundCGImage,
+                waveformOpacity: waveformRequest.waveformOpacity,
                 progressUpdate: { renderProgress in
                     // Map render progress to 10%–95% of overall progress
                     let overall = 0.10 + renderProgress * 0.85

@@ -36,6 +36,11 @@ struct WaveformVideoRequest {
     let swiftStyle: SwiftWaveformStyle
     let bandCount: Int
     let frequencyDistribution: FrequencyDistribution
+    let foregroundGradientEnabled: Bool
+    let foregroundGradientEndHex: String
+    let backgroundGradientEnabled: Bool
+    let backgroundGradientEndHex: String
+    let waveformOpacity: Double
 
     var resolutionString: String {
         "\(width)x\(height)"
