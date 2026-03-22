@@ -191,7 +191,9 @@ actor ConversionManager: Sendable {
                 style: waveformPreferences.style,
                 frameRate: waveformPreferences.frameRate,
                 renderingEngine: waveformPreferences.renderingEngine,
-                swiftStyle: waveformPreferences.swiftStyle
+                swiftStyle: waveformPreferences.swiftStyle,
+                bandCount: waveformPreferences.bandCount,
+                frequencyDistribution: waveformPreferences.frequencyDistribution
             )
         }() : nil
 
@@ -1042,7 +1044,9 @@ actor ConversionManager: Sendable {
                 style: waveformPreferences.style,
                 frameRate: waveformPreferences.frameRate,
                 renderingEngine: waveformPreferences.renderingEngine,
-                swiftStyle: waveformPreferences.swiftStyle
+                swiftStyle: waveformPreferences.swiftStyle,
+                bandCount: waveformPreferences.bandCount,
+                frequencyDistribution: waveformPreferences.frequencyDistribution
             )
         }() : nil
 

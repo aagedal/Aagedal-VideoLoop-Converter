@@ -354,6 +354,8 @@ actor FFMPEGConverter {
                 ffmpegPath: ffmpegPath,
                 frameRate: waveformRequest.frameRate,
                 duration: effectiveDuration,
+                bandCount: waveformRequest.bandCount,
+                frequencyDistribution: waveformRequest.frequencyDistribution,
                 normalizeAudio: waveformRequest.normalizeAudio,
                 audioRoutingConfig: audioRoutingConfig,
                 trimStart: trimStart,

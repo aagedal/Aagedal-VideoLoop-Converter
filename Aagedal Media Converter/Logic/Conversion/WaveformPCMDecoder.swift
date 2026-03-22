@@ -54,6 +54,7 @@ enum WaveformPCMDecoder {
         frameRate: Double,
         duration: Double,
         bandCount: Int = defaultBandCount,
+        frequencyDistribution: FrequencyDistribution = .logarithmic,
         normalizeAudio: Bool = false,
         audioRoutingConfig: AudioRoutingConfig? = nil,
         trimStart: Double? = nil,
@@ -87,7 +88,7 @@ enum WaveformPCMDecoder {
         }
 
         // 3. Compute frequency bands via FFT
-        let bandEdges = computeLogBandEdges(bandCount: bandCount)
+        let bandEdges = computeBandEdges(distribution: frequencyDistribution, bandCount: bandCount)
         let hopSize = Int(Double(analysisRate) / frameRate)
         let frameCount = max(1, Int(ceil(duration * frameRate)))
 
@@ -207,7 +208,19 @@ enum WaveformPCMDecoder {
 
     // MARK: - FFT Computation
 
-    /// Computes logarithmically-spaced band edges from minFrequency to maxFrequency.
+    /// Computes frequency band edges using the specified distribution.
+    static func computeBandEdges(distribution: FrequencyDistribution, bandCount: Int) -> [Double] {
+        switch distribution {
+        case .logarithmic:
+            return computeLogBandEdges(bandCount: bandCount)
+        case .mel:
+            return computeMelBandEdges(bandCount: bandCount)
+        case .linear:
+            return computeLinearBandEdges(bandCount: bandCount)
+        }
+    }
+
+    /// Logarithmic (base-2) spacing — matches human frequency perception.
     private static func computeLogBandEdges(bandCount: Int) -> [Double] {
         var edges = [Double](repeating: 0, count: bandCount + 1)
         let logMin = log2(minFrequency)
@@ -216,6 +229,35 @@ enum WaveformPCMDecoder {
             edges[i] = pow(2.0, logMin + (logMax - logMin) * Double(i) / Double(bandCount))
         }
         return edges
+    }
+
+    /// Mel scale — psychoacoustic model with smoother bass-to-treble transition.
+    private static func computeMelBandEdges(bandCount: Int) -> [Double] {
+        var edges = [Double](repeating: 0, count: bandCount + 1)
+        let melMin = hzToMel(minFrequency)
+        let melMax = hzToMel(maxFrequency)
+        for i in 0...bandCount {
+            let mel = melMin + (melMax - melMin) * Double(i) / Double(bandCount)
+            edges[i] = melToHz(mel)
+        }
+        return edges
+    }
+
+    /// Linear — equal Hz per band.
+    private static func computeLinearBandEdges(bandCount: Int) -> [Double] {
+        var edges = [Double](repeating: 0, count: bandCount + 1)
+        for i in 0...bandCount {
+            edges[i] = minFrequency + (maxFrequency - minFrequency) * Double(i) / Double(bandCount)
+        }
+        return edges
+    }
+
+    private static func hzToMel(_ hz: Double) -> Double {
+        2595.0 * log10(1.0 + hz / 700.0)
+    }
+
+    private static func melToHz(_ mel: Double) -> Double {
+        700.0 * (pow(10.0, mel / 2595.0) - 1.0)
     }
 
     /// Runs FFT on each hop position and groups bins into frequency bands.

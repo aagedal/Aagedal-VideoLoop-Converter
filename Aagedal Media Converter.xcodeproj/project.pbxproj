@@ -29,6 +29,8 @@
 		8E04BE122ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */; };
 		8E04BE152ED329FA005AD3D8 /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */; };
 		8E04BE1B2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */; };
+		48EABB563E3687CD044F1DE3 /* AudioFrequencyAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB97784F4F5459DC7E6D8CD3 /* AudioFrequencyAnalyzer.swift */; };
+		681948B45B410910054E7EEB /* FrequencyVisualizerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEDBAB6B2E312097DF4737F8 /* FrequencyVisualizerView.swift */; };
 		8E0556A82F2774B200BCFB49 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8EE0BBBB2E0980560096171D /* Localizable.xcstrings */; };
 		8E08B2822EAA2871000148A8 /* WatchFolderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E08B2812EAA2871000148A8 /* WatchFolderManager.swift */; };
 		8E08B2842EAA3BFD000148A8 /* WatchFolderDurationUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E08B2832EAA3BFD000148A8 /* WatchFolderDurationUnit.swift */; };
@@ -201,6 +203,8 @@
 		8E04BE132ED274D7005AD3D8 /* Aagedal-Media-Converter-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Aagedal-Media-Converter-Info.plist"; sourceTree = SOURCE_ROOT; };
 		8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
 		8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniversalAudioMeterService.swift; sourceTree = "<group>"; };
+		FB97784F4F5459DC7E6D8CD3 /* AudioFrequencyAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFrequencyAnalyzer.swift; sourceTree = "<group>"; };
+		AEDBAB6B2E312097DF4737F8 /* FrequencyVisualizerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrequencyVisualizerView.swift; sourceTree = "<group>"; };
 		8E0556A62F276F0000BCFB49 /* TODO.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = TODO.md; sourceTree = "<group>"; };
 		8E0556A72F27725100BCFB49 /* KeyboardShortcuts.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = KeyboardShortcuts.md; sourceTree = "<group>"; };
 		8E08B27E2EAA284A000148A8 /* WATCH_FOLDER_FEATURE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = WATCH_FOLDER_FEATURE.md; sourceTree = "<group>"; };
@@ -512,6 +516,7 @@
 				8EC9A7052EC156EA0082C67F /* PreviewPlayerController_Observers.swift */,
 				8EC9A7062EC156EA0082C67F /* PreviewPlayerController_Screenshot.swift */,
 				8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */,
+				FB97784F4F5459DC7E6D8CD3 /* AudioFrequencyAnalyzer.swift */,
 			);
 			path = TrimPlayer;
 			sourceTree = "<group>";
@@ -524,6 +529,7 @@
 				8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */,
 				8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */,
 				B0E572B258276C95FCD18159 /* AudioVisualizerView.swift */,
+				AEDBAB6B2E312097DF4737F8 /* FrequencyVisualizerView.swift */,
 				A1B2C3D4E5F60718293A4B5D /* CaptureModeView.swift */,
 				8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */,
 				8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */,
@@ -947,6 +953,8 @@
 				8E9B52552ED65156006E6A10 /* AudioRoutingModels.swift in Sources */,
 				8E04BE152ED329FA005AD3D8 /* AudioMeterView.swift in Sources */,
 				775BFDA5FA3CD2AB28D8DB57 /* AudioVisualizerView.swift in Sources */,
+				48EABB563E3687CD044F1DE3 /* AudioFrequencyAnalyzer.swift in Sources */,
+				681948B45B410910054E7EEB /* FrequencyVisualizerView.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* CaptureModeView.swift in Sources */,
 				8E4DF2732ECBBE38007B6277 /* WatchFolderSettingsView.swift in Sources */,
 				8E1477472ECF453900C805AA /* UpdateChecker.swift in Sources */,

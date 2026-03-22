@@ -23,18 +23,43 @@ final class UniversalAudioMeterService: NSObject, ObservableObject {
     @Published private(set) var currentLevels: AudioLevels = .silence
     @Published private(set) var isMonitoring = false
     @Published private(set) var permissionError: Bool = false
-    
+    /// Real-time frequency band magnitudes (0.0–1.0 per band). Nil when not monitoring.
+    @Published private(set) var frequencyBands: [Float]?
+
     private var stream: SCStream?
     private let audioOutput = StreamOutput()
-    
+
     override init() {
         super.init()
+        // Load band settings and create analyzer
+        let config = AudioWaveformPreferences.loadConfig()
+        let analyzer = AudioFrequencyAnalyzer(
+            bandCount: config.bandCount,
+            frequencyDistribution: config.frequencyDistribution
+        )
+        audioOutput.frequencyAnalyzer = analyzer
+
         // Connect the output's level updates to our published property
         audioOutput.levelUpdateHandler = { [weak self] levels in
             Task { @MainActor [weak self] in
                 self?.currentLevels = levels
             }
         }
+        audioOutput.frequencyUpdateHandler = { [weak self] bands in
+            Task { @MainActor [weak self] in
+                self?.frequencyBands = bands
+            }
+        }
+    }
+
+    /// Reload frequency analyzer settings (call when user changes waveform settings).
+    func reloadFrequencySettings() {
+        let config = AudioWaveformPreferences.loadConfig()
+        let analyzer = AudioFrequencyAnalyzer(
+            bandCount: config.bandCount,
+            frequencyDistribution: config.frequencyDistribution
+        )
+        audioOutput.frequencyAnalyzer = analyzer
     }
     
     /// Start monitoring app audio
@@ -106,6 +131,8 @@ final class UniversalAudioMeterService: NSObject, ObservableObject {
         stream = nil
         isMonitoring = false
         currentLevels = .silence
+        frequencyBands = nil
+        audioOutput.frequencyAnalyzer?.reset()
     }
 }
 
@@ -114,7 +141,9 @@ final class UniversalAudioMeterService: NSObject, ObservableObject {
 private class StreamOutput: NSObject, SCStreamOutput {
     let queue = DispatchQueue(label: "com.aagedal.audiometer.processing")
     var levelUpdateHandler: ((UniversalAudioMeterService.AudioLevels) -> Void)?
-    
+    var frequencyUpdateHandler: (([Float]) -> Void)?
+    var frequencyAnalyzer: AudioFrequencyAnalyzer?
+
     private var leftPeak: Float = 0.0
     private var rightPeak: Float = 0.0
     private let floorLevel: Float = -60.0
@@ -165,6 +194,12 @@ private class StreamOutput: NSObject, SCStreamOutput {
         )
         
         levelUpdateHandler?(levels)
+
+        // Run FFT for frequency band visualization
+        if let analyzer = frequencyAnalyzer {
+            analyzer.process(samples: floats, count: floatCount)
+            frequencyUpdateHandler?(analyzer.bands)
+        }
     }
     
     private func amplitudeToDecibels(_ amplitude: Float) -> Float {

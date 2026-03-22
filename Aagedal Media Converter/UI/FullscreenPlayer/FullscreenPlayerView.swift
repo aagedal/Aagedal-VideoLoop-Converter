@@ -405,7 +405,17 @@ struct FullscreenPlayerView: View {
     private var videoContent: some View {
         ZStack {
             if !itemState.hasVideoStream {
-                AudioVisualizerView(samples: waveformSamples)
+                if let bands = controller.frequencyBands, !bands.isEmpty {
+                    let config = AudioWaveformPreferences.loadConfig()
+                    FrequencyVisualizerView(
+                        bandMagnitudes: bands,
+                        style: config.swiftStyle,
+                        foregroundColor: config.foregroundColor,
+                        backgroundColor: config.backgroundColor
+                    )
+                } else {
+                    AudioVisualizerView(samples: waveformSamples)
+                }
             }
 
             if let player = controller.player {

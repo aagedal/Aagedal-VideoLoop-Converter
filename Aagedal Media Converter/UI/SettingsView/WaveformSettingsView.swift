@@ -32,6 +32,8 @@ struct WaveformSettingsView: View {
     @AppStorage(AppConstants.audioWaveformFrameRateKey) private var waveformFrameRate = AppConstants.defaultAudioWaveformFrameRate
     @AppStorage(AppConstants.audioWaveformRenderingEngineKey) private var waveformRenderingEngineRaw = "swift"
     @AppStorage(AppConstants.audioWaveformSwiftStyleKey) private var waveformSwiftStyleRaw = "capsules"
+    @AppStorage(AppConstants.audioWaveformBandCountKey) private var waveformBandCount = 32
+    @AppStorage(AppConstants.audioWaveformFrequencyDistributionKey) private var waveformFrequencyDistributionRaw = "logarithmic"
 
     var bgColorText: String = "Background Color"
     var waveformColorText: String = "Foreground Color"
@@ -173,6 +175,27 @@ struct WaveformSettingsView: View {
                         .pickerStyle(MenuPickerStyle())
                         .help("Choose the visual appearance for the native Swift waveform renderer.")
                     }
+
+                    HStack(spacing: 16) {
+                        Picker("Bands", selection: $waveformBandCount) {
+                            ForEach([16, 24, 32, 48, 64], id: \.self) { count in
+                                Text("\(count)").tag(count)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        .help("Number of frequency bands (capsules, bars, or wire points).")
+
+                        Picker("Distribution", selection: Binding(
+                            get: { FrequencyDistribution(rawValue: waveformFrequencyDistributionRaw) ?? .logarithmic },
+                            set: { waveformFrequencyDistributionRaw = $0.rawValue }
+                        )) {
+                            ForEach(FrequencyDistribution.allCases) { dist in
+                                Text(dist.displayName).tag(dist)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        .help("How frequency ranges are mapped to bands. Logarithmic matches human hearing.")
+                    }
                 } else {
                     HStack {
                         Picker(
@@ -277,5 +300,7 @@ struct WaveformSettingsView: View {
         waveformFrameRate = AppConstants.defaultAudioWaveformFrameRate
         waveformRenderingEngineRaw = "swift"
         waveformSwiftStyleRaw = "capsules"
+        waveformBandCount = 32
+        waveformFrequencyDistributionRaw = "logarithmic"
     }
 }
