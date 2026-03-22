@@ -33,17 +33,21 @@ final class PreviewPlayerController: ObservableObject {
     
     @Published var volume: Double = 100 {
         didSet {
-            // Only apply if MPV is active
             if useMPV, let mpvPlayer {
                 mpvPlayer.volume = volume
+            }
+            if let audioPlayer = imageSequenceAudioPlayer {
+                audioPlayer.volume = Float(volume / 100.0)
             }
         }
     }
     @Published var isMuted: Bool = false {
         didSet {
-            // Only apply if MPV is active
             if useMPV, let mpvPlayer {
                 mpvPlayer.isMuted = isMuted
+            }
+            if let audioPlayer = imageSequenceAudioPlayer {
+                audioPlayer.isMuted = isMuted
             }
         }
     }
@@ -54,6 +58,8 @@ final class PreviewPlayerController: ObservableObject {
     @Published private(set) var currentWaveformURL: URL?
     @Published private(set) var currentWaveformChunks: [WaveformChunk] = []
     @Published private(set) var currentNativeWaveformImage: NSImage?
+    @Published private(set) var currentChannelWaveformImages: [NSImage] = []
+    @Published private(set) var currentChannelWaveformLabels: [String] = []
     @Published private(set) var totalDuration: Double = 0  // For chunk width calculation
     @Published var currentPlaybackTime: Double = 0
     @Published private(set) var currentPlaybackSpeed: Float = 1.0
@@ -109,6 +115,7 @@ final class PreviewPlayerController: ObservableObject {
     @Published var isImageSequencePlaying = false
     private var imageSequenceConfig: ImageSequenceConfig?
     private var imageSequencePlaybackTimer: Timer?
+    private var imageSequenceAudioPlayer: AVPlayer?
 
     // MARK: - Initialization
     
@@ -341,11 +348,36 @@ final class PreviewPlayerController: ObservableObject {
         let directAccess = !bookmarkAccess && config.directory.startAccessingSecurityScopedResource()
         hasSecurityScope = bookmarkAccess || directAccess
 
+        // Set up audio player for the associated audio file
+        if let audioURL = config.associatedAudioURL {
+            // Acquire security-scoped access for the audio file
+            let audioBookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: audioURL)
+            if !audioBookmarkAccess {
+                audioURL.startAccessingSecurityScopedResource()
+            }
+
+            let audioAsset = AVURLAsset(url: audioURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+            let audioPlayerItem = AVPlayerItem(asset: audioAsset)
+            let audioPlayer = AVPlayer(playerItem: audioPlayerItem)
+            audioPlayer.volume = Float(volume / 100.0)
+            audioPlayer.isMuted = isMuted
+            self.imageSequenceAudioPlayer = audioPlayer
+
+            // Seek audio to start time
+            let seekTime = CMTime(seconds: startTime, preferredTimescale: 600)
+            audioPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+
+            // Load waveform preview assets for the audio file
+            loadPreviewAssets(for: audioURL)
+        }
+
         // Load the frame at the start time
         loadImageSequenceFrame(at: startTime)
 
         self.isReady = true
-        self.isLoadingPreviewAssets = false
+        if config.associatedAudioURL == nil {
+            self.isLoadingPreviewAssets = false
+        }
     }
 
     /// Loads the image frame corresponding to the given time position in the sequence.
@@ -384,6 +416,14 @@ final class PreviewPlayerController: ObservableObject {
         isImageSequencePlaying = true
         currentPlaybackSpeed = 1.0
 
+        // Start associated audio playback in sync
+        if let audioPlayer = imageSequenceAudioPlayer {
+            let seekTime = CMTime(seconds: currentPlaybackTime, preferredTimescale: 600)
+            audioPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak audioPlayer] _ in
+                audioPlayer?.play()
+            }
+        }
+
         let interval = 1.0 / config.frameRate
         let trimEnd = videoItem.effectiveTrimEnd
 
@@ -394,7 +434,10 @@ final class PreviewPlayerController: ObservableObject {
                 if nextTime >= trimEnd {
                     // Reached the end
                     if self.videoItem.loopPlayback {
-                        self.seekTo(self.videoItem.effectiveTrimStart)
+                        let loopStart = self.videoItem.effectiveTrimStart
+                        self.seekTo(loopStart)
+                        // Resume audio playback after loop seek
+                        self.imageSequenceAudioPlayer?.play()
                     } else {
                         self.stopImageSequencePlayback()
                         self.currentPlaybackTime = trimEnd
@@ -415,6 +458,7 @@ final class PreviewPlayerController: ObservableObject {
         imageSequencePlaybackTimer = nil
         isImageSequencePlaying = false
         currentPlaybackSpeed = 0
+        imageSequenceAudioPlayer?.pause()
     }
 
     /// Converts a time position to a frame number within the sequence bounds.
@@ -488,6 +532,11 @@ final class PreviewPlayerController: ObservableObject {
     
     func pause() {
         stopReverseSimulation()
+
+        if useImageSequence {
+            stopImageSequencePlayback()
+            return
+        }
 
         if useMPV, let mpv = mpvPlayer {
             // Reset rate FIRST, then pause
@@ -947,14 +996,18 @@ final class PreviewPlayerController: ObservableObject {
 
     private func updateCurrentWaveform() {
         let streamIndex = selectedAudioStreamIndex()
-        // Native waveform image (preferred, fast)
+        // Per-channel waveform images (preferred, shows one waveform per audio channel)
+        let channelWaveform = previewAssets?.nativeChannelWaveforms(forAudioStream: streamIndex)
+        currentChannelWaveformImages = channelWaveform?.channelImages ?? []
+        currentChannelWaveformLabels = channelWaveform?.channelLabels ?? []
+        // Native waveform image (fallback, single mono image)
         currentNativeWaveformImage = previewAssets?.nativeWaveform(forAudioStream: streamIndex)
         // Legacy single-image waveform (kept for backwards compatibility)
         currentWaveformURL = previewAssets?.waveform(forAudioStream: streamIndex)
         // Chunked waveform support (fallback)
         currentWaveformChunks = previewAssets?.waveformChunks(forAudioStream: streamIndex) ?? []
         totalDuration = previewAssets?.totalDuration ?? 0
-        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform: native=\(self.currentNativeWaveformImage != nil), \(self.currentWaveformChunks.count) chunks, totalDuration: \(self.totalDuration)s for stream index: \(streamIndex ?? -1)")
+        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform: channels=\(self.currentChannelWaveformImages.count), native=\(self.currentNativeWaveformImage != nil), \(self.currentWaveformChunks.count) chunks, totalDuration: \(self.totalDuration)s for stream index: \(streamIndex ?? -1)")
     }
 
     // MARK: - Subtitle Track Selection
@@ -1036,6 +1089,12 @@ final class PreviewPlayerController: ObservableObject {
 
         // Clean up image sequence state
         stopImageSequencePlayback()
+        if let audioURL = imageSequenceConfig?.associatedAudioURL {
+            SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: audioURL)
+            audioURL.stopAccessingSecurityScopedResource()
+        }
+        imageSequenceAudioPlayer?.pause()
+        imageSequenceAudioPlayer = nil
         useImageSequence = false
         imageSequenceFrame = nil
         imageSequenceConfig = nil
@@ -1055,6 +1114,8 @@ final class PreviewPlayerController: ObservableObject {
         currentWaveformURL = nil
         currentWaveformChunks = []
         currentNativeWaveformImage = nil
+        currentChannelWaveformImages = []
+        currentChannelWaveformLabels = []
         totalDuration = 0
 
         // Stop asset refresh polling
@@ -1071,6 +1132,11 @@ final class PreviewPlayerController: ObservableObject {
     // MARK: - Playback Control
     
     func refreshPreviewForTrim() {
+        if useImageSequence {
+            seekTo(videoItem.effectiveTrimStart)
+            return
+        }
+
         if useMPV, let mpv = mpvPlayer {
             mpv.seek(to: videoItem.effectiveTrimStart)
             return
@@ -1102,9 +1168,13 @@ final class PreviewPlayerController: ObservableObject {
         // Update playback time immediately for UI responsiveness
         currentPlaybackTime = time
 
-        // Image sequence: load the frame at this time position
+        // Image sequence: load the frame at this time position and sync audio
         if useImageSequence {
             loadImageSequenceFrame(at: time)
+            if let audioPlayer = imageSequenceAudioPlayer {
+                let seekTime = CMTime(seconds: time, preferredTimescale: 600)
+                audioPlayer.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+            }
             return
         }
 
