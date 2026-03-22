@@ -1451,7 +1451,8 @@ actor PreviewAssetGenerator {
             foregroundHex: prefs.foregroundHex,
             normalizeAudio: prefs.normalizeAudio,
             style: prefs.style,
-            frameRate: prefs.frameRate
+            frameRate: prefs.frameRate,
+            renderingEngine: prefs.renderingEngine
         )
     }
 }

@@ -30,9 +30,17 @@ struct WaveformSettingsView: View {
     @AppStorage(AppConstants.audioWaveformNormalizeKey) private var waveformNormalizeAudio = false
     @AppStorage(AppConstants.audioWaveformStyleKey) private var waveformStyleRaw = AppConstants.defaultAudioWaveformStyleRaw
     @AppStorage(AppConstants.audioWaveformFrameRateKey) private var waveformFrameRate = AppConstants.defaultAudioWaveformFrameRate
-    
+    @AppStorage(AppConstants.audioWaveformRenderingEngineKey) private var waveformRenderingEngineRaw = "swift"
+
     var bgColorText: String = "Background Color"
     var waveformColorText: String = "Foreground Color"
+
+    private var selectedRenderingEngine: Binding<WaveformRenderingEngine> {
+        Binding(
+            get: { WaveformRenderingEngine(rawValue: waveformRenderingEngineRaw) ?? .swift },
+            set: { waveformRenderingEngineRaw = $0.rawValue }
+        )
+    }
 
     private var selectedAspectRatio: Binding<AspectRatio> {
         Binding(
@@ -136,21 +144,33 @@ struct WaveformSettingsView: View {
 
                 Divider()
                     .padding(.vertical, 4)
-                
+
                 HStack {
-                    Picker(
-                        "Waveform style",
-                        selection: Binding(
-                            get: { WaveformStyle(rawValue: waveformStyleRaw) ?? .linear },
-                            set: { waveformStyleRaw = $0.rawValue }
-                        )
-                    ) {
-                        ForEach(WaveformStyle.allCases) { style in
-                            Text(style.displayName).tag(style)
+                    Picker("Rendering engine", selection: selectedRenderingEngine) {
+                        ForEach(WaveformRenderingEngine.allCases) { engine in
+                            Text(engine.displayName).tag(engine)
                         }
                     }
                     .pickerStyle(MenuPickerStyle())
-                    .help("Choose the visual appearance used when rendering waveform videos.")
+                    .help("Swift renders capsule-style frequency visualizer natively. FFmpeg uses classic waveform filters.")
+                }
+
+                if (WaveformRenderingEngine(rawValue: waveformRenderingEngineRaw) ?? .swift) == .ffmpeg {
+                    HStack {
+                        Picker(
+                            "Waveform style",
+                            selection: Binding(
+                                get: { WaveformStyle(rawValue: waveformStyleRaw) ?? .linear },
+                                set: { waveformStyleRaw = $0.rawValue }
+                            )
+                        ) {
+                            ForEach(WaveformStyle.allCases) { style in
+                                Text(style.displayName).tag(style)
+                            }
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        .help("Choose the visual appearance used when rendering waveform videos (FFmpeg engine only).")
+                    }
                 }
 
                 HStack {
@@ -237,5 +257,6 @@ struct WaveformSettingsView: View {
         waveformNormalizeAudio = false
         waveformStyleRaw = AppConstants.defaultAudioWaveformStyleRaw
         waveformFrameRate = AppConstants.defaultAudioWaveformFrameRate
+        waveformRenderingEngineRaw = "swift"
     }
 }

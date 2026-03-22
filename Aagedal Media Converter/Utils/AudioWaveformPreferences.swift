@@ -12,6 +12,23 @@ import CoreGraphics
 import SwiftUI
 import AppKit
 
+/// Selects which rendering engine produces waveform video frames.
+enum WaveformRenderingEngine: String, CaseIterable, Identifiable {
+    /// Native Swift renderer (capsule frequency visualizer via CoreGraphics).
+    case swift = "swift"
+    /// Legacy FFmpeg filter renderer (showwaves / showspectrum).
+    case ffmpeg = "ffmpeg"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .swift: return "Swift (Capsules)"
+        case .ffmpeg: return "FFmpeg (Classic)"
+        }
+    }
+}
+
 enum WaveformStyle: String, CaseIterable, Identifiable {
     case linear
     case circle
@@ -47,6 +64,7 @@ struct AudioWaveformPreferences {
         let normalizeAudio: Bool
         let style: WaveformStyle
         let frameRate: Double
+        let renderingEngine: WaveformRenderingEngine
 
         var resolutionString: String {
             "\(width)x\(height)"
@@ -86,6 +104,9 @@ struct AudioWaveformPreferences {
         let style = WaveformStyle(rawValue: styleRaw) ?? .fisheye
         let frameRate = sanitizeFrameRate(defaults.double(forKey: AppConstants.audioWaveformFrameRateKey))
 
+        let engineRaw = defaults.string(forKey: AppConstants.audioWaveformRenderingEngineKey) ?? "swift"
+        let renderingEngine = WaveformRenderingEngine(rawValue: engineRaw) ?? .swift
+
         return WaveformVideoConfig(
             resolution: CGSize(width: width, height: height),
             width: width,
@@ -94,7 +115,8 @@ struct AudioWaveformPreferences {
             foregroundHex: foreground,
             normalizeAudio: normalize,
             style: style,
-            frameRate: frameRate
+            frameRate: frameRate,
+            renderingEngine: renderingEngine
         )
     }
 

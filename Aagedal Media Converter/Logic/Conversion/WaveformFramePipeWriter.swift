@@ -1,0 +1,102 @@
+// Aagedal Media Converter
+// Copyright © 2026 Truls Aagedal
+// SPDX-License-Identifier: GPL-3.0-or-later
+//
+// Orchestrates the native waveform render loop: smooths frequency band data,
+// renders BGRA frames via NativeWaveformVideoRenderer, and writes them to
+// a pipe consumed by FFmpeg as rawvideo input.
+
+import Foundation
+import OSLog
+
+enum WaveformFramePipeWriter {
+
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "WaveformPipeWriter")
+
+    /// Smoothing decay factor per frame. Fast attack (instant rise), slow release.
+    /// At 25 fps a value of 0.85 means ~150 ms half-life.
+    private static let decayFactor: Float = 0.85
+
+    // MARK: - Public API
+
+    /// Renders all waveform video frames and writes them to the pipe.
+    ///
+    /// This method blocks the calling context until all frames are written (or cancelled).
+    /// It should be called from a background Task so FFmpeg can encode concurrently.
+    ///
+    /// - Parameters:
+    ///   - pipe: The Pipe whose fileHandleForWriting receives raw BGRA frames.
+    ///   - frequencyData: Pre-computed frequency band magnitudes per frame.
+    ///   - width: Frame width in pixels.
+    ///   - height: Frame height in pixels.
+    ///   - foregroundHex: Hex color string for capsule fill.
+    ///   - backgroundHex: Hex color string for frame background.
+    ///   - progressUpdate: Called with 0.0–1.0 progress fraction.
+    static func writeFrames(
+        to pipe: Pipe,
+        frequencyData: FrequencyBandData,
+        width: Int,
+        height: Int,
+        foregroundHex: String,
+        backgroundHex: String,
+        progressUpdate: @escaping @Sendable (Double) -> Void
+    ) async {
+        let writeHandle = pipe.fileHandleForWriting
+        let frameCount = frequencyData.frameCount
+        let bandCount = frequencyData.bandCount
+
+        let fg = NativeWaveformRenderer.parseHexColor(foregroundHex)
+        let bg = NativeWaveformRenderer.parseHexColor(backgroundHex)
+
+        // Smoothed magnitudes for animation (fast attack, slow release)
+        var smoothed = [Float](repeating: 0, count: bandCount)
+
+        // Ignore SIGPIPE so broken pipe returns an error instead of crashing
+        signal(SIGPIPE, SIG_IGN)
+
+        logger.info("Starting native waveform render: \(frameCount) frames, \(width)x\(height), \(bandCount) bands")
+
+        for frame in 0..<frameCount {
+            // Check cancellation
+            if Task.isCancelled {
+                logger.info("Waveform render cancelled at frame \(frame)/\(frameCount)")
+                break
+            }
+
+            // Apply smoothing: fast attack (instant), slow release (decay)
+            let rawMagnitudes = frequencyData.magnitudes[frame]
+            for band in 0..<bandCount {
+                let raw = rawMagnitudes[band]
+                smoothed[band] = max(raw, smoothed[band] * decayFactor)
+            }
+
+            // Render frame
+            let frameData = NativeWaveformVideoRenderer.renderFrame(
+                bandMagnitudes: smoothed,
+                width: width,
+                height: height,
+                foregroundColor: fg,
+                backgroundColor: bg
+            )
+
+            // Write to pipe (blocks if FFmpeg's encoding is slower — natural backpressure)
+            do {
+                try writeHandle.write(contentsOf: frameData)
+            } catch {
+                // Pipe broken (FFmpeg exited or crashed)
+                logger.error("Pipe write failed at frame \(frame): \(error.localizedDescription)")
+                break
+            }
+
+            // Report progress periodically (every 10 frames to avoid overhead)
+            if frame % 10 == 0 || frame == frameCount - 1 {
+                let progress = Double(frame + 1) / Double(frameCount)
+                progressUpdate(progress)
+            }
+        }
+
+        // Close write end so FFmpeg sees EOF and finishes encoding
+        try? writeHandle.close()
+        logger.info("Waveform frame writing complete")
+    }
+}
