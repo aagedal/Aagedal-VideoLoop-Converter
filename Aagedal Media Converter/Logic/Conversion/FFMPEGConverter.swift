@@ -72,24 +72,60 @@ actor FFMPEGConverter {
             return
         }
 
-        // Add file extension based on preset
-        var outputFileURL = outputURL.appendingPathExtension(preset.outputExtension(for: inputURL))
+        // Image sequence export: create subfolder and use pattern-based output path
+        var outputFileURL: URL
+        let isImageSequenceExport = preset == .imageSequence
 
-        // CRITICAL: Ensure we never overwrite the source file
-        if outputFileURL.standardizedFileURL == inputURL.standardizedFileURL {
-            // Add "_encoded" suffix to prevent overwriting source
+        if isImageSequenceExport {
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
+            let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
+            let padding = UserDefaults.standard.integer(forKey: AppConstants.imageSequenceNumberingPaddingKey)
+            let effectivePadding = padding > 0 ? padding : AppConstants.defaultImageSequenceNumberingPadding
+
+            // Create subfolder: outputDir/basename_seq/
+            let subfolderName = outputURL.lastPathComponent
+            let subfolderURL = outputDir.appendingPathComponent(subfolderName, isDirectory: true)
+
+            // Ensure unique folder name
+            var finalSubfolderURL = subfolderURL
+            var counter = 1
+            while FileManager.default.fileExists(atPath: finalSubfolderURL.path) {
+                finalSubfolderURL = outputDir.appendingPathComponent("\(subfolderName)_\(counter)", isDirectory: true)
+                counter += 1
+            }
+
+            do {
+                try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
+            } catch {
+                print("Failed to create image sequence output directory: \(error)")
+                completion(false)
+                return
+            }
+
+            // Build the FFMPEG output pattern: subfolder/basename_%06d.png
             let baseName = outputURL.lastPathComponent
-            let safeOutputURL = outputDir.appendingPathComponent(baseName + "_encoded")
-                .appendingPathExtension(preset.outputExtension(for: inputURL))
-            print("⚠️ Safety check: Would have overwritten input file. Changed output to: \(safeOutputURL.lastPathComponent)")
-            outputFileURL = safeOutputURL
+            let patternFileName = "\(baseName)_%0\(effectivePadding)d.\(format.primaryExtension)"
+            outputFileURL = finalSubfolderURL.appendingPathComponent(patternFileName)
+        } else {
+            // Add file extension based on preset
+            outputFileURL = outputURL.appendingPathExtension(preset.outputExtension(for: inputURL))
+
+            // CRITICAL: Ensure we never overwrite the source file
+            if outputFileURL.standardizedFileURL == inputURL.standardizedFileURL {
+                // Add "_encoded" suffix to prevent overwriting source
+                let baseName = outputURL.lastPathComponent
+                let safeOutputURL = outputDir.appendingPathComponent(baseName + "_encoded")
+                    .appendingPathExtension(preset.outputExtension(for: inputURL))
+                print("⚠️ Safety check: Would have overwritten input file. Changed output to: \(safeOutputURL.lastPathComponent)")
+                outputFileURL = safeOutputURL
+            }
+
+            // Ensure unique output path (don't overwrite existing files)
+            outputFileURL = FileSafetyUtils.uniqueOutputURL(outputFileURL, notOverwriting: inputURL)
+
+            // Register this file as created by the app (for safe deletion later if needed)
+            FileSafetyUtils.registerCreatedFile(outputFileURL)
         }
-
-        // Ensure unique output path (don't overwrite existing files)
-        outputFileURL = FileSafetyUtils.uniqueOutputURL(outputFileURL, notOverwriting: inputURL)
-
-        // Register this file as created by the app (for safe deletion later if needed)
-        FileSafetyUtils.registerCreatedFile(outputFileURL)
 
         // For AVC-Intra MXF, FFmpeg outputs to temp file, then bmxtranswrap rewraps to OP1a
         let needsBMXRewrap = preset == .tvAVCIntra

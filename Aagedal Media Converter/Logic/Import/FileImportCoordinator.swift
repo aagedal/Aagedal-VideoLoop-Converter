@@ -45,13 +45,61 @@ final class FileImportCoordinator {
     ) async {
         switch result {
         case .success(let urls):
-            await performImport(
-                urls: urls,
-                droppedFiles: droppedFiles,
-                outputFolder: outputFolder,
-                preset: preset,
-                applyMute: applyMute
-            )
+            // Separate folders/images from regular media files
+            var mediaURLs: [URL] = []
+            var sequenceItems: [VideoItem] = []
+
+            for url in urls {
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    // Folder — detect image sequences
+                    _ = url.startAccessingSecurityScopedResource()
+                    let sequences = ImageSequenceDetector.detectSequences(inFolder: url)
+                    _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+                    url.stopAccessingSecurityScopedResource()
+                    for config in sequences {
+                        sequenceItems.append(VideoFileUtils.makePlaceholderItem(
+                            fromImageSequence: config, outputFolder: outputFolder, preset: preset
+                        ))
+                    }
+                } else {
+                    let ext = url.pathExtension.lowercased()
+                    if AppConstants.supportedImageSequenceExtensions.contains(ext) {
+                        // Image file — detect sequence from parent directory
+                        _ = url.startAccessingSecurityScopedResource()
+                        if let config = ImageSequenceDetector.detectSequence(fromFile: url) {
+                            let parentDir = url.deletingLastPathComponent()
+                            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: parentDir)
+                            sequenceItems.append(VideoFileUtils.makePlaceholderItem(
+                                fromImageSequence: config, outputFolder: outputFolder, preset: preset
+                            ))
+                        }
+                        url.stopAccessingSecurityScopedResource()
+                    } else {
+                        mediaURLs.append(url)
+                    }
+                }
+            }
+
+            // Add image sequences directly
+            if !sequenceItems.isEmpty {
+                let startIndex = droppedFiles.wrappedValue.count
+                droppedFiles.wrappedValue.append(contentsOf: sequenceItems)
+                itemIndex.appendedItems(sequenceItems, startingAt: startIndex)
+                await FileImportManager.shared.addToKnownURLs(sequenceItems.map { $0.url })
+            }
+
+            // Import regular media files
+            if !mediaURLs.isEmpty {
+                await performImport(
+                    urls: mediaURLs,
+                    droppedFiles: droppedFiles,
+                    outputFolder: outputFolder,
+                    preset: preset,
+                    applyMute: applyMute
+                )
+            }
+
         case .failure(let error):
             logger.error("Error selecting files: \(error.localizedDescription, privacy: .public)")
         }
@@ -96,7 +144,23 @@ final class FileImportCoordinator {
         applyMute: Bool,
         onURLDrop: ((URL) -> Void)? = nil
     ) async {
-        let urls = await extractURLs(from: providers, onURLDrop: onURLDrop)
+        let (urls, imageSequenceItems) = await extractURLsAndSequences(
+            from: providers,
+            outputFolder: outputFolder,
+            preset: preset,
+            onURLDrop: onURLDrop
+        )
+
+        // Add any detected image sequence items directly to the queue
+        if !imageSequenceItems.isEmpty {
+            let startIndex = droppedFiles.wrappedValue.count
+            droppedFiles.wrappedValue.append(contentsOf: imageSequenceItems)
+            itemIndex.appendedItems(imageSequenceItems, startingAt: startIndex)
+            await FileImportManager.shared.addToKnownURLs(imageSequenceItems.map { $0.url })
+            logger.info("Added \(imageSequenceItems.count) image sequence(s) to queue")
+        }
+
+        // Import regular media files through the normal pipeline
         guard !urls.isEmpty else { return }
 
         await performImport(
@@ -362,6 +426,116 @@ final class FileImportCoordinator {
         }
 
         return fileURLs
+    }
+
+    /// Extended URL extraction that also detects image sequences from dropped folders and image files.
+    /// Returns both regular media file URLs and fully-formed VideoItem objects for detected sequences.
+    private func extractURLsAndSequences(
+        from providers: [NSItemProvider],
+        outputFolder: String,
+        preset: ExportPreset,
+        onURLDrop: ((URL) -> Void)?
+    ) async -> (urls: [URL], imageSequenceItems: [VideoItem]) {
+        var fileURLs: [URL] = []
+        var sequenceItems: [VideoItem] = []
+        let supportedExtensions = AppConstants.supportedVideoExtensions
+        let imageExtensions = AppConstants.supportedImageSequenceExtensions
+
+        for provider in providers {
+            // Check for plain text URLs (web URLs) first
+            if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
+                if let urlString = await loadPlainTextURL(from: provider),
+                   DownloadManager.isValidURL(urlString),
+                   let url = URL(string: urlString),
+                   url.scheme == "http" || url.scheme == "https" {
+                    onURLDrop?(url)
+                    continue
+                }
+            }
+
+            // Load file URL using loadObject (works for Finder drops)
+            guard provider.canLoadObject(ofClass: URL.self) else { continue }
+
+            let loadedURL: URL? = await withCheckedContinuation { continuation in
+                _ = provider.loadObject(ofClass: URL.self) { object, error in
+                    continuation.resume(returning: object)
+                }
+            }
+
+            guard let url = loadedURL else { continue }
+
+            // Check if this is a web URL
+            if url.scheme == "http" || url.scheme == "https" {
+                onURLDrop?(url)
+                continue
+            }
+
+            // Get security access for the file/folder
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            var needsBookmarkAccess = false
+
+            if !hasAccess {
+                if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
+                    needsBookmarkAccess = true
+                } else if !FileManager.default.isReadableFile(atPath: url.path) {
+                    logger.debug("No access to file: \(url.lastPathComponent, privacy: .public)")
+                    continue
+                }
+            }
+
+            defer {
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
+                else if needsBookmarkAccess { SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url) }
+            }
+
+            // Check if URL is a directory — try to detect image sequences
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                let sequences = ImageSequenceDetector.detectSequences(inFolder: url)
+                if !sequences.isEmpty {
+                    // Save bookmark for the folder
+                    _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+                    for config in sequences {
+                        let item = VideoFileUtils.makePlaceholderItem(
+                            fromImageSequence: config,
+                            outputFolder: outputFolder,
+                            preset: preset
+                        )
+                        sequenceItems.append(item)
+                    }
+                }
+                continue
+            }
+
+            // Check if this is an image file that might be part of a sequence
+            let fileExtension = url.pathExtension.lowercased()
+            if imageExtensions.contains(fileExtension) {
+                if let config = ImageSequenceDetector.detectSequence(fromFile: url) {
+                    // Save bookmark for the parent directory
+                    let parentDir = url.deletingLastPathComponent()
+                    _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: parentDir)
+                    let item = VideoFileUtils.makePlaceholderItem(
+                        fromImageSequence: config,
+                        outputFolder: outputFolder,
+                        preset: preset
+                    )
+                    sequenceItems.append(item)
+                }
+                continue
+            }
+
+            // Regular media file
+            guard !fileExtension.isEmpty, supportedExtensions.contains(fileExtension) else {
+                logger.debug("Skipping unsupported file extension: \(fileExtension, privacy: .public) for \(url.lastPathComponent, privacy: .public)")
+                continue
+            }
+
+            // Save bookmark for future access
+            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+            fileURLs.append(url)
+        }
+
+        return (fileURLs, sequenceItems)
     }
 
     private func loadPlainTextURL(from provider: NSItemProvider) async -> String? {

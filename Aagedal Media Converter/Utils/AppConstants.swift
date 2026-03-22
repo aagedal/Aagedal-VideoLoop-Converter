@@ -91,7 +91,13 @@ enum AppConstants {
         "trp", "ts", "vob", "wav", "webm",
         "wma", "wmv", "wtv", "y4m"
     ]
-    
+
+    // Supported image sequence file extensions (lowercase)
+    static let supportedImageSequenceExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "tif", "tiff",
+        "exr", "dpx", "bmp", "tga", "sgi", "jxl"
+    ]
+
     // Supported UTType identifiers for file picker
     static let supportedVideoTypes: [String] = [
         "public.movie",
@@ -130,7 +136,12 @@ enum AppConstants {
     static let audioWaveformSwiftStyleKey = "audioWaveformSwiftStyle"
     static let audioWaveformBandCountKey = "audioWaveformBandCount"
     static let audioWaveformFrequencyDistributionKey = "audioWaveformFrequencyDistribution"
-    
+    static let audioWaveformForegroundGradientEnabledKey = "audioWaveformForegroundGradientEnabled"
+    static let audioWaveformForegroundGradientEndColorKey = "audioWaveformForegroundGradientEndColor"
+    static let audioWaveformBackgroundGradientEnabledKey = "audioWaveformBackgroundGradientEnabled"
+    static let audioWaveformBackgroundGradientEndColorKey = "audioWaveformBackgroundGradientEndColor"
+    static let audioWaveformOpacityKey = "audioWaveformOpacity"
+
     // Maximum thumbnail dimensions
     static let maxThumbnailSize = CGSize(width: 320, height: 320)
     static let includeDateTagPreferenceKey = "includeDateTagByDefault"
@@ -414,6 +425,17 @@ enum AppConstants {
     static let streamCopyVisibleKey = "streamCopyVisible"
     static let audioWAVVisibleKey = "audioWAVVisible"
     static let audioAACVisibleKey = "audioAACVisible"
+    static let imageSequenceVisibleKey = "imageSequenceVisible"
+
+    // Image sequence preset settings
+    static let imageSequenceExportFormatKey = "imageSequenceExportFormat"
+    static let defaultImageSequenceExportFormat = "PNG"
+    static let imageSequenceExportQualityKey = "imageSequenceExportQuality"
+    static let defaultImageSequenceExportQuality = 2 // JPEG quality (1=best, 31=worst)
+    static let imageSequenceNumberingPaddingKey = "imageSequenceNumberingPadding"
+    static let defaultImageSequenceNumberingPadding = 6
+    static let imageSequenceFrameRateKey = "imageSequenceFrameRate"
+    static let defaultImageSequenceFrameRate: Double = 24.0
 
     // Reset behavior
     static let resetClearsSettingsKey = "resetClearsSettings"

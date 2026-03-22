@@ -49,6 +49,7 @@ final class PresetManager {
     private var streamCopyVisible: Bool
     private var audioWAVVisible: Bool
     private var audioAACVisible: Bool
+    private var imageSequenceVisible: Bool
 
     // MARK: - Custom Preset Activation
 
@@ -94,6 +95,7 @@ final class PresetManager {
         streamCopyVisible = defaults.object(forKey: AppConstants.streamCopyVisibleKey) as? Bool ?? true
         audioWAVVisible = defaults.object(forKey: AppConstants.audioWAVVisibleKey) as? Bool ?? true
         audioAACVisible = defaults.object(forKey: AppConstants.audioAACVisibleKey) as? Bool ?? true
+        imageSequenceVisible = defaults.object(forKey: AppConstants.imageSequenceVisibleKey) as? Bool ?? true
 
         // Load custom preset activation (default to false)
         customPreset1Active = defaults.bool(forKey: AppConstants.customPreset1ActiveKey)
@@ -130,6 +132,7 @@ final class PresetManager {
             case .streamCopy: return streamCopyVisible
             case .audioUncompressedWAV: return audioWAVVisible
             case .audioStereoAAC: return audioAACVisible
+            case .imageSequence: return imageSequenceVisible
             case .custom1: return customPreset1Active
             case .custom2: return customPreset2Active
             case .custom3: return customPreset3Active
@@ -221,6 +224,7 @@ final class PresetManager {
         streamCopyVisible = defaults.object(forKey: AppConstants.streamCopyVisibleKey) as? Bool ?? true
         audioWAVVisible = defaults.object(forKey: AppConstants.audioWAVVisibleKey) as? Bool ?? true
         audioAACVisible = defaults.object(forKey: AppConstants.audioAACVisibleKey) as? Bool ?? true
+        imageSequenceVisible = defaults.object(forKey: AppConstants.imageSequenceVisibleKey) as? Bool ?? true
 
         customPreset1Active = defaults.bool(forKey: AppConstants.customPreset1ActiveKey)
         customPreset2Active = defaults.bool(forKey: AppConstants.customPreset2ActiveKey)

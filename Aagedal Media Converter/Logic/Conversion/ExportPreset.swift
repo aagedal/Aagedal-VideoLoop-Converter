@@ -480,6 +480,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     case streamCopy = "Stream Copy"
     case audioUncompressedWAV = "Audio only WAV (all channels)"
     case audioStereoAAC = "Audio only AAC (stereo downmix)"
+    case imageSequence = "Image Sequence"
     case custom1 = "Custom"
     case custom2 = "Custom 2"
     case custom3 = "Custom 3"
@@ -524,6 +525,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "wav"
         case .audioStereoAAC:
             return "m4a"
+        case .imageSequence:
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
+            let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
+            return format.primaryExtension
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return "mp4" }
             return Self.customFileExtension(for: slot)
@@ -560,6 +565,11 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let format = AnimatedStillFormat(rawValue: formatRaw) ?? .avif
             return "Animated Still (\(format.rawValue))"
         }
+        if self == .imageSequence {
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
+            let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
+            return "Image Sequence (\(format.rawValue))"
+        }
         return rawValue
     }
     
@@ -591,11 +601,13 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_AUDIO_WAV_DESCRIPTION", comment: "Description for Audio WAV preset")
         case .audioStereoAAC:
             return NSLocalizedString("PRESET_AUDIO_AAC_STEREO_DESCRIPTION", comment: "Description for Audio AAC Stereo preset")
+        case .imageSequence:
+            return NSLocalizedString("PRESET_IMAGE_SEQUENCE_DESCRIPTION", comment: "Description for Image Sequence preset")
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             return NSLocalizedString("PRESET_CUSTOM_DESCRIPTION", comment: "Description for Custom preset")
         }
     }
-    
+
     var fileSuffix: String {
         switch self {
         case .videoLoop:
@@ -626,6 +638,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_audio_wav"
         case .audioStereoAAC:
             return "_audio_aac"
+        case .imageSequence:
+            return "_seq"
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return "_custom" }
             return Self.customFileSuffix(for: slot)
@@ -1158,6 +1172,20 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             ]
             ExportPreset.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
+        case .imageSequence:
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
+            let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
+            var args = commonArgs + [
+                "-c:v", format.ffmpegEncoder,
+                "-an"
+            ]
+            // Add quality setting for JPEG
+            if format == .jpeg {
+                let quality = UserDefaults.standard.integer(forKey: AppConstants.imageSequenceExportQualityKey)
+                let q = quality > 0 ? quality : AppConstants.defaultImageSequenceExportQuality
+                args += ["-q:v", "\(q)"]
+            }
+            return args
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return commonArgs }
             let customArgs = ExportPreset.parseCustomCommand(ExportPreset.customCommandString(for: slot))
@@ -1199,6 +1227,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         switch self {
         case .streamCopy:
             return false // Stream copy cannot apply audio filters
+        case .imageSequence:
+            return false // Image sequences have no audio
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesAudioRouting(for: slot)
@@ -1285,6 +1315,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .streamCopy: key = AppConstants.streamCopyVisibleKey
         case .audioUncompressedWAV: key = AppConstants.audioWAVVisibleKey
         case .audioStereoAAC: key = AppConstants.audioAACVisibleKey
+        case .imageSequence: key = AppConstants.imageSequenceVisibleKey
         default: return true
         }
 
@@ -1302,6 +1333,8 @@ extension ExportPreset {
         switch self {
         case .audioUncompressedWAV, .audioStereoAAC:
             return false
+        case .imageSequence:
+            return false // Output is individual image files, not a video container
         case .streamCopy:
             return true  // Stream copy preserves video if present, and timecode metadata works with -c copy
         default:
@@ -1314,6 +1347,8 @@ extension ExportPreset {
         switch self {
         case .videoLoop, .animatedStill:
             return false
+        case .imageSequence:
+            return false // Image sequences have no audio
         case .videoLoopWithSound:
             return true
         case .audioUncompressedWAV, .audioStereoAAC:

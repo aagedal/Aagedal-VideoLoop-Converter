@@ -134,6 +134,8 @@
 		FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B862E87364609527CEEC84 /* YTDLPService.swift */; };
 		FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPCRD00000002 /* FileImportCoordinator.swift */; };
 		FILEIMPMGR00000001 /* FileImportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPMGR00000002 /* FileImportManager.swift */; };
+		IMGSEQMOD00000002 /* ImageSequenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGSEQMOD00000001 /* ImageSequenceModels.swift */; };
+		IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGSEQDET00000001 /* ImageSequenceDetector.swift */; };
 		PRESET01MGR000000001 /* PresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PRESET01MGR000000002 /* PresetManager.swift */; };
 		SCHEDDL01SERV00000001 /* ScheduledDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */; };
 		VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = VIDITEMIDX00000002 /* VideoItemIndex.swift */; };
@@ -251,6 +253,7 @@
 		8E824AC42EF8AB46001A6B95 /* FullscreenMPVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullscreenMPVView.swift; sourceTree = "<group>"; };
 		8E903F5E2E05642D0075E05C /* FileNameProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameProcessor.swift; sourceTree = "<group>"; };
 		8E9B52542ED65156006E6A10 /* AudioRoutingModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingModels.swift; sourceTree = "<group>"; };
+		IMGSEQMOD00000001 /* ImageSequenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceModels.swift; sourceTree = "<group>"; };
 		8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingView.swift; sourceTree = "<group>"; };
 		8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingService.swift; sourceTree = "<group>"; };
 		8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeFormatter.swift; sourceTree = "<group>"; };
@@ -318,6 +321,7 @@
 		FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPUpdateService.swift; path = YTDLP/YTDLPUpdateService.swift; sourceTree = "<group>"; };
 		FILEIMPCRD00000002 /* FileImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportCoordinator.swift; sourceTree = "<group>"; };
 		FILEIMPMGR00000002 /* FileImportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportManager.swift; sourceTree = "<group>"; };
+		IMGSEQDET00000001 /* ImageSequenceDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceDetector.swift; sourceTree = "<group>"; };
 		PRESET01MGR000000002 /* PresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManager.swift; sourceTree = "<group>"; };
 		SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScheduledDownloadService.swift; path = YTDLP/ScheduledDownloadService.swift; sourceTree = "<group>"; };
 		VIDITEMIDX00000002 /* VideoItemIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoItemIndex.swift; sourceTree = "<group>"; };
@@ -467,6 +471,7 @@
 				8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */,
 				8E1477462ECF453900C805AA /* UpdateChecker.swift */,
 				8E9B52542ED65156006E6A10 /* AudioRoutingModels.swift */,
+				IMGSEQMOD00000001 /* ImageSequenceModels.swift */,
 				8ECEBC152ED766B500F1F67C /* CropModels.swift */,
 				8E824ABE2EF8AB02001A6B95 /* MPV */,
 				2B48C187D7A738BE42B8084A /* YTDLP */,
@@ -788,6 +793,7 @@
 			children = (
 				FILEIMPCRD00000002 /* FileImportCoordinator.swift */,
 				FILEIMPMGR00000002 /* FileImportManager.swift */,
+				IMGSEQDET00000001 /* ImageSequenceDetector.swift */,
 				VIDITEMIDX00000002 /* VideoItemIndex.swift */,
 			);
 			path = Import;
@@ -1060,6 +1066,8 @@
 				PRESET01MGR000000001 /* PresetManager.swift in Sources */,
 				VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */,
 				FILEIMPMGR00000001 /* FileImportManager.swift in Sources */,
+				IMGSEQMOD00000002 /* ImageSequenceModels.swift in Sources */,
+				IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */,
 				FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */,
 				5DA60AEC78445845148F3FFA /* VideoQueueTableView.swift in Sources */,
 			);

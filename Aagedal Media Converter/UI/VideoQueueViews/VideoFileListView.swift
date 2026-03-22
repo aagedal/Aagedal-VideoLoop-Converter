@@ -177,7 +177,7 @@ struct VideoFileListView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showSortOverlay)
         // Support file drops and URL drops on entire view (empty or populated)
-        .onDrop(of: [.fileURL, .url, .plainText], isTargeted: $isTargeted) { providers in
+        .onDrop(of: [.fileURL, .url, .plainText, .folder], isTargeted: $isTargeted) { providers in
             return handleDrop(providers: providers)
         }
         .overlay(alignment: .topLeading) {
