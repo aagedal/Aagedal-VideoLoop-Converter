@@ -18,13 +18,13 @@ struct UploadSettingsView: View {
 
     // Backend selection
     @AppStorage(AppConstants.uploadBackendTypeKey) private var selectedBackend = "ftp"
-    @State private var ftpProfiles: [FTPUploadProfile] = []
+    @State private var ftpProfiles: [FTPUploadProfile] = FTPUploadProfileStore.loadProfiles()
     @AppStorage(AppConstants.uploadFTPSelectedProfileIDKey) private var selectedFTPProfileID = ""
-    @State private var sftpProfiles: [SFTPUploadProfile] = []
+    @State private var sftpProfiles: [SFTPUploadProfile] = SFTPUploadProfileStore.loadProfiles()
     @AppStorage(AppConstants.uploadSFTPSelectedProfileIDKey) private var selectedSFTPProfileID = ""
-    @State private var smbProfiles: [SMBUploadProfile] = []
+    @State private var smbProfiles: [SMBUploadProfile] = SMBUploadProfileStore.loadProfiles()
     @AppStorage(AppConstants.uploadSMBSelectedProfileIDKey) private var selectedSMBProfileID = ""
-    @State private var s3Profiles: [S3UploadProfile] = []
+    @State private var s3Profiles: [S3UploadProfile] = S3UploadProfileStore.loadProfiles()
     @AppStorage(AppConstants.uploadS3SelectedProfileIDKey) private var selectedS3ProfileID = ""
 
     // Common Settings
@@ -962,10 +962,12 @@ struct UploadSettingsView: View {
         rcloneStatus = RcloneUpdateService.shared.getInstallationStatus()
         rcloneVersion = await RcloneUpdateService.shared.getCurrentVersion()
 
-        loadFTPProfiles()
-        loadSFTPProfiles()
-        loadSMBProfiles()
-        loadS3Profiles()
+        // Profiles are loaded eagerly via @State initializers.
+        // Just ensure selection and backend state are consistent.
+        ensureSelectedFTPProfile()
+        ensureSelectedSFTPProfile()
+        ensureSelectedSMBProfile()
+        ensureSelectedS3Profile()
 
         switch currentBackendType {
         case .ftp:
