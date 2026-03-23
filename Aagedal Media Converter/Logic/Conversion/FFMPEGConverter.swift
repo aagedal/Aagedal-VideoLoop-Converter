@@ -468,6 +468,7 @@ actor FFMPEGConverter {
                                 videoWrapProcess.waitUntilExit()
 
                                 let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                                try? stderrPipe.fileHandleForReading.close()
                                 let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
                                 if !stderrStr.isEmpty {
                                     Self.logger.info("asdcp-wrap video output: \(stderrStr.prefix(500))")
@@ -482,6 +483,7 @@ actor FFMPEGConverter {
                                     try? fm.removeItem(at: tmpVideoMXF)
                                 }
                             } catch {
+                                try? stderrPipe.fileHandleForReading.close()
                                 Self.logger.error("Failed to run asdcp-wrap for video: \(error.localizedDescription)")
                                 success = false
                             }
@@ -540,6 +542,7 @@ actor FFMPEGConverter {
                             audioWrapProcess.waitUntilExit()
 
                             let audioStderrData = audioStderrPipe.fileHandleForReading.readDataToEndOfFile()
+                            try? audioStderrPipe.fileHandleForReading.close()
                             let audioStderrStr = String(data: audioStderrData, encoding: .utf8) ?? ""
                             if !audioStderrStr.isEmpty {
                                 Self.logger.info("asdcp-wrap audio output: \(audioStderrStr.prefix(500))")
@@ -552,6 +555,7 @@ actor FFMPEGConverter {
                                 Self.logger.warning("asdcp-wrap failed for audio (status \(audioWrapProcess.terminationStatus)): \(audioStderrStr.prefix(300))")
                             }
                         } catch {
+                            try? audioStderrPipe.fileHandleForReading.close()
                             Self.logger.error("Failed to run asdcp-wrap for audio: \(error.localizedDescription)")
                         }
 
@@ -1037,6 +1041,7 @@ actor FFMPEGConverter {
             process.waitUntilExit()
 
             let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            try? stderrPipe.fileHandleForReading.close()
             let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
 
             if process.terminationStatus == 0 {
@@ -1048,6 +1053,7 @@ actor FFMPEGConverter {
                 return nil
             }
         } catch {
+            try? stderrPipe.fileHandleForReading.close()
             logger.error("Failed to start audio WAV extraction for DCP: \(error.localizedDescription)")
             return nil
         }
@@ -1249,23 +1255,29 @@ actor FFMPEGConverter {
         process.arguments = args
 
         let errorPipe = Pipe()
+        let stdoutPipe = Pipe()
         process.standardError = errorPipe
-        process.standardOutput = Pipe()
+        process.standardOutput = stdoutPipe
 
         do {
             try process.run()
             process.waitUntilExit()
 
+            try? stdoutPipe.fileHandleForReading.close()
             if process.terminationStatus == 0 {
+                try? errorPipe.fileHandleForReading.close()
                 Self.logger.info("Audio pre-processing succeeded: \(targetChannelCount) mono channels created")
                 return tempURL
             } else {
                 let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                try? errorPipe.fileHandleForReading.close()
                 let errorString = String(data: errorData, encoding: .utf8) ?? "(unknown error)"
                 Self.logger.error("Audio pre-processing failed with code \(process.terminationStatus): \(errorString)")
                 return nil
             }
         } catch {
+            try? stdoutPipe.fileHandleForReading.close()
+            try? errorPipe.fileHandleForReading.close()
             Self.logger.error("Failed to run audio pre-processing: \(error.localizedDescription)")
             return nil
         }

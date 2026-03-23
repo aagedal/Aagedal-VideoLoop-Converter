@@ -158,6 +158,7 @@ private extension FFMPEGProbeService {
         try await withThrowingTaskGroup(of: Data.self) { group in
             group.addTask {
                 let data = handle.readDataToEndOfFile()
+                try? handle.close()
                 process.terminate()
                 return data
             }
@@ -165,6 +166,7 @@ private extension FFMPEGProbeService {
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 process.terminate()
+                try? handle.close()
                 throw NSError(
                     domain: "com.aagedal.videoconverter.ffprobe",
                     code: -2,

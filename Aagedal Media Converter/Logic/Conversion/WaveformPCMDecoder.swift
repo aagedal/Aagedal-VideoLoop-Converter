@@ -414,12 +414,15 @@ enum WaveformPCMDecoder {
 
             process.terminationHandler = { terminatedProcess in
                 if terminatedProcess.terminationStatus == 0 {
+                    try? stderrPipe.fileHandleForReading.close()
                     continuation.resume(returning: ())
                 } else if terminatedProcess.terminationReason == .uncaughtSignal
                             || terminatedProcess.terminationStatus == 15 {
+                    try? stderrPipe.fileHandleForReading.close()
                     continuation.resume(throwing: CancellationError())
                 } else {
                     let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    try? stderrPipe.fileHandleForReading.close()
                     let message = String(data: stderrData, encoding: .utf8) ?? "Unknown ffmpeg error"
                     continuation.resume(throwing: WaveformPCMDecoderError.decodeFailed(
                         message.trimmingCharacters(in: .whitespacesAndNewlines)
