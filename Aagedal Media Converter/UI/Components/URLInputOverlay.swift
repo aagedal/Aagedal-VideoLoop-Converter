@@ -16,6 +16,8 @@ struct URLInputOverlay: View {
     @State private var scheduledDate = Self.defaultScheduleDate()
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage(AppConstants.ytdlpLiveFromStartKey) private var downloadLiveFromStart = false
+    @AppStorage(AppConstants.autoEncodeAfterDownloadKey) private var autoEncodeAfterDownload = false
+    @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
 
     // History navigation state (like terminal history)
     @State private var historyIndex: Int = -1  // -1 means not navigating history
@@ -82,7 +84,7 @@ struct URLInputOverlay: View {
             urlInputSection
             invalidURLWarning
             actionSection
-            liveFromStartButton
+            automationToggles
             historySection
         }
         .padding(20)
@@ -210,30 +212,59 @@ struct URLInputOverlay: View {
         }
     }
 
-    private var liveFromStartButton: some View {
+    private var automationToggles: some View {
         HStack(spacing: 8) {
-            Button {
-                downloadLiveFromStart.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: downloadLiveFromStart ? "backward.end.fill" : "backward.end")
-                        .font(.system(size: 14, weight: .medium))
-                    Text("Record from start")
-                        .font(.subheadline)
-                }
-                .foregroundColor(downloadLiveFromStart ? .white : .secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(downloadLiveFromStart ? Color.accentColor : Color.gray.opacity(0.15))
-                )
-            }
-            .buttonStyle(.plain)
-            .help("When enabled, yt-dlp will rewind live streams to the beginning before recording")
+            toggleButton(
+                isOn: $downloadLiveFromStart,
+                iconOn: "backward.end.fill",
+                iconOff: "backward.end",
+                label: "Record from start",
+                color: .accentColor,
+                help: "When enabled, yt-dlp will rewind live streams to the beginning before recording"
+            )
+
+            toggleButton(
+                isOn: $autoEncodeAfterDownload,
+                iconOn: "play.circle.fill",
+                iconOff: "play.circle",
+                label: "Encode",
+                color: .green,
+                help: "Automatically start encoding after download completes"
+            )
+
+            toggleButton(
+                isOn: $autoUploadAfterDownload,
+                iconOn: "arrow.up.circle.fill",
+                iconOff: "arrow.up.circle",
+                label: "Upload",
+                color: .blue,
+                help: "Automatically upload after encoding completes"
+            )
 
             Spacer()
         }
+    }
+
+    private func toggleButton(isOn: Binding<Bool>, iconOn: String, iconOff: String, label: String, color: Color, help: String) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isOn.wrappedValue ? iconOn : iconOff)
+                    .font(.system(size: 14, weight: .medium))
+                Text(label)
+                    .font(.subheadline)
+            }
+            .foregroundColor(isOn.wrappedValue ? .white : .secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isOn.wrappedValue ? color : Color.gray.opacity(0.15))
+            )
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     @ViewBuilder
