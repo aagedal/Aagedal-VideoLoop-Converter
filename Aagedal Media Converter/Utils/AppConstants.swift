@@ -347,6 +347,14 @@ enum AppConstants {
     static let avcIntraAudioChannelsKey = "avcIntraAudioChannels"
     static let defaultAVCIntraAudioChannels = "8 Channels"
 
+    // DCP preset settings
+    static let dcpResolutionKey = "dcpResolution"
+    static let defaultDCPResolution = "2K Full (2048x1080)"
+    static let dcpFrameRateKey = "dcpFrameRate"
+    static let defaultDCPFrameRate = "24 fps"
+    static let dcpBitrateKey = "dcpBitrate"
+    static let defaultDCPBitrate = "200 Mbps"
+
     // Stream Copy container settings
     static let streamCopyContainerKey = "streamCopyContainer"
     static let defaultStreamCopyContainer = "Keep Current"
@@ -426,6 +434,7 @@ enum AppConstants {
     static let audioWAVVisibleKey = "audioWAVVisible"
     static let audioAACVisibleKey = "audioAACVisible"
     static let imageSequenceVisibleKey = "imageSequenceVisible"
+    static let dcpVisibleKey = "dcpVisible"
 
     // Image sequence preset settings
     static let imageSequenceExportFormatKey = "imageSequenceExportFormat"

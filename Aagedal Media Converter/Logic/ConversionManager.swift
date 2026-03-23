@@ -1144,14 +1144,14 @@ actor ConversionManager: Sendable {
                     var outputFileURL: URL?
 
                     if success {
-                        if preset == .imageSequence {
-                            // For image sequence export, the output is a subfolder
+                        if preset == .imageSequence || preset == .dcp {
+                            // For image sequence / DCP export, the output is a subfolder
                             // Point outputURL to the subfolder (same name as outputBaseName)
                             let subfolderName = outputURL.lastPathComponent
                             let subfolderURL = outputURL.deletingLastPathComponent().appendingPathComponent(subfolderName, isDirectory: true)
                             outputFileURL = subfolderURL
 
-                            // Compute total size of all images in the subfolder
+                            // Compute total size of all files in the subfolder
                             if let contents = try? FileManager.default.contentsOfDirectory(at: subfolderURL, includingPropertiesForKeys: [.fileSizeKey]) {
                                 capturedSize = contents.reduce(Int64(0)) { total, fileURL in
                                     let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { Int64($0) } ?? 0

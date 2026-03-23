@@ -4813,6 +4813,17 @@
         }
       }
     },
+    "PRESET_DCP_DESCRIPTION" : {
+      "comment" : "Description for DCP preset",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Digital Cinema Package with JPEG 2000 video and 24-bit PCM audio in MXF containers, plus Interop DCP metadata (CPL, PKL, ASSETMAP). Configurable resolution (2K/4K Flat, Scope, or Full), frame rate, and bitrate. Uses DCI XYZ 12-bit color space for theatrical compliance."
+          }
+        }
+      }
+    },
     "PRESET_H264_DESCRIPTION" : {
       "comment" : "Description for H.264 preset",
       "localizations" : {

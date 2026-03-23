@@ -76,11 +76,39 @@ actor FFMPEGConverter {
             return
         }
 
-        // Image sequence export: create subfolder and use pattern-based output path
+        // Image sequence / DCP export: create subfolder
         var outputFileURL: URL
         let isImageSequenceExport = preset == .imageSequence
+        let isDCPExport = preset == .dcp
+        var dcpSubfolderURL: URL? = nil
 
-        if isImageSequenceExport {
+        if isDCPExport {
+            // Create DCP output directory: outputDir/Title_dcp/
+            let subfolderName = outputURL.lastPathComponent
+            let subfolderURL = outputDir.appendingPathComponent(subfolderName, isDirectory: true)
+
+            var finalSubfolderURL = subfolderURL
+            var counter = 1
+            while FileManager.default.fileExists(atPath: finalSubfolderURL.path) {
+                finalSubfolderURL = outputDir.appendingPathComponent("\(subfolderName)_\(counter)", isDirectory: true)
+                counter += 1
+            }
+
+            do {
+                try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
+            } catch {
+                print("Failed to create DCP output directory: \(error)")
+                completion(false)
+                return
+            }
+
+            dcpSubfolderURL = finalSubfolderURL
+
+            // FFmpeg outputs video to a temp MXF, which DCPService will move into the DCP folder
+            let tempDir = FileManager.default.temporaryDirectory
+            outputFileURL = tempDir.appendingPathComponent("dcp_video_\(UUID().uuidString).mxf")
+            Self.logger.info("DCP: FFmpeg will output video MXF to temp file, DCP assembly follows")
+        } else if isImageSequenceExport {
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
             let padding = UserDefaults.standard.integer(forKey: AppConstants.imageSequenceNumberingPaddingKey)
@@ -274,6 +302,8 @@ actor FFMPEGConverter {
         let capturedNeedsBMXRewrap = needsBMXRewrap
         let capturedInputBaseName = inputURL.deletingPathExtension().lastPathComponent
         let capturedIsImageSequenceExport = isImageSequenceExport
+        let capturedIsDCPExport = isDCPExport
+        let capturedDCPSubfolderURL = dcpSubfolderURL
         let capturedInputURL = inputURL
         let capturedFfmpegPath = ffmpegPath
         let capturedTrimStart = trimStart
@@ -337,6 +367,59 @@ actor FFMPEGConverter {
                 if let tempURL = capturedTempAudioURL {
                     try? FileManager.default.removeItem(at: tempURL)
                     Self.logger.debug("Cleaned up temp audio file: \(tempURL.lastPathComponent)")
+                }
+
+                // DCP assembly: extract audio MXF + generate XML metadata
+                if success && capturedIsDCPExport, let dcpFolder = capturedDCPSubfolderURL {
+                    Self.logger.info("Starting DCP assembly...")
+                    progressUpdate(0.85, "Extracting audio for DCP...")
+
+                    // Extract audio as 24-bit PCM MXF
+                    let audioMXFURL = await Self.extractAudioAsMXF(
+                        inputURL: capturedInputURL,
+                        outputFolder: dcpFolder,
+                        ffmpegPath: capturedFfmpegPath,
+                        trimStart: capturedTrimStart,
+                        trimEnd: capturedTrimEnd
+                    )
+
+                    progressUpdate(0.90, "Generating DCP metadata...")
+
+                    // Read DCP settings for assembly
+                    let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.dcpResolutionKey) ?? AppConstants.defaultDCPResolution
+                    let resolution = DCPResolution(rawValue: resolutionRaw) ?? .twoKFull
+                    let frameRateRaw = UserDefaults.standard.string(forKey: AppConstants.dcpFrameRateKey) ?? AppConstants.defaultDCPFrameRate
+                    let frameRate = DCPFrameRate(rawValue: frameRateRaw) ?? .fps24
+
+                    // Compute frame count from duration and frame rate
+                    let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
+                    let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
+
+                    let dcpSuccess = await DCPService.shared.assembleDCP(
+                        videoMXFURL: capturedFinalOutputURL,
+                        audioMXFURL: audioMXFURL,
+                        outputDirectoryURL: dcpFolder,
+                        title: capturedInputBaseName,
+                        resolution: resolution,
+                        frameRate: frameRate,
+                        frameCount: max(frameCount, 1),
+                        progress: { dcpProgress in
+                            let overall = 0.90 + dcpProgress * 0.10
+                            Task { @MainActor in
+                                progressUpdate(overall, "Generating DCP metadata...")
+                            }
+                        }
+                    )
+
+                    if !dcpSuccess {
+                        Self.logger.error("DCP assembly failed")
+                        success = false
+                    }
+
+                    // Clean up temp video MXF if DCPService moved it
+                    if FileManager.default.fileExists(atPath: capturedFinalOutputURL.path) {
+                        try? FileManager.default.removeItem(at: capturedFinalOutputURL)
+                    }
                 }
 
                 // Extract audio as WAV for image sequence exports (if source has audio)
@@ -649,6 +732,73 @@ actor FFMPEGConverter {
             }
         } catch {
             logger.error("Failed to start audio extraction: \(error.localizedDescription)")
+        }
+    }
+
+    /// Extracts audio from source as 24-bit PCM in MXF container for DCP
+    /// - Returns: URL of the audio MXF file, or nil if source has no audio or extraction failed
+    private static func extractAudioAsMXF(
+        inputURL: URL,
+        outputFolder: URL,
+        ffmpegPath: String,
+        trimStart: Double?,
+        trimEnd: Double?
+    ) async -> URL? {
+        // Check if source has audio streams
+        guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
+              !audioStreams.isEmpty else {
+            logger.debug("No audio streams in source, skipping MXF audio extraction for DCP")
+            return nil
+        }
+
+        let audioMXFURL = outputFolder.appendingPathComponent("audio_temp_\(UUID().uuidString).mxf")
+
+        var args: [String] = ["-y", "-nostdin"]
+
+        // Apply trim start (input seeking)
+        let normalizedStart = FFMPEGCommandBuilder.normalizedTrimPoint(trimStart)
+        if let start = normalizedStart {
+            args.append(contentsOf: ["-ss", FFMPEGCommandBuilder.ffmpegTimeString(from: start)])
+        }
+
+        args.append(contentsOf: ["-i", inputURL.path])
+
+        // Apply trim duration
+        if let durationArgs = FFMPEGCommandBuilder.trimDurationArgument(start: normalizedStart, end: FFMPEGCommandBuilder.normalizedTrimPoint(trimEnd)) {
+            args.append(contentsOf: durationArgs)
+        }
+
+        args.append(contentsOf: [
+            "-vn",                    // No video
+            "-c:a", "pcm_s24le",     // 24-bit PCM
+            "-ar", "48000",          // 48 kHz (DCI standard)
+            "-f", "mxf",             // MXF container
+            audioMXFURL.path
+        ])
+
+        logger.info("Extracting audio as MXF for DCP: \(audioMXFURL.lastPathComponent)")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = args
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus == 0 {
+                logger.info("Audio MXF extraction complete: \(audioMXFURL.lastPathComponent)")
+                return audioMXFURL
+            } else {
+                logger.warning("Audio MXF extraction failed with status \(process.terminationStatus)")
+                try? FileManager.default.removeItem(at: audioMXFURL)
+                return nil
+            }
+        } catch {
+            logger.error("Failed to start audio MXF extraction: \(error.localizedDescription)")
+            return nil
         }
     }
 

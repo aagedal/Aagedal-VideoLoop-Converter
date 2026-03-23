@@ -104,6 +104,11 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.avcIntraClassKey) private var avcIntraClass = AppConstants.defaultAVCIntraClass
     @AppStorage(AppConstants.avcIntraAudioChannelsKey) private var avcIntraAudioChannels = AppConstants.defaultAVCIntraAudioChannels
 
+    // DCP settings
+    @AppStorage(AppConstants.dcpResolutionKey) private var dcpResolution = AppConstants.defaultDCPResolution
+    @AppStorage(AppConstants.dcpFrameRateKey) private var dcpFrameRate = AppConstants.defaultDCPFrameRate
+    @AppStorage(AppConstants.dcpBitrateKey) private var dcpBitrate = AppConstants.defaultDCPBitrate
+
     // Stream Copy container
     @AppStorage(AppConstants.streamCopyContainerKey) private var streamCopyContainer = AppConstants.defaultStreamCopyContainer
 
@@ -157,6 +162,7 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.audioWAVVisibleKey) private var audioWAVVisible = true
     @AppStorage(AppConstants.audioAACVisibleKey) private var audioAACVisible = true
     @AppStorage(AppConstants.imageSequenceVisibleKey) private var imageSequenceVisible = true
+    @AppStorage(AppConstants.dcpVisibleKey) private var dcpVisible = true
 
     @AppStorage(AppConstants.defaultPresetKey) private var storedDefaultPresetRawValue = ExportPreset.videoLoop.rawValue
 
@@ -420,6 +426,58 @@ struct PresetsSettingsView: View {
                             .labelsHidden()
                         }
                     }
+                }
+            }
+        }
+
+        if selectedPreset == .dcp {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Resolution")
+                        Spacer()
+                        Picker("", selection: $dcpResolution) {
+                            ForEach(DCPResolution.allCases) { res in
+                                Text(res.shortLabel).tag(res.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("DCI resolution. 2K Flat/Scope are standard theatrical. 4K for premium screens.")
+                    }
+
+                    HStack {
+                        Text("Frame Rate")
+                        Spacer()
+                        Picker("", selection: $dcpFrameRate) {
+                            ForEach(DCPFrameRate.allCases) { rate in
+                                Text(rate.rawValue).tag(rate.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("DCI frame rate. 24 fps is standard for theatrical.")
+                    }
+
+                    HStack {
+                        Text("Video Bitrate")
+                        Spacer()
+                        Picker("", selection: $dcpBitrate) {
+                            ForEach(DCPBitrate.allCases) { br in
+                                Text(br.rawValue).tag(br.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("JPEG 2000 video bitrate. 250 Mbps is the DCI maximum for 2K.")
+                    }
+
+                    Text("JPEG 2000 video in MXF with 24-bit PCM audio. XYZ color space (DCI P3).")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
         }
@@ -1293,6 +1351,8 @@ struct PresetsSettingsView: View {
             return $audioAACVisible
         case .imageSequence:
             return $imageSequenceVisible
+        case .dcp:
+            return $dcpVisible
         default:
             // Custom presets use activation, not visibility
             return .constant(true)
