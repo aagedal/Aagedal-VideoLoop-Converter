@@ -1212,7 +1212,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-pix_fmt", "xyz12le",
                 "-b:v", bitrate.ffmpegValue,
                 "-r", frameRate.ffmpegValue,
-                "-vf", "scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=decrease,pad=\(resolution.width):\(resolution.height):-1:-1:color=black",
+                "-vf", "scale=iw*sar:ih,setsar=1,scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=decrease,pad=\(resolution.width):\(resolution.height):-1:-1:color=black",
                 "-map", "0:v:0",
                 "-an",
             ]
