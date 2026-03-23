@@ -354,6 +354,7 @@ enum AppConstants {
     static let defaultDCPFrameRate = "24 fps"
     static let dcpBitrateKey = "dcpBitrate"
     static let defaultDCPBitrate = "200 Mbps"
+    static let dcpKeepJP2ImagesKey = "dcpKeepJP2Images"
 
     // Stream Copy container settings
     static let streamCopyContainerKey = "streamCopyContainer"
