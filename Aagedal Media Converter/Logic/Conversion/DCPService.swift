@@ -7,7 +7,7 @@ import OSLog
 import CryptoKit
 
 /// Service for assembling DCP (Digital Cinema Package) directories
-/// Generates Interop DCP XML metadata (CPL, PKL, ASSETMAP, VOLINDEX)
+/// Generates SMPTE DCP XML metadata (CPL, PKL, ASSETMAP, VOLINDEX)
 actor DCPService {
     static let shared = DCPService()
 
@@ -108,6 +108,7 @@ actor DCPService {
 
         // Generate XML files
         let editRate = "\(frameRate.editRateNumerator) \(frameRate.editRateDenominator)"
+        let dcpFolderName = outputDirectoryURL.lastPathComponent
 
         // CPL
         let cplFileName = "cpl_\(uuidString(from: cplUUID)).xml"
@@ -119,6 +120,7 @@ actor DCPService {
         let cplContent = generateCPL(
             cplUUID: cplUUID,
             title: title,
+            dcpFolderName: dcpFolderName,
             editRate: editRate,
             frameCount: frameCount,
             videoUUID: videoUUID,
@@ -150,11 +152,13 @@ actor DCPService {
         }
         let cplSize = fileSize(at: cplURL)
 
-        // PKL
+        // Compute PKL size for ASSETMAP (need to generate PKL first, write it, then get size)
         let pklFileName = "pkl_\(uuidString(from: pklUUID)).xml"
+
+        // PKL
         let pklContent = generatePKL(
             pklUUID: pklUUID,
-            title: title,
+            dcpFolderName: dcpFolderName,
             cplUUID: cplUUID,
             cplHash: cplHash,
             cplSize: cplSize,
@@ -177,6 +181,9 @@ actor DCPService {
             return false
         }
 
+        let pklURL = outputDirectoryURL.appendingPathComponent(pklFileName)
+        let pklSize = fileSize(at: pklURL)
+
         progress(0.8)
 
         // VOLINDEX
@@ -189,13 +196,16 @@ actor DCPService {
             return false
         }
 
-        // ASSETMAP
+        // ASSETMAP (SMPTE uses ASSETMAP.xml)
         let assetMapContent = generateAssetMap(
             assetMapUUID: assetMapUUID,
+            dcpFolderName: dcpFolderName,
             cplUUID: cplUUID,
             cplFileName: cplFileName,
+            cplSize: cplSize,
             pklUUID: pklUUID,
             pklFileName: pklFileName,
+            pklSize: pklSize,
             videoUUID: videoUUID,
             videoFileName: videoFileName,
             videoSize: videoSize,
@@ -205,7 +215,7 @@ actor DCPService {
         )
 
         do {
-            let assetMapURL = outputDirectoryURL.appendingPathComponent("ASSETMAP")
+            let assetMapURL = outputDirectoryURL.appendingPathComponent("ASSETMAP.xml")
             try assetMapContent.write(to: assetMapURL, atomically: true, encoding: .utf8)
         } catch {
             logger.error("Failed to write ASSETMAP: \(error.localizedDescription)")
@@ -215,6 +225,70 @@ actor DCPService {
         progress(1.0)
         logger.info("DCP assembly complete: \(outputDirectoryURL.lastPathComponent)")
         return true
+    }
+
+    // MARK: - ISDCF Folder Name
+
+    /// Generates an ISDCF-style DCP folder name
+    /// Format: ContentTitle_ContentType-ReelCount-FrameRate_AspectRatio_Language_Territory_AudioChannels_Resolution_Date_Standard_PackageType
+    func isdcfFolderName(
+        title: String,
+        contentKind: DCPContentKind,
+        frameRate: DCPFrameRate,
+        resolution: DCPResolution,
+        audioLanguage: String
+    ) -> String {
+        // Sanitize title: uppercase, replace spaces with hyphens, remove special chars
+        let sanitizedTitle = title
+            .unicodeScalars.filter { scalar in
+                CharacterSet.alphanumerics.contains(scalar) || scalar == " " || scalar == "-"
+            }.map { String($0) }.joined()
+            .replacingOccurrences(of: " ", with: "-")
+
+        // Content type abbreviation
+        let contentType: String
+        switch contentKind {
+        case .feature: contentType = "FTR"
+        case .trailer: contentType = "TLR"
+        case .short: contentType = "SHR"
+        case .advertisement: contentType = "ADV"
+        case .teaser: contentType = "TSR"
+        case .test: contentType = "TST"
+        case .rating: contentType = "RTG"
+        case .policy: contentType = "POL"
+        case .publicService: contentType = "PSA"
+        case .transitional: contentType = "XSN"
+        }
+
+        // Aspect ratio code
+        let aspectRatio: String
+        switch resolution {
+        case .twoKFlat, .fourKFlat: aspectRatio = "F"
+        case .twoKScope, .fourKScope: aspectRatio = "S"
+        case .twoKFull, .fourKFull: aspectRatio = "C"
+        }
+
+        // Calculate aspect ratio number (width/height * 100, rounded)
+        let arNumber = Int(round(Double(resolution.width) / Double(resolution.height) * 100))
+
+        // Language code (uppercase, max 2 chars)
+        let langCode = String(audioLanguage.prefix(2)).uppercased()
+
+        // Resolution tier
+        let resTier: String
+        switch resolution {
+        case .twoKFlat, .twoKScope, .twoKFull: resTier = "2K"
+        case .fourKFlat, .fourKScope, .fourKFull: resTier = "4K"
+        }
+
+        // Date (YYYYMMDD)
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd"
+        let dateStr = dateFormatter.string(from: Date())
+
+        // Build ISDCF name
+        // Format: Title_Type-Reels-FPS_Aspect-ARNum_Lang-Territory_AudioConfig_ResTier_Date_Standard_Package
+        return "\(sanitizedTitle)_\(contentType)-1-\(frameRate.ffmpegValue)_\(aspectRatio)-\(arNumber)_\(langCode)-XX_20_\(resTier)_\(dateStr)_SMPTE_OV"
     }
 
     // MARK: - UUID Helpers
@@ -252,11 +326,12 @@ actor DCPService {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
     }
 
-    // MARK: - XML Generation (Interop DCP)
+    // MARK: - XML Generation (SMPTE DCP)
 
     private func generateCPL(
         cplUUID: String,
         title: String,
+        dcpFolderName: String,
         editRate: String,
         frameCount: Int,
         videoUUID: String,
@@ -270,7 +345,7 @@ actor DCPService {
         audioHash: String? = nil
     ) -> String {
         let escapedTitle = xmlEscape(title)
-        let escapedAnnotation = xmlEscape(annotationText)
+        let escapedFolderName = xmlEscape(dcpFolderName)
         let now = iso8601Now()
         let contentVersionUUID = dcpUUID()
 
@@ -298,33 +373,23 @@ actor DCPService {
                 <IntrinsicDuration>\(frameCount)</IntrinsicDuration>
                 <EntryPoint>0</EntryPoint>
                 <Duration>\(frameCount)</Duration>
+                <Hash>\(videoHash ?? "")</Hash>
                 <FrameRate>\(editRate)</FrameRate>
-                <ScreenAspectRatio>\(resolution.width)/\(resolution.height)</ScreenAspectRatio>
-        """
-        if let vHash = videoHash {
-            reelAssets += "\n                <Hash>\(vHash)</Hash>"
-        }
-        reelAssets += """
-
+                <ScreenAspectRatio>\(resolution.width) \(resolution.height)</ScreenAspectRatio>
               </MainPicture>
         """
 
         if let aUUID = audioUUID {
             reelAssets += """
-              <MainSound>
-                <Id>\(aUUID)</Id>
-                <EditRate>\(editRate)</EditRate>
-                <IntrinsicDuration>\(frameCount)</IntrinsicDuration>
-                <EntryPoint>0</EntryPoint>
-                <Duration>\(frameCount)</Duration>
-                <Language>\(xmlEscape(audioLanguage))</Language>
-            """
-            if let aHash = audioHash {
-                reelAssets += "\n                <Hash>\(aHash)</Hash>"
-            }
-            reelAssets += """
 
-              </MainSound>
+                  <MainSound>
+                    <Id>\(aUUID)</Id>
+                    <EditRate>\(editRate)</EditRate>
+                    <IntrinsicDuration>\(frameCount)</IntrinsicDuration>
+                    <EntryPoint>0</EntryPoint>
+                    <Duration>\(frameCount)</Duration>
+                    <Hash>\(audioHash ?? "")</Hash>
+                  </MainSound>
             """
         }
 
@@ -339,28 +404,26 @@ actor DCPService {
               </RatingList>
             """
         } else {
-            ratingElement = "  <RatingList/>"
-        }
-
-        var optionalElements = ""
-        if !escapedAnnotation.isEmpty {
-            optionalElements += "\n          <AnnotationText>\(escapedAnnotation)</AnnotationText>"
+            ratingElement = """
+              <RatingList/>
+            """
         }
 
         return """
         <?xml version="1.0" encoding="UTF-8"?>
-        <CompositionPlaylist xmlns="http://www.digicine.com/PROTO-ASDCP-CPL-20040511#">
+        <CompositionPlaylist xmlns="http://www.smpte-ra.org/schemas/429-7/2006/CPL">
           <Id>\(cplUUID)</Id>
+          <AnnotationText>\(escapedFolderName)</AnnotationText>
           <IssueDate>\(now)</IssueDate>
           <Issuer>Aagedal Media Converter</Issuer>
           <Creator>Aagedal Media Converter</Creator>
-          <ContentTitleText>\(escapedTitle)</ContentTitleText>
+          <ContentTitleText>\(escapedFolderName)</ContentTitleText>
           <ContentKind>\(contentKind.rawValue)</ContentKind>
           <ContentVersion>
             <Id>\(contentVersionUUID)</Id>
-            <LabelText>\(escapedTitle)_v1</LabelText>
-          </ContentVersion>\(optionalElements)
-          \(ratingElement)
+            <LabelText>\(escapedFolderName)_v1</LabelText>
+          </ContentVersion>
+        \(ratingElement)
           <ReelList>
             <Reel>
               <Id>\(dcpUUID())</Id>
@@ -375,7 +438,7 @@ actor DCPService {
 
     private func generatePKL(
         pklUUID: String,
-        title: String,
+        dcpFolderName: String,
         cplUUID: String,
         cplHash: String,
         cplSize: Int64,
@@ -389,12 +452,13 @@ actor DCPService {
         audioSize: Int64?,
         audioFileName: String?
     ) -> String {
-        let escapedTitle = xmlEscape(title)
+        let escapedFolderName = xmlEscape(dcpFolderName)
         let now = iso8601Now()
 
         var assetList = """
             <Asset>
               <Id>\(cplUUID)</Id>
+              <AnnotationText>\(uuidString(from: cplUUID))</AnnotationText>
               <Hash>\(base64SHA1(hex: cplHash))</Hash>
               <Size>\(cplSize)</Size>
               <Type>text/xml</Type>
@@ -402,6 +466,7 @@ actor DCPService {
             </Asset>
             <Asset>
               <Id>\(videoUUID)</Id>
+              <AnnotationText>\(uuidString(from: videoUUID))</AnnotationText>
               <Hash>\(base64SHA1(hex: videoHash))</Hash>
               <Size>\(videoSize)</Size>
               <Type>application/mxf</Type>
@@ -414,6 +479,7 @@ actor DCPService {
 
             <Asset>
               <Id>\(aUUID)</Id>
+              <AnnotationText>\(uuidString(from: aUUID))</AnnotationText>
               <Hash>\(base64SHA1(hex: aHash))</Hash>
               <Size>\(aSize)</Size>
               <Type>application/mxf</Type>
@@ -424,12 +490,12 @@ actor DCPService {
 
         return """
         <?xml version="1.0" encoding="UTF-8"?>
-        <PackingList xmlns="http://www.digicine.com/PROTO-ASDCP-PKL-20040311#">
+        <PackingList xmlns="http://www.smpte-ra.org/schemas/429-8/2007/PKL">
           <Id>\(pklUUID)</Id>
+          <AnnotationText>\(escapedFolderName)</AnnotationText>
           <IssueDate>\(now)</IssueDate>
           <Issuer>Aagedal Media Converter</Issuer>
           <Creator>Aagedal Media Converter</Creator>
-          <AnnotationText>\(escapedTitle)</AnnotationText>
           <AssetList>
         \(assetList)
           </AssetList>
@@ -440,7 +506,7 @@ actor DCPService {
     private func generateVolumeIndex() -> String {
         """
         <?xml version="1.0" encoding="UTF-8"?>
-        <VolumeIndex xmlns="http://www.digicine.com/PROTO-ASDCP-VL-20040311#">
+        <VolumeIndex xmlns="http://www.smpte-ra.org/schemas/429-9/2007/AM">
           <Index>1</Index>
         </VolumeIndex>
         """
@@ -448,10 +514,13 @@ actor DCPService {
 
     private func generateAssetMap(
         assetMapUUID: String,
+        dcpFolderName: String,
         cplUUID: String,
         cplFileName: String,
+        cplSize: Int64,
         pklUUID: String,
         pklFileName: String,
+        pklSize: Int64,
         videoUUID: String,
         videoFileName: String,
         videoSize: Int64,
@@ -459,6 +528,7 @@ actor DCPService {
         audioFileName: String?,
         audioSize: Int64?
     ) -> String {
+        let escapedFolderName = xmlEscape(dcpFolderName)
         let now = iso8601Now()
 
         var assets = """
@@ -470,6 +540,7 @@ actor DCPService {
                   <Path>\(pklFileName)</Path>
                   <VolumeIndex>1</VolumeIndex>
                   <Offset>0</Offset>
+                  <Length>\(pklSize)</Length>
                 </Chunk>
               </ChunkList>
             </Asset>
@@ -480,6 +551,7 @@ actor DCPService {
                   <Path>\(cplFileName)</Path>
                   <VolumeIndex>1</VolumeIndex>
                   <Offset>0</Offset>
+                  <Length>\(cplSize)</Length>
                 </Chunk>
               </ChunkList>
             </Asset>
@@ -515,8 +587,9 @@ actor DCPService {
 
         return """
         <?xml version="1.0" encoding="UTF-8"?>
-        <AssetMap xmlns="http://www.digicine.com/PROTO-ASDCP-AM-20040311#">
+        <AssetMap xmlns="http://www.smpte-ra.org/schemas/429-9/2007/AM">
           <Id>\(assetMapUUID)</Id>
+          <AnnotationText>\(escapedFolderName)</AnnotationText>
           <Creator>Aagedal Media Converter</Creator>
           <VolumeCount>1</VolumeCount>
           <IssueDate>\(now)</IssueDate>
