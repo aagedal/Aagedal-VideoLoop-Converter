@@ -9,6 +9,7 @@
 
 import Foundation
 import CoreGraphics
+import os
 import OSLog
 
 private actor StderrCollector {
@@ -1061,8 +1062,13 @@ actor FFMPEGConverter {
         self.currentProcess = process
     }
 
-    private class DurationBox: @unchecked Sendable {
-        var value: Double? = nil
+    private final class DurationBox: Sendable {
+        private let lock = OSAllocatedUnfairLock(initialState: Optional<Double>.none)
+
+        var value: Double? {
+            get { lock.withLock { $0 } }
+            set { lock.withLock { $0 = newValue } }
+        }
     }
 
     static func getVideoDuration(url: URL) async -> Double? {

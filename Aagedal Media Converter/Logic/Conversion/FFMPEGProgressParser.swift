@@ -15,41 +15,50 @@
 // (at your option) any later version.
 
 import Foundation
+import os
 
 /// Tracks frame stall state for detecting when FFmpeg is closing the file
-final class FrameStallTracker: @unchecked Sendable {
-    private var lastFrame: Int = -1
-    private var lastFrameChangeTime: Date = Date()
-    private var hasReportedStall: Bool = false
+final class FrameStallTracker: Sendable {
+    private struct State {
+        var lastFrame: Int = -1
+        var lastFrameChangeTime: Date = Date()
+        var hasReportedStall: Bool = false
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: State())
     private let stallThreshold: TimeInterval = 5.0  // 5 seconds
 
     /// Updates the tracker with a new frame number
     /// - Returns: "Closing file..." if stalled, nil otherwise
     func update(frame: Int) -> String? {
-        let now = Date()
+        lock.withLock { state in
+            let now = Date()
 
-        if frame != lastFrame {
-            // Frame changed, reset stall tracking
-            lastFrame = frame
-            lastFrameChangeTime = now
-            hasReportedStall = false
-            return nil
+            if frame != state.lastFrame {
+                // Frame changed, reset stall tracking
+                state.lastFrame = frame
+                state.lastFrameChangeTime = now
+                state.hasReportedStall = false
+                return nil
+            }
+
+            // Frame hasn't changed - check for stall
+            let stallDuration = now.timeIntervalSince(state.lastFrameChangeTime)
+            if stallDuration >= stallThreshold && !state.hasReportedStall {
+                state.hasReportedStall = true
+                return "Closing file..."
+            }
+
+            return state.hasReportedStall ? "Closing file..." : nil
         }
-
-        // Frame hasn't changed - check for stall
-        let stallDuration = now.timeIntervalSince(lastFrameChangeTime)
-        if stallDuration >= stallThreshold && !hasReportedStall {
-            hasReportedStall = true
-            return "Closing file..."
-        }
-
-        return hasReportedStall ? "Closing file..." : nil
     }
 
     func reset() {
-        lastFrame = -1
-        lastFrameChangeTime = Date()
-        hasReportedStall = false
+        lock.withLock { state in
+            state.lastFrame = -1
+            state.lastFrameChangeTime = Date()
+            state.hasReportedStall = false
+        }
     }
 }
 
