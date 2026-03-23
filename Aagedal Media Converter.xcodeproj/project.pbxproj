@@ -72,6 +72,7 @@
 		8E9B52552ED65156006E6A10 /* AudioRoutingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52542ED65156006E6A10 /* AudioRoutingModels.swift */; };
 		8E9B52572ED6516C006E6A10 /* AudioRoutingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */; };
 		8E9B52592ED65199006E6A10 /* AudioRoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */; };
+		F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */; };
 		8E9DBF1F2EE4781B00F352A1 /* TimecodeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */; };
 		8EA1B0012F0E8A000049F017 /* NativeWaveformRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA1B0002F0E8A000049F017 /* NativeWaveformRenderer.swift */; };
 		8EBD10212EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */; };
@@ -311,6 +312,7 @@
 		D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KeychainCredentialManager.swift; path = "Aagedal Media Converter/Utils/KeychainCredentialManager.swift"; sourceTree = "<group>"; };
 		D8EBD41EE1711E209C16F57C /* mxf2raw */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = mxf2raw; sourceTree = "<group>"; };
 		DED542D049B53B34DBA25323 /* BMXService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BMXService.swift; sourceTree = "<group>"; };
+		E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataSidecarGenerator.swift; sourceTree = "<group>"; };
 		DLHIST001SERV00000002 /* DownloadHistoryService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DownloadHistoryService.swift; path = YTDLP/DownloadHistoryService.swift; sourceTree = "<group>"; };
 		E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoQueueTableView.swift; sourceTree = "<group>"; };
 		F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafetyUtils.swift; sourceTree = "<group>"; };
@@ -638,6 +640,7 @@
 				8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */,
 				8ECEBC172ED766D200F1F67C /* CropService.swift */,
 				DED542D049B53B34DBA25323 /* BMXService.swift */,
+				E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */,
 			);
 			path = Conversion;
 			sourceTree = "<group>";
@@ -1061,6 +1064,7 @@
 				368E10B8236C2A48DA4BACC1 /* WhisperService.swift in Sources */,
 				A7FDCC612BAD184830F774E4 /* WhisperSettingsView.swift in Sources */,
 				8EC017D3E3FDF66B8DE02E57 /* BMXService.swift in Sources */,
+				F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */,
 				45F2F0A1BD22030D423B87CA /* ExifToolUpdateService.swift in Sources */,
 				76BD664F0B33ABE9B21F4135 /* ExifToolService.swift in Sources */,
 				PRESET01MGR000000001 /* PresetManager.swift in Sources */,

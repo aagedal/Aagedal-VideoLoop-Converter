@@ -54,6 +54,8 @@ actor FFMPEGConverter {
         expectedDuration: Double? = nil,
         videoFrameRate: Double? = nil,
         waveformBackgroundImageURL: URL? = nil,
+        sourceMetadata: VideoMetadata? = nil,
+        sourceCameraMetadata: CameraMetadata? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool) -> Void
     ) async {
@@ -277,6 +279,8 @@ actor FFMPEGConverter {
         let capturedTrimStart = trimStart
         let capturedTrimEnd = trimEnd
         let capturedCustomInputArguments = customInputArguments
+        let capturedSourceMetadata = sourceMetadata
+        let capturedSourceCameraMetadata = sourceCameraMetadata
 
         process.terminationHandler = { [weak self] _ in
             // Stop the readability handler to prevent log spam after process ends
@@ -348,6 +352,24 @@ actor FFMPEGConverter {
                         trimStart: capturedTrimStart,
                         trimEnd: capturedTrimEnd
                     )
+
+                    // Generate metadata sidecar with source color space and technical specs
+                    let sidecarEnabled = UserDefaults.standard.object(forKey: AppConstants.imageSequenceMetadataSidecarEnabledKey) != nil
+                        ? UserDefaults.standard.bool(forKey: AppConstants.imageSequenceMetadataSidecarEnabledKey)
+                        : AppConstants.defaultImageSequenceMetadataSidecarEnabled
+
+                    if sidecarEnabled, let metadata = capturedSourceMetadata {
+                        let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceMetadataSidecarFormatKey)
+                            ?? AppConstants.defaultImageSequenceMetadataSidecarFormat
+                        let format = MetadataSidecarGenerator.SidecarFormat(rawValue: formatRaw) ?? .markdown
+                        MetadataSidecarGenerator.generateSidecar(
+                            originalFileName: capturedInputBaseName,
+                            outputFolder: outputFolder,
+                            metadata: metadata,
+                            cameraMetadata: capturedSourceCameraMetadata,
+                            format: format
+                        )
+                    }
                 }
 
                 completion(success)

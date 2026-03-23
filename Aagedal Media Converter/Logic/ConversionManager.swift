@@ -1125,6 +1125,8 @@ actor ConversionManager: Sendable {
             expectedDuration: imageSeqExpectedDuration,
             videoFrameRate: currentItem.metadata?.primaryVideoStream?.frameRate?.value,
             waveformBackgroundImageURL: currentItem.waveformBackgroundImageURL,
+            sourceMetadata: currentItem.metadata,
+            sourceCameraMetadata: currentItem.cameraMetadata,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
