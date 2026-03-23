@@ -73,6 +73,7 @@ enum ImageSequenceFormat: String, CaseIterable, Identifiable, Sendable {
     case tga = "TGA"
     case sgi = "SGI"
     case jpegXL = "JPEG XL"
+    case jpeg2000 = "JPEG 2000"
 
     var id: String { rawValue }
 
@@ -87,6 +88,7 @@ enum ImageSequenceFormat: String, CaseIterable, Identifiable, Sendable {
         case .tga: return ["tga"]
         case .sgi: return ["sgi"]
         case .jpegXL: return ["jxl"]
+        case .jpeg2000: return ["jp2", "j2k", "j2c"]
         }
     }
 
@@ -103,6 +105,7 @@ enum ImageSequenceFormat: String, CaseIterable, Identifiable, Sendable {
         case .tga: return "targa"
         case .sgi: return "sgi"
         case .jpegXL: return "libjxl"
+        case .jpeg2000: return "libopenjpeg"
         }
     }
 
