@@ -95,7 +95,8 @@ enum AppConstants {
     // Supported image sequence file extensions (lowercase)
     static let supportedImageSequenceExtensions: Set<String> = [
         "png", "jpg", "jpeg", "tif", "tiff",
-        "exr", "dpx", "bmp", "tga", "sgi", "jxl"
+        "exr", "dpx", "bmp", "tga", "sgi", "jxl",
+        "jp2", "j2k", "j2c"
     ]
 
     // Supported UTType identifiers for file picker
