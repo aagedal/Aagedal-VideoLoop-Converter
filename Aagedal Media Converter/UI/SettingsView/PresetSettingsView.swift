@@ -108,6 +108,7 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.dcpResolutionKey) private var dcpResolution = AppConstants.defaultDCPResolution
     @AppStorage(AppConstants.dcpFrameRateKey) private var dcpFrameRate = AppConstants.defaultDCPFrameRate
     @AppStorage(AppConstants.dcpBitrateKey) private var dcpBitrate = AppConstants.defaultDCPBitrate
+    @AppStorage(AppConstants.dcpKeepJP2ImagesKey) private var dcpKeepJP2Images = false
 
     // Stream Copy container
     @AppStorage(AppConstants.streamCopyContainerKey) private var streamCopyContainer = AppConstants.defaultStreamCopyContainer
@@ -474,6 +475,11 @@ struct PresetsSettingsView: View {
                         .labelsHidden()
                         .help("JPEG 2000 video bitrate. 250 Mbps is the DCI maximum for 2K.")
                     }
+
+                    Toggle(isOn: $dcpKeepJP2Images) {
+                        Text("Keep JP2 image sequence")
+                    }
+                    .help("Retain the JPEG 2000 image files in the working folder after DCP creation. Useful for importing as an image sequence.")
 
                     Text("JPEG 2000 video in MXF with 24-bit PCM audio. XYZ color space (DCI P3).")
                         .font(.caption)

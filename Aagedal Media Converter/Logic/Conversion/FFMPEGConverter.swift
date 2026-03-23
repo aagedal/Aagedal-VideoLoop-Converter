@@ -84,7 +84,7 @@ actor FFMPEGConverter {
         var dcpSubfolderURL: URL? = nil
 
         if isDCPExport {
-            // Create DCP output directory: outputDir/Title_dcp/
+            // Create DCP working directory: outputDir/Title_dcp/
             let subfolderName = outputURL.lastPathComponent
             let subfolderURL = outputDir.appendingPathComponent(subfolderName, isDirectory: true)
 
@@ -98,21 +98,20 @@ actor FFMPEGConverter {
             do {
                 try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
             } catch {
-                print("Failed to create DCP output directory: \(error)")
+                print("Failed to create DCP working directory: \(error)")
                 completion(false)
                 return
             }
 
             dcpSubfolderURL = finalSubfolderURL
 
-            // DCP: FFmpeg outputs JP2 image sequence to a temp directory.
-            // asdcp-wrap then creates the final DCP-compliant video MXF.
-            let jp2Dir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("dcp_jp2_\(UUID().uuidString)", isDirectory: true)
+            // DCP: FFmpeg outputs JP2 image sequence to a subdirectory in the working folder.
+            // This allows the user to optionally keep the JP2 images for image sequence import.
+            let jp2Dir = finalSubfolderURL.appendingPathComponent("jp2", isDirectory: true)
             do {
                 try fileManager.createDirectory(at: jp2Dir, withIntermediateDirectories: true)
             } catch {
-                print("Failed to create DCP JP2 temp directory: \(error)")
+                print("Failed to create DCP JP2 directory: \(error)")
                 completion(false)
                 return
             }
@@ -277,6 +276,16 @@ actor FFMPEGConverter {
         let frameStallTracker = FrameStallTracker()
         let frameRate = videoFrameRate ?? 24.0  // Default to 24fps if not provided
 
+        // For DCP exports, scale FFmpeg progress to 0-75% to leave room for post-processing steps
+        let ffmpegProgressUpdate: @Sendable (Double, String?) -> Void
+        if isDCPExport {
+            ffmpegProgressUpdate = { progress, eta in
+                progressUpdate(progress * 0.75, eta)
+            }
+        } else {
+            ffmpegProgressUpdate = progressUpdate
+        }
+
         let errorReadabilityHandler: @Sendable (FileHandle) -> Void = { fileHandle in
             let data = fileHandle.availableData
             if let output = String(data: data, encoding: .utf8), !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -287,7 +296,7 @@ actor FFMPEGConverter {
                     effectiveDuration: effectiveDurationBox.value,
                     frameRate: frameRate,
                     frameStallTracker: frameStallTracker,
-                    progressUpdate: progressUpdate
+                    progressUpdate: ffmpegProgressUpdate
                 )
                 if let newTotalDuration = newTotalDuration {
                     totalDurationBox.value = newTotalDuration
@@ -389,94 +398,108 @@ actor FFMPEGConverter {
                     let frameRateRaw = UserDefaults.standard.string(forKey: AppConstants.dcpFrameRateKey) ?? AppConstants.defaultDCPFrameRate
                     let frameRate = DCPFrameRate(rawValue: frameRateRaw) ?? .fps24
 
-                    guard let asdcpWrapPath = BinaryPathResolver.asdcpWrapPath else {
+                    let fm = FileManager.default
+                    let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
+                    var videoMXFURL: URL? = nil
+
+                    if let asdcpWrapPath = BinaryPathResolver.asdcpWrapPath {
+                        // Step 1: Convert JP2 frames to raw J2C codestreams and wrap with asdcp-wrap
+                        progressUpdate(0.75, "Creating video MXF for DCP...")
+                        let tmpVideoMXF = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("dcp_video_\(UUID().uuidString).mxf")
+
+                        // Strip JP2 container headers to get raw J2C codestreams
+                        // JP2 files have a header before the raw JPEG 2000 codestream (SOC marker: FF 4F)
+                        let jp2Files = (try? fm.contentsOfDirectory(atPath: jp2Dir.path))?
+                            .filter { $0.hasSuffix(".jp2") }
+                            .sorted() ?? []
+
+                        if jp2Files.isEmpty {
+                            Self.logger.error("No JP2 frames found in \(jp2Dir.path)")
+                            success = false
+                        } else {
+                            // Create J2C directory for stripped codestreams
+                            let j2cDir = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("dcp_j2c_\(UUID().uuidString)", isDirectory: true)
+                            try? fm.createDirectory(at: j2cDir, withIntermediateDirectories: true)
+
+                            Self.logger.info("Stripping JP2 headers from \(jp2Files.count) frames...")
+                            let socMarker = Data([0xFF, 0x4F])
+                            for jp2File in jp2Files {
+                                let jp2URL = jp2Dir.appendingPathComponent(jp2File)
+                                let j2cFile = jp2File.replacingOccurrences(of: ".jp2", with: ".j2c")
+                                let j2cURL = j2cDir.appendingPathComponent(j2cFile)
+
+                                if let data = try? Data(contentsOf: jp2URL),
+                                   let socRange = data.range(of: socMarker) {
+                                    try? data[socRange.lowerBound...].write(to: j2cURL)
+                                }
+                            }
+
+                            // Verify J2C files were created
+                            let j2cFiles = (try? fm.contentsOfDirectory(atPath: j2cDir.path))?
+                                .filter { $0.hasSuffix(".j2c") } ?? []
+                            Self.logger.info("Created \(j2cFiles.count) J2C codestream files")
+
+                            // Run asdcp-wrap on J2C directory
+                            let videoWrapArgs: [String] = [
+                                "-v",                                // Verbose output
+                                "-p", frameRate.ffmpegValue,
+                                "-L",                                // SMPTE Universal Labels
+                                j2cDir.path + "/",                   // Directory of J2C frames
+                                tmpVideoMXF.path
+                            ]
+
+                            Self.logger.info("Running asdcp-wrap for DCP video: \(videoWrapArgs.joined(separator: " "))")
+                            let videoWrapProcess = Process()
+                            videoWrapProcess.executableURL = URL(fileURLWithPath: asdcpWrapPath)
+                            videoWrapProcess.arguments = videoWrapArgs
+                            videoWrapProcess.standardInput = FileHandle.nullDevice
+
+                            // Capture stderr for debugging
+                            let stderrPipe = Pipe()
+                            videoWrapProcess.standardOutput = stderrPipe  // asdcp-wrap prints info to stdout
+                            videoWrapProcess.standardError = stderrPipe
+
+                            do {
+                                try videoWrapProcess.run()
+                                videoWrapProcess.waitUntilExit()
+
+                                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                                let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+                                if !stderrStr.isEmpty {
+                                    Self.logger.info("asdcp-wrap video output: \(stderrStr.prefix(500))")
+                                }
+
+                                if videoWrapProcess.terminationStatus == 0 {
+                                    videoMXFURL = tmpVideoMXF
+                                    Self.logger.info("Video MXF created with asdcp-wrap")
+                                } else {
+                                    Self.logger.error("asdcp-wrap failed for video MXF (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
+                                    success = false
+                                    try? fm.removeItem(at: tmpVideoMXF)
+                                }
+                            } catch {
+                                Self.logger.error("Failed to run asdcp-wrap for video: \(error.localizedDescription)")
+                                success = false
+                            }
+
+                            // Clean up J2C frames
+                            try? fm.removeItem(at: j2cDir)
+                        }
+                    } else {
                         Self.logger.error("asdcp-wrap not found — cannot create DCP-compliant MXF files")
                         success = false
-                        // Clean up JP2 temp directory
-                        let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
-                        try? FileManager.default.removeItem(at: jp2Dir)
-                        return
                     }
 
-                    // Step 1: Convert JP2 frames to raw J2C codestreams and wrap with asdcp-wrap
-                    progressUpdate(0.80, "Creating video MXF for DCP...")
-                    let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
-                    let videoMXFURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("dcp_video_\(UUID().uuidString).mxf")
-
-                    // Strip JP2 container headers to get raw J2C codestreams
-                    // JP2 files have a header before the raw JPEG 2000 codestream (SOC marker: FF 4F)
-                    let fm = FileManager.default
-                    let jp2Files = (try? fm.contentsOfDirectory(atPath: jp2Dir.path))?
-                        .filter { $0.hasSuffix(".jp2") }
-                        .sorted() ?? []
-
-                    if jp2Files.isEmpty {
-                        Self.logger.error("No JP2 frames found in \(jp2Dir.path)")
-                        success = false
+                    // Clean up JP2 images unless user wants to keep them
+                    let keepJP2 = UserDefaults.standard.bool(forKey: AppConstants.dcpKeepJP2ImagesKey)
+                    if !keepJP2 {
                         try? fm.removeItem(at: jp2Dir)
-                        return
                     }
-
-                    // Create J2C directory for stripped codestreams
-                    let j2cDir = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("dcp_j2c_\(UUID().uuidString)", isDirectory: true)
-                    try? fm.createDirectory(at: j2cDir, withIntermediateDirectories: true)
-
-                    Self.logger.info("Stripping JP2 headers from \(jp2Files.count) frames...")
-                    let socMarker = Data([0xFF, 0x4F])
-                    for jp2File in jp2Files {
-                        let jp2URL = jp2Dir.appendingPathComponent(jp2File)
-                        let j2cFile = jp2File.replacingOccurrences(of: ".jp2", with: ".j2c")
-                        let j2cURL = j2cDir.appendingPathComponent(j2cFile)
-
-                        if let data = try? Data(contentsOf: jp2URL),
-                           let socRange = data.range(of: socMarker) {
-                            try? data[socRange.lowerBound...].write(to: j2cURL)
-                        }
-                    }
-
-                    // Clean up JP2 frames
-                    try? fm.removeItem(at: jp2Dir)
-
-                    // Run asdcp-wrap on J2C directory
-                    let videoWrapArgs: [String] = [
-                        "-p", frameRate.ffmpegValue,
-                        "-L",                            // SMPTE Universal Labels
-                        j2cDir.path + "/",               // Directory of J2C frames (trailing slash)
-                        videoMXFURL.path
-                    ]
-
-                    Self.logger.info("Running asdcp-wrap for DCP video: \(videoWrapArgs.joined(separator: " "))")
-                    let videoWrapProcess = Process()
-                    videoWrapProcess.executableURL = URL(fileURLWithPath: asdcpWrapPath)
-                    videoWrapProcess.arguments = videoWrapArgs
-                    videoWrapProcess.standardOutput = FileHandle.nullDevice
-                    videoWrapProcess.standardError = FileHandle.nullDevice
-                    videoWrapProcess.standardInput = FileHandle.nullDevice
-
-                    var videoWrapSuccess = false
-                    do {
-                        try videoWrapProcess.run()
-                        videoWrapProcess.waitUntilExit()
-                        videoWrapSuccess = videoWrapProcess.terminationStatus == 0
-                    } catch {
-                        Self.logger.error("Failed to run asdcp-wrap for video: \(error.localizedDescription)")
-                    }
-
-                    // Clean up J2C frames
-                    try? fm.removeItem(at: j2cDir)
-
-                    if !videoWrapSuccess {
-                        Self.logger.error("asdcp-wrap failed for video MXF")
-                        success = false
-                        try? fm.removeItem(at: videoMXFURL)
-                        return
-                    }
-                    Self.logger.info("Video MXF created with asdcp-wrap: \(videoMXFURL.lastPathComponent)")
 
                     // Step 2: Extract audio as WAV
-                    progressUpdate(0.85, "Extracting audio for DCP...")
+                    progressUpdate(0.82, "Extracting audio for DCP...")
                     let audioWavURL = await Self.extractAudioForDCP(
                         inputURL: capturedInputURL,
                         outputFolder: FileManager.default.temporaryDirectory,
@@ -487,8 +510,8 @@ actor FFMPEGConverter {
 
                     // Step 3: Wrap audio WAV to DCP MXF with asdcp-wrap
                     var finalAudioMXF: URL? = nil
-                    if let wavURL = audioWavURL {
-                        progressUpdate(0.88, "Creating audio MXF for DCP...")
+                    if let wavURL = audioWavURL, let asdcpPath = BinaryPathResolver.asdcpWrapPath {
+                        progressUpdate(0.87, "Creating audio MXF for DCP...")
                         let audioMXFURL = FileManager.default.temporaryDirectory
                             .appendingPathComponent("dcp_audio_\(UUID().uuidString).mxf")
 
@@ -501,20 +524,29 @@ actor FFMPEGConverter {
 
                         Self.logger.info("Running asdcp-wrap for DCP audio")
                         let audioWrapProcess = Process()
-                        audioWrapProcess.executableURL = URL(fileURLWithPath: asdcpWrapPath)
+                        audioWrapProcess.executableURL = URL(fileURLWithPath: asdcpPath)
                         audioWrapProcess.arguments = audioWrapArgs
-                        audioWrapProcess.standardOutput = FileHandle.nullDevice
-                        audioWrapProcess.standardError = FileHandle.nullDevice
                         audioWrapProcess.standardInput = FileHandle.nullDevice
+
+                        let audioStderrPipe = Pipe()
+                        audioWrapProcess.standardOutput = audioStderrPipe
+                        audioWrapProcess.standardError = audioStderrPipe
 
                         do {
                             try audioWrapProcess.run()
                             audioWrapProcess.waitUntilExit()
+
+                            let audioStderrData = audioStderrPipe.fileHandleForReading.readDataToEndOfFile()
+                            let audioStderrStr = String(data: audioStderrData, encoding: .utf8) ?? ""
+                            if !audioStderrStr.isEmpty {
+                                Self.logger.info("asdcp-wrap audio output: \(audioStderrStr.prefix(500))")
+                            }
+
                             if audioWrapProcess.terminationStatus == 0 {
                                 finalAudioMXF = audioMXFURL
                                 Self.logger.info("Audio MXF created with asdcp-wrap")
                             } else {
-                                Self.logger.warning("asdcp-wrap failed for audio (status \(audioWrapProcess.terminationStatus))")
+                                Self.logger.warning("asdcp-wrap failed for audio (status \(audioWrapProcess.terminationStatus)): \(audioStderrStr.prefix(300))")
                             }
                         } catch {
                             Self.logger.error("Failed to run asdcp-wrap for audio: \(error.localizedDescription)")
@@ -524,40 +556,57 @@ actor FFMPEGConverter {
                         try? fm.removeItem(at: wavURL)
                     }
 
-                    // Step 4: Assemble DCP XML metadata
-                    progressUpdate(0.91, "Generating DCP metadata...")
+                    // Step 4: Assemble DCP XML metadata (only if video MXF was created)
+                    if success, let videoMXF = videoMXFURL {
+                        progressUpdate(0.91, "Generating DCP metadata...")
 
-                    let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
-                    let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
+                        let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
+                        let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
 
-                    let dcpTitle = capturedDCPMetadata?.contentTitleText.isEmpty == false
-                        ? capturedDCPMetadata!.contentTitleText : capturedInputBaseName
+                        let dcpTitle = capturedDCPMetadata?.contentTitleText.isEmpty == false
+                            ? capturedDCPMetadata!.contentTitleText : capturedInputBaseName
 
-                    let dcpSuccess = await DCPService.shared.assembleDCP(
-                        videoMXFURL: videoMXFURL,
-                        audioMXFURL: finalAudioMXF,
-                        outputDirectoryURL: dcpFolder,
-                        title: dcpTitle,
-                        resolution: resolution,
-                        frameRate: frameRate,
-                        frameCount: max(frameCount, 1),
-                        itemMetadata: capturedDCPMetadata,
-                        progress: { dcpProgress in
-                            let overall = 0.91 + dcpProgress * 0.09
-                            Task { @MainActor in
-                                progressUpdate(overall, "Generating DCP metadata...")
+                        // Create all-caps DCP folder inside the working folder
+                        let sanitizedDCPName = dcpTitle
+                            .uppercased()
+                            .replacingOccurrences(of: " ", with: "_")
+                            .unicodeScalars.filter { scalar in
+                                CharacterSet.alphanumerics.contains(scalar) || scalar == "_" || scalar == "-"
+                            }.map { String($0) }.joined()
+                        let dcpOutputDir = dcpFolder.appendingPathComponent(
+                            sanitizedDCPName.isEmpty ? "DCP" : sanitizedDCPName,
+                            isDirectory: true
+                        )
+                        try? fm.createDirectory(at: dcpOutputDir, withIntermediateDirectories: true)
+
+                        Self.logger.info("DCP output folder: \(dcpOutputDir.lastPathComponent)")
+
+                        let dcpSuccess = await DCPService.shared.assembleDCP(
+                            videoMXFURL: videoMXF,
+                            audioMXFURL: finalAudioMXF,
+                            outputDirectoryURL: dcpOutputDir,
+                            title: dcpTitle,
+                            resolution: resolution,
+                            frameRate: frameRate,
+                            frameCount: max(frameCount, 1),
+                            itemMetadata: capturedDCPMetadata,
+                            progress: { dcpProgress in
+                                let overall = 0.91 + dcpProgress * 0.09
+                                Task { @MainActor in
+                                    progressUpdate(overall, "Generating DCP metadata...")
+                                }
                             }
+                        )
+
+                        if !dcpSuccess {
+                            Self.logger.error("DCP assembly failed")
+                            success = false
                         }
-                    )
 
-                    if !dcpSuccess {
-                        Self.logger.error("DCP assembly failed")
-                        success = false
-                    }
-
-                    // Clean up temp video MXF if DCPService moved it
-                    if fm.fileExists(atPath: videoMXFURL.path) {
-                        try? fm.removeItem(at: videoMXFURL)
+                        // Clean up temp video MXF if DCPService moved it
+                        if fm.fileExists(atPath: videoMXF.path) {
+                            try? fm.removeItem(at: videoMXF)
+                        }
                     }
                 }
 
@@ -909,31 +958,53 @@ actor FFMPEGConverter {
             args.append(contentsOf: durationArgs)
         }
 
+        // Always suppress video output
+        args.append(contentsOf: ["-vn"])
+
+        // For sources with multiple audio streams (e.g. separate mono tracks),
+        // use amerge filter to combine them. For single-stream sources, map directly.
+        if audioStreams.count > 1 {
+            // Build amerge filter to combine all audio streams into one multi-channel output
+            var filterInputs = ""
+            for i in 0..<audioStreams.count {
+                filterInputs += "[0:a:\(i)]"
+            }
+            args.append(contentsOf: [
+                "-filter_complex", "\(filterInputs)amerge=inputs=\(audioStreams.count)[aout]",
+                "-map", "[aout]",
+            ])
+        }
+
         args.append(contentsOf: [
-            "-vn",                    // No video
-            "-map", "0:a",           // Map all audio channels
             "-c:a", "pcm_s24le",     // 24-bit PCM
             "-ar", "48000",          // 48 kHz (DCI standard)
             audioWavURL.path
         ])
 
-        logger.info("Extracting audio as WAV for DCP: \(audioWavURL.lastPathComponent)")
+        logger.info("Extracting audio as WAV for DCP: \(audioWavURL.lastPathComponent) (\(audioStreams.count) source streams)")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
         process.arguments = args
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
+
+        // Capture stderr for debugging
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
 
         do {
             try process.run()
             process.waitUntilExit()
+
+            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+
             if process.terminationStatus == 0 {
                 logger.info("Audio WAV extraction complete: \(audioWavURL.lastPathComponent)")
                 return audioWavURL
             } else {
-                logger.warning("Audio WAV extraction for DCP failed with status \(process.terminationStatus)")
+                logger.warning("Audio WAV extraction for DCP failed (status \(process.terminationStatus)): \(stderrStr.suffix(300))")
                 try? FileManager.default.removeItem(at: audioWavURL)
                 return nil
             }
