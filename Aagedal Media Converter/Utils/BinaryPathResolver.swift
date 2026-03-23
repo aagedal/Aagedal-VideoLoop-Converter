@@ -76,6 +76,11 @@ enum BinaryPathResolver {
         Bundle.main.path(forResource: "mxf2raw", ofType: nil)
     }
 
+    /// Resolves the path to asdcp-wrap binary (DCP-compliant MXF audio wrapping)
+    static var asdcpWrapPath: String? {
+        Bundle.main.path(forResource: "asdcp-wrap", ofType: nil)
+    }
+
     // MARK: - ExifTool
 
     /// Resolves the path to exiftool binary

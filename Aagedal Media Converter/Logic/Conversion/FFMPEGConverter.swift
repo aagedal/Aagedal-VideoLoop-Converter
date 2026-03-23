@@ -105,10 +105,19 @@ actor FFMPEGConverter {
 
             dcpSubfolderURL = finalSubfolderURL
 
-            // FFmpeg outputs video to a temp MXF, which DCPService will move into the DCP folder
-            let tempDir = FileManager.default.temporaryDirectory
-            outputFileURL = tempDir.appendingPathComponent("dcp_video_\(UUID().uuidString).mxf")
-            Self.logger.info("DCP: FFmpeg will output video MXF to temp file, DCP assembly follows")
+            // DCP: FFmpeg outputs JP2 image sequence to a temp directory.
+            // asdcp-wrap then creates the final DCP-compliant video MXF.
+            let jp2Dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("dcp_jp2_\(UUID().uuidString)", isDirectory: true)
+            do {
+                try fileManager.createDirectory(at: jp2Dir, withIntermediateDirectories: true)
+            } catch {
+                print("Failed to create DCP JP2 temp directory: \(error)")
+                completion(false)
+                return
+            }
+            outputFileURL = jp2Dir.appendingPathComponent("frame_%06d.jp2")
+            Self.logger.info("DCP: FFmpeg will output JP2 image sequence for asdcp-wrap")
         } else if isImageSequenceExport {
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
@@ -371,29 +380,153 @@ actor FFMPEGConverter {
                     Self.logger.debug("Cleaned up temp audio file: \(tempURL.lastPathComponent)")
                 }
 
-                // DCP assembly: extract audio MXF + generate XML metadata
+                // DCP assembly: wrap JP2 frames + audio WAV into DCP-compliant MXF using asdcp-wrap
                 if success && capturedIsDCPExport, let dcpFolder = capturedDCPSubfolderURL {
                     Self.logger.info("Starting DCP assembly...")
-                    progressUpdate(0.85, "Extracting audio for DCP...")
 
-                    // Extract audio as 24-bit PCM MXF
-                    let audioMXFURL = await Self.extractAudioAsMXF(
-                        inputURL: capturedInputURL,
-                        outputFolder: dcpFolder,
-                        ffmpegPath: capturedFfmpegPath,
-                        trimStart: capturedTrimStart,
-                        trimEnd: capturedTrimEnd
-                    )
-
-                    progressUpdate(0.90, "Generating DCP metadata...")
-
-                    // Read DCP settings for assembly
                     let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.dcpResolutionKey) ?? AppConstants.defaultDCPResolution
                     let resolution = DCPResolution(rawValue: resolutionRaw) ?? .twoKFull
                     let frameRateRaw = UserDefaults.standard.string(forKey: AppConstants.dcpFrameRateKey) ?? AppConstants.defaultDCPFrameRate
                     let frameRate = DCPFrameRate(rawValue: frameRateRaw) ?? .fps24
 
-                    // Compute frame count from duration and frame rate
+                    guard let asdcpWrapPath = BinaryPathResolver.asdcpWrapPath else {
+                        Self.logger.error("asdcp-wrap not found — cannot create DCP-compliant MXF files")
+                        success = false
+                        // Clean up JP2 temp directory
+                        let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
+                        try? FileManager.default.removeItem(at: jp2Dir)
+                        return
+                    }
+
+                    // Step 1: Convert JP2 frames to raw J2C codestreams and wrap with asdcp-wrap
+                    progressUpdate(0.80, "Creating video MXF for DCP...")
+                    let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
+                    let videoMXFURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("dcp_video_\(UUID().uuidString).mxf")
+
+                    // Strip JP2 container headers to get raw J2C codestreams
+                    // JP2 files have a header before the raw JPEG 2000 codestream (SOC marker: FF 4F)
+                    let fm = FileManager.default
+                    let jp2Files = (try? fm.contentsOfDirectory(atPath: jp2Dir.path))?
+                        .filter { $0.hasSuffix(".jp2") }
+                        .sorted() ?? []
+
+                    if jp2Files.isEmpty {
+                        Self.logger.error("No JP2 frames found in \(jp2Dir.path)")
+                        success = false
+                        try? fm.removeItem(at: jp2Dir)
+                        return
+                    }
+
+                    // Create J2C directory for stripped codestreams
+                    let j2cDir = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("dcp_j2c_\(UUID().uuidString)", isDirectory: true)
+                    try? fm.createDirectory(at: j2cDir, withIntermediateDirectories: true)
+
+                    Self.logger.info("Stripping JP2 headers from \(jp2Files.count) frames...")
+                    let socMarker = Data([0xFF, 0x4F])
+                    for jp2File in jp2Files {
+                        let jp2URL = jp2Dir.appendingPathComponent(jp2File)
+                        let j2cFile = jp2File.replacingOccurrences(of: ".jp2", with: ".j2c")
+                        let j2cURL = j2cDir.appendingPathComponent(j2cFile)
+
+                        if let data = try? Data(contentsOf: jp2URL),
+                           let socRange = data.range(of: socMarker) {
+                            try? data[socRange.lowerBound...].write(to: j2cURL)
+                        }
+                    }
+
+                    // Clean up JP2 frames
+                    try? fm.removeItem(at: jp2Dir)
+
+                    // Run asdcp-wrap on J2C directory
+                    let videoWrapArgs: [String] = [
+                        "-p", frameRate.ffmpegValue,
+                        "-L",                            // SMPTE Universal Labels
+                        j2cDir.path + "/",               // Directory of J2C frames (trailing slash)
+                        videoMXFURL.path
+                    ]
+
+                    Self.logger.info("Running asdcp-wrap for DCP video: \(videoWrapArgs.joined(separator: " "))")
+                    let videoWrapProcess = Process()
+                    videoWrapProcess.executableURL = URL(fileURLWithPath: asdcpWrapPath)
+                    videoWrapProcess.arguments = videoWrapArgs
+                    videoWrapProcess.standardOutput = FileHandle.nullDevice
+                    videoWrapProcess.standardError = FileHandle.nullDevice
+                    videoWrapProcess.standardInput = FileHandle.nullDevice
+
+                    var videoWrapSuccess = false
+                    do {
+                        try videoWrapProcess.run()
+                        videoWrapProcess.waitUntilExit()
+                        videoWrapSuccess = videoWrapProcess.terminationStatus == 0
+                    } catch {
+                        Self.logger.error("Failed to run asdcp-wrap for video: \(error.localizedDescription)")
+                    }
+
+                    // Clean up J2C frames
+                    try? fm.removeItem(at: j2cDir)
+
+                    if !videoWrapSuccess {
+                        Self.logger.error("asdcp-wrap failed for video MXF")
+                        success = false
+                        try? fm.removeItem(at: videoMXFURL)
+                        return
+                    }
+                    Self.logger.info("Video MXF created with asdcp-wrap: \(videoMXFURL.lastPathComponent)")
+
+                    // Step 2: Extract audio as WAV
+                    progressUpdate(0.85, "Extracting audio for DCP...")
+                    let audioWavURL = await Self.extractAudioForDCP(
+                        inputURL: capturedInputURL,
+                        outputFolder: FileManager.default.temporaryDirectory,
+                        ffmpegPath: capturedFfmpegPath,
+                        trimStart: capturedTrimStart,
+                        trimEnd: capturedTrimEnd
+                    )
+
+                    // Step 3: Wrap audio WAV to DCP MXF with asdcp-wrap
+                    var finalAudioMXF: URL? = nil
+                    if let wavURL = audioWavURL {
+                        progressUpdate(0.88, "Creating audio MXF for DCP...")
+                        let audioMXFURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("dcp_audio_\(UUID().uuidString).mxf")
+
+                        let audioWrapArgs: [String] = [
+                            "-p", frameRate.ffmpegValue,
+                            "-L",                          // SMPTE Universal Labels
+                            wavURL.path,
+                            audioMXFURL.path
+                        ]
+
+                        Self.logger.info("Running asdcp-wrap for DCP audio")
+                        let audioWrapProcess = Process()
+                        audioWrapProcess.executableURL = URL(fileURLWithPath: asdcpWrapPath)
+                        audioWrapProcess.arguments = audioWrapArgs
+                        audioWrapProcess.standardOutput = FileHandle.nullDevice
+                        audioWrapProcess.standardError = FileHandle.nullDevice
+                        audioWrapProcess.standardInput = FileHandle.nullDevice
+
+                        do {
+                            try audioWrapProcess.run()
+                            audioWrapProcess.waitUntilExit()
+                            if audioWrapProcess.terminationStatus == 0 {
+                                finalAudioMXF = audioMXFURL
+                                Self.logger.info("Audio MXF created with asdcp-wrap")
+                            } else {
+                                Self.logger.warning("asdcp-wrap failed for audio (status \(audioWrapProcess.terminationStatus))")
+                            }
+                        } catch {
+                            Self.logger.error("Failed to run asdcp-wrap for audio: \(error.localizedDescription)")
+                        }
+
+                        // Clean up WAV
+                        try? fm.removeItem(at: wavURL)
+                    }
+
+                    // Step 4: Assemble DCP XML metadata
+                    progressUpdate(0.91, "Generating DCP metadata...")
+
                     let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
                     let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
 
@@ -401,8 +534,8 @@ actor FFMPEGConverter {
                         ? capturedDCPMetadata!.contentTitleText : capturedInputBaseName
 
                     let dcpSuccess = await DCPService.shared.assembleDCP(
-                        videoMXFURL: capturedFinalOutputURL,
-                        audioMXFURL: audioMXFURL,
+                        videoMXFURL: videoMXFURL,
+                        audioMXFURL: finalAudioMXF,
                         outputDirectoryURL: dcpFolder,
                         title: dcpTitle,
                         resolution: resolution,
@@ -410,7 +543,7 @@ actor FFMPEGConverter {
                         frameCount: max(frameCount, 1),
                         itemMetadata: capturedDCPMetadata,
                         progress: { dcpProgress in
-                            let overall = 0.90 + dcpProgress * 0.10
+                            let overall = 0.91 + dcpProgress * 0.09
                             Task { @MainActor in
                                 progressUpdate(overall, "Generating DCP metadata...")
                             }
@@ -423,8 +556,8 @@ actor FFMPEGConverter {
                     }
 
                     // Clean up temp video MXF if DCPService moved it
-                    if FileManager.default.fileExists(atPath: capturedFinalOutputURL.path) {
-                        try? FileManager.default.removeItem(at: capturedFinalOutputURL)
+                    if fm.fileExists(atPath: videoMXFURL.path) {
+                        try? fm.removeItem(at: videoMXFURL)
                     }
                 }
 
@@ -741,9 +874,11 @@ actor FFMPEGConverter {
         }
     }
 
-    /// Extracts audio from source as 24-bit PCM in MXF container for DCP
-    /// - Returns: URL of the audio MXF file, or nil if source has no audio or extraction failed
-    private static func extractAudioAsMXF(
+    /// Extracts audio from source as 24-bit PCM WAV for DCP
+    /// FFmpeg's MXF muxer cannot create audio-only MXF files, so we extract to WAV.
+    /// The WAV can later be wrapped into DCP-compliant MXF using asdcp-wrap.
+    /// - Returns: URL of the audio WAV file, or nil if source has no audio or extraction failed
+    private static func extractAudioForDCP(
         inputURL: URL,
         outputFolder: URL,
         ffmpegPath: String,
@@ -753,11 +888,11 @@ actor FFMPEGConverter {
         // Check if source has audio streams
         guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
               !audioStreams.isEmpty else {
-            logger.debug("No audio streams in source, skipping MXF audio extraction for DCP")
+            logger.debug("No audio streams in source, skipping audio extraction for DCP")
             return nil
         }
 
-        let audioMXFURL = outputFolder.appendingPathComponent("audio_temp_\(UUID().uuidString).mxf")
+        let audioWavURL = outputFolder.appendingPathComponent("audio_temp_\(UUID().uuidString).wav")
 
         var args: [String] = ["-y", "-nostdin"]
 
@@ -776,13 +911,13 @@ actor FFMPEGConverter {
 
         args.append(contentsOf: [
             "-vn",                    // No video
+            "-map", "0:a",           // Map all audio channels
             "-c:a", "pcm_s24le",     // 24-bit PCM
             "-ar", "48000",          // 48 kHz (DCI standard)
-            "-f", "mxf",             // MXF container
-            audioMXFURL.path
+            audioWavURL.path
         ])
 
-        logger.info("Extracting audio as MXF for DCP: \(audioMXFURL.lastPathComponent)")
+        logger.info("Extracting audio as WAV for DCP: \(audioWavURL.lastPathComponent)")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
@@ -795,15 +930,15 @@ actor FFMPEGConverter {
             try process.run()
             process.waitUntilExit()
             if process.terminationStatus == 0 {
-                logger.info("Audio MXF extraction complete: \(audioMXFURL.lastPathComponent)")
-                return audioMXFURL
+                logger.info("Audio WAV extraction complete: \(audioWavURL.lastPathComponent)")
+                return audioWavURL
             } else {
-                logger.warning("Audio MXF extraction failed with status \(process.terminationStatus)")
-                try? FileManager.default.removeItem(at: audioMXFURL)
+                logger.warning("Audio WAV extraction for DCP failed with status \(process.terminationStatus)")
+                try? FileManager.default.removeItem(at: audioWavURL)
                 return nil
             }
         } catch {
-            logger.error("Failed to start audio MXF extraction: \(error.localizedDescription)")
+            logger.error("Failed to start audio WAV extraction for DCP: \(error.localizedDescription)")
             return nil
         }
     }

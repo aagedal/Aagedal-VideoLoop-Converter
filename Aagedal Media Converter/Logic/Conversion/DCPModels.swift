@@ -16,6 +16,8 @@ struct DCPItemMetadata: Equatable, Sendable {
     var annotationText: String = ""
     /// Film rating label (e.g., "PG-13", "R", "12A")
     var ratingLabel: String = ""
+    /// Audio language tag (RFC 5646, e.g., "en", "fr", "nb")
+    var audioLanguage: String = "en"
 }
 
 /// DCP content kind values (used in CPL ContentKind element)
@@ -92,6 +94,14 @@ enum DCPResolution: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// libopenjpeg profile for DCI-compliant JPEG 2000 encoding
+    var openjpegProfile: String {
+        switch self {
+        case .twoKFlat, .twoKScope, .twoKFull: return "cinema2k"
+        case .fourKFlat, .fourKScope, .fourKFull: return "cinema4k"
+        }
+    }
+
     /// Short label for display in compact contexts
     var shortLabel: String {
         switch self {
@@ -137,6 +147,17 @@ enum DCPFrameRate: String, CaseIterable, Identifiable, Sendable {
 
     /// Edit rate denominator for DCP XML (CPL)
     var editRateDenominator: Int { 1 }
+
+    /// libopenjpeg cinema_mode for DCI-compliant JPEG 2000 encoding
+    /// Returns nil for frame rates without a matching cinema mode
+    func cinemaModeFor(resolution: DCPResolution) -> String? {
+        switch (resolution.openjpegProfile, self) {
+        case ("cinema2k", .fps24): return "2k_24"
+        case ("cinema2k", .fps48): return "2k_48"
+        case ("cinema4k", .fps24): return "4k_24"
+        default: return nil
+        }
+    }
 }
 
 // MARK: - DCP Bitrate
