@@ -92,6 +92,10 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.imageSequenceExportQualityKey) private var imageSequenceExportQuality = AppConstants.defaultImageSequenceExportQuality
     @AppStorage(AppConstants.imageSequenceNumberingPaddingKey) private var imageSequenceNumberingPadding = AppConstants.defaultImageSequenceNumberingPadding
 
+    // Image sequence metadata sidecar
+    @AppStorage(AppConstants.imageSequenceMetadataSidecarEnabledKey) private var metadataSidecarEnabled = AppConstants.defaultImageSequenceMetadataSidecarEnabled
+    @AppStorage(AppConstants.imageSequenceMetadataSidecarFormatKey) private var metadataSidecarFormat = AppConstants.defaultImageSequenceMetadataSidecarFormat
+
     // TV preset settings
     @AppStorage(AppConstants.tvFramerateModeKey) private var tvFramerateMode = AppConstants.defaultTVFramerateMode
     @AppStorage(AppConstants.tvResolutionLimitKey) private var tvResolutionLimit = AppConstants.defaultTVResolutionLimit
@@ -384,6 +388,37 @@ struct PresetsSettingsView: View {
                         .fixedSize()
                         .labelsHidden()
                         .help("Number of digits in frame numbers (e.g., 6 → frame_000001.png).")
+                    }
+                }
+            }
+        }
+
+        if selectedPreset == .imageSequence {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle(isOn: $metadataSidecarEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Metadata Sidecar")
+                            Text("Include a file with source color space and technical specs")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .toggleStyle(SwitchToggleStyle())
+
+                    if metadataSidecarEnabled {
+                        HStack {
+                            Text("Sidecar Format")
+                            Spacer()
+                            Picker("", selection: $metadataSidecarFormat) {
+                                ForEach(MetadataSidecarGenerator.SidecarFormat.allCases) { format in
+                                    Text(format.rawValue).tag(format.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                        }
                     }
                 }
             }

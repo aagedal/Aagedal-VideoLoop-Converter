@@ -437,6 +437,12 @@ enum AppConstants {
     static let imageSequenceFrameRateKey = "imageSequenceFrameRate"
     static let defaultImageSequenceFrameRate: Double = 24.0
 
+    // Image sequence metadata sidecar
+    static let imageSequenceMetadataSidecarEnabledKey = "imageSequenceMetadataSidecarEnabled"
+    static let defaultImageSequenceMetadataSidecarEnabled = true
+    static let imageSequenceMetadataSidecarFormatKey = "imageSequenceMetadataSidecarFormat"
+    static let defaultImageSequenceMetadataSidecarFormat = "Markdown"
+
     // Reset behavior
     static let resetClearsSettingsKey = "resetClearsSettings"
     static let defaultResetClearsSettings = false // false = only reset status, true = also clear trim/crop/audio routing
