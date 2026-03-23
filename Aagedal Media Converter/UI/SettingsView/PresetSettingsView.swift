@@ -108,6 +108,7 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.dcpResolutionKey) private var dcpResolution = AppConstants.defaultDCPResolution
     @AppStorage(AppConstants.dcpFrameRateKey) private var dcpFrameRate = AppConstants.defaultDCPFrameRate
     @AppStorage(AppConstants.dcpBitrateKey) private var dcpBitrate = AppConstants.defaultDCPBitrate
+    @AppStorage(AppConstants.dcpScalingModeKey) private var dcpScalingMode = AppConstants.defaultDCPScalingMode
     @AppStorage(AppConstants.dcpKeepJP2ImagesKey) private var dcpKeepJP2Images = false
 
     // Stream Copy container
@@ -474,6 +475,20 @@ struct PresetsSettingsView: View {
                         .fixedSize()
                         .labelsHidden()
                         .help("JPEG 2000 video bitrate. 250 Mbps is the DCI maximum for 2K.")
+                    }
+
+                    HStack {
+                        Text("Scaling")
+                        Spacer()
+                        Picker("", selection: $dcpScalingMode) {
+                            ForEach(DCPScalingMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Fill crops the image to fill the DCP frame. Fit adds black bars to preserve the full image.")
                     }
 
                     Toggle(isOn: $dcpKeepJP2Images) {

@@ -160,6 +160,23 @@ enum DCPFrameRate: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+// MARK: - DCP Scaling Mode
+
+/// How source video is fitted into the DCP container resolution
+enum DCPScalingMode: String, CaseIterable, Identifiable, Sendable {
+    case fit = "Fit (letterbox/pillarbox)"
+    case fill = "Fill (crop to fill)"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .fit: return "Fit (letterbox/pillarbox)"
+        case .fill: return "Fill (crop to fill)"
+        }
+    }
+}
+
 // MARK: - DCP Bitrate
 
 /// Video bitrate options for DCP JPEG 2000 encoding

@@ -1200,6 +1200,16 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let frameRate = DCPFrameRate(rawValue: frameRateRaw) ?? .fps24
             let bitrateRaw = UserDefaults.standard.string(forKey: AppConstants.dcpBitrateKey) ?? AppConstants.defaultDCPBitrate
             let bitrate = DCPBitrate(rawValue: bitrateRaw) ?? .high
+            let scalingModeRaw = UserDefaults.standard.string(forKey: AppConstants.dcpScalingModeKey) ?? AppConstants.defaultDCPScalingMode
+            let scalingMode = DCPScalingMode(rawValue: scalingModeRaw) ?? .fill
+
+            let scaleFilter: String
+            switch scalingMode {
+            case .fill:
+                scaleFilter = "scale=iw*sar:ih,setsar=1,scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=increase,crop=\(resolution.width):\(resolution.height)"
+            case .fit:
+                scaleFilter = "scale=iw*sar:ih,setsar=1,scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=decrease,pad=\(resolution.width):\(resolution.height):-1:-1:color=black"
+            }
 
             var args = commonArgs + [
                 "-c:v", "libopenjpeg",
@@ -1212,7 +1222,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-pix_fmt", "xyz12le",
                 "-b:v", bitrate.ffmpegValue,
                 "-r", frameRate.ffmpegValue,
-                "-vf", "scale=iw*sar:ih,setsar=1,scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=decrease,pad=\(resolution.width):\(resolution.height):-1:-1:color=black",
+                "-vf", scaleFilter,
                 "-map", "0:v:0",
                 "-an",
             ]
