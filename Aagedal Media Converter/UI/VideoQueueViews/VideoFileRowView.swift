@@ -118,6 +118,7 @@ struct VideoFileRowView: View {
     @State private var showMetadata = false
     @State private var showAudioRouting = false
     @State private var showTimecode = false
+    @State private var showDCPMetadata = false
     @State private var cachedThumbnail: NSImage?
     @State private var localComment: String = ""
     @State private var isBeingDeleted = false
@@ -562,6 +563,11 @@ struct VideoFileRowView: View {
         .sheet(isPresented: $showTimecode) {
             if showTimecode {
                 TimecodeView(item: $file)
+            }
+        }
+        .sheet(isPresented: $showDCPMetadata) {
+            if showDCPMetadata {
+                DCPMetadataView(item: $file)
             }
         }
         .task(id: file.thumbnailData) {
@@ -1116,10 +1122,13 @@ struct VideoFileRowView: View {
     private var commentSection: some View {
         let showWaveform = !file.hasVideoStream
         let showImageSeqAudio = file.isImageSequence
-        if showCommentField || showDateTagButton || showWaveform || showImageSeqAudio {
+        let isDCP = preset == .dcp
+        if showCommentField || showDateTagButton || showWaveform || showImageSeqAudio || isDCP {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .center, spacing: 12) {
-                    if showCommentField {
+                    if isDCP {
+                        dcpMetadataButton
+                    } else if showCommentField {
                         commentInfoButton
                         commentEditor
                     }
@@ -1130,7 +1139,7 @@ struct VideoFileRowView: View {
                     if showImageSeqAudio {
                         imageSequenceAudioControl
                     }
-                    if showDateTagButton {
+                    if !isDCP && showDateTagButton {
                         dateTagControl
                     }
                 }
@@ -1138,6 +1147,35 @@ struct VideoFileRowView: View {
             }
             .padding(.top, 12)
         }
+    }
+
+    private var dcpMetadataButton: some View {
+        Button {
+            showDCPMetadata = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "film.stack")
+                    .font(.system(size: 12))
+                Text(dcpMetadataButtonLabel)
+                    .font(.system(size: 12))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.accentColor.opacity(0.12))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(file.status != .waiting)
+        .help("Edit DCP metadata (title, content kind, rating)")
+    }
+
+    private var dcpMetadataButtonLabel: String {
+        if let meta = file.dcpMetadata, !meta.contentTitleText.isEmpty {
+            return meta.contentTitleText
+        }
+        return "DCP Metadata"
     }
     
     private var commentInfoButton: some View {

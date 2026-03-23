@@ -95,6 +95,7 @@
 		8ECEBC1B2ED766F400F1F67C /* CropControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC192ED766F400F1F67C /* CropControlsView.swift */; };
 		8ECEBC1C2ED766F400F1F67C /* CropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */; };
 		8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */; };
+		DC0001A1DCP0000100000005 /* DCPMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000006 /* DCPMetadataView.swift */; };
 		8ECEBC202ED8782800F1F67C /* MetadataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */; };
 		8EE0BB9C2E0892B70096171D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9B2E0892B70096171D /* SettingsView.swift */; };
 		8EE0BB9E2E089F520096171D /* DockProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9D2E089F520096171D /* DockProgressView.swift */; };
@@ -271,6 +272,7 @@
 		8ECEBC192ED766F400F1F67C /* CropControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropControlsView.swift; sourceTree = "<group>"; };
 		8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropOverlayView.swift; sourceTree = "<group>"; };
 		8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeView.swift; sourceTree = "<group>"; };
+		DC0001A1DCP0000100000006 /* DCPMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DCPMetadataView.swift; sourceTree = "<group>"; };
 		8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataSettingsView.swift; sourceTree = "<group>"; };
 		8EE0BB9B2E0892B70096171D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8EE0BB9D2E089F520096171D /* DockProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockProgressView.swift; sourceTree = "<group>"; };
@@ -544,6 +546,7 @@
 				A1B2C3D4E5F60718293A4B5D /* CaptureModeView.swift */,
 				8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */,
 				8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */,
+				DC0001A1DCP0000100000006 /* DCPMetadataView.swift */,
 				8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */,
 				ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */,
 			);
@@ -1004,6 +1007,7 @@
 				8E9DBF1F2EE4781B00F352A1 /* TimecodeFormatter.swift in Sources */,
 				8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */,
 				8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */,
+				DC0001A1DCP0000100000005 /* DCPMetadataView.swift in Sources */,
 				8EEE45182EBEA9F00049F017 /* PreviewPlayerView.swift in Sources */,
 				8EEE45312EC139270049F017 /* FFMPEGProgressParser.swift in Sources */,
 				8EC3DCDD2EF57F0600CD75BC /* RandomTips.swift in Sources */,

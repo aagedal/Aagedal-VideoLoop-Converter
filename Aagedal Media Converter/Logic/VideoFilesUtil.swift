@@ -701,6 +701,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var isMuted: Bool = false
     /// Image sequence configuration (nil for regular video/audio files)
     var imageSequenceConfig: ImageSequenceConfig? = nil
+    /// DCP metadata (title, content kind, etc.) for DCP export
+    var dcpMetadata: DCPItemMetadata? = nil
 
     /// Whether this item represents an image sequence
     var isImageSequence: Bool { imageSequenceConfig != nil }
