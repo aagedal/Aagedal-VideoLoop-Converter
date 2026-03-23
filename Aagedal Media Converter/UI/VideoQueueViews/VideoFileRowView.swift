@@ -229,9 +229,9 @@ struct VideoFileRowView: View {
                                 }
                                 if file.sourceURL != nil && !file.isDownloading {
                                     Button(action: {
-                                        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                                        NSWorkspace.shared.activateFileViewerSelecting([file.url])
                                     }) {
-                                        Image(systemName: "magnifyingglass.circle.fill")
+                                        Image(systemName: "arrow.down.circle.fill")
                                             .foregroundColor(downloadActionColor)
                                             .help("Show downloaded file")
                                     }
