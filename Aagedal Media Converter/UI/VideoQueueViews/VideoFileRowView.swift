@@ -42,6 +42,16 @@ struct VideoFileRowView: View {
         preset == .videoLoop && file.durationSeconds > 15
     }
 
+    // Show yellow warning when DCP preset has multiple non-mono audio streams
+    // and no custom audio routing is configured — only the first track will be used
+    private var showDCPAudioWarning: Bool {
+        guard preset == .dcp else { return false }
+        if let routing = file.audioRoutingConfig, routing.isCustomized { return false }
+        guard let tracks = file.audioRoutingConfig?.inputTracks, tracks.count > 1 else { return false }
+        let allMono = tracks.allSatisfy { ($0.channels ?? 0) == 1 }
+        return !allMono
+    }
+
     private var shouldShowMergeIndicator: Bool {
         mergeClipsAvailable
     }
@@ -355,6 +365,11 @@ struct VideoFileRowView: View {
                                     Image(systemName: "exclamationmark.triangle.fill").font(.subheadline)
                                         .foregroundColor(.yellow)
                                         .help("Duration exceeds 15 seconds. VideoLoops are best suited for shorter videos.")
+                                }
+                                if showDCPAudioWarning {
+                                    Image(systemName: "exclamationmark.triangle.fill").font(.subheadline)
+                                        .foregroundColor(.yellow)
+                                        .help("Multiple audio tracks detected — only the first track will be used. Use audio routing to select a different track.")
                                 }
 
                                 Text("•")

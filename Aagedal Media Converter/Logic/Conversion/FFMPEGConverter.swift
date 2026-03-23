@@ -330,6 +330,7 @@ actor FFMPEGConverter {
         let capturedTrimEnd = trimEnd
         let capturedCustomInputArguments = customInputArguments
         let capturedSourceMetadata = sourceMetadata
+        let capturedAudioRoutingConfig = audioRoutingConfig
         let capturedSourceCameraMetadata = sourceCameraMetadata
 
         process.terminationHandler = { [weak self] _ in
@@ -505,7 +506,8 @@ actor FFMPEGConverter {
                         outputFolder: FileManager.default.temporaryDirectory,
                         ffmpegPath: capturedFfmpegPath,
                         trimStart: capturedTrimStart,
-                        trimEnd: capturedTrimEnd
+                        trimEnd: capturedTrimEnd,
+                        audioRoutingConfig: capturedAudioRoutingConfig
                     )
 
                     // Step 3: Wrap audio WAV to DCP MXF with asdcp-wrap
@@ -932,7 +934,8 @@ actor FFMPEGConverter {
         outputFolder: URL,
         ffmpegPath: String,
         trimStart: Double?,
-        trimEnd: Double?
+        trimEnd: Double?,
+        audioRoutingConfig: AudioRoutingConfig? = nil
     ) async -> URL? {
         // Check if source has audio streams
         guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
@@ -961,18 +964,50 @@ actor FFMPEGConverter {
         // Always suppress video output
         args.append(contentsOf: ["-vn"])
 
-        // For sources with multiple audio streams (e.g. separate mono tracks),
-        // use amerge filter to combine them. For single-stream sources, map directly.
-        if audioStreams.count > 1 {
-            // Build amerge filter to combine all audio streams into one multi-channel output
+        // Determine which audio streams to use based on routing config
+        // If audio routing is configured, use the selected output tracks.
+        // Otherwise, only amerge when ALL streams are mono (e.g. separate mono tracks
+        // that should be combined). For multi-channel streams (5.1, 7.1, etc.),
+        // just use the first stream.
+        let selectedStreamIndices: [Int]
+        if let routing = audioRoutingConfig, routing.isCustomized {
+            selectedStreamIndices = routing.outputTrackIndices
+            if selectedStreamIndices.count > 1 {
+                logger.info("DCP audio: using \(selectedStreamIndices.count) streams from audio routing config")
+            }
+        } else {
+            // Check if all streams are mono — if so, merge them all
+            let allMono = audioStreams.allSatisfy { ($0.channels ?? 0) == 1 }
+            if allMono && audioStreams.count > 1 {
+                selectedStreamIndices = audioStreams.enumerated().map { $0.offset }
+                logger.info("DCP audio: merging \(audioStreams.count) mono streams into one multi-channel output")
+            } else {
+                // Multiple non-mono streams (e.g. 10x 5.1 surround) — use only the first
+                selectedStreamIndices = [0]
+                if audioStreams.count > 1 {
+                    logger.warning("DCP audio: source has \(audioStreams.count) multi-channel audio streams — using only the first stream. Configure audio routing to select a different track.")
+                }
+            }
+        }
+
+        // For multiple selected streams that are all mono, amerge them.
+        // Otherwise, map a single stream.
+        let selectedAllMono = selectedStreamIndices.allSatisfy { idx in
+            let channels = audioStreams.indices.contains(idx) ? (audioStreams[idx].channels ?? 0) : 0
+            return channels == 1
+        }
+        if selectedStreamIndices.count > 1 && selectedAllMono {
             var filterInputs = ""
-            for i in 0..<audioStreams.count {
-                filterInputs += "[0:a:\(i)]"
+            for idx in selectedStreamIndices {
+                filterInputs += "[0:a:\(idx)]"
             }
             args.append(contentsOf: [
-                "-filter_complex", "\(filterInputs)amerge=inputs=\(audioStreams.count)[aout]",
+                "-filter_complex", "\(filterInputs)amerge=inputs=\(selectedStreamIndices.count)[aout]",
                 "-map", "[aout]",
             ])
+        } else {
+            // Map a single audio stream
+            args.append(contentsOf: ["-map", "0:a:\(selectedStreamIndices[0])"])
         }
 
         args.append(contentsOf: [
@@ -981,7 +1016,7 @@ actor FFMPEGConverter {
             audioWavURL.path
         ])
 
-        logger.info("Extracting audio as WAV for DCP: \(audioWavURL.lastPathComponent) (\(audioStreams.count) source streams)")
+        logger.info("Extracting audio as WAV for DCP: \(audioWavURL.lastPathComponent) (streams: \(selectedStreamIndices))")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
