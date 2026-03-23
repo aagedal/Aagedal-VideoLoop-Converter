@@ -105,12 +105,12 @@ enum DCPResolution: String, CaseIterable, Identifiable, Sendable {
     /// Short label for display in compact contexts
     var shortLabel: String {
         switch self {
-        case .twoKFlat: return "2K Flat"
-        case .twoKScope: return "2K Scope"
-        case .twoKFull: return "2K Full"
-        case .fourKFlat: return "4K Flat"
-        case .fourKScope: return "4K Scope"
-        case .fourKFull: return "4K Full"
+        case .twoKFlat: return "2K Flat (1.85:1)"
+        case .twoKScope: return "2K Scope (2.39:1)"
+        case .twoKFull: return "2K Full (1.90:1)"
+        case .fourKFlat: return "4K Flat (1.85:1)"
+        case .fourKScope: return "4K Scope (2.39:1)"
+        case .fourKFull: return "4K Full (1.90:1)"
         }
     }
 }
