@@ -70,7 +70,6 @@ struct FrequencyVisualizerView: View {
             let h = max(minHeight, mag * maxBarHeight)
             let x = horizontalPadding + CGFloat(band) * bandStride + (bandStride - bandWidth) / 2.0
             let y = centerY - h / 2.0
-            let rect = RoundedRectangle(cornerRadius: cornerRadius)
             let path = Path(roundedRect: CGRect(x: x, y: y, width: bandWidth, height: h), cornerRadius: cornerRadius)
             context.fill(path, with: .color(foregroundColor))
         }

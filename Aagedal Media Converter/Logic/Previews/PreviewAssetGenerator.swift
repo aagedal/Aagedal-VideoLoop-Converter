@@ -755,7 +755,7 @@ actor PreviewAssetGenerator {
         let perChannelWidth = max(800, min(12000, Int(duration * 8.0)))
         let perChannelHeight = 160
         var nativeChannelWaveform: SendableChannelWaveform?
-        var nativePerStreamChannelWaveforms: [Int: SendableChannelWaveform] = [:]
+        let nativePerStreamChannelWaveforms: [Int: SendableChannelWaveform] = [:]
 
         if let metadata, !metadata.audioStreams.isEmpty {
             let stream0 = metadata.audioStreams[0]

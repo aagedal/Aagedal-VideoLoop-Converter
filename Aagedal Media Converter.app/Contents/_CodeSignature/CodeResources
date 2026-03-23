@@ -10,19 +10,27 @@
 		</data>
 		<key>Resources/Assets.car</key>
 		<data>
-		VdJRFTqTXkrWplODl20KvdT288U=
+		P1dqWnijRRiPwJ0zR6IcTGWPaJ4=
 		</data>
 		<key>Resources/Metadata.appintents/extract.actionsdata</key>
 		<data>
-		StYlcx2mDcigxiMGjdiSXloayGM=
+		GkHZwS/TrGUFWL6s1w6Ky0j2xOo=
 		</data>
 		<key>Resources/Metadata.appintents/version.json</key>
 		<data>
-		qIsFeeoss0zSAi75ae1g8AlCkUU=
+		NPlRq15GZra++9v4rEBA76D/YIs=
+		</data>
+		<key>Resources/asdcp-wrap</key>
+		<data>
+		tRFnp9U2b+L/0tb5Z5L6UOciBeg=
+		</data>
+		<key>Resources/asdcplib-LICENSE.txt</key>
+		<data>
+		qDgRgay1ZmJwxqcKdexzXUOP3rA=
 		</data>
 		<key>Resources/bmxtranswrap</key>
 		<data>
-		N7RlRTnuJTyz7vfVWS5mUIeBLmY=
+		lMRIZ5HZxBvERlrdgDNEGAZcyEA=
 		</data>
 		<key>Resources/done.mp3</key>
 		<data>
@@ -32,7 +40,7 @@
 		<dict>
 			<key>hash</key>
 			<data>
-			uCkSIWjZ+GEytQoZUGOwKdIzcSA=
+			vQxNFUjUE4Qp5XBazbHOP1hS1BY=
 			</data>
 			<key>optional</key>
 			<true/>
@@ -43,21 +51,21 @@
 		</data>
 		<key>Resources/ffmpeg</key>
 		<data>
-		rxaWS16UoFSXxD1pDi+B3Mky9DA=
+		TmBPUnx/nNIBfH/FXiVVa5LWvUo=
 		</data>
 		<key>Resources/ffprobe</key>
 		<data>
-		ZODT8cZtVVh6sINyh8DU67tp6eg=
+		CLlBgA6786Gb8Z9JWWKGmq4nZsc=
 		</data>
 		<key>Resources/mxf2raw</key>
 		<data>
-		QIFQ0b366kDQRO/VGytnDAXZozA=
+		fliWg0v1wus8uZJCKqUz7BepY/M=
 		</data>
 		<key>Resources/nb.lproj/Localizable.strings</key>
 		<dict>
 			<key>hash</key>
 			<data>
-			+QM8VvX5FqRjjfbaaFD+uQNXr4E=
+			fI3mT45BmOHddI7z3VZRwy+pxP4=
 			</data>
 			<key>optional</key>
 			<true/>
@@ -69,7 +77,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			4Um2ciogIru5G6X9qdE0eULeuwE=
+			GjupK0Krf2mfLW7/0kHNltdLAOI=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libass" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -78,7 +86,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			FJM8UeItll6y6ZEAkivbhAk0T8s=
+			KZlmgGwK3/dGRR8PMLOAdXRHuUQ=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libavcodec" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -87,7 +95,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			yjtnSiXg5A4RLQfcMRNFwiA4CRM=
+			6TzUrOi8NF4KmDRZO0HRR9IX4GQ=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libavdevice" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -96,7 +104,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			ffMgPoJw2+S6XddK610jTmZ+My8=
+			+V/7n19Nheoi8CBwnBSIojSDO+M=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libavfilter" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -105,7 +113,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			dCc335aEKWazT+5zpVS3hghr3JA=
+			Qx/Mstm8TeMB2tcidP1A252q1j8=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libavformat" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -114,7 +122,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			DZ6mZ87R8aNglEjpmGj1XXmMvPw=
+			Ks+cb8VJbtgfhmy/xrd3Vogyp48=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libavutil" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -123,7 +131,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			Gc6dq3QayPbndY22CQ/XpWYOM/s=
+			76JGvbhNYm8EX0DSorO4nDoDaf4=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libbluray" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -132,7 +140,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			Jk44TrHtfnm4Bfwm0f5KS1J1UZ8=
+			HR2dswdj99KxezFbSiZvMBs5k1c=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libcrypto" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -141,7 +149,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			XuZTPw+ndTUaU/olOzV/G5s6WEs=
+			gObXZQOLmoCsgG5bz5EWQ6aMH7I=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libdav1d" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -150,7 +158,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			muPEuv0ZTW1VJ/EbFI6WsltOqRg=
+			OMedltRzU0LkHAy83+vGTt4RHiE=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libdovi" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -159,7 +167,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			WI+PtXndiAeotC6oXQBXl/HP/Go=
+			EWaM44tbI9ZAidtZQAm5ODbFxso=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libfreetype" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -168,7 +176,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			S+ZFk9CYUcVc1fuv9Ir/9yc65MI=
+			I1msoDoLvaNxbrPp17fHj6xdPJ0=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libfribidi" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -177,7 +185,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			Ng8FIf+5MUVkAJlM2oU4RDVaJak=
+			kCnmISWZdr7cUDfz50OnZpndxs8=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libharfbuzz" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -186,7 +194,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			qr2649lAoLsKVRYhJzHkzyPXuLk=
+			CWetDim/GZM9qa0+GcWczTrc0Wc=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libmpv" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -195,7 +203,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			kQPmXuhyPof0UgwbHOkKkZvbN3o=
+			fF0V806DCMqngqCDlLwpE16KocI=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libplacebo" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -204,7 +212,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			TSJSeABuGH86AObZnzpfPZOFA3o=
+			EdOyK2eMVUCIbf7XtfK7uOmuNEA=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libshaderc-combined" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -213,7 +221,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			hII95oAkTDFk3I++zY4kfa09dKM=
+			YFCJX35OegOJXnkETm/fhDo2J9I=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libsmbclient" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -222,7 +230,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			LT9wot8zxhL4tZsH9jw72vtg6qw=
+			V0XiiVvxaCB7oTAOZmLBgDtbi/4=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libssl" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -231,7 +239,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			pLgy5gA+qf/gnxJAoQB6lht5Qok=
+			8VjHBP8jXhTFPrWvmjc8iRdOTjo=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libswresample" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -240,7 +248,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			QXlVGukwFh35nWpsfz0duFDUg9Y=
+			HBnoPYFn+fHH5H7KTkQQ0hwqT8o=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libswscale" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -249,7 +257,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			X6v6P6dvagyBsKMtqx/afKfEX60=
+			R6c5n0/7IAbsYwwFTafSmTCpPUk=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libuavs3d" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -258,7 +266,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			WqId42EBCO6XT1N3fic8ZM08ZfE=
+			oLPq4z02k1XLOrtgOox4YW6re1w=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libuchardet" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -267,7 +275,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			chUpb0ZBmEauXAe3d1YjJEC1jHA=
+			uppLbOLb1F/iWpjc307B+F3r3HI=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.Libunibreak" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -276,7 +284,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			sSRrguQGTEV6i53PMMJwV8pmZyE=
+			wHCoEwSahMzhFBsqCIg2Rk5i5TI=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.gmp" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -285,7 +293,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			tLYNucCgQqEyJ2fQiimZbs6bdBw=
+			XfhyDxrEMXE5R5Ye1+X3GOS/V5c=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.gnutls" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -294,7 +302,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			4tDwOLTbDJD8q387B8Uz6Ma9w4c=
+			YTo0aTdcmK7eYVY0s7lvi2ScFJk=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.hogweed" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -303,7 +311,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			BodRFN5qsMf91gSfeXLd57tB/hw=
+			xZXAoWUT0bQGZ5uymOZsMXc+woY=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.lcms2" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -312,7 +320,7 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			oCLVPC+9alVyvgrBnrv/IGYGZWE=
+			DY0vqNPgyZTBOUCXc0zZ8zOMcSQ=
 			</data>
 			<key>requirement</key>
 			<string>anchor apple generic and identifier "com.mpvkit.nettle" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "3R5QGG9DW6")</string>
@@ -328,28 +336,42 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			EjyGiWC3SFFE8dvMBVVsuUBZvilxeCWTFCZyh8QMzBw=
+			kdEsfa7AlrLv6AfTzUoejjAMSqpFoGWb2qhazWn0oew=
 			</data>
 		</dict>
 		<key>Resources/Metadata.appintents/extract.actionsdata</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			9n6Te4LPIk12J3vsGVkHgAYnreerWGEygWN3ZPzU9+Q=
+			G323JfeOEfKakcAOB6YoEqbg6j6QT2lxoRnsfYl9zKo=
 			</data>
 		</dict>
 		<key>Resources/Metadata.appintents/version.json</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			uSU0JCREAW6CcTXWVBw4btG6ruY2iXkWs/X8gs7egTg=
+			urRgqhLYJepnd5JrqAEXNLT1v7JyHj/jyDPVFH0iHf0=
+			</data>
+		</dict>
+		<key>Resources/asdcp-wrap</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			lU6Jj1BcJMW4GzeMa4+ePzfg4qWU0PS2cofdQI9xJ5E=
+			</data>
+		</dict>
+		<key>Resources/asdcplib-LICENSE.txt</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			xTUzB1Tb/xvSZl/zGaLxKnV3Ypw8xNs+9K/+vGjmNiA=
 			</data>
 		</dict>
 		<key>Resources/bmxtranswrap</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			EcrQpO8jUQpZ+eqpdaTT01/ajDyQBQNS/PAwvSB34x0=
+			v19hSxYCsDoSenNdo8KSbzuESBYKOOXEWucRw7f0Z48=
 			</data>
 		</dict>
 		<key>Resources/done.mp3</key>
@@ -363,7 +385,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			mD3EMFAYBq0XB5DAcUCIYqMKIraObMdYjIImQxgOzVY=
+			g+3ePYCr/hbjGakhGsm+qBj6ZmWy5Eu2RylcwWMlcWY=
 			</data>
 			<key>optional</key>
 			<true/>
@@ -379,28 +401,28 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			KyAsDZTvkMGuDE2YJVVDS/Y38OGwqg7ixSxZGcHD2Ac=
+			sSe8+SSnxdJQqOUgZ1047iCg9tteCHSX9WPNSPdK4qg=
 			</data>
 		</dict>
 		<key>Resources/ffprobe</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			dzH5e2vsapsC+126GMBRVFcNlMH7JYdYFvT2lgwuLG4=
+			SnWmMMJlc/GErn017r5T620hfhYg9i216N1Vo55uk9c=
 			</data>
 		</dict>
 		<key>Resources/mxf2raw</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			kQ3iD2oUNZc9qv3RyBlDgBE6CHXcKvqKBd8cqO2lX9w=
+			op9DfkQltD6tuwFB1itIlBCyUuc9Yfd1XQzm+1/xsL8=
 			</data>
 		</dict>
 		<key>Resources/nb.lproj/Localizable.strings</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			i1wFAI3GAWw764u9zsNRkb3F0bqWQHe38NOImLlJNrE=
+			0dSHHtjR6gCHQwjllsham9+L/z5P/4kHz05SsDKlY90=
 			</data>
 			<key>optional</key>
 			<true/>

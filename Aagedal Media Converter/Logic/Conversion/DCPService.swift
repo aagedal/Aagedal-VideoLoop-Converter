@@ -346,7 +346,6 @@ actor DCPService {
         videoHash: String? = nil,
         audioHash: String? = nil
     ) -> String {
-        let escapedTitle = xmlEscape(title)
         let escapedFolderName = xmlEscape(dcpFolderName)
         let now = iso8601Now()
         let contentVersionUUID = dcpUUID()
