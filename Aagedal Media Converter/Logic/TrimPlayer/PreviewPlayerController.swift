@@ -368,7 +368,7 @@ final class PreviewPlayerController: ObservableObject {
             // Acquire security-scoped access for the audio file
             let audioBookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: audioURL)
             if !audioBookmarkAccess {
-                audioURL.startAccessingSecurityScopedResource()
+                _ = audioURL.startAccessingSecurityScopedResource()
             }
 
             let audioAsset = AVURLAsset(url: audioURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])

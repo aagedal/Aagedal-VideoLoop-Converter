@@ -440,8 +440,7 @@ private struct KeyboardCapturingView: NSViewRepresentable {
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self else { return event }
                 guard let view = self.attachedView,
-                      let window = view.window,
-                      window.isKeyWindow else { return event }
+                      MainActor.assumeIsolated({ view.window?.isKeyWindow == true }) else { return event }
                 guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return event }
                 let handled = self.keyHandler(characters, event.modifierFlags, event.specialKey)
                 return handled ? nil : event
