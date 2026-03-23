@@ -216,12 +216,13 @@ struct PreviewPlayerContent: View {
     @ViewBuilder
     private var overlayIndicators: some View {
         ZStack {
-            // Top-left: Speed indicator (always visible when speed != 1.0)
+            // Top-left: Speed indicator (visible during active playback at non-1x speed)
             VStack {
                 HStack {
                     PlaybackSpeedIndicator(
                         speed: controller.currentPlaybackSpeed,
-                        isReversing: controller.isReverseSimulating
+                        isReversing: controller.isReverseSimulating,
+                        isPlaying: controller.isPlaying
                     )
                     Spacer()
                 }

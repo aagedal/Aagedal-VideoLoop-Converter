@@ -67,8 +67,24 @@ final class PreviewPlayerController: ObservableObject {
     // Audio monitoring is defined in extension/bottom section
     
     // Reverse simulation
-    private var reverseSpeed: Int = 1 // 1x, 2x, 3x, 4x
+    private var reverseSpeed: Int = 1
+    private let slowSteps: [Float] = [0.75, 0.5, 0.25, 0.1]
     private var reverseTimer: Timer?
+
+    /// Effective video frame rate (falls back to 30 if metadata is unavailable).
+    private var effectiveFPS: Double {
+        if let frameRate = videoItem.metadata?.primaryVideoStream?.frameRate,
+           let v = frameRate.value, v > 0 { return v }
+        return 30.0
+    }
+
+    /// Whether playback is currently active (any engine).
+    var isPlaying: Bool {
+        if isReverseSimulating { return true }
+        if useImageSequence { return isImageSequencePlaying }
+        if useMPV, let mpv = mpvPlayer { return mpv.isPlaying }
+        return (player?.rate ?? 0) != 0
+    }
     
     // MPV trim observer
     var mpvTrimObserverTimer: Timer?
@@ -456,8 +472,45 @@ final class PreviewPlayerController: ObservableObject {
         imageSequencePlaybackTimer?.invalidate()
         imageSequencePlaybackTimer = nil
         isImageSequencePlaying = false
-        currentPlaybackSpeed = 0
+        currentPlaybackSpeed = 1.0
         imageSequenceAudioPlayer?.pause()
+    }
+
+    /// Restarts the image sequence timer at a new speed multiplier.
+    private func updateImageSequenceSpeed(_ speed: Float) {
+        guard let config = imageSequenceConfig, isImageSequencePlaying else { return }
+        currentPlaybackSpeed = speed
+
+        // Restart timer with adjusted interval
+        imageSequencePlaybackTimer?.invalidate()
+        let interval = 1.0 / (config.frameRate * Double(speed))
+        let trimEnd = videoItem.effectiveTrimEnd
+
+        imageSequencePlaybackTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isImageSequencePlaying else { return }
+                let step = 1.0 / config.frameRate  // Always advance by one frame
+                let nextTime = self.currentPlaybackTime + step
+                if nextTime >= trimEnd {
+                    if self.videoItem.loopPlayback {
+                        let loopStart = self.videoItem.effectiveTrimStart
+                        self.seekTo(loopStart)
+                        self.imageSequenceAudioPlayer?.play()
+                    } else {
+                        self.stopImageSequencePlayback()
+                        self.currentPlaybackTime = trimEnd
+                        self.loadImageSequenceFrame(at: trimEnd)
+                        self.playbackDidFinish?()
+                    }
+                } else {
+                    self.currentPlaybackTime = nextTime
+                    self.loadImageSequenceFrame(at: nextTime)
+                }
+            }
+        }
+
+        // Adjust audio playback rate if available
+        imageSequenceAudioPlayer?.rate = speed
     }
 
     /// Converts a time position to a frame number within the sequence bounds.
@@ -549,80 +602,86 @@ final class PreviewPlayerController: ObservableObject {
     }
     
     func stepRate(forward: Bool) {
+        let step: Float = 0.5
         if useMPV, let mpv = mpvPlayer {
-            // MPV rate stepping: 0.5 -> 1.0 -> 1.5 -> 2.0 etc
             let current = mpv.rate
-            let step: Float = 0.5
             let newRate = forward ? current + step : current - step
-            mpv.rate = max(0.25, min(newRate, 4.0))
+            mpv.rate = max(0.25, min(newRate, 8.0))
             currentPlaybackSpeed = mpv.rate
         } else if let player = player {
-            // AVPlayer rate stepping
             let current = player.rate
-            let step: Float = 1.0
             let newRate = forward ? current + step : current - step
-            player.rate = newRate
+            player.rate = max(0.25, min(newRate, 8.0))
             currentPlaybackSpeed = player.rate
         }
     }
-    
+
     func startReverseSimulation() {
-        // Ignore if player is not ready yet
         guard isReady else { return }
 
-        // If already reversing, increase speed (max 4x)
         if isReverseSimulating {
-            reverseSpeed = min(reverseSpeed + 1, 4)
-            // Restart timer with new speed
-            reverseTimer?.invalidate()
-            let interval = (1.0/24.0) / Double(reverseSpeed)
-            reverseTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-                Task { @MainActor in
-                    self?.seekByFrames(-1)
-                }
-            }
+            // Already reversing — speed up (max 8x)
+            reverseSpeed = min(reverseSpeed + 1, 8)
+            startReverseTimer(skip: reverseSpeed)
             currentPlaybackSpeed = -Float(reverseSpeed)
             return
         }
-        
-        // Start new reverse simulation
+
+        // First J press — start reverse
         pause()
         reverseSpeed = 1
         isReverseSimulating = true
-        currentPlaybackSpeed = -1.0
-        
-        // Start reverse simulation (step backwards at ~24fps)
-        let interval = 1.0/24.0
+        startReverseTimer(skip: reverseSpeed)
+        currentPlaybackSpeed = -Float(reverseSpeed)
+    }
+
+    private func startReverseTimer(skip: Int) {
+        reverseTimer?.invalidate()
+        let fps = effectiveFPS
+        let interval = 1.0 / fps
         reverseTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.seekByFrames(-1)
+                guard let self else { return }
+                if self.currentPlaybackTime <= 0 {
+                    self.stopReverseSimulation()
+                    return
+                }
+                self.seekByFrames(-skip)
             }
         }
     }
-    
+
     func stopReverseSimulation() {
-        isReverseSimulating = false
-        reverseSpeed = 1
         reverseTimer?.invalidate()
         reverseTimer = nil
-        // Reset speed when stopping reverse
-        if !isReverseSimulating {
-            currentPlaybackSpeed = 1.0
-        }
+        isReverseSimulating = false
+        reverseSpeed = 1
+        currentPlaybackSpeed = 1.0
     }
-    
+
     func rewind() {
         stopReverseSimulation()
         stepRate(forward: false)
     }
-    
+
     func fastForward() {
-        // Ignore if player is not ready yet
         guard isReady else { return }
 
         // If reversing, L stops reverse
         if isReverseSimulating {
             stopReverseSimulation()
+            return
+        }
+
+        // Image sequence: start or speed up
+        if useImageSequence {
+            if !isImageSequencePlaying {
+                startImageSequencePlayback()
+            } else {
+                let step: Float = 0.5
+                let newSpeed = min(currentPlaybackSpeed + step, 8.0)
+                updateImageSequenceSpeed(newSpeed)
+            }
             return
         }
 
@@ -645,6 +704,82 @@ final class PreviewPlayerController: ObservableObject {
 
         // Otherwise increase forward speed
         stepRate(forward: true)
+    }
+
+    func slowForward() {
+        guard isReady else { return }
+
+        if isReverseSimulating {
+            stopReverseSimulation()
+        }
+
+        let current = currentPlaybackSpeed
+        let target: Float
+        if current >= 1.0 || current <= 0 {
+            target = slowSteps[0]
+        } else if let idx = slowSteps.firstIndex(where: { abs($0 - current) < 0.01 }) {
+            target = slowSteps[min(idx + 1, slowSteps.count - 1)]
+        } else {
+            target = slowSteps.first(where: { $0 < current }) ?? slowSteps.last!
+        }
+
+        if useImageSequence {
+            if !isImageSequencePlaying { startImageSequencePlayback() }
+            updateImageSequenceSpeed(target)
+            return
+        }
+
+        if useMPV, let mpv = mpvPlayer {
+            if !mpv.isPlaying { mpv.play() }
+            mpv.rate = target
+        } else if let player = player {
+            if player.rate == 0 { player.play() }
+            player.rate = target
+        }
+        currentPlaybackSpeed = target
+    }
+
+    func slowReverse() {
+        guard isReady else { return }
+
+        let current = currentPlaybackSpeed
+        let target: Float
+        if isReverseSimulating {
+            let absSpeed = abs(current)
+            if let idx = slowSteps.firstIndex(where: { abs($0 - absSpeed) < 0.01 }) {
+                target = slowSteps[min(idx + 1, slowSteps.count - 1)]
+            } else {
+                target = slowSteps[0]
+            }
+        } else {
+            target = slowSteps[0]
+        }
+
+        // Stop any current reverse mode
+        if isReverseSimulating {
+            reverseTimer?.invalidate()
+            reverseTimer = nil
+        } else {
+            pause()
+        }
+
+        isReverseSimulating = true
+        reverseSpeed = 1
+
+        // Timer-based simulation
+        let fps = effectiveFPS
+        let interval = 1.0 / (fps * Double(target))
+        reverseTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.currentPlaybackTime <= 0 {
+                    self.stopReverseSimulation()
+                    return
+                }
+                self.seekByFrames(-1)
+            }
+        }
+        currentPlaybackSpeed = -target
     }
     
     func seek(by seconds: Double) {

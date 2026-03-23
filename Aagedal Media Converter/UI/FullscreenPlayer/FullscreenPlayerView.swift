@@ -148,7 +148,8 @@ struct FullscreenPlayerView: View {
                         HStack {
                             PlaybackSpeedIndicator(
                                 speed: controller.currentPlaybackSpeed,
-                                isReversing: controller.isReverseSimulating
+                                isReversing: controller.isReverseSimulating,
+                                isPlaying: controller.isPlaying
                             )
                             Spacer()
                         }
@@ -571,7 +572,7 @@ struct FullscreenPlayerView: View {
                 }
 
                 // Speed indicator
-                if controller.currentPlaybackSpeed != 1.0 || controller.isReverseSimulating {
+                if controller.isPlaying && (controller.currentPlaybackSpeed != 1.0 || controller.isReverseSimulating) {
                     Text("\(String(format: "%.1fx", controller.currentPlaybackSpeed))")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white.opacity(0.8))
@@ -923,14 +924,29 @@ struct FullscreenPlayerView: View {
     }
 
     private func handleKeyCommand(_ key: String, _ modifiersRaw: UInt, _ keyCode: UInt16) -> Bool {
-        _ = modifiersRaw
+        let modifiers = NSEvent.ModifierFlags(rawValue: modifiersRaw)
+        let lower = key.lowercased()
 
         if key == " " {
             controller.togglePlayback()
             return true
         }
 
-        switch key.lowercased() {
+        // Option+J/L: slow reverse/forward
+        if modifiers.contains(.option) {
+            switch lower {
+            case "j":
+                controller.slowReverse()
+                return true
+            case "l":
+                controller.slowForward()
+                return true
+            default:
+                break
+            }
+        }
+
+        switch lower {
         case "j":
             controller.startReverseSimulation()
             return true
@@ -1755,6 +1771,18 @@ private struct FullscreenKeyboardHandler: NSViewRepresentable {
                         self?.captureScreenshot()
                     }
                     return nil
+                }
+
+                // Option+J/L: slow reverse/forward
+                if hasOption && !hasCommand && !hasControl {
+                    let controller = self.controller
+                    if lower == "j" {
+                        MainActor.assumeIsolated { controller.slowReverse() }
+                        return nil
+                    } else if lower == "l" {
+                        MainActor.assumeIsolated { controller.slowForward() }
+                        return nil
+                    }
                 }
 
                 // Only consume keys we actually use
