@@ -10,8 +10,11 @@
 import Foundation
 
 struct ParsingUtils {
+    private static let durationRegex = try! NSRegularExpression(pattern: "Duration: (\\d+):(\\d+):(\\d+)\\.(\\d+)", options: .caseInsensitive)
+    private static let timeRegex = try! NSRegularExpression(pattern: "time=(\\d+):(\\d+):(\\d+)\\.(\\d+)", options: .caseInsensitive)
+    private static let frameRegex = try! NSRegularExpression(pattern: "frame[=\\s]+(\\d+)", options: .caseInsensitive)
+
     static func parseDuration(from output: String) -> Double? {
-        let durationRegex = try! NSRegularExpression(pattern: "Duration: (\\d+):(\\d+):(\\d+)\\.(\\d+)", options: .caseInsensitive)
         if let match = durationRegex.firstMatch(in: output, options: [], range: NSRange(location: 0, length: output.utf16.count)) {
             if let hoursRange = Range(match.range(at: 1), in: output),
                let minutesRange = Range(match.range(at: 2), in: output),
@@ -32,7 +35,6 @@ struct ParsingUtils {
         guard let totalDuration = totalDuration, totalDuration > 0 else { return nil }
 
         // Match time= with positive values only (negative times from stream copy are invalid)
-        let timeRegex = try! NSRegularExpression(pattern: "time=(\\d+):(\\d+):(\\d+)\\.(\\d+)", options: .caseInsensitive)
         if let match = timeRegex.firstMatch(in: output, options: [], range: NSRange(location: 0, length: output.utf16.count)) {
             if let hoursRange = Range(match.range(at: 1), in: output),
                let minutesRange = Range(match.range(at: 2), in: output),
@@ -68,7 +70,6 @@ struct ParsingUtils {
     /// Parse frame number from FFmpeg output (frame=XXXX format)
     static func parseFrameNumber(from output: String) -> Int? {
         // Match frame= followed by digits (handles both regular output and -progress output)
-        let frameRegex = try! NSRegularExpression(pattern: "frame[=\\s]+(\\d+)", options: .caseInsensitive)
         if let match = frameRegex.firstMatch(in: output, options: [], range: NSRange(location: 0, length: output.utf16.count)) {
             if let frameRange = Range(match.range(at: 1), in: output) {
                 return Int(output[frameRange])

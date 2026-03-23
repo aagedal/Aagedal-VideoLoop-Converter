@@ -69,15 +69,17 @@ actor DCPService {
         var audioFileName: String? = nil
         var audioDestURL: URL? = nil
         if let audioMXF = audioMXFURL, let aUUID = audioUUID {
-            audioFileName = "pcm_\(uuidString(from: aUUID)).mxf"
-            audioDestURL = outputDirectoryURL.appendingPathComponent(audioFileName!)
+            let audioFN = "pcm_\(uuidString(from: aUUID)).mxf"
+            audioFileName = audioFN
+            let aDestURL = outputDirectoryURL.appendingPathComponent(audioFN)
+            audioDestURL = aDestURL
 
             do {
-                if audioMXF != audioDestURL! {
-                    if FileManager.default.fileExists(atPath: audioDestURL!.path) {
-                        try FileManager.default.removeItem(at: audioDestURL!)
+                if audioMXF != aDestURL {
+                    if FileManager.default.fileExists(atPath: aDestURL.path) {
+                        try FileManager.default.removeItem(at: aDestURL)
                     }
-                    try FileManager.default.moveItem(at: audioMXF, to: audioDestURL!)
+                    try FileManager.default.moveItem(at: audioMXF, to: aDestURL)
                 }
             } catch {
                 logger.error("Failed to move audio MXF: \(error.localizedDescription)")
@@ -131,7 +133,7 @@ actor DCPService {
             ratingLabel: ratingLabel,
             audioLanguage: audioLanguage,
             videoHash: base64SHA1(hex: videoHash),
-            audioHash: audioHash != nil ? base64SHA1(hex: audioHash!) : nil
+            audioHash: audioHash.map { base64SHA1(hex: $0) }
         )
 
         do {
