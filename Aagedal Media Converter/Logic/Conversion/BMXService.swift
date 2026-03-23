@@ -246,10 +246,12 @@ actor BMXService {
             process.waitUntilExit()
 
             let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            try? stdoutPipe.fileHandleForReading.close()
             if let output = String(data: data, encoding: .utf8) {
                 return output
             }
         } catch {
+            try? stdoutPipe.fileHandleForReading.close()
             logger.error("Failed to run mxf2raw: \(error.localizedDescription)")
         }
 
