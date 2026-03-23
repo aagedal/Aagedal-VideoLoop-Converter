@@ -568,15 +568,18 @@ actor FFMPEGConverter {
                         let dcpTitle = capturedDCPMetadata?.contentTitleText.isEmpty == false
                             ? capturedDCPMetadata!.contentTitleText : capturedInputBaseName
 
-                        // Create all-caps DCP folder inside the working folder
-                        let sanitizedDCPName = dcpTitle
-                            .uppercased()
-                            .replacingOccurrences(of: " ", with: "_")
-                            .unicodeScalars.filter { scalar in
-                                CharacterSet.alphanumerics.contains(scalar) || scalar == "_" || scalar == "-"
-                            }.map { String($0) }.joined()
+                        // Create ISDCF-named DCP folder inside the working folder
+                        let contentKind = capturedDCPMetadata?.contentKind ?? .feature
+                        let audioLanguage = capturedDCPMetadata?.audioLanguage ?? "en"
+                        let isdcfName = await DCPService.shared.isdcfFolderName(
+                            title: dcpTitle,
+                            contentKind: contentKind,
+                            frameRate: frameRate,
+                            resolution: resolution,
+                            audioLanguage: audioLanguage
+                        )
                         let dcpOutputDir = dcpFolder.appendingPathComponent(
-                            sanitizedDCPName.isEmpty ? "DCP" : sanitizedDCPName,
+                            isdcfName,
                             isDirectory: true
                         )
                         try? fm.createDirectory(at: dcpOutputDir, withIntermediateDirectories: true)
