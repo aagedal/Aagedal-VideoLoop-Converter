@@ -3,9 +3,10 @@ import SwiftUI
 struct PlaybackSpeedIndicator: View {
     let speed: Float
     let isReversing: Bool
-    
+    let isPlaying: Bool
+
     var body: some View {
-        if speed != 1.0 || isReversing {
+        if isPlaying && (speed != 1.0 || isReversing) {
             HStack(spacing: 4) {
                 if isReversing {
                     Image(systemName: "backward.fill")
@@ -37,18 +38,18 @@ struct PlaybackSpeedIndicator: View {
         if absSpeed == floor(absSpeed) {
             return String(format: "%.0f", absSpeed)
         } else {
-            return String(format: "%.1f", absSpeed)
+            return String(format: "%g", (absSpeed * 100).rounded() / 100)
         }
     }
 }
 
 #Preview {
     VStack(spacing: 20) {
-        PlaybackSpeedIndicator(speed: 0.5, isReversing: false)
-        PlaybackSpeedIndicator(speed: 1.0, isReversing: false)
-        PlaybackSpeedIndicator(speed: 1.5, isReversing: false)
-        PlaybackSpeedIndicator(speed: 2.0, isReversing: false)
-        PlaybackSpeedIndicator(speed: 1.0, isReversing: true)
+        PlaybackSpeedIndicator(speed: 0.5, isReversing: false, isPlaying: true)
+        PlaybackSpeedIndicator(speed: 1.0, isReversing: false, isPlaying: true)
+        PlaybackSpeedIndicator(speed: 1.5, isReversing: false, isPlaying: true)
+        PlaybackSpeedIndicator(speed: 2.0, isReversing: false, isPlaying: true)
+        PlaybackSpeedIndicator(speed: 1.0, isReversing: true, isPlaying: true)
     }
     .padding()
     .background(Color.gray.opacity(0.3))

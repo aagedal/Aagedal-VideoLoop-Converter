@@ -79,7 +79,7 @@ struct PreviewPlayerView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-        .frame(minWidth: 1000, idealWidth: 1200, minHeight: 700, idealHeight: 800)
+        .frame(minWidth: 1150, idealWidth: 1350, minHeight: 850, idealHeight: 950)
         .background(Color(NSColor.windowBackgroundColor))
         .background(KeyboardHandler(onCommandA: {
             controller.isAudioMeterEnabled.toggle()
@@ -515,6 +515,12 @@ struct PreviewPlayerView: View {
                 return true
             case "x":
                 resetTrim()
+                return true
+            case "j":
+                controller.slowReverse()
+                return true
+            case "l":
+                controller.slowForward()
                 return true
             default:
                 return false

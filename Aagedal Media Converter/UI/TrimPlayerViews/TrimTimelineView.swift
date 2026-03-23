@@ -913,20 +913,20 @@ private struct TimelineScrubLayer: View {
                                     trimEnd = min(duration, start)
                                 }
 
-                                isRangeSelecting = false
-                                rangeStartTime = nil
                                 onEditingChanged(false)
                             }
 
                             if isRangeSliding {
-                                // End of range sliding
-                                isRangeSliding = false
-                                slideInitialTrimStart = nil
-                                slideInitialTrimEnd = nil
-                                slideInitialClickTime = nil
                                 onEditingChanged(false)
                             }
 
+                            // Always reset all drag states to prevent stuck modes
+                            isRangeSelecting = false
+                            rangeStartTime = nil
+                            isRangeSliding = false
+                            slideInitialTrimStart = nil
+                            slideInitialTrimEnd = nil
+                            slideInitialClickTime = nil
                             isScrubbing = false
                         }
                 )
@@ -996,12 +996,11 @@ private struct TimelineKeyTrackerView: NSViewRepresentable {
                 isOptionKeyPressed?.wrappedValue = currentFlags.contains(.option)
 
                 // Monitor modifier flags for Command, Shift, and Option
+                // Update synchronously on main thread to avoid race conditions with gesture state
                 flagsChangedMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-                    Task { @MainActor in
-                        self?.isCommandKeyPressed?.wrappedValue = event.modifierFlags.contains(.command)
-                        self?.isShiftKeyPressed?.wrappedValue = event.modifierFlags.contains(.shift)
-                        self?.isOptionKeyPressed?.wrappedValue = event.modifierFlags.contains(.option)
-                    }
+                    self?.isCommandKeyPressed?.wrappedValue = event.modifierFlags.contains(.command)
+                    self?.isShiftKeyPressed?.wrappedValue = event.modifierFlags.contains(.shift)
+                    self?.isOptionKeyPressed?.wrappedValue = event.modifierFlags.contains(.option)
                     return event
                 }
             } else {
