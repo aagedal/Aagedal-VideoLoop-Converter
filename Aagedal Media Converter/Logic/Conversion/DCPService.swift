@@ -36,6 +36,7 @@ actor DCPService {
         resolution: DCPResolution,
         frameRate: DCPFrameRate,
         frameCount: Int,
+        itemMetadata: DCPItemMetadata? = nil,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> Bool {
         logger.info("Assembling DCP: \(title) (\(resolution.shortLabel), \(frameRate.rawValue), \(frameCount) frames)")
@@ -110,6 +111,10 @@ actor DCPService {
 
         // CPL
         let cplFileName = "cpl_\(uuidString(from: cplUUID)).xml"
+        let contentKind = itemMetadata?.contentKind ?? .feature
+        let annotationText = itemMetadata?.annotationText ?? ""
+        let ratingLabel = itemMetadata?.ratingLabel ?? ""
+
         let cplContent = generateCPL(
             cplUUID: cplUUID,
             title: title,
@@ -117,7 +122,10 @@ actor DCPService {
             frameCount: frameCount,
             videoUUID: videoUUID,
             audioUUID: audioUUID,
-            resolution: resolution
+            resolution: resolution,
+            contentKind: contentKind,
+            annotationText: annotationText,
+            ratingLabel: ratingLabel
         )
 
         do {
@@ -249,9 +257,13 @@ actor DCPService {
         frameCount: Int,
         videoUUID: String,
         audioUUID: String?,
-        resolution: DCPResolution
+        resolution: DCPResolution,
+        contentKind: DCPContentKind = .feature,
+        annotationText: String = "",
+        ratingLabel: String = ""
     ) -> String {
         let escapedTitle = xmlEscape(title)
+        let escapedAnnotation = xmlEscape(annotationText)
         let now = iso8601Now()
 
         var reelAssets = """
@@ -279,6 +291,14 @@ actor DCPService {
             """
         }
 
+        var optionalElements = ""
+        if !escapedAnnotation.isEmpty {
+            optionalElements += "\n          <AnnotationText>\(escapedAnnotation)</AnnotationText>"
+        }
+        if !ratingLabel.isEmpty {
+            optionalElements += "\n          <RatingList><Agency>http://www.mpaa.org/2003-ratings</Agency><Label>\(xmlEscape(ratingLabel))</Label></RatingList>"
+        }
+
         return """
         <?xml version="1.0" encoding="UTF-8"?>
         <CompositionPlaylist xmlns="http://www.digicine.com/PROTO-ASDCP-CPL-20040511#">
@@ -287,7 +307,7 @@ actor DCPService {
           <Issuer>Aagedal Media Converter</Issuer>
           <Creator>Aagedal Media Converter</Creator>
           <ContentTitleText>\(escapedTitle)</ContentTitleText>
-          <ContentKind>feature</ContentKind>
+          <ContentKind>\(contentKind.rawValue)</ContentKind>\(optionalElements)
           <ReelList>
             <Reel>
               <Id>\(dcpUUID())</Id>

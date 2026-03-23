@@ -4,6 +4,51 @@
 
 import Foundation
 
+// MARK: - DCP Per-Item Metadata
+
+/// Per-item metadata for DCP export, stored on each VideoItem
+struct DCPItemMetadata: Equatable, Sendable {
+    /// The title displayed on cinema servers (ContentTitleText in CPL)
+    var contentTitleText: String = ""
+    /// Content kind: feature, trailer, short, advertisement, etc.
+    var contentKind: DCPContentKind = .feature
+    /// Free-form annotation (AnnotationText in PKL/CPL)
+    var annotationText: String = ""
+    /// Film rating label (e.g., "PG-13", "R", "12A")
+    var ratingLabel: String = ""
+}
+
+/// DCP content kind values (used in CPL ContentKind element)
+enum DCPContentKind: String, CaseIterable, Identifiable, Sendable {
+    case feature = "feature"
+    case trailer = "trailer"
+    case short = "short"
+    case advertisement = "advertisement"
+    case teaser = "teaser"
+    case test = "test"
+    case rating = "rating"
+    case policy = "policy"
+    case publicService = "public-service-announcement"
+    case transitional = "transitional"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .feature: return "Feature"
+        case .trailer: return "Trailer"
+        case .short: return "Short"
+        case .advertisement: return "Advertisement"
+        case .teaser: return "Teaser"
+        case .test: return "Test"
+        case .rating: return "Rating"
+        case .policy: return "Policy"
+        case .publicService: return "Public Service Announcement"
+        case .transitional: return "Transitional"
+        }
+    }
+}
+
 // MARK: - DCP Resolution
 
 /// DCI resolution options for DCP export

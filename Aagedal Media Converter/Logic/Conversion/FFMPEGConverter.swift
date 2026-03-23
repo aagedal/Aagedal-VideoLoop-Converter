@@ -56,6 +56,7 @@ actor FFMPEGConverter {
         waveformBackgroundImageURL: URL? = nil,
         sourceMetadata: VideoMetadata? = nil,
         sourceCameraMetadata: CameraMetadata? = nil,
+        dcpMetadata: DCPItemMetadata? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool) -> Void
     ) async {
@@ -304,6 +305,7 @@ actor FFMPEGConverter {
         let capturedIsImageSequenceExport = isImageSequenceExport
         let capturedIsDCPExport = isDCPExport
         let capturedDCPSubfolderURL = dcpSubfolderURL
+        let capturedDCPMetadata = dcpMetadata
         let capturedInputURL = inputURL
         let capturedFfmpegPath = ffmpegPath
         let capturedTrimStart = trimStart
@@ -395,14 +397,18 @@ actor FFMPEGConverter {
                     let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
                     let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
 
+                    let dcpTitle = capturedDCPMetadata?.contentTitleText.isEmpty == false
+                        ? capturedDCPMetadata!.contentTitleText : capturedInputBaseName
+
                     let dcpSuccess = await DCPService.shared.assembleDCP(
                         videoMXFURL: capturedFinalOutputURL,
                         audioMXFURL: audioMXFURL,
                         outputDirectoryURL: dcpFolder,
-                        title: capturedInputBaseName,
+                        title: dcpTitle,
                         resolution: resolution,
                         frameRate: frameRate,
                         frameCount: max(frameCount, 1),
+                        itemMetadata: capturedDCPMetadata,
                         progress: { dcpProgress in
                             let overall = 0.90 + dcpProgress * 0.10
                             Task { @MainActor in

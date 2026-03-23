@@ -1127,6 +1127,7 @@ actor ConversionManager: Sendable {
             waveformBackgroundImageURL: currentItem.waveformBackgroundImageURL,
             sourceMetadata: currentItem.metadata,
             sourceCameraMetadata: currentItem.cameraMetadata,
+            dcpMetadata: currentItem.dcpMetadata,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
