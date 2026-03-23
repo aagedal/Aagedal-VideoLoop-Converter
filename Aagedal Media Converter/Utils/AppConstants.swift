@@ -13,7 +13,7 @@ enum AppConstants {
     // Default output directory for encoded exports
     static let defaultOutputDirectory: URL = {
         let defaultDir = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("VideoLoopExports")
+            .appendingPathComponent("Media_Exports")
 
         // Create the directory if it doesn't exist
         try? FileManager.default.createDirectory(at: defaultDir, withIntermediateDirectories: true)
