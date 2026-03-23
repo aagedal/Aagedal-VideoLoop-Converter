@@ -481,6 +481,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     case audioUncompressedWAV = "Audio only WAV (all channels)"
     case audioStereoAAC = "Audio only AAC (stereo downmix)"
     case imageSequence = "Image Sequence"
+    case dcp = "DCP (Digital Cinema Package)"
     case custom1 = "Custom"
     case custom2 = "Custom 2"
     case custom3 = "Custom 3"
@@ -529,6 +530,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
             return format.primaryExtension
+        case .dcp:
+            return "mxf"
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return "mp4" }
             return Self.customFileExtension(for: slot)
@@ -603,6 +606,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_AUDIO_AAC_STEREO_DESCRIPTION", comment: "Description for Audio AAC Stereo preset")
         case .imageSequence:
             return NSLocalizedString("PRESET_IMAGE_SEQUENCE_DESCRIPTION", comment: "Description for Image Sequence preset")
+        case .dcp:
+            return NSLocalizedString("PRESET_DCP_DESCRIPTION", comment: "Description for DCP preset")
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             return NSLocalizedString("PRESET_CUSTOM_DESCRIPTION", comment: "Description for Custom preset")
         }
@@ -640,6 +645,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_audio_aac"
         case .imageSequence:
             return "_seq"
+        case .dcp:
+            return "_dcp"
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return "_custom" }
             return Self.customFileSuffix(for: slot)
@@ -1186,6 +1193,27 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 args += ["-q:v", "\(q)"]
             }
             return args
+        case .dcp:
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.dcpResolutionKey) ?? AppConstants.defaultDCPResolution
+            let resolution = DCPResolution(rawValue: resolutionRaw) ?? .twoKFull
+            let frameRateRaw = UserDefaults.standard.string(forKey: AppConstants.dcpFrameRateKey) ?? AppConstants.defaultDCPFrameRate
+            let frameRate = DCPFrameRate(rawValue: frameRateRaw) ?? .fps24
+            let bitrateRaw = UserDefaults.standard.string(forKey: AppConstants.dcpBitrateKey) ?? AppConstants.defaultDCPBitrate
+            let bitrate = DCPBitrate(rawValue: bitrateRaw) ?? .high
+
+            var args = commonArgs + [
+                "-c:v", "libopenjpeg",
+                "-pix_fmt", "xyz12le",
+                "-b:v", bitrate.ffmpegValue,
+                "-r", frameRate.ffmpegValue,
+                "-vf", "scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=decrease,pad=\(resolution.width):\(resolution.height):-1:-1:color=black",
+                "-map", "0:v:0",
+                "-an",
+                "-f", "mxf",
+                "-signal_standard", "smpte428"
+            ]
+            Self.applyMetadataStrategy(to: &args, preserveMetadata: false)
+            return args
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return commonArgs }
             let customArgs = ExportPreset.parseCustomCommand(ExportPreset.customCommandString(for: slot))
@@ -1229,6 +1257,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return false // Stream copy cannot apply audio filters
         case .imageSequence:
             return false // Image sequences have no audio
+        case .dcp:
+            return false // DCP audio is extracted separately as 24-bit PCM MXF
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesAudioRouting(for: slot)
@@ -1316,6 +1346,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .audioUncompressedWAV: key = AppConstants.audioWAVVisibleKey
         case .audioStereoAAC: key = AppConstants.audioAACVisibleKey
         case .imageSequence: key = AppConstants.imageSequenceVisibleKey
+        case .dcp: key = AppConstants.dcpVisibleKey
         default: return true
         }
 
@@ -1349,6 +1380,8 @@ extension ExportPreset {
             return false
         case .imageSequence:
             return false // Image sequences have no audio
+        case .dcp:
+            return false // DCP audio is in a separate MXF file
         case .videoLoopWithSound:
             return true
         case .audioUncompressedWAV, .audioStereoAAC:
@@ -1373,6 +1406,10 @@ extension ExportPreset {
             case .r2160: return CGSize(width: 3840, height: 2160)
             case .unlimited: return CGSize(width: 1920, height: 1080) // Default to 1080p for unlimited
             }
+        case .dcp:
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.dcpResolutionKey) ?? AppConstants.defaultDCPResolution
+            let resolution = DCPResolution(rawValue: resolutionRaw) ?? .twoKFull
+            return CGSize(width: resolution.width, height: resolution.height)
         case .proxy:
             // Use resolution based on current proxy setting
             let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.proxyResolutionLimitKey) ?? AppConstants.defaultProxyResolutionLimit
