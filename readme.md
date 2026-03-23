@@ -39,7 +39,9 @@ brew install aagedal/casks/aagedal-media-converter
 
 ### General
 - Preview and encode almost every video file that exists
-- Batch conversion, watch folder, progress bar, 
+- Import and export **image sequences** (PNG, TIFF, EXR, DPX, JPEG 2000, and more) with audio association and frame rate control
+- Export **DCP (Digital Cinema Package)** for cinema playback, with SMPTE-compliant JPEG 2000 XYZ color space encoding
+- Batch conversion, watch folder, progress bar,
 - Trim, crop, reroute or remove audio tracks, merge clips (if in the same format)
 - Metadata view with comparison
 - Lots of [keyboard shortcuts](KeyboardShortcuts.md): most features are accessible without using a mouse
@@ -151,6 +153,12 @@ Apple ProRes (yuv422p10) for edit-friendly masters. Includes the first video and
 #### Proxy
 Lightweight proxy creation in HEVC, ProRes Proxy, or DNxHR with configurable resolution limits. Retains every audio channel as uncompressed PCM, which is ideal for offline editing and pairing with a dedicated Proxy sub-folder next to the source material.
 
+#### DCP (Digital Cinema Package)
+SMPTE-compliant Digital Cinema Package export. Encodes video as JPEG 2000 in 12-bit XYZ color space with BT.709 input conversion, wraps to MXF using asdcp-wrap, and generates all required SMPTE XML (CPL, PKL, ASSETMAP, VOLINDEX). Supports 2K and 4K Flat, Scope, and Full container sizes at 24/25/30/48 fps with configurable bitrate (100–250 Mbps). Audio is exported as 24-bit PCM in a separate MXF track. Per-item metadata editing includes content title, content kind, annotation, rating, and audio language. Scaling modes: fit (letterbox) or fill (crop).
+
+#### Image Sequence
+Import and export image sequences in PNG, JPEG, TIFF, EXR, DPX, BMP, TGA, SGI, JPEG XL, and JPEG 2000. Import auto-detects frame numbering and supports gaps. Audio files can be associated with a sequence for playback and export. Frame rate is configurable per-sequence and can be auto-derived from associated audio duration. Exports include optional metadata sidecar files (Markdown or JSON) with color space, codec, and camera information.
+
 #### Animated Stills
 Animated still sequence built as GIF, AVIF, or animated PNG (APNG), selectable from the Preset Settings menu.
 
@@ -235,11 +243,15 @@ The bundled FFmpeg binary is compiled with `--enable-gpl` and is therefore also 
 
 The bundled asdcp-wrap binary is from [asdcplib](https://github.com/cinecert/asdcplib) by John Hurst, licensed under the **BSD 3-Clause License**. See [Licenses/asdcplib-LICENSE.txt](Licenses/asdcplib-LICENSE.txt).
 
+[ExifTool](https://exiftool.org/) by Phil Harvey is used for C2PA content authenticity checking and extended metadata extraction (camera info, XMP, JUMBF). ExifTool is not bundled — it can be auto-downloaded by the app or pointed at an existing Homebrew installation. ExifTool is distributed under the **Artistic License** (Perl). See https://exiftool.org/#license.
+
 ---
 
 ## Acknowledgments
 
 The DCP (Digital Cinema Package) export feature's color processing was informed by the [DCP-o-matic](https://dcpomatic.com/) project's excellent documentation on DCI XYZ color space conversion. DCP-o-matic is a free, open-source DCP creator — check it out at https://github.com/cth103/dcpomatic.
+
+[ExifTool](https://exiftool.org/) by Phil Harvey powers the metadata inspection and C2PA content authenticity features.
 
 ---
 
