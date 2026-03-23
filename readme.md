@@ -233,6 +233,14 @@ This project is distributed under the **GNU General Public License, version 3.0*
 
 The bundled FFmpeg binary is compiled with `--enable-gpl` and is therefore also licensed under **GPL v2 or later**. This project chooses GPL v3 for all code, satisfying that requirement. See the original FFmpeg license in [Licenses/ffmpeg-LICENSE.txt](Licenses/ffmpeg-LICENSE.txt).
 
+The bundled asdcp-wrap binary is from [asdcplib](https://github.com/cinecert/asdcplib) by John Hurst, licensed under the **BSD 3-Clause License**. See [Licenses/asdcplib-LICENSE.txt](Licenses/asdcplib-LICENSE.txt).
+
+---
+
+## Acknowledgments
+
+The DCP (Digital Cinema Package) export feature's color processing was informed by the [DCP-o-matic](https://dcpomatic.com/) project's excellent documentation on DCI XYZ color space conversion. DCP-o-matic is a free, open-source DCP creator — check it out at https://github.com/cth103/dcpomatic.
+
 ---
 
 PS! This app was previously called Aagedal VideoLoop Converter. Aagedal Media Converter is the same app, just with a new name that better reflects what it has become.

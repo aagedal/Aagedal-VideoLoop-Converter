@@ -48,8 +48,8 @@ actor DCPService {
         let videoUUID = dcpUUID()
         let audioUUID = audioMXFURL != nil ? dcpUUID() : nil
 
-        // Rename MXF files with UUID-based names
-        let videoFileName = "video_\(uuidString(from: videoUUID)).mxf"
+        // Rename MXF files with DCP-standard names (j2c_ for JPEG 2000, pcm_ for PCM audio)
+        let videoFileName = "j2c_\(uuidString(from: videoUUID)).mxf"
         let videoDestURL = outputDirectoryURL.appendingPathComponent(videoFileName)
 
         do {
@@ -69,7 +69,7 @@ actor DCPService {
         var audioFileName: String? = nil
         var audioDestURL: URL? = nil
         if let audioMXF = audioMXFURL, let aUUID = audioUUID {
-            audioFileName = "audio_\(uuidString(from: aUUID)).mxf"
+            audioFileName = "pcm_\(uuidString(from: aUUID)).mxf"
             audioDestURL = outputDirectoryURL.appendingPathComponent(audioFileName!)
 
             do {
@@ -114,6 +114,7 @@ actor DCPService {
         let contentKind = itemMetadata?.contentKind ?? .feature
         let annotationText = itemMetadata?.annotationText ?? ""
         let ratingLabel = itemMetadata?.ratingLabel ?? ""
+        let audioLanguage = itemMetadata?.audioLanguage ?? "en"
 
         let cplContent = generateCPL(
             cplUUID: cplUUID,
@@ -125,7 +126,10 @@ actor DCPService {
             resolution: resolution,
             contentKind: contentKind,
             annotationText: annotationText,
-            ratingLabel: ratingLabel
+            ratingLabel: ratingLabel,
+            audioLanguage: audioLanguage,
+            videoHash: base64SHA1(hex: videoHash),
+            audioHash: audioHash != nil ? base64SHA1(hex: audioHash!) : nil
         )
 
         do {
@@ -201,7 +205,7 @@ actor DCPService {
         )
 
         do {
-            let assetMapURL = outputDirectoryURL.appendingPathComponent("ASSETMAP.xml")
+            let assetMapURL = outputDirectoryURL.appendingPathComponent("ASSETMAP")
             try assetMapContent.write(to: assetMapURL, atomically: true, encoding: .utf8)
         } catch {
             logger.error("Failed to write ASSETMAP: \(error.localizedDescription)")
@@ -260,13 +264,34 @@ actor DCPService {
         resolution: DCPResolution,
         contentKind: DCPContentKind = .feature,
         annotationText: String = "",
-        ratingLabel: String = ""
+        ratingLabel: String = "",
+        audioLanguage: String = "en",
+        videoHash: String? = nil,
+        audioHash: String? = nil
     ) -> String {
         let escapedTitle = xmlEscape(title)
         let escapedAnnotation = xmlEscape(annotationText)
         let now = iso8601Now()
+        let contentVersionUUID = dcpUUID()
 
+        // Markers (FFOC = first frame, LFOC = last frame)
+        let markersUUID = dcpUUID()
         var reelAssets = """
+              <MainMarkers>
+                <Id>\(markersUUID)</Id>
+                <EditRate>\(editRate)</EditRate>
+                <IntrinsicDuration>\(frameCount)</IntrinsicDuration>
+                <MarkerList>
+                  <Marker>
+                    <Label>FFOC</Label>
+                    <Offset>1</Offset>
+                  </Marker>
+                  <Marker>
+                    <Label>LFOC</Label>
+                    <Offset>\(max(frameCount - 1, 1))</Offset>
+                  </Marker>
+                </MarkerList>
+              </MainMarkers>
               <MainPicture>
                 <Id>\(videoUUID)</Id>
                 <EditRate>\(editRate)</EditRate>
@@ -275,28 +300,51 @@ actor DCPService {
                 <Duration>\(frameCount)</Duration>
                 <FrameRate>\(editRate)</FrameRate>
                 <ScreenAspectRatio>\(resolution.width)/\(resolution.height)</ScreenAspectRatio>
+        """
+        if let vHash = videoHash {
+            reelAssets += "\n                <Hash>\(vHash)</Hash>"
+        }
+        reelAssets += """
+
               </MainPicture>
         """
 
         if let aUUID = audioUUID {
             reelAssets += """
-
               <MainSound>
                 <Id>\(aUUID)</Id>
                 <EditRate>\(editRate)</EditRate>
                 <IntrinsicDuration>\(frameCount)</IntrinsicDuration>
                 <EntryPoint>0</EntryPoint>
                 <Duration>\(frameCount)</Duration>
+                <Language>\(xmlEscape(audioLanguage))</Language>
+            """
+            if let aHash = audioHash {
+                reelAssets += "\n                <Hash>\(aHash)</Hash>"
+            }
+            reelAssets += """
+
               </MainSound>
             """
+        }
+
+        let ratingElement: String
+        if !ratingLabel.isEmpty {
+            ratingElement = """
+              <RatingList>
+                <Rating>
+                  <Agency>http://www.mpaa.org/2003-ratings</Agency>
+                  <Label>\(xmlEscape(ratingLabel))</Label>
+                </Rating>
+              </RatingList>
+            """
+        } else {
+            ratingElement = "  <RatingList/>"
         }
 
         var optionalElements = ""
         if !escapedAnnotation.isEmpty {
             optionalElements += "\n          <AnnotationText>\(escapedAnnotation)</AnnotationText>"
-        }
-        if !ratingLabel.isEmpty {
-            optionalElements += "\n          <RatingList><Agency>http://www.mpaa.org/2003-ratings</Agency><Label>\(xmlEscape(ratingLabel))</Label></RatingList>"
         }
 
         return """
@@ -307,7 +355,12 @@ actor DCPService {
           <Issuer>Aagedal Media Converter</Issuer>
           <Creator>Aagedal Media Converter</Creator>
           <ContentTitleText>\(escapedTitle)</ContentTitleText>
-          <ContentKind>\(contentKind.rawValue)</ContentKind>\(optionalElements)
+          <ContentKind>\(contentKind.rawValue)</ContentKind>
+          <ContentVersion>
+            <Id>\(contentVersionUUID)</Id>
+            <LabelText>\(escapedTitle)_v1</LabelText>
+          </ContentVersion>\(optionalElements)
+          \(ratingElement)
           <ReelList>
             <Reel>
               <Id>\(dcpUUID())</Id>
@@ -345,16 +398,18 @@ actor DCPService {
               <Hash>\(base64SHA1(hex: cplHash))</Hash>
               <Size>\(cplSize)</Size>
               <Type>text/xml</Type>
+              <OriginalFileName>\(cplFileName)</OriginalFileName>
             </Asset>
             <Asset>
               <Id>\(videoUUID)</Id>
               <Hash>\(base64SHA1(hex: videoHash))</Hash>
               <Size>\(videoSize)</Size>
               <Type>application/mxf</Type>
+              <OriginalFileName>\(videoFileName)</OriginalFileName>
             </Asset>
         """
 
-        if let aUUID = audioUUID, let aHash = audioHash, let aSize = audioSize {
+        if let aUUID = audioUUID, let aHash = audioHash, let aSize = audioSize, let aFileName = audioFileName {
             assetList += """
 
             <Asset>
@@ -362,6 +417,7 @@ actor DCPService {
               <Hash>\(base64SHA1(hex: aHash))</Hash>
               <Size>\(aSize)</Size>
               <Type>application/mxf</Type>
+              <OriginalFileName>\(aFileName)</OriginalFileName>
             </Asset>
             """
         }
@@ -412,6 +468,8 @@ actor DCPService {
               <ChunkList>
                 <Chunk>
                   <Path>\(pklFileName)</Path>
+                  <VolumeIndex>1</VolumeIndex>
+                  <Offset>0</Offset>
                 </Chunk>
               </ChunkList>
             </Asset>
@@ -420,6 +478,8 @@ actor DCPService {
               <ChunkList>
                 <Chunk>
                   <Path>\(cplFileName)</Path>
+                  <VolumeIndex>1</VolumeIndex>
+                  <Offset>0</Offset>
                 </Chunk>
               </ChunkList>
             </Asset>
@@ -428,6 +488,8 @@ actor DCPService {
               <ChunkList>
                 <Chunk>
                   <Path>\(videoFileName)</Path>
+                  <VolumeIndex>1</VolumeIndex>
+                  <Offset>0</Offset>
                   <Length>\(videoSize)</Length>
                 </Chunk>
               </ChunkList>
@@ -442,6 +504,8 @@ actor DCPService {
               <ChunkList>
                 <Chunk>
                   <Path>\(aFileName)</Path>
+                  <VolumeIndex>1</VolumeIndex>
+                  <Offset>0</Offset>
                   <Length>\(aSize)</Length>
                 </Chunk>
               </ChunkList>

@@ -42,18 +42,92 @@ actor BMXService {
         clipName: String? = nil,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> Bool {
+        var arguments: [String] = [
+            "-t", "op1a",
+            "--use-avc-subdesc",
+        ]
+
+        if let name = clipName, !name.isEmpty {
+            arguments.append(contentsOf: ["--clip", name])
+        }
+
+        return await runBMXTranswrap(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            extraArguments: arguments,
+            progress: progress
+        )
+    }
+
+    /// Rewraps an MXF file to RDD9 (SMPTE RDD 9) format for DCP-compliant ASDCP MXF
+    /// - Parameters:
+    ///   - inputURL: The source MXF file (from FFmpeg)
+    ///   - outputURL: The destination MXF file (ASDCP compliant)
+    ///   - isVideo: Whether this is a video MXF (adds DCI color metadata)
+    ///   - clipName: Optional clip name for the output
+    ///   - progress: Progress callback (0.0 to 1.0)
+    /// - Returns: true if successful, false otherwise
+    func rewrapToRDD9(
+        inputURL: URL,
+        outputURL: URL,
+        isVideo: Bool = true,
+        clipName: String? = nil,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async -> Bool {
+        var arguments: [String] = [
+            "-t", "rdd9",
+        ]
+
+        // Add DCI color metadata for video MXF
+        if isVideo {
+            arguments.append(contentsOf: [
+                "--signal-std", "st428",
+                "--transfer-ch", "dcdm",
+                "--color-prim", "dcdm",
+                "--coding-eq", "gbr",
+            ])
+        }
+
+        if let name = clipName, !name.isEmpty {
+            arguments.append(contentsOf: ["--clip", name])
+        }
+
+        return await runBMXTranswrap(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            extraArguments: arguments,
+            progress: progress
+        )
+    }
+
+    /// Cancels the current bmxtranswrap operation
+    func cancel() {
+        if let process = currentProcess, process.isRunning {
+            process.terminate()
+            currentProcess = nil
+            logger.info("bmxtranswrap cancelled")
+        }
+    }
+
+    // MARK: - Shared Process Execution
+
+    /// Shared bmxtranswrap execution with input/output validation, progress parsing, and error handling
+    private func runBMXTranswrap(
+        inputURL: URL,
+        outputURL: URL,
+        extraArguments: [String],
+        progress: @escaping @Sendable (Double) -> Void
+    ) async -> Bool {
         guard let bmxtranswrapPath = BinaryPathResolver.bmxtranswrapPath else {
             logger.error("bmxtranswrap binary not found")
             return false
         }
 
-        // Ensure input exists
         guard FileManager.default.fileExists(atPath: inputURL.path) else {
             logger.error("Input MXF file not found: \(inputURL.path)")
             return false
         }
 
-        // Ensure output directory exists
         let outputDir = outputURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
@@ -62,7 +136,6 @@ actor BMXService {
             return false
         }
 
-        // Remove existing output file if present
         if FileManager.default.fileExists(atPath: outputURL.path) {
             do {
                 try FileManager.default.removeItem(at: outputURL)
@@ -72,24 +145,11 @@ actor BMXService {
             }
         }
 
-        // Build bmxtranswrap command
-        var arguments: [String] = [
-            "-t", "op1a",                    // Output type: OP1a
-            "-o", outputURL.path,            // Output file
-            "--use-avc-subdesc",             // Use AVC sub-descriptor for AVC-Intra
-            "-p",                            // Print progress to stdout
-        ]
-
-        // Add clip name if provided
-        if let name = clipName, !name.isEmpty {
-            arguments.append(contentsOf: ["--clip", name])
-        }
-
-        // Add input file
+        var arguments = extraArguments
+        arguments.append(contentsOf: ["-o", outputURL.path, "-p"])
         arguments.append(inputURL.path)
 
         logger.info("Running bmxtranswrap: \(arguments.joined(separator: " "))")
-        print("BMX command: \(bmxtranswrapPath) \(arguments.joined(separator: " "))")
 
         let process = Process()
         currentProcess = process
@@ -102,13 +162,10 @@ actor BMXService {
         process.standardError = stderrPipe
         process.standardInput = FileHandle.nullDevice
 
-        // Progress parsing from stdout (-p flag outputs percentage)
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
-
             if let output = String(data: data, encoding: .utf8) {
-                // Parse progress percentage (bmxtranswrap -p outputs "XX%" lines)
                 let lines = output.components(separatedBy: .newlines)
                 for line in lines {
                     let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -124,7 +181,6 @@ actor BMXService {
             }
         }
 
-        // Collect stderr for error reporting
         let stderrCollector = StderrCollector()
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -142,7 +198,6 @@ actor BMXService {
             return false
         }
 
-        // Clean up handlers
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         currentProcess = nil
@@ -156,19 +211,9 @@ actor BMXService {
             let stderrData = await stderrCollector.snapshot()
             let stderrString = String(data: stderrData, encoding: .utf8) ?? "(no error output)"
             logger.error("bmxtranswrap failed with code \(process.terminationStatus): \(stderrString)")
-            print("bmxtranswrap error:\n\(stderrString)")
         }
 
         return success
-    }
-
-    /// Cancels the current bmxtranswrap operation
-    func cancel() {
-        if let process = currentProcess, process.isRunning {
-            process.terminate()
-            currentProcess = nil
-            logger.info("bmxtranswrap cancelled")
-        }
     }
 
     // MARK: - MXF Info

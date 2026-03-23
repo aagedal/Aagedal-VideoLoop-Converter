@@ -95,6 +95,15 @@ enum FFMPEGCommandBuilder {
             arguments.append(contentsOf: ["-ss", ffmpegTimeString(from: normalizedTrimStart)])
         }
 
+        // For DCP, add input color space hints to ensure correct BT.709 → XYZ conversion
+        if preset == .dcp && customInputArguments == nil {
+            arguments.append(contentsOf: [
+                "-colorspace", "bt709",
+                "-color_primaries", "bt709",
+                "-color_trc", "bt709"
+            ])
+        }
+
         if let customInputArguments {
             arguments.append(contentsOf: customInputArguments)
         } else {

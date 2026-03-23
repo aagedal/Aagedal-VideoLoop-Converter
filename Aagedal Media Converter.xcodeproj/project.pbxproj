@@ -72,15 +72,14 @@
 		8E9B52552ED65156006E6A10 /* AudioRoutingModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52542ED65156006E6A10 /* AudioRoutingModels.swift */; };
 		8E9B52572ED6516C006E6A10 /* AudioRoutingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */; };
 		8E9B52592ED65199006E6A10 /* AudioRoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */; };
-		F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */; };
 		8E9DBF1F2EE4781B00F352A1 /* TimecodeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */; };
 		8EA1B0012F0E8A000049F017 /* NativeWaveformRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA1B0002F0E8A000049F017 /* NativeWaveformRenderer.swift */; };
+		8EA817D42F71840E00F9F10C /* asdcp-wrap in Resources */ = {isa = PBXBuildFile; fileRef = 8EA817D32F71840E00F9F10C /* asdcp-wrap */; };
+		8EA817D62F7184AA00F9F10C /* asdcplib-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8EA817D52F7184AA00F9F10C /* asdcplib-LICENSE.txt */; };
 		8EBD10212EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */; };
 		8EBD10222EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD10202EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift */; };
 		8EBD10242EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */; };
 		8EC017D3E3FDF66B8DE02E57 /* BMXService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED542D049B53B34DBA25323 /* BMXService.swift */; };
-		DC0001A1DCP0000100000001 /* DCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000002 /* DCPModels.swift */; };
-		DC0001A1DCP0000100000003 /* DCPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000004 /* DCPService.swift */; };
 		8EC3DCDD2EF57F0600CD75BC /* RandomTips.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */; };
 		8EC9A6F12EC146C00082C67F /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EFBDA932EA58975005ADDCF /* AboutView.swift */; };
 		8EC9A6F72EC149010082C67F /* PreviewTrimControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A6F62EC149010082C67F /* PreviewTrimControls.swift */; };
@@ -95,7 +94,6 @@
 		8ECEBC1B2ED766F400F1F67C /* CropControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC192ED766F400F1F67C /* CropControlsView.swift */; };
 		8ECEBC1C2ED766F400F1F67C /* CropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */; };
 		8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */; };
-		DC0001A1DCP0000100000005 /* DCPMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000006 /* DCPMetadataView.swift */; };
 		8ECEBC202ED8782800F1F67C /* MetadataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */; };
 		8EE0BB9C2E0892B70096171D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9B2E0892B70096171D /* SettingsView.swift */; };
 		8EE0BB9E2E089F520096171D /* DockProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9D2E089F520096171D /* DockProgressView.swift */; };
@@ -130,10 +128,14 @@
 		C7166A0F2716B52C985E6275 /* MetadataWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */; };
 		CCF14EFA815D8DCCB62749E1 /* YTDLPUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */; };
 		D44F5A230D40961161251EB6 /* PresetQuickSelectOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A8FB8DB2F86F528514D26E /* PresetQuickSelectOverlay.swift */; };
+		DC0001A1DCP0000100000001 /* DCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000002 /* DCPModels.swift */; };
+		DC0001A1DCP0000100000003 /* DCPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000004 /* DCPService.swift */; };
+		DC0001A1DCP0000100000005 /* DCPMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000006 /* DCPMetadataView.swift */; };
 		DCAB5042D7F99ED919EF7D29 /* WaveformFramePipeWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F6F70AFCCF6F2348370C3A /* WaveformFramePipeWriter.swift */; };
 		DLHIST001SERV00000001 /* DownloadHistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DLHIST001SERV00000002 /* DownloadHistoryService.swift */; };
 		E22C3CB47572F41BA23EAF92 /* bmxtranswrap in Resources */ = {isa = PBXBuildFile; fileRef = 8488177BC5403EC6637A5C25 /* bmxtranswrap */; };
 		E69050ED114BBF6B493BE257 /* URLInputOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */; };
+		F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */; };
 		F88CB64509DD67D585EB71E6 /* WhisperModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */; };
 		FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B862E87364609527CEEC84 /* YTDLPService.swift */; };
 		FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPCRD00000002 /* FileImportCoordinator.swift */; };
@@ -256,6 +258,8 @@
 		8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingService.swift; sourceTree = "<group>"; };
 		8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeFormatter.swift; sourceTree = "<group>"; };
 		8EA1B0002F0E8A000049F017 /* NativeWaveformRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWaveformRenderer.swift; sourceTree = "<group>"; };
+		8EA817D32F71840E00F9F10C /* asdcp-wrap */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "asdcp-wrap"; sourceTree = "<group>"; };
+		8EA817D52F7184AA00F9F10C /* asdcplib-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "asdcplib-LICENSE.txt"; sourceTree = "<group>"; };
 		8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_UITests.swift; sourceTree = "<group>"; };
 		8EBD10202EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_UITestsLaunchTests.swift; sourceTree = "<group>"; };
 		8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_Tests.swift; sourceTree = "<group>"; };
@@ -272,7 +276,6 @@
 		8ECEBC192ED766F400F1F67C /* CropControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropControlsView.swift; sourceTree = "<group>"; };
 		8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropOverlayView.swift; sourceTree = "<group>"; };
 		8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeView.swift; sourceTree = "<group>"; };
-		DC0001A1DCP0000100000006 /* DCPMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DCPMetadataView.swift; sourceTree = "<group>"; };
 		8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataSettingsView.swift; sourceTree = "<group>"; };
 		8EE0BB9B2E0892B70096171D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8EE0BB9D2E089F520096171D /* DockProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockProgressView.swift; sourceTree = "<group>"; };
@@ -317,9 +320,10 @@
 		D8EBD41EE1711E209C16F57C /* mxf2raw */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = mxf2raw; sourceTree = "<group>"; };
 		DC0001A1DCP0000100000002 /* DCPModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DCPModels.swift; sourceTree = "<group>"; };
 		DC0001A1DCP0000100000004 /* DCPService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DCPService.swift; sourceTree = "<group>"; };
+		DC0001A1DCP0000100000006 /* DCPMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DCPMetadataView.swift; sourceTree = "<group>"; };
 		DED542D049B53B34DBA25323 /* BMXService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BMXService.swift; sourceTree = "<group>"; };
-		E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataSidecarGenerator.swift; sourceTree = "<group>"; };
 		DLHIST001SERV00000002 /* DownloadHistoryService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DownloadHistoryService.swift; path = YTDLP/DownloadHistoryService.swift; sourceTree = "<group>"; };
+		E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataSidecarGenerator.swift; sourceTree = "<group>"; };
 		E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoQueueTableView.swift; sourceTree = "<group>"; };
 		F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafetyUtils.swift; sourceTree = "<group>"; };
 		F3DCCC8792264565FC0C4AF4 /* ExifToolUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ExifToolUpdateService.swift; sourceTree = "<group>"; };
@@ -419,6 +423,7 @@
 		8E0C32D02E09FC5100F22B21 /* Licenses */ = {
 			isa = PBXGroup;
 			children = (
+				8EA817D52F7184AA00F9F10C /* asdcplib-LICENSE.txt */,
 				8E0C32CE2E09F5E400F22B21 /* ffmpeg-LICENSE.txt */,
 			);
 			path = Licenses;
@@ -431,6 +436,7 @@
 				8EFBDA902EA56F8E005ADDCF /* ffprobe */,
 				8488177BC5403EC6637A5C25 /* bmxtranswrap */,
 				D8EBD41EE1711E209C16F57C /* mxf2raw */,
+				8EA817D32F71840E00F9F10C /* asdcp-wrap */,
 			);
 			path = Binaries;
 			sourceTree = "<group>";
@@ -932,7 +938,9 @@
 			files = (
 				8E0556A82F2774B200BCFB49 /* Localizable.xcstrings in Resources */,
 				8E501CFD2EF1807000717373 /* done.mp3 in Resources */,
+				8EA817D42F71840E00F9F10C /* asdcp-wrap in Resources */,
 				8E501CFE2EF1807000717373 /* error.mp3 in Resources */,
+				8EA817D62F7184AA00F9F10C /* asdcplib-LICENSE.txt in Resources */,
 				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
 				8EFBDA912EA56F8E005ADDCF /* ffprobe in Resources */,
 				8EFBDA922EA56F8E005ADDCF /* ffmpeg in Resources */,
@@ -1288,7 +1296,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 236;
+				CURRENT_PROJECT_VERSION = 267;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -1949,7 +1957,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 236;
+				CURRENT_PROJECT_VERSION = 267;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;

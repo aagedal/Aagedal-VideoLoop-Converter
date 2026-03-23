@@ -12,6 +12,7 @@ struct DCPMetadataView: View {
     @State private var contentKind: DCPContentKind = .feature
     @State private var annotationText: String = ""
     @State private var ratingLabel: String = ""
+    @State private var audioLanguage: String = "en"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -76,6 +77,15 @@ struct DCPMetadataView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 120)
                     }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Audio Language")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        TextField("e.g. en, fr, nb", text: $audioLanguage)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -94,13 +104,14 @@ struct DCPMetadataView: View {
             Spacer()
         }
         .padding(24)
-        .frame(width: 480, height: 340)
+        .frame(width: 520, height: 360)
         .onAppear {
             let meta = item.dcpMetadata ?? DCPItemMetadata()
             contentTitleText = meta.contentTitleText.isEmpty ? item.name : meta.contentTitleText
             contentKind = meta.contentKind
             annotationText = meta.annotationText
             ratingLabel = meta.ratingLabel
+            audioLanguage = meta.audioLanguage
         }
     }
 
@@ -109,7 +120,8 @@ struct DCPMetadataView: View {
             contentTitleText: contentTitleText,
             contentKind: contentKind,
             annotationText: annotationText,
-            ratingLabel: ratingLabel
+            ratingLabel: ratingLabel,
+            audioLanguage: audioLanguage.isEmpty ? "en" : audioLanguage
         )
     }
 }

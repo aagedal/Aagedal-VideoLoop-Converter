@@ -1203,16 +1203,21 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
             var args = commonArgs + [
                 "-c:v", "libopenjpeg",
+                "-profile", resolution.openjpegProfile,
+            ]
+            if let cinemaMode = frameRate.cinemaModeFor(resolution: resolution) {
+                args += ["-cinema_mode", cinemaMode]
+            }
+            args += [
                 "-pix_fmt", "xyz12le",
                 "-b:v", bitrate.ffmpegValue,
                 "-r", frameRate.ffmpegValue,
                 "-vf", "scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=decrease,pad=\(resolution.width):\(resolution.height):-1:-1:color=black",
                 "-map", "0:v:0",
                 "-an",
-                "-f", "mxf",
-                "-signal_standard", "smpte428"
             ]
-            Self.applyMetadataStrategy(to: &args, preserveMetadata: false)
+            // DCP outputs JP2 image sequence (not MXF) — asdcp-wrap creates the final MXF
+            // The output path pattern (frame_%06d.jp2) is set by FFMPEGConverter
             return args
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return commonArgs }
