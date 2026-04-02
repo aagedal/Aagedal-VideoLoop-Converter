@@ -12,7 +12,7 @@ import SwiftUI
 class DownloadManager {
     static let shared = DownloadManager()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "DownloadManager")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "DownloadManager")
     private let ytdlpService = YTDLPService()
 
     /// Active download tasks keyed by VideoItem ID

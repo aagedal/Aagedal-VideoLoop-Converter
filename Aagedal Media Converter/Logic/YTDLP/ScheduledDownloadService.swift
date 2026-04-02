@@ -27,7 +27,7 @@ struct ScheduledDownloadItem: Equatable {
 class ScheduledDownloadService {
     static let shared = ScheduledDownloadService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "ScheduledDownloadService")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ScheduledDownloadService")
     private var timer: Timer?
 
     /// Currently scheduled downloads (itemID -> scheduledTime)

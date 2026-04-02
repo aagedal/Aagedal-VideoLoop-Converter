@@ -8,9 +8,11 @@
 // (at your option) any later version.
 
 import Foundation
+import OSLog
 
 final class SecurityScopedBookmarkManager: @unchecked Sendable {
     static let shared = SecurityScopedBookmarkManager()
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "BookmarkManager")
     private let userDefaults = UserDefaults.standard
     private let bookmarksKey = "securityScopedBookmarks"
     
@@ -50,7 +52,7 @@ final class SecurityScopedBookmarkManager: @unchecked Sendable {
             userDefaults.set(bookmarks, forKey: bookmarksKey)
             return true
         } catch {
-            print("Failed to create bookmark: \(error)")
+            logger.error("Failed to create bookmark: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -77,7 +79,7 @@ final class SecurityScopedBookmarkManager: @unchecked Sendable {
 
             return resolvedURL
         } catch {
-            print("Failed to resolve bookmark: \(error)")
+            logger.error("Failed to resolve bookmark: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

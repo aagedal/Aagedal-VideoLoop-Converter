@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import AppKit
+import OSLog
 import SwiftUI
 
 /// Manages fullscreen player windows for video playback
@@ -10,6 +11,7 @@ import SwiftUI
 final class FullscreenPlayerWindowController {
 
     static let shared = FullscreenPlayerWindowController()
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FullscreenPlayer")
 
     private var currentWindow: NSWindow?
     private var hostingView: NSHostingView<FullscreenPlayerView>?
@@ -458,43 +460,43 @@ final class FullscreenPlayerWindowController {
     
     @MainActor
     private func handlePlaybackDidFinish() {
-        NSLog("📍 handlePlaybackDidFinish called - autoAdvance: \(queueAutoAdvanceEnabled), currentIndex: \(currentIndex), queueCount: \(queue.count)")
+        logger.debug("handlePlaybackDidFinish called - autoAdvance: \(self.queueAutoAdvanceEnabled), currentIndex: \(self.currentIndex), queueCount: \(self.queue.count)")
 
         guard queueAutoAdvanceEnabled,
               queue.indices.contains(currentIndex) else {
-            NSLog("📍 handlePlaybackDidFinish: returning early (autoAdvance=\(queueAutoAdvanceEnabled), validIndex=\(queue.indices.contains(currentIndex)))")
+            logger.debug("handlePlaybackDidFinish: returning early (autoAdvance=\(self.queueAutoAdvanceEnabled), validIndex=\(self.queue.indices.contains(self.currentIndex)))")
             return
         }
 
         let currentItem = queue[currentIndex]
         guard !currentItem.loopPlayback else {
-            NSLog("📍 handlePlaybackDidFinish: returning early (loopPlayback enabled)")
+            logger.debug("handlePlaybackDidFinish: returning early (loopPlayback enabled)")
             return
         }
 
         // Find next playable item, skipping downloading/recording items
         let nextItem: VideoItem?
         if let nextIndex = findNextPlayableIndex() {
-            NSLog("📍 handlePlaybackDidFinish: found next playable index \(nextIndex)")
+            logger.debug("handlePlaybackDidFinish: found next playable index \(nextIndex)")
             currentIndex = nextIndex
             nextItem = queue[nextIndex]
         } else if queueLoopEnabled {
             // When looping, find first playable item from beginning
             if let firstPlayableIndex = findFirstPlayableIndex() {
-                NSLog("📍 handlePlaybackDidFinish: looping to first playable index \(firstPlayableIndex)")
+                logger.debug("handlePlaybackDidFinish: looping to first playable index \(firstPlayableIndex)")
                 currentIndex = firstPlayableIndex
                 nextItem = queue[firstPlayableIndex]
             } else {
-                NSLog("📍 handlePlaybackDidFinish: no playable items found for loop")
+                logger.debug("handlePlaybackDidFinish: no playable items found for loop")
                 nextItem = nil
             }
         } else {
-            NSLog("📍 handlePlaybackDidFinish: no next item and loop disabled")
+            logger.debug("handlePlaybackDidFinish: no next item and loop disabled")
             nextItem = nil
         }
 
         if let nextItem {
-            NSLog("📍 handlePlaybackDidFinish: advancing to \(nextItem.name)")
+            logger.debug("handlePlaybackDidFinish: advancing to \(nextItem.name, privacy: .public)")
             reopenWithItem(nextItem, autoPlayOnReady: true)
         }
     }

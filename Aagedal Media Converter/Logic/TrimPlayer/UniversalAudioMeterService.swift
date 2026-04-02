@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import OSLog
 import Combine
 @preconcurrency import ScreenCaptureKit
 import AVFoundation
@@ -12,6 +13,7 @@ import CoreMedia
 /// Service to monitor real-time audio levels from the entire application using ScreenCaptureKit
 @MainActor
 final class UniversalAudioMeterService: NSObject, ObservableObject {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "UniversalAudioMeter")
     struct AudioLevels {
         let leftChannel: Float  // dB level, typically -60.0 to 0.0
         let rightChannel: Float // dB level, typically -60.0 to 0.0
@@ -95,7 +97,7 @@ final class UniversalAudioMeterService: NSObject, ObservableObject {
             self.permissionError = false
             
         } catch {
-            print("UniversalAudioMeter: Failed to start capture: \(error)")
+            Self.logger.error("Failed to start capture: \(error.localizedDescription, privacy: .public)")
             if error is SCStreamError {
                 // Likely permission denied or cancelled
                 self.permissionError = true

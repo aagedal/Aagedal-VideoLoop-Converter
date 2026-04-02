@@ -63,6 +63,8 @@ final class FrameStallTracker: Sendable {
 }
 
 enum FFMPEGProgressParser {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGProgressParser")
+
     /// Processes FFmpeg output to extract progress and duration information.
     /// - Parameters:
     ///   - output: The FFmpeg output string to process
@@ -85,7 +87,7 @@ enum FFMPEGProgressParser {
         // Try to parse the total duration if not already known
         if newTotalDuration == nil, let duration = ParsingUtils.parseDuration(from: output) {
             newTotalDuration = duration
-            print("Total Duration: \(duration) seconds")
+            logger.debug("Total Duration: \(duration, privacy: .public) seconds")
         }
 
         let durationForProgress = effectiveDuration ?? newTotalDuration

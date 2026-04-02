@@ -487,7 +487,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
     private func readEvents() {
         queue.async { [weak self] in
             guard let self, self.mpv != nil else {
-                print("[MPV] readEvents: self or mpv is nil, returning")
+                self?.logger.debug("readEvents: self or mpv is nil, returning")
                 return
             }
 
@@ -559,7 +559,7 @@ final class MPVPlayer: NSObject, ObservableObject, @unchecked Sendable {
                         let prefix = String(cString: msg.pointee.prefix!)
                         let level = String(cString: msg.pointee.level!)
                         let text = String(cString: msg.pointee.text!)
-                        print("[\(prefix)] \(level): \(text)", terminator: "")
+                        self.logger.debug("[\(prefix, privacy: .public)] \(level, privacy: .public): \(text.trimmingCharacters(in: .newlines), privacy: .public)")
                     }
 
                 case MPV_EVENT_FILE_LOADED:

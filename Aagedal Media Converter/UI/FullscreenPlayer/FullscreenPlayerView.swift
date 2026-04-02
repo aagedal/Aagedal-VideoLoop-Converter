@@ -6,9 +6,12 @@ import SwiftUI
 import AVKit
 @preconcurrency import AppKit
 import Carbon.HIToolbox
+import OSLog
 
 /// Clean fullscreen video player view
 struct FullscreenPlayerView: View {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FullscreenPlayerView")
+
     let item: VideoItem
     let onClose: () -> Void
     let onCloseWithPosition: ((Double) -> Void)?
@@ -311,7 +314,7 @@ struct FullscreenPlayerView: View {
             // Prepare preview IMMEDIATELY - don't wait for metadata
             controller.updateVideoItem(itemState)
             let initialTime = capturedStartTime ?? itemState.effectiveTrimStart
-            NSLog("FullscreenPlayerView: startTime=\(String(describing: capturedStartTime)), effectiveTrimStart=\(itemState.effectiveTrimStart), using initialTime=\(initialTime)")
+            Self.logger.debug("startTime=\(String(describing: capturedStartTime)), effectiveTrimStart=\(itemState.effectiveTrimStart), using initialTime=\(initialTime)")
             controller.preparePreview(startTime: initialTime)
 
             // Fetch metadata in background (non-blocking) - only if needed
@@ -1029,7 +1032,7 @@ struct FullscreenPlayerView: View {
                     controller.showScreenshotConfirmationOverlay()
                 }
             } catch {
-                NSLog("Screenshot capture failed: \(error.localizedDescription)")
+                Self.logger.error("Screenshot capture failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

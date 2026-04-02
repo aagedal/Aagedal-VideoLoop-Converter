@@ -10,7 +10,7 @@ import OSLog
 actor WhisperUpdateService {
     static let shared = WhisperUpdateService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "WhisperUpdate")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "WhisperUpdate")
 
     /// Returns the FFmpeg version (whisper is built into FFmpeg)
     nonisolated var version: String {

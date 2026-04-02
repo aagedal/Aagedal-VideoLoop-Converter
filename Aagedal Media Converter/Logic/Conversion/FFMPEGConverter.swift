@@ -62,7 +62,7 @@ actor FFMPEGConverter {
         completion: @escaping @Sendable (Bool) -> Void
     ) async {
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
-            print("FFMPEG binary not found")
+            Self.logger.error("FFMPEG binary not found")
             completion(false)
             return
         }
@@ -73,7 +73,7 @@ actor FFMPEGConverter {
         do {
             try fileManager.createDirectory(at: outputDir, withIntermediateDirectories: true)
         } catch {
-            print("Failed to create output directory: \(error)")
+            Self.logger.error("Failed to create output directory: \(error.localizedDescription, privacy: .public)")
             completion(false)
             return
         }
@@ -99,7 +99,7 @@ actor FFMPEGConverter {
             do {
                 try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
             } catch {
-                print("Failed to create DCP working directory: \(error)")
+                Self.logger.error("Failed to create DCP working directory: \(error.localizedDescription, privacy: .public)")
                 completion(false)
                 return
             }
@@ -112,7 +112,7 @@ actor FFMPEGConverter {
             do {
                 try fileManager.createDirectory(at: jp2Dir, withIntermediateDirectories: true)
             } catch {
-                print("Failed to create DCP JP2 directory: \(error)")
+                Self.logger.error("Failed to create DCP JP2 directory: \(error.localizedDescription, privacy: .public)")
                 completion(false)
                 return
             }
@@ -139,7 +139,7 @@ actor FFMPEGConverter {
             do {
                 try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
             } catch {
-                print("Failed to create image sequence output directory: \(error)")
+                Self.logger.error("Failed to create image sequence output directory: \(error.localizedDescription, privacy: .public)")
                 completion(false)
                 return
             }
@@ -158,7 +158,7 @@ actor FFMPEGConverter {
                 let baseName = outputURL.lastPathComponent
                 let safeOutputURL = outputDir.appendingPathComponent(baseName + "_encoded")
                     .appendingPathExtension(preset.outputExtension(for: inputURL))
-                print("⚠️ Safety check: Would have overwritten input file. Changed output to: \(safeOutputURL.lastPathComponent)")
+                Self.logger.warning("Safety check: would have overwritten input file. Changed output to: \(safeOutputURL.lastPathComponent, privacy: .public)")
                 outputFileURL = safeOutputURL
             }
 
@@ -256,7 +256,7 @@ actor FFMPEGConverter {
 
         process.arguments = command.arguments
 
-        print("FFmpeg command: \(ffmpegPath) \(command.arguments.joined(separator: " "))")
+        Self.logger.info("FFmpeg command: \(ffmpegPath, privacy: .public) \(command.arguments.joined(separator: " "), privacy: .public)")
 
         // Only process stderr as that's where FFMPEG sends its progress updates
         let errorPipe = Pipe()
@@ -341,11 +341,15 @@ actor FFMPEGConverter {
             Task { [weak self] in
                 await self?.setCurrentProcess(nil)
                 var success = process.terminationStatus == 0
-                print("✅ FFmpeg process terminated with status: \(process.terminationStatus) (success: \(success))")
+                if success {
+                    Self.logger.info("FFmpeg process terminated with status: \(process.terminationStatus) (success: \(success))")
+                } else {
+                    Self.logger.error("FFmpeg process terminated with status: \(process.terminationStatus) (success: \(success))")
+                }
                 if !success {
                     let collectedStderr = await stderrCollector.snapshot()
                     let stderrString = String(data: collectedStderr, encoding: .utf8) ?? "(unable to decode ffmpeg stderr)"
-                    print("FFmpeg exited with code \(process.terminationStatus). Output:\n\(stderrString)\n-- end of ffmpeg log --")
+                    Self.logger.error("FFmpeg exited with code \(process.terminationStatus). Output:\n\(stderrString, privacy: .public)\n-- end of ffmpeg log --")
                 }
 
                 // Run bmxtranswrap for AVC-Intra to ensure OP1a compliance
@@ -660,7 +664,7 @@ actor FFMPEGConverter {
         do {
             try process.run()
         } catch {
-            print("Failed to run process: \(error)")
+            Self.logger.error("Failed to run process: \(error.localizedDescription, privacy: .public)")
             completion(false)
         }
     }
@@ -759,7 +763,7 @@ actor FFMPEGConverter {
         process.standardError = errorPipe
         process.standardOutput = FileHandle.nullDevice
 
-        print("FFmpeg native waveform command: \(ffmpegPath) \(command.arguments.joined(separator: " "))")
+        Self.logger.info("FFmpeg native waveform command: \(ffmpegPath, privacy: .public) \(command.arguments.joined(separator: " "), privacy: .public)")
 
         let stderrCollector = StderrCollector()
         let capturedNeedsBMXRewrap = needsBMXRewrap
@@ -786,7 +790,7 @@ actor FFMPEGConverter {
                 if !success {
                     let collectedStderr = await stderrCollector.snapshot()
                     let stderrString = String(data: collectedStderr, encoding: .utf8) ?? "(unable to decode)"
-                    print("FFmpeg native waveform stderr:\n\(stderrString)\n-- end --")
+                    Self.logger.error("FFmpeg native waveform stderr:\n\(stderrString, privacy: .public)\n-- end --")
                 }
 
                 // BMX rewrap for AVC-Intra if needed
@@ -824,7 +828,7 @@ actor FFMPEGConverter {
         do {
             try process.run()
         } catch {
-            print("Failed to start native waveform FFmpeg: \(error)")
+            Self.logger.error("Failed to start native waveform FFmpeg: \(error.localizedDescription, privacy: .public)")
             completion(false)
             return
         }

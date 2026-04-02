@@ -11,6 +11,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
 import Carbon.HIToolbox
+import OSLog
 
 /// Sort mode for the queue list
 enum QueueSortMode: CaseIterable {
@@ -37,6 +38,7 @@ enum QueueSortMode: CaseIterable {
 }
 
 struct VideoFileListView: View {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "VideoFileListView")
     @Binding var droppedFiles: [VideoItem]
     @Binding var encodingGroups: [EncodingGroup]
     @Binding var currentProgress: Double
@@ -260,7 +262,7 @@ struct VideoFileListView: View {
             if provider.canLoadObject(ofClass: URL.self) {
                 _ = provider.loadObject(ofClass: URL.self) { url, error in
                     if let error = error {
-                        print(" Error loading URL: \(error)")
+                        VideoFileListView.logger.error("Error loading URL: \(error.localizedDescription, privacy: .public)")
                         return
                     }
                     if let url = url {
@@ -300,7 +302,7 @@ struct VideoFileListView: View {
                 // No bookmark found – rely on direct entitlements (e.g. Downloads/Movie directory access)
                 if FileManager.default.isReadableFile(atPath: url.path) {
                 } else {
-                    print(" No bookmark and file not readable – access denied")
+                    Self.logger.error("No bookmark and file not readable - access denied")
                     return
                 }
             }
@@ -328,7 +330,7 @@ struct VideoFileListView: View {
             ?? AppConstants.defaultOutputDirectory.path
 
         guard let placeholder = VideoFileUtils.makePlaceholderItem(from: url, outputFolder: outputFolder, preset: preset) else {
-            print(" Failed to create placeholder video item")
+            Self.logger.error("Failed to create placeholder video item")
             return
         }
 
@@ -800,7 +802,7 @@ struct VideoFileListView: View {
                     droppedFiles[idx].subtitleProgress = 1.0
                 }
             }
-            print("📝 Transcribe-only completed: \(srtURL.lastPathComponent)")
+            Self.logger.info("Transcribe-only completed: \(srtURL.lastPathComponent, privacy: .public)")
 
         } catch {
             await MainActor.run {
@@ -808,7 +810,7 @@ struct VideoFileListView: View {
                     droppedFiles[idx].subtitleStatus = .failed(error.localizedDescription)
                 }
             }
-            print("📝 Transcribe-only failed: \(error.localizedDescription)")
+            Self.logger.error("Transcribe-only failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

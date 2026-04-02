@@ -9,7 +9,7 @@ import OSLog
 actor WhisperModelManager {
     static let shared = WhisperModelManager()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "WhisperModelManager")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "WhisperModelManager")
     private var downloadTasks: [WhisperModel: URLSessionDownloadTask] = [:]
     private var progressHandlers: [WhisperModel: @Sendable (Double) -> Void] = [:]
 

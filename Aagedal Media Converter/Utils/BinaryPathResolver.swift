@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import OSLog
 
 enum BinarySourceSelection: String, CaseIterable {
     case app
@@ -13,6 +14,8 @@ enum BinarySourceSelection: String, CaseIterable {
 /// Resolves paths to external binaries (ffmpeg, ffprobe, yt-dlp)
 /// Priority: 1) Custom path from settings, 2) Bundled in app
 enum BinaryPathResolver {
+
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "BinaryPathResolver")
 
     // MARK: - FFmpeg
 
@@ -266,6 +269,8 @@ enum BinaryPathResolver {
 /// Homebrew installs Python tools with venv interpreters that may be blocked by Hardened Runtime.
 /// This helper detects such scripts and executes them using the main Homebrew Python instead.
 enum HomebrewPythonExecutor {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "HomebrewPythonExecutor")
+
     private static let commonPathEntries = [
         "/opt/homebrew/bin",
         "/opt/homebrew/sbin"
@@ -299,38 +304,38 @@ enum HomebrewPythonExecutor {
 
         guard let data = FileManager.default.contents(atPath: resolvedPath),
               let content = String(data: data, encoding: .utf8) else {
-            print("[HomebrewPythonExecutor] Failed to read file at: \(resolvedPath)")
+            logger.error("Failed to read file at: \(resolvedPath, privacy: .public)")
             return nil
         }
 
         let firstLine = content.components(separatedBy: .newlines).first ?? ""
-        print("[HomebrewPythonExecutor] First line: \(firstLine)")
+        logger.debug("First line: \(firstLine, privacy: .public)")
 
         // Check if it's a Homebrew Cellar Python shebang
         // e.g., #!/opt/homebrew/Cellar/yt-dlp/2025.12.8/libexec/bin/python
         guard firstLine.hasPrefix("#!"),
               firstLine.contains("/opt/homebrew/Cellar/") else {
-            print("[HomebrewPythonExecutor] Not a Homebrew Python script")
+            logger.debug("Not a Homebrew Python script")
             return nil
         }
 
         // Extract the Cellar path (e.g., /opt/homebrew/Cellar/yt-dlp/2025.12.8)
         let shebangPath = String(firstLine.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-        print("[HomebrewPythonExecutor] Shebang path: \(shebangPath)")
+        logger.debug("Shebang path: \(shebangPath, privacy: .public)")
 
         // Find the libexec part and extract the base Cellar path
         guard let libexecRange = shebangPath.range(of: "/libexec/") else {
-            print("[HomebrewPythonExecutor] No /libexec/ found in shebang")
+            logger.warning("No /libexec/ found in shebang")
             return nil
         }
 
         let cellarBasePath = String(shebangPath[..<libexecRange.lowerBound])
-        print("[HomebrewPythonExecutor] Cellar base: \(cellarBasePath)")
+        logger.debug("Cellar base: \(cellarBasePath, privacy: .public)")
 
         // Find Python version by trying common versions
         // (Can't list directory due to Hardened Runtime restrictions)
         let libPath = cellarBasePath + "/libexec/lib"
-        print("[HomebrewPythonExecutor] Lib path: \(libPath)")
+        logger.debug("Lib path: \(libPath, privacy: .public)")
 
         // Try common Python versions in order (newest first)
         let pythonVersions = ["3.14", "3.13", "3.12", "3.11", "3.10", "3.9"]
@@ -342,13 +347,13 @@ enum HomebrewPythonExecutor {
             if FileManager.default.fileExists(atPath: testPath) {
                 foundVersion = version
                 sitePackages = testPath
-                print("[HomebrewPythonExecutor] Found Python \(version) at: \(testPath)")
+                logger.debug("Found Python \(version, privacy: .public) at: \(testPath, privacy: .public)")
                 break
             }
         }
 
         guard let pythonVersion = foundVersion, let packages = sitePackages else {
-            print("[HomebrewPythonExecutor] No Python site-packages found for versions: \(pythonVersions)")
+            logger.warning("No Python site-packages found for versions: \(pythonVersions, privacy: .public)")
             return nil
         }
 
@@ -362,7 +367,7 @@ enum HomebrewPythonExecutor {
 
         let finalSitePackages = packages
 
-        print("[HomebrewPythonExecutor] Success! Python: \(finalPythonPath), PYTHONPATH: \(finalSitePackages)")
+        logger.debug("Resolved Python: \(finalPythonPath, privacy: .public), PYTHONPATH: \(finalSitePackages, privacy: .public)")
         return ExecutionInfo(
             pythonPath: shebangPath,
             mainPythonPath: finalPythonPath,
@@ -391,7 +396,7 @@ enum HomebrewPythonExecutor {
     static func configureProcess(_ process: Process, scriptPath: String, arguments: [String]) {
         // Check if it's a standalone binary (like yt-dlp_macos from GitHub)
         if isStandaloneBinary(at: scriptPath) {
-            print("[HomebrewPythonExecutor] Using standalone binary: \(scriptPath)")
+            logger.debug("Using standalone binary: \(scriptPath, privacy: .public)")
             process.executableURL = URL(fileURLWithPath: scriptPath)
             process.arguments = arguments
 
@@ -401,7 +406,7 @@ enum HomebrewPythonExecutor {
             if let ffmpegPath = BinaryPathResolver.ffmpegPath {
                 let ffmpegDir = (ffmpegPath as NSString).deletingLastPathComponent
                 pathEntries.append(ffmpegDir)
-                print("[HomebrewPythonExecutor] Added ffmpeg to PATH: \(ffmpegDir)")
+                logger.debug("Added ffmpeg to PATH: \(ffmpegDir, privacy: .public)")
             }
             pathEntries.append(contentsOf: commonPathEntries)
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -430,7 +435,7 @@ enum HomebrewPythonExecutor {
             let pythonPath = pythonCandidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
                 ?? info.mainPythonPath
 
-            print("[HomebrewPythonExecutor] Using \(pythonPath) with PYTHONPATH: \(info.sitePackages)")
+            logger.debug("Using \(pythonPath, privacy: .public) with PYTHONPATH: \(info.sitePackages, privacy: .public)")
             process.executableURL = URL(fileURLWithPath: pythonPath)
             // Use -u for unbuffered stdout/stderr to ensure real-time progress output
             process.arguments = ["-u", "-m", "yt_dlp"] + arguments
@@ -445,7 +450,7 @@ enum HomebrewPythonExecutor {
             process.environment = env
         } else {
             // Last resort - try executing directly (may work for scripts with valid shebangs)
-            print("[HomebrewPythonExecutor] Executing directly: \(scriptPath)")
+            logger.warning("Executing directly as last resort: \(scriptPath, privacy: .public)")
             process.executableURL = URL(fileURLWithPath: scriptPath)
             process.arguments = arguments
             var env = ProcessInfo.processInfo.environment

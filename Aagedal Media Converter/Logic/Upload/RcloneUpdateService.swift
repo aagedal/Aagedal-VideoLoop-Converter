@@ -9,7 +9,7 @@ import OSLog
 actor RcloneUpdateService {
     static let shared = RcloneUpdateService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "RcloneUpdate")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "RcloneUpdate")
 
     /// Path to downloaded rclone binary in Application Support
     nonisolated var downloadedPath: URL {

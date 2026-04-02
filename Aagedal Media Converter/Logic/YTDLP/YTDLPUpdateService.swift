@@ -10,7 +10,7 @@ import Darwin
 actor YTDLPUpdateService {
     static let shared = YTDLPUpdateService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "YTDLPUpdate")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "YTDLPUpdate")
     private var denoInstallTask: Task<String?, Never>?
     private var cachedDenoPath: String?
 

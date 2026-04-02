@@ -13,7 +13,7 @@ private final class UploadProgressState: @unchecked Sendable {
 
 /// Service for executing rclone uploads
 actor RcloneService {
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "RcloneService")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "RcloneService")
     private var currentProcess: Process?
     private let updateService = RcloneUpdateService.shared
 
@@ -88,6 +88,9 @@ actor RcloneService {
         }
         logger.info("[rclone] Command: rclone \(sanitizedArgs.joined(separator: " "))")
 
+        // Capture logger for use in non-isolated closures
+        let logger = self.logger
+
         // Handle stderr for progress updates
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -99,19 +102,19 @@ actor RcloneService {
                     guard !trimmed.isEmpty else { continue }
 
                     // Log all rclone output for debugging
-                    print("[rclone stderr] \(trimmed)")
+                    logger.debug("[rclone stderr] \(trimmed, privacy: .public)")
 
                     // Parse progress
                     if let uploadProgress = RcloneProgressParser.parse(trimmed) {
                         state.bytesTransferred = uploadProgress.bytesTransferred
-                        print("[rclone] Progress parsed: \(Int(uploadProgress.percentage * 100))% - \(uploadProgress.speed ?? "?")")
+                        logger.debug("[rclone] Progress parsed: \(Int(uploadProgress.percentage * 100))% - \(uploadProgress.speed ?? "?", privacy: .public)")
                         progress(uploadProgress.percentage, uploadProgress.speed)
                     }
 
                     // Check for errors
                     if let error = RcloneProgressParser.parseError(trimmed) {
                         state.lastError = error
-                        print("[rclone] Error detected: \(error)")
+                        logger.error("[rclone] Error detected: \(error, privacy: .public)")
                     }
                 }
             }
@@ -128,11 +131,11 @@ actor RcloneService {
                     guard !trimmed.isEmpty else { continue }
 
                     // Log all rclone output for debugging
-                    print("[rclone stdout] \(trimmed)")
+                    logger.debug("[rclone stdout] \(trimmed, privacy: .public)")
 
                     if let uploadProgress = RcloneProgressParser.parse(trimmed) {
                         state.bytesTransferred = uploadProgress.bytesTransferred
-                        print("[rclone] Progress parsed: \(Int(uploadProgress.percentage * 100))% - \(uploadProgress.speed ?? "?")")
+                        logger.debug("[rclone] Progress parsed: \(Int(uploadProgress.percentage * 100))% - \(uploadProgress.speed ?? "?", privacy: .public)")
                         progress(uploadProgress.percentage, uploadProgress.speed)
                     }
                 }

@@ -7,7 +7,7 @@ import OSLog
 
 /// Utilities for safe file operations to prevent accidental data loss
 enum FileSafetyUtils {
-    private static let logger = Logger(subsystem: "com.aagedal.media-converter", category: "FileSafety")
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FileSafety")
 
     /// Thread-safe storage for created files
     private final class CreatedFilesStorage: @unchecked Sendable {

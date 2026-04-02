@@ -13,6 +13,8 @@ import OSLog
 
 @MainActor
 final class PreviewPlayerController: ObservableObject {
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+
     struct AudioTrackOption: Identifiable, Equatable {
         let id: Int
         let position: Int
@@ -229,8 +231,7 @@ final class PreviewPlayerController: ObservableObject {
         // MKV, WebM, AVI, FLV etc. often fail silently with AVPlayer
         let avPlayerUnsupportedContainers = ["mkv", "webm", "avi", "flv", "wmv", "ogv", "ts", "mts", "m2ts"]
         if avPlayerUnsupportedContainers.contains(fileExtension) {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .info("Using MPV for \(fileExtension.uppercased()) container: \(url.lastPathComponent)")
+            logger.info("Using MPV for \(fileExtension.uppercased(), privacy: .public) container: \(url.lastPathComponent, privacy: .public)")
             setupMPV(url: url, startTime: startTime)
             return
         }
@@ -238,8 +239,7 @@ final class PreviewPlayerController: ObservableObject {
         // Force MPV for surround audio files - but not for ProRes
         // ProRes handles surround audio correctly, other codecs (HEVC, H.264) may have silent audio
         if hasSurroundAudio && !hasProResVideoCodec {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .info("Surround audio detected with non-ProRes codec, using MPV player for \(url.lastPathComponent)")
+            logger.info("Surround audio detected with non-ProRes codec, using MPV player for \(url.lastPathComponent, privacy: .public)")
             setupMPV(url: url, startTime: startTime)
             return
         }
@@ -297,11 +297,11 @@ final class PreviewPlayerController: ObservableObject {
         mpvEndObserver = mpv.$reachedEnd
             .removeDuplicates()
             .sink { [weak self] reached in
-                NSLog("📍 mpvEndObserver: reachedEnd changed to \(reached)")
+                self?.logger.debug("mpvEndObserver: reachedEnd changed to \(reached, privacy: .public)")
                 guard reached else { return }
                 Task { @MainActor in
                     let hasCallback = self?.playbackDidFinish != nil
-                    NSLog("📍 mpvEndObserver: calling playbackDidFinish (callback exists: \(hasCallback))")
+                    self?.logger.debug("mpvEndObserver: calling playbackDidFinish (callback exists: \(hasCallback, privacy: .public))")
                     self?.playbackDidFinish?()
                 }
             }
@@ -1034,15 +1034,14 @@ final class PreviewPlayerController: ObservableObject {
 
     private func applySelectedAudioTrackToMPV() {
         guard let mpv = mpvPlayer else {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("applySelectedAudioTrackToMPV: mpvPlayer is nil")
+            logger.error("applySelectedAudioTrackToMPV: mpvPlayer is nil")
             return
         }
 
         let indexes = mpv.audioTrackIndexes
         let names = mpv.audioTrackNames
 
-        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-            .debug("applySelectedAudioTrackToMPV: indexes=\(indexes), names=\(names), selectedOrderIndex=\(self.selectedAudioTrackOrderIndex)")
+        logger.debug("applySelectedAudioTrackToMPV: indexes=\(indexes, privacy: .public), names=\(names, privacy: .public), selectedOrderIndex=\(self.selectedAudioTrackOrderIndex, privacy: .public)")
 
         // MPV track IDs are 1-based
         // Our selectedAudioTrackOrderIndex is 0-based for actual tracks
@@ -1050,11 +1049,9 @@ final class PreviewPlayerController: ObservableObject {
         if self.selectedAudioTrackOrderIndex < indexes.count {
             let trackID = indexes[self.selectedAudioTrackOrderIndex]
             mpv.currentAudioTrackIndex = trackID
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .debug("Selected MPV audio track ID: \(trackID) (name: \(self.selectedAudioTrackOrderIndex < names.count ? names[self.selectedAudioTrackOrderIndex] : "?"))")
+            logger.debug("Selected MPV audio track ID: \(trackID, privacy: .public) (name: \(self.selectedAudioTrackOrderIndex < names.count ? names[self.selectedAudioTrackOrderIndex] : "?", privacy: .public))")
         } else {
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .warning("Could not map audio track index \(self.selectedAudioTrackOrderIndex) to MPV indexes: \(indexes)")
+            logger.warning("Could not map audio track index \(self.selectedAudioTrackOrderIndex, privacy: .public) to MPV indexes: \(indexes, privacy: .public)")
         }
     }
 
@@ -1069,7 +1066,7 @@ final class PreviewPlayerController: ObservableObject {
             do {
                 mediaGroup = try await playerItem.asset.loadMediaSelectionGroup(for: .audible)
             } catch {
-                Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").error("Failed to load audible group: \(error)")
+                logger.error("Failed to load audible group: \(error, privacy: .public)")
             }
 
             // 2. Build options (this populates self.audioTrackOptions)
@@ -1080,8 +1077,7 @@ final class PreviewPlayerController: ObservableObject {
             let desiredPosition = min(max(self.selectedAudioTrackOrderIndex, 0), self.audioTrackOptions.count - 1)
             let selectedOption = self.audioTrackOptions[desiredPosition]
 
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                .debug("Applying audio selection: position=\(desiredPosition), option=\(selectedOption.title)")
+            logger.debug("Applying audio selection: position=\(desiredPosition, privacy: .public), option=\(selectedOption.title, privacy: .public)")
 
             // 3. Strategy A: If we have a valid media group and option index, try using select()
             // This works for mutually exclusive tracks (e.g. languages)
@@ -1089,7 +1085,7 @@ final class PreviewPlayerController: ObservableObject {
                 let avOption = mediaGroup.options[mappedIndex]
                 if playerItem.currentMediaSelection.selectedMediaOption(in: mediaGroup) != avOption {
                     playerItem.select(avOption, in: mediaGroup)
-                    Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Selected media option via group")
+                    logger.debug("Selected media option via group")
                     return // Done if successful
                 }
             }
@@ -1105,15 +1101,14 @@ final class PreviewPlayerController: ObservableObject {
                 }
             }
 
-            Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Found \(audioTracks.count) audio tracks in player item")
+            logger.debug("Found \(audioTracks.count, privacy: .public) audio tracks in player item")
 
             if !audioTracks.isEmpty {
                 for (index, track) in audioTracks.enumerated() {
                     let shouldEnable = (index == desiredPosition)
                     if track.isEnabled != shouldEnable {
                         track.isEnabled = shouldEnable
-                        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                            .debug("Set track \(index) enabled: \(shouldEnable)")
+                        logger.debug("Set track \(index, privacy: .public) enabled: \(shouldEnable, privacy: .public)")
                     }
                 }
             }
@@ -1143,7 +1138,7 @@ final class PreviewPlayerController: ObservableObject {
         // Chunked waveform support (fallback)
         currentWaveformChunks = previewAssets?.waveformChunks(forAudioStream: streamIndex) ?? []
         totalDuration = previewAssets?.totalDuration ?? 0
-        Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview").debug("Updated waveform: channels=\(self.currentChannelWaveformImages.count), native=\(self.currentNativeWaveformImage != nil), \(self.currentWaveformChunks.count) chunks, totalDuration: \(self.totalDuration)s for stream index: \(streamIndex ?? -1)")
+        logger.debug("Updated waveform: channels=\(self.currentChannelWaveformImages.count, privacy: .public), native=\(self.currentNativeWaveformImage != nil, privacy: .public), \(self.currentWaveformChunks.count, privacy: .public) chunks, totalDuration: \(self.totalDuration, privacy: .public)s for stream index: \(streamIndex ?? -1, privacy: .public)")
 
         // If per-channel waveform is missing for this stream, generate on demand
         if currentChannelWaveformImages.isEmpty, let streamIndex {
@@ -1460,7 +1455,7 @@ final class PreviewPlayerController: ObservableObject {
                         self.previewAssets = nil
                     }
                     if (error as? CancellationError) == nil {
-                        Logger(subsystem: "com.aagedal.MediaConverter", category: "PreviewAssets").error("Failed to load preview assets for \(taskURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        logger.error("Failed to load preview assets for \(taskURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
                 }
             }
@@ -1511,7 +1506,7 @@ final class PreviewPlayerController: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] hasError in
                 if hasError {
-                    print("PreviewPlayerController: Audio meter permission denied")
+                    self?.logger.debug("Audio meter permission denied")
                     // Could show alert here or disable meter
                     self?.isAudioMeterEnabled = false
                 }

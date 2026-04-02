@@ -12,7 +12,7 @@ import SwiftUI
 class UploadManager {
     static let shared = UploadManager()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "UploadManager")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "UploadManager")
     private let rcloneService = RcloneService()
     private var uploadTasks: [UUID: Task<Void, Never>] = [:]
 
@@ -104,11 +104,11 @@ class UploadManager {
                     localFile: fileURL,
                     config: config
                 ) { [weak self] progress, speed in
-                    print("[UploadManager] Progress callback: \(Int(progress * 100))%, speed: \(speed ?? "nil")")
+                    self?.logger.debug("[UploadManager] Progress callback: \(Int(progress * 100), privacy: .public)%, speed: \(speed ?? "nil", privacy: .public)")
                     Task { @MainActor in
                         guard let self = self,
                               let idx = self.findItemIndex(itemID) else {
-                            print("[UploadManager] Could not find item \(itemID) for progress update")
+                            self?.logger.warning("[UploadManager] Could not find item \(itemID) for progress update")
                             return
                         }
                         self.videoItems?.wrappedValue[idx].uploadProgress = progress

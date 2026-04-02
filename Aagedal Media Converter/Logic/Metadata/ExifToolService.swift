@@ -73,7 +73,7 @@ struct CameraMetadata: Codable, Sendable, Equatable {
 actor ExifToolService {
     static let shared = ExifToolService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "ExifToolService")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ExifToolService")
 
     private init() {}
 

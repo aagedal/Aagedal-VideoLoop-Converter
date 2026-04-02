@@ -11,6 +11,7 @@ import SwiftUI
 import AVFoundation
 import AppKit
 import Carbon.HIToolbox
+import OSLog
 
 private final class MergeCompatibilityScheduler: ObservableObject {
     var task: Task<Void, Never>?
@@ -40,6 +41,7 @@ private final class MergeCompatibilityScheduler: ObservableObject {
 }
 
 struct ContentView: View {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ContentView")
     @Environment(\.openSettings) private var openSettings
     @State private var droppedFiles: [VideoItem] = []
     @AppStorage("outputFolder") private var outputFolder = AppConstants.defaultOutputDirectory.path {
@@ -816,7 +818,7 @@ struct ContentView: View {
                     outputFolder: outputFolder,
                     preset: selectedPreset
                 ) else {
-                    print("Skipping unsupported file: \(url.lastPathComponent)")
+                    Self.logger.info("Skipping unsupported file: \(url.lastPathComponent, privacy: .public)")
                     continue
                 }
 
@@ -844,7 +846,7 @@ struct ContentView: View {
                 }
             }
         case .failure(let error):
-            print("Error selecting files: \(error.localizedDescription)")
+            Self.logger.error("Error selecting files: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -1058,7 +1060,7 @@ struct ContentView: View {
                 outputFolder: outputFolder,
                 preset: selectedPreset
             ) else {
-                print("Skipping unsupported file from watch folder: \(url.lastPathComponent)")
+                Self.logger.info("Skipping unsupported file from watch folder: \(url.lastPathComponent, privacy: .public)")
                 continue
             }
 
@@ -1843,7 +1845,7 @@ private struct ContentViewNotificationHandlers: ViewModifier {
                 outputFolder: outputFolder,
                 preset: selectedPreset
             ) else {
-                print("Skipping unsupported file from AppIntent: \(url.lastPathComponent)")
+                Self.logger.info("Skipping unsupported file from AppIntent: \(url.lastPathComponent, privacy: .public)")
                 continue
             }
 
