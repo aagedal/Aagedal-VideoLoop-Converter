@@ -28,7 +28,6 @@
 		7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */; };
 		8567742F36A93E24233F8006 /* YTDLPProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */; };
 		8ABB9EA264C8772C2537FED2 /* MetadataWindowState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596BC21F86AEFDA304EF948F /* MetadataWindowState.swift */; };
-		8D704F6D27B209AE39BB2423 /* UploadSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A560B1F81955A156AB0F1D /* UploadSettingsView.swift */; };
 		8E04BE122ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */; };
 		8E04BE152ED329FA005AD3D8 /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE142ED329FA005AD3D8 /* AudioMeterView.swift */; };
 		8E04BE1B2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E04BE1A2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift */; };
@@ -74,6 +73,7 @@
 		8E9B52592ED65199006E6A10 /* AudioRoutingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */; };
 		8E9DBF1F2EE4781B00F352A1 /* TimecodeFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */; };
 		8EA1B0012F0E8A000049F017 /* NativeWaveformRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA1B0002F0E8A000049F017 /* NativeWaveformRenderer.swift */; };
+		8EA25DC22F7AC9A80087B1F1 /* UploadSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA25DC12F7AC9A80087B1F1 /* UploadSettingsView.swift */; };
 		8EA817D42F71840E00F9F10C /* asdcp-wrap in Resources */ = {isa = PBXBuildFile; fileRef = 8EA817D32F71840E00F9F10C /* asdcp-wrap */; };
 		8EA817D62F7184AA00F9F10C /* asdcplib-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8EA817D52F7184AA00F9F10C /* asdcplib-LICENSE.txt */; };
 		8EBD10212EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */; };
@@ -126,6 +126,10 @@
 		BC6905B16FDDC57467098ECF /* KeychainCredentialManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */; };
 		C2D3E4F5061728394A5B6C7D /* ScreenCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */; };
 		C7166A0F2716B52C985E6275 /* MetadataWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */; };
+		CAMCARDSCAN0000001 /* CameraCardScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMCARDSCAN0000002 /* CameraCardScanner.swift */; };
+		ENCGRP00000000001 /* EncodingGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRP00000000002 /* EncodingGroup.swift */; };
+		CAMCARDVIEW0000001 /* CameraCardImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMCARDVIEW0000002 /* CameraCardImportView.swift */; };
+		ENCGRPVIEW00000001 /* EncodingGroupHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRPVIEW00000002 /* EncodingGroupHeaderView.swift */; };
 		CCF14EFA815D8DCCB62749E1 /* YTDLPUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */; };
 		D44F5A230D40961161251EB6 /* PresetQuickSelectOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A8FB8DB2F86F528514D26E /* PresetQuickSelectOverlay.swift */; };
 		DC0001A1DCP0000100000001 /* DCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000002 /* DCPModels.swift */; };
@@ -191,7 +195,6 @@
 		0A661B3187048E83E24FB0AB /* WhisperModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModels.swift; sourceTree = "<group>"; };
 		0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BinaryPathResolver.swift; sourceTree = "<group>"; };
 		1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPProgressParser.swift; path = YTDLP/YTDLPProgressParser.swift; sourceTree = "<group>"; };
-		38A560B1F81955A156AB0F1D /* UploadSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UploadSettingsView.swift; path = "Aagedal Media Converter/UI/SettingsView/UploadSettingsView.swift"; sourceTree = "<group>"; };
 		45B40739097F270F27C5045E /* RcloneService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneService.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneService.swift"; sourceTree = "<group>"; };
 		4BBC06DAF3F395A5C54B3064 /* UploadModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UploadModels.swift; path = "Aagedal Media Converter/Logic/Upload/UploadModels.swift"; sourceTree = "<group>"; };
 		4F741F78E5BA1732D892656E /* WhisperUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperUpdateService.swift; sourceTree = "<group>"; };
@@ -258,6 +261,7 @@
 		8E9B52582ED65199006E6A10 /* AudioRoutingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRoutingService.swift; sourceTree = "<group>"; };
 		8E9DBF1E2EE4781B00F352A1 /* TimecodeFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimecodeFormatter.swift; sourceTree = "<group>"; };
 		8EA1B0002F0E8A000049F017 /* NativeWaveformRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWaveformRenderer.swift; sourceTree = "<group>"; };
+		8EA25DC12F7AC9A80087B1F1 /* UploadSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadSettingsView.swift; sourceTree = "<group>"; };
 		8EA817D32F71840E00F9F10C /* asdcp-wrap */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "asdcp-wrap"; sourceTree = "<group>"; };
 		8EA817D52F7184AA00F9F10C /* asdcplib-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "asdcplib-LICENSE.txt"; sourceTree = "<group>"; };
 		8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_UITests.swift; sourceTree = "<group>"; };
@@ -316,6 +320,10 @@
 		B1F6F70AFCCF6F2348370C3A /* WaveformFramePipeWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformFramePipeWriter.swift; sourceTree = "<group>"; };
 		BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneProgressParser.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneProgressParser.swift"; sourceTree = "<group>"; };
 		C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureManager.swift; sourceTree = "<group>"; };
+		CAMCARDSCAN0000002 /* CameraCardScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCardScanner.swift; sourceTree = "<group>"; };
+		ENCGRP00000000002 /* EncodingGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingGroup.swift; sourceTree = "<group>"; };
+		CAMCARDVIEW0000002 /* CameraCardImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCardImportView.swift; sourceTree = "<group>"; };
+		ENCGRPVIEW00000002 /* EncodingGroupHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingGroupHeaderView.swift; sourceTree = "<group>"; };
 		D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KeychainCredentialManager.swift; path = "Aagedal Media Converter/Utils/KeychainCredentialManager.swift"; sourceTree = "<group>"; };
 		D8EBD41EE1711E209C16F57C /* mxf2raw */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = mxf2raw; sourceTree = "<group>"; };
 		DC0001A1DCP0000100000002 /* DCPModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DCPModels.swift; sourceTree = "<group>"; };
@@ -395,14 +403,6 @@
 			name = Logic;
 			sourceTree = "<group>";
 		};
-		506494D947BFD538DBD9DE52 /* UI */ = {
-			isa = PBXGroup;
-			children = (
-				FFA11E3BE380ADDD5426A11E /* SettingsView */,
-			);
-			name = UI;
-			sourceTree = "<group>";
-		};
 		8E08B27F2EAA284A000148A8 /* Documentation */ = {
 			isa = PBXGroup;
 			children = (
@@ -459,6 +459,7 @@
 				8EEE45352EC13ADA0049F017 /* MetadataView */,
 				8EEE45342EC13AB40049F017 /* AssistiveViews */,
 				8EEE45332EC13A830049F017 /* TrimPlayerViews */,
+				CAMCARDVIEW0000002 /* CameraCardImportView.swift */,
 				8EE6EE9B2C31FC6B007B629D /* ContentView.swift */,
 				8EC9A7002EC14CE90082C67F /* Components */,
 				8E501D022EF2002000717373 /* FullscreenPlayer */,
@@ -474,6 +475,7 @@
 				8EEE45322EC13A330049F017 /* WatchFolder */,
 				C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */,
 				8E545D932C3412AE0088C274 /* ConversionManager.swift */,
+				ENCGRP00000000002 /* EncodingGroup.swift */,
 				8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */,
 				8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */,
 				8E903F5E2E05642D0075E05C /* FileNameProcessor.swift */,
@@ -722,6 +724,7 @@
 				8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */,
 				07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */,
 				6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */,
+				8EA25DC12F7AC9A80087B1F1 /* UploadSettingsView.swift */,
 			);
 			path = SettingsView;
 			sourceTree = "<group>";
@@ -730,6 +733,7 @@
 			isa = PBXGroup;
 			children = (
 				8E545D882C34030C0088C274 /* VideoFileListView.swift */,
+				ENCGRPVIEW00000002 /* EncodingGroupHeaderView.swift */,
 				8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */,
 				8E545D822C33FD4A0088C274 /* DragAndDropView.swift */,
 				E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */,
@@ -770,7 +774,6 @@
 			children = (
 				315DA4AB80009A356AD28221 /* Logic */,
 				A02CB66B7658176492DA3619 /* Utils */,
-				506494D947BFD538DBD9DE52 /* UI */,
 			);
 			name = "Aagedal Media Converter";
 			sourceTree = "<group>";
@@ -798,17 +801,10 @@
 			name = Upload;
 			sourceTree = "<group>";
 		};
-		FFA11E3BE380ADDD5426A11E /* SettingsView */ = {
-			isa = PBXGroup;
-			children = (
-				38A560B1F81955A156AB0F1D /* UploadSettingsView.swift */,
-			);
-			name = SettingsView;
-			sourceTree = "<group>";
-		};
 		IMPORT0GRP00000001 /* Import */ = {
 			isa = PBXGroup;
 			children = (
+				CAMCARDSCAN0000002 /* CameraCardScanner.swift */,
 				FILEIMPCRD00000002 /* FileImportCoordinator.swift */,
 				FILEIMPMGR00000002 /* FileImportManager.swift */,
 				IMGSEQDET00000001 /* ImageSequenceDetector.swift */,
@@ -1007,6 +1003,7 @@
 				8EC9A7082EC156EA0082C67F /* PreviewPlayerController_Observers.swift in Sources */,
 				8ECEBC1B2ED766F400F1F67C /* CropControlsView.swift in Sources */,
 				8ECEBC1C2ED766F400F1F67C /* CropOverlayView.swift in Sources */,
+				ENCGRP00000000001 /* EncodingGroup.swift in Sources */,
 				8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */,
 				8E824AC32EF8AB2C001A6B95 /* MPVVideoView.swift in Sources */,
 				8EEE451E2EBF53550049F017 /* TrimTimelineView.swift in Sources */,
@@ -1021,6 +1018,7 @@
 				8EC3DCDD2EF57F0600CD75BC /* RandomTips.swift in Sources */,
 				8E4DF26D2ECBACFC007B6277 /* GeneralSettingsView.swift in Sources */,
 				8E09F7422EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift in Sources */,
+				ENCGRPVIEW00000001 /* EncodingGroupHeaderView.swift in Sources */,
 				8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */,
 				8E824ABF2EF8AB02001A6B95 /* MPVProperty.swift in Sources */,
 				8E824AC02EF8AB02001A6B95 /* MPVMetalLayer.swift in Sources */,
@@ -1038,6 +1036,7 @@
 				8EC9A6FE2EC149140082C67F /* PreviewPlayerController.swift in Sources */,
 				8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */,
 				C2D3E4F5061728394A5B6C7D /* ScreenCaptureManager.swift in Sources */,
+				CAMCARDVIEW0000001 /* CameraCardImportView.swift in Sources */,
 				8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */,
 				8E04BE122ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift in Sources */,
 				8EEE453F2EC13EA00049F017 /* WatchFolderCoordinator.swift in Sources */,
@@ -1069,13 +1068,13 @@
 				B709DBE54F69E12A7484E1CE /* YTDLPSettingsView.swift in Sources */,
 				7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */,
 				515A407918750E4E62409DA5 /* BinaryPathResolver.swift in Sources */,
+				8EA25DC22F7AC9A80087B1F1 /* UploadSettingsView.swift in Sources */,
 				59050FF1288247E2E02A60CA /* UploadModels.swift in Sources */,
 				17B524B2559B24713433EF64 /* RcloneUpdateService.swift in Sources */,
 				69E06BBF03A135EC5011AF14 /* RcloneProgressParser.swift in Sources */,
 				A14336D5FE72B1741AE6C2E2 /* RcloneService.swift in Sources */,
 				181720894631C3060AB2A6ED /* UploadManager.swift in Sources */,
 				BC6905B16FDDC57467098ECF /* KeychainCredentialManager.swift in Sources */,
-				8D704F6D27B209AE39BB2423 /* UploadSettingsView.swift in Sources */,
 				4A82CAA45E362E122405B09C /* WhisperModels.swift in Sources */,
 				6400227984B060FA08D0B79C /* WhisperUpdateService.swift in Sources */,
 				F88CB64509DD67D585EB71E6 /* WhisperModelManager.swift in Sources */,
@@ -1092,6 +1091,7 @@
 				FILEIMPMGR00000001 /* FileImportManager.swift in Sources */,
 				IMGSEQMOD00000002 /* ImageSequenceModels.swift in Sources */,
 				IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */,
+				CAMCARDSCAN0000001 /* CameraCardScanner.swift in Sources */,
 				FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */,
 				5DA60AEC78445845148F3FFA /* VideoQueueTableView.swift in Sources */,
 			);
@@ -1298,7 +1298,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 282;
+				CURRENT_PROJECT_VERSION = 290;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -1933,7 +1933,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.8.0;
+				MARKETING_VERSION = 3.8.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1959,7 +1959,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 282;
+				CURRENT_PROJECT_VERSION = 290;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2594,7 +2594,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.8.0;
+				MARKETING_VERSION = 3.8.1;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

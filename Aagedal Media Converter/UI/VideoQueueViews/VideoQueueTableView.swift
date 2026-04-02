@@ -56,6 +56,7 @@ private extension NSPasteboard.PasteboardType {
 
 struct VideoQueueTableView: NSViewRepresentable {
     @Binding var droppedFiles: [VideoItem]
+    @Binding var encodingGroups: [EncodingGroup]
     @Binding var selection: Set<UUID>
     @Binding var focusedCommentID: UUID?
     @Binding var shouldScrollToSelection: Bool
@@ -78,6 +79,25 @@ struct VideoQueueTableView: NSViewRepresentable {
     var onPlayFullscreen: ((UUID) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)?
     var transcribeOnly: ((UUID) async -> Void)?
+    var onDeleteGroup: ((UUID) -> Void)?
+    var onAddFilesToGroup: ((UUID) -> Void)?
+    var onResetGroup: ((UUID) -> Void)?
+
+    // MARK: - Display Rows
+
+    /// Computes a flat list of display rows from ungrouped files + encoding groups.
+    func computeDisplayRows() -> [FlatQueueRow] {
+        var rows: [FlatQueueRow] = droppedFiles.map { .single($0) }
+        for group in encodingGroups {
+            rows.append(.groupHeader(group))
+            if group.isExpanded {
+                for item in group.items {
+                    rows.append(.groupItem(item, groupID: group.id))
+                }
+            }
+        }
+        return rows
+    }
 
     // MARK: - makeNSView
 
@@ -115,7 +135,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         context.coordinator.tableView = tableView
 
         // Store initial snapshot
-        context.coordinator.previousIDs = droppedFiles.map(\.id)
+        context.coordinator.previousIDs = computeDisplayRows().map(\.id)
         context.coordinator.previousCompactMode = isCompactMode
 
         return scrollView
@@ -130,20 +150,16 @@ struct VideoQueueTableView: NSViewRepresentable {
         // Always update the parent reference so closures are current
         coordinator.parent = self
 
-        let newIDs = droppedFiles.map(\.id)
+        let displayRows = computeDisplayRows()
+        let newIDs = displayRows.map(\.id)
         let oldIDs = coordinator.previousIDs
 
         if newIDs == oldIDs {
-            // Same structure and order - update visible cells in-place.
-            // This preserves SwiftUI internal state (focus, hover, etc.)
             coordinator.updateVisibleCells()
         } else if Set(newIDs) == Set(oldIDs) && newIDs.count == oldIDs.count {
-            // Same items, different order (reorder only) - use moveRow
-            // instead of reloadData to avoid recreating all visible cells.
             coordinator.applyRowMoves(from: oldIDs, to: newIDs)
             coordinator.updateVisibleCells()
         } else {
-            // Items added or removed - full reload required
             tableView.reloadData()
         }
 
@@ -164,7 +180,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         // Handle scroll-to-selection
         if shouldScrollToSelection {
             if let firstSelectedID = selection.first,
-               let row = droppedFiles.firstIndex(where: { $0.id == firstSelectedID }) {
+               let row = displayRows.firstIndex(where: { $0.id == firstSelectedID }) {
                 tableView.scrollRowToVisible(row)
             }
             DispatchQueue.main.async {
@@ -178,8 +194,9 @@ struct VideoQueueTableView: NSViewRepresentable {
         coordinator.isUpdatingSelection = true
         defer { coordinator.isUpdatingSelection = false }
 
+        let rows = computeDisplayRows()
         let desiredRows = IndexSet(selection.compactMap { id in
-            droppedFiles.firstIndex(where: { $0.id == id })
+            rows.firstIndex(where: { $0.id == id })
         })
 
         let currentRows = tableView.selectedRowIndexes
@@ -212,19 +229,20 @@ struct VideoQueueTableView: NSViewRepresentable {
         // MARK: NSTableViewDataSource
 
         func numberOfRows(in tableView: NSTableView) -> Int {
-            parent.droppedFiles.count
+            parent.computeDisplayRows().count
         }
 
         // MARK: NSTableViewDelegate
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-            guard row < parent.droppedFiles.count else { return nil }
+            let displayRows = parent.computeDisplayRows()
+            guard row < displayRows.count else { return nil }
 
             let cell = tableView.makeView(withIdentifier: Self.cellID, owner: nil) as? VideoQueueTableCellView
                 ?? VideoQueueTableCellView()
             cell.identifier = Self.cellID
 
-            let rowContent = buildRowView(for: row)
+            let rowContent = buildRowView(for: row, displayRows: displayRows)
             cell.configure(with: AnyView(rowContent))
             return cell
         }
@@ -241,10 +259,11 @@ struct VideoQueueTableView: NSViewRepresentable {
             defer { isUpdatingSelection = false }
 
             guard let tableView = tableView else { return }
+            let displayRows = parent.computeDisplayRows()
             let selectedRows = tableView.selectedRowIndexes
             let newSelection = Set(selectedRows.compactMap { row -> UUID? in
-                guard row < parent.droppedFiles.count else { return nil }
-                return parent.droppedFiles[row].id
+                guard row < displayRows.count else { return nil }
+                return displayRows[row].id
             })
             parent.selection = newSelection
         }
@@ -252,24 +271,50 @@ struct VideoQueueTableView: NSViewRepresentable {
         // MARK: Drag-to-Reorder
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-            let item = NSPasteboardItem()
-            item.setString(String(row), forType: .videoQueueItem)
-            return item
+            // Allow dragging ungrouped (.single) and group item rows
+            let displayRows = parent.computeDisplayRows()
+            guard row < displayRows.count else { return nil }
+            switch displayRows[row] {
+            case .single, .groupItem:
+                let item = NSPasteboardItem()
+                item.setString(String(row), forType: .videoQueueItem)
+                return item
+            case .groupHeader:
+                return nil
+            }
         }
 
         func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
-            // Only allow drops between rows (above), not on rows
-            guard dropOperation == .above else { return [] }
+            guard info.draggingSource as? NSTableView === tableView else { return [] }
 
-            // Only accept internal reorder drags
-            if info.draggingSource as? NSTableView === tableView {
-                return .move
+            let displayRows = parent.computeDisplayRows()
+
+            // Dropping ON a group header → move files into that group
+            if dropOperation == .on, row < displayRows.count {
+                if case .groupHeader = displayRows[row] {
+                    return .move
+                }
+                return []
             }
+
+            // Dropping ABOVE within the ungrouped section → reorder or move from group
+            if dropOperation == .above {
+                let ungroupedCount = parent.droppedFiles.count
+                if row <= ungroupedCount {
+                    return .move
+                }
+            }
+
+            // Also allow dropping above at the very end (after last ungrouped, before groups)
+            // to support moving group items out
+
             return []
         }
 
         func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
             guard info.draggingSource as? NSTableView === tableView else { return false }
+
+            let displayRows = parent.computeDisplayRows()
 
             // Collect source row indices
             var sourceRows: [Int] = []
@@ -281,28 +326,84 @@ struct VideoQueueTableView: NSViewRepresentable {
                 }
             }
             sourceRows.sort()
-
             guard !sourceRows.isEmpty else { return false }
 
-            // Extract items to move
-            let movedItems = sourceRows.map { parent.droppedFiles[$0] }
+            // Dropping ON a group header → move items into that group
+            if dropOperation == .on, row < displayRows.count,
+               case .groupHeader(let targetGroup) = displayRows[row] {
+                guard let gIdx = parent.encodingGroups.firstIndex(where: { $0.id == targetGroup.id }) else { return false }
 
-            // Calculate destination accounting for removed items
-            var adjustedDest = row
-            for sourceRow in sourceRows where sourceRow < row {
+                // Collect items to move and remove from their sources (reverse order)
+                var itemsToMove: [VideoItem] = []
+                for sourceRow in sourceRows.reversed() {
+                    guard sourceRow < displayRows.count else { continue }
+                    switch displayRows[sourceRow] {
+                    case .single(let item):
+                        if let idx = parent.droppedFiles.firstIndex(where: { $0.id == item.id }) {
+                            itemsToMove.insert(parent.droppedFiles.remove(at: idx), at: 0)
+                        }
+                    case .groupItem(let item, let srcGroupID):
+                        if let srcGIdx = parent.encodingGroups.firstIndex(where: { $0.id == srcGroupID }),
+                           let iIdx = parent.encodingGroups[srcGIdx].items.firstIndex(where: { $0.id == item.id }) {
+                            itemsToMove.insert(parent.encodingGroups[srcGIdx].items.remove(at: iIdx), at: 0)
+                        }
+                    case .groupHeader:
+                        continue
+                    }
+                }
+
+                // Re-lookup group index (may have shifted)
+                if let gIdx2 = parent.encodingGroups.firstIndex(where: { $0.id == targetGroup.id }) {
+                    parent.encodingGroups[gIdx2].items.append(contentsOf: itemsToMove)
+                }
+
+                parent.selection = Set(itemsToMove.map(\.id))
+                return true
+            }
+
+            // Dropping ABOVE in ungrouped section → reorder or move from group to ungrouped
+            let ungroupedCount = parent.droppedFiles.count
+
+            // Collect items from sources (may be ungrouped or group items)
+            var itemsToInsert: [VideoItem] = []
+            var ungroupedIndicesToRemove: [Int] = []
+
+            for sourceRow in sourceRows.reversed() {
+                guard sourceRow < displayRows.count else { continue }
+                switch displayRows[sourceRow] {
+                case .single(let item):
+                    if let idx = parent.droppedFiles.firstIndex(where: { $0.id == item.id }) {
+                        ungroupedIndicesToRemove.append(idx)
+                        itemsToInsert.insert(item, at: 0)
+                    }
+                case .groupItem(let item, let srcGroupID):
+                    // Move out of group → ungrouped
+                    if let gIdx = parent.encodingGroups.firstIndex(where: { $0.id == srcGroupID }),
+                       let iIdx = parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == item.id }) {
+                        itemsToInsert.insert(parent.encodingGroups[gIdx].items.remove(at: iIdx), at: 0)
+                    }
+                case .groupHeader:
+                    continue
+                }
+            }
+
+            guard !itemsToInsert.isEmpty else { return false }
+
+            // Remove ungrouped sources (reverse order to preserve indices)
+            for idx in ungroupedIndicesToRemove.sorted().reversed() {
+                parent.droppedFiles.remove(at: idx)
+            }
+
+            // Calculate adjusted destination
+            var adjustedDest = min(row, parent.droppedFiles.count)
+            for idx in ungroupedIndicesToRemove.sorted() where idx < row {
                 adjustedDest -= 1
             }
+            adjustedDest = max(0, min(adjustedDest, parent.droppedFiles.count))
 
-            // Remove source items (reverse order to preserve indices)
-            for sourceRow in sourceRows.reversed() {
-                parent.droppedFiles.remove(at: sourceRow)
-            }
+            parent.droppedFiles.insert(contentsOf: itemsToInsert, at: adjustedDest)
 
-            // Insert at destination
-            parent.droppedFiles.insert(contentsOf: movedItems, at: adjustedDest)
-
-            // Update selection to moved items
-            let movedIDs = Set(movedItems.map(\.id))
+            let movedIDs = Set(itemsToInsert.map(\.id))
             parent.selection = movedIDs
 
             return true
@@ -335,23 +436,74 @@ struct VideoQueueTableView: NSViewRepresentable {
         /// unlike reloadData(forRowIndexes:) which destroys and recreates cells.
         func updateVisibleCells() {
             guard let tableView = tableView else { return }
+            let displayRows = parent.computeDisplayRows()
             let visibleRange = tableView.rows(in: tableView.visibleRect)
             guard visibleRange.length > 0 else { return }
             let start = visibleRange.location
-            let end = min(start + visibleRange.length, parent.droppedFiles.count)
+            let end = min(start + visibleRange.length, displayRows.count)
             for row in start..<end {
                 guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? VideoQueueTableCellView else { continue }
-                let rowContent = buildRowView(for: row)
+                let rowContent = buildRowView(for: row, displayRows: displayRows)
                 cell.configure(with: AnyView(rowContent))
             }
         }
 
         // MARK: Row Builder
 
-        private func buildRowView(for row: Int) -> some View {
-            let itemID = parent.droppedFiles[row].id
-            let isSelected = parent.selection.contains(itemID)
+        @ViewBuilder
+        private func buildRowView(for row: Int, displayRows: [FlatQueueRow]) -> some View {
+            switch displayRows[row] {
+            case .single(let item):
+                buildFileRowView(itemID: item.id, source: .ungrouped)
+                    .padding(.vertical, 4)
+            case .groupHeader(let group):
+                buildGroupHeaderView(groupID: group.id)
+                    .padding(.vertical, 4)
+            case .groupItem(let item, let groupID):
+                buildFileRowView(itemID: item.id, source: .group(groupID))
+                    .padding(.vertical, 2)
+                    .padding(.leading, 24)
+            }
+        }
 
+        private enum ItemSource {
+            case ungrouped
+            case group(UUID)
+        }
+
+        private func buildGroupHeaderView(groupID: UUID) -> some View {
+            let fallbackGroup = EncodingGroup(name: "")
+
+            let groupBinding = Binding<EncodingGroup>(
+                get: { [weak self] in
+                    self?.parent.encodingGroups.first(where: { $0.id == groupID }) ?? fallbackGroup
+                },
+                set: { [weak self] newValue in
+                    guard let self,
+                          let idx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }) else { return }
+                    self.parent.encodingGroups[idx] = newValue
+                }
+            )
+
+            let isSelected = parent.selection.contains(groupID)
+
+            return EncodingGroupHeaderView(
+                group: groupBinding,
+                globalPreset: parent.preset,
+                isSelected: isSelected,
+                onDelete: { [weak self] in
+                    self?.parent.onDeleteGroup?(groupID)
+                },
+                onAddFiles: { [weak self] in
+                    self?.parent.onAddFilesToGroup?(groupID)
+                },
+                onReset: { [weak self] in
+                    self?.parent.onResetGroup?(groupID)
+                }
+            )
+        }
+
+        private func buildFileRowView(itemID: UUID, source: ItemSource) -> some View {
             let placeholderItem = VideoItem(
                 url: URL(fileURLWithPath: "/"),
                 name: "",
@@ -365,20 +517,47 @@ struct VideoQueueTableView: NSViewRepresentable {
                 comment: ""
             )
 
-            let fileBinding = Binding<VideoItem>(
-                get: { [weak self] in
-                    guard let self,
-                          let currentIndex = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) else {
-                        return placeholderItem
+            let fileBinding: Binding<VideoItem>
+            let isGroupItem: Bool
+
+            switch source {
+            case .ungrouped:
+                isGroupItem = false
+                fileBinding = Binding<VideoItem>(
+                    get: { [weak self] in
+                        guard let self,
+                              let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) else {
+                            return placeholderItem
+                        }
+                        return self.parent.droppedFiles[idx]
+                    },
+                    set: { [weak self] newValue in
+                        guard let self,
+                              let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+                        self.parent.droppedFiles[idx] = newValue
                     }
-                    return self.parent.droppedFiles[currentIndex]
-                },
-                set: { [weak self] newValue in
-                    guard let self,
-                          let currentIndex = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
-                    self.parent.droppedFiles[currentIndex] = newValue
-                }
-            )
+                )
+            case .group(let groupID):
+                isGroupItem = true
+                fileBinding = Binding<VideoItem>(
+                    get: { [weak self] in
+                        guard let self,
+                              let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
+                              let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID })
+                        else { return placeholderItem }
+                        return self.parent.encodingGroups[gIdx].items[iIdx]
+                    },
+                    set: { [weak self] newValue in
+                        guard let self,
+                              let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
+                              let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID })
+                        else { return }
+                        self.parent.encodingGroups[gIdx].items[iIdx] = newValue
+                    }
+                )
+            }
+
+            let isSelected = parent.selection.contains(itemID)
 
             let focusedBinding = Binding<UUID?>(
                 get: { [weak self] in self?.parent.focusedCommentID },
@@ -394,14 +573,30 @@ struct VideoQueueTableView: NSViewRepresentable {
                 },
                 onDelete: { [weak self] in
                     guard let self else { return }
-                    if let currentIdx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                        self.parent.onDelete(IndexSet(integer: currentIdx))
+                    switch source {
+                    case .ungrouped:
+                        if let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                            self.parent.onDelete(IndexSet(integer: idx))
+                        }
+                    case .group(let groupID):
+                        if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }) {
+                            self.parent.encodingGroups[gIdx].items.removeAll { $0.id == itemID }
+                        }
                     }
                 },
                 onReset: { [weak self] optionKeyPressed in
                     guard let self else { return }
-                    if let currentIdx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                        self.parent.onReset(currentIdx, optionKeyPressed)
+                    switch source {
+                    case .ungrouped:
+                        if let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                            self.parent.onReset(idx, optionKeyPressed)
+                        }
+                    case .group(let groupID):
+                        if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
+                           let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
+                            self.parent.encodingGroups[gIdx].items[iIdx].status = .waiting
+                            self.parent.encodingGroups[gIdx].items[iIdx].progress = 0
+                        }
                     }
                 },
                 onCancelDownload: {
@@ -419,8 +614,9 @@ struct VideoQueueTableView: NSViewRepresentable {
                 onCancelScheduledDownload: { [weak self] in
                     guard let self else { return }
                     ScheduledDownloadService.shared.cancelScheduledItem(itemID: itemID)
-                    if let currentIdx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                        self.parent.onDelete(IndexSet(integer: currentIdx))
+                    if case .ungrouped = source,
+                       let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        self.parent.onDelete(IndexSet(integer: idx))
                     }
                 },
                 onTranscribeOnly: { [weak self] in
@@ -436,7 +632,6 @@ struct VideoQueueTableView: NSViewRepresentable {
                 isSelected: isSelected,
                 onCommentFocusChange: { [weak self] id, isFocused in
                     guard let self else { return }
-                    guard self.parent.droppedFiles.contains(where: { $0.id == id }) else { return }
                     if isFocused {
                         if !self.parent.selection.contains(id) {
                             self.parent.selection = [id]
@@ -451,13 +646,12 @@ struct VideoQueueTableView: NSViewRepresentable {
                 onPlayFullscreen: { [weak self] in
                     self?.parent.onPlayFullscreen?(itemID)
                 },
-                mergeClipsEnabled: parent.mergeClipsEnabled,
-                mergeClipsAvailable: parent.mergeClipsAvailable,
-                showCommentField: parent.showCommentField,
-                showDateTagButton: parent.showDateTagButton,
-                isCompactMode: parent.isCompactMode
+                mergeClipsEnabled: isGroupItem ? false : parent.mergeClipsEnabled,
+                mergeClipsAvailable: isGroupItem ? false : parent.mergeClipsAvailable,
+                showCommentField: isGroupItem ? false : parent.showCommentField,
+                showDateTagButton: isGroupItem ? false : parent.showDateTagButton,
+                isCompactMode: isGroupItem ? true : parent.isCompactMode
             )
-            .padding([.vertical], 4)
         }
     }
 }

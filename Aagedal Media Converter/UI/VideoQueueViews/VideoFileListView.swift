@@ -38,6 +38,7 @@ enum QueueSortMode: CaseIterable {
 
 struct VideoFileListView: View {
     @Binding var droppedFiles: [VideoItem]
+    @Binding var encodingGroups: [EncodingGroup]
     @Binding var currentProgress: Double
     var onFileImport: () -> Void
     var onDoubleClick: () -> Void
@@ -57,6 +58,9 @@ struct VideoFileListView: View {
     var onPlayFullscreen: ((UUID) -> Void)?
     var onURLDrop: ((String) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)? = nil
+    var onDeleteGroup: ((UUID) -> Void)?
+    var onAddFilesToGroup: ((UUID) -> Void)?
+    var onResetGroup: ((UUID) -> Void)?
     var disableKeyboardNavigation: Bool = false
 
     @State private var isTargeted = false
@@ -83,7 +87,7 @@ struct VideoFileListView: View {
 
     var body: some View {
         ZStack {
-            if droppedFiles.isEmpty {
+            if droppedFiles.isEmpty && encodingGroups.isEmpty {
                 // Empty state with drag and drop instructions
                 VStack {
                     Image(systemName: "film.stack")
@@ -124,6 +128,7 @@ struct VideoFileListView: View {
                 // File list - AppKit NSTableView for cell reuse and smooth scrolling
                 VideoQueueTableView(
                     droppedFiles: $droppedFiles,
+                    encodingGroups: $encodingGroups,
                     selection: $selection,
                     focusedCommentID: $focusedCommentID,
                     shouldScrollToSelection: $shouldScrollToSelection,
@@ -145,15 +150,23 @@ struct VideoFileListView: View {
                     onRenameOutputFileName: onRenameOutputFileName,
                     transcribeOnly: { itemID in
                         await transcribeOnly(itemID: itemID)
-                    }
+                    },
+                    onDeleteGroup: onDeleteGroup,
+                    onAddFilesToGroup: onAddFilesToGroup,
+                    onResetGroup: onResetGroup
                 )
                 .onChange(of: selection) { _, newSelection in
                     // Sync selection to metadata window state
                     MetadataWindowState.shared.selectedItemIDs = newSelection
                 }
                 .onChange(of: droppedFiles) { _, newFiles in
-                    // Sync all items to metadata window state
-                    MetadataWindowState.shared.allItems = newFiles
+                    // Sync all items (including group items) to metadata window state
+                    let groupItems = encodingGroups.flatMap { $0.items }
+                    MetadataWindowState.shared.allItems = newFiles + groupItems
+                }
+                .onChange(of: encodingGroups) { _, newGroups in
+                    let groupItems = newGroups.flatMap { $0.items }
+                    MetadataWindowState.shared.allItems = droppedFiles + groupItems
                 }
             }
             
@@ -837,6 +850,7 @@ struct VideoFileListView_Previews: PreviewProvider {
                     outputURL: nil
                 )
             ]),
+            encodingGroups: .constant([]),
             currentProgress: .constant(0.3),
             onFileImport: {},
             onDoubleClick: {},

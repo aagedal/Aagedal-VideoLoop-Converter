@@ -951,6 +951,57 @@ actor ConversionManager: Sendable {
         }
     }
 
+    /// Converts all items in an encoding group using the group's own settings.
+    /// Caller must provide the items binding and resolved group settings as plain values.
+    func convertGroup(
+        items: Binding<[VideoItem]>,
+        outputFolder: String,
+        preset: ExportPreset,
+        concatEnabled: Bool,
+        transcriptionEnabled: Bool,
+        uploadEnabled: Bool
+    ) async {
+        self.isConverting = true
+
+        // Apply group-level transcription setting to individual items
+        if transcriptionEnabled {
+            await MainActor.run {
+                for i in items.wrappedValue.indices {
+                    items.wrappedValue[i].subtitleEnabled = true
+                }
+            }
+        }
+
+        if concatEnabled && items.wrappedValue.filter({ $0.status == .waiting }).count >= 2 {
+            self.mergePlan = await buildMergePlan(from: items.wrappedValue, preset: preset, outputFolder: outputFolder)
+        } else {
+            self.mergePlan = nil
+        }
+
+        self.currentDroppedFiles = items
+        self.currentOutputFolder = outputFolder
+        self.currentPreset = preset
+
+        startProgressTimer(droppedFiles: items)
+        await convertNextFile(
+            droppedFiles: items,
+            outputFolder: outputFolder,
+            preset: preset
+        )
+
+        // Queue uploads for group items if enabled
+        if uploadEnabled {
+            await MainActor.run {
+                UploadManager.shared.videoItems = items
+            }
+            for item in items.wrappedValue where item.status == .done {
+                Task {
+                    await UploadManager.shared.queueUpload(itemID: item.id)
+                }
+            }
+        }
+    }
+
     func startConversion(
         droppedFiles: Binding<[VideoItem]>,
         outputFolder: String,

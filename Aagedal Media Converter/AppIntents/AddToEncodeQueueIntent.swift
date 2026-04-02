@@ -15,6 +15,8 @@ import Foundation
 extension Notification.Name {
     static let enqueueFileURL = Notification.Name("enqueueFileURL")
     static let showFileImporter = Notification.Name("showFileImporter")
+    static let showCameraCardImporter = Notification.Name("showCameraCardImporter")
+    static let createEncodingGroup = Notification.Name("createEncodingGroup")
 }
 
 // MARK: - Add To Encode Queue Intent
