@@ -68,7 +68,8 @@ actor ConversionManager: Sendable {
     }
     private var mergePlan: MergePlan?
     private var lastMergeMetadata: [UUID: VideoMetadata] = [:]
-    private let mergeLogger = Logger(subsystem: "com.aagedal.AagedalMediaConverter", category: "MergeCompatibility")
+    private let mergeLogger = Logger(subsystem: "com.aagedal.MediaConverter", category: "MergeCompatibility")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ConversionManager")
     
     func progressUpdates() -> AsyncStream<Double> {
         let stream = AsyncStream(Double.self) { continuation in
@@ -655,7 +656,7 @@ actor ConversionManager: Sendable {
             activeSecurityScopedURLs.remove(parentURL)
         }
 
-        print("Failed to access input file with any access method: \(url.path)")
+        logger.error("Failed to access input file with any access method: \(url.path, privacy: .public)")
         return false
     }
 
@@ -725,7 +726,7 @@ actor ConversionManager: Sendable {
             }
         }
 
-        print("Failed to create directory with any access method: \(url.path)")
+        logger.error("Failed to create directory with any access method: \(url.path, privacy: .public)")
         return false
     }
 
@@ -1071,7 +1072,7 @@ actor ConversionManager: Sendable {
 
         // Ensure input file is accessible with security-scoped access
         if !ensureInputFileAccessible(at: inputURL) {
-            print("Failed to access input file: \(inputURL.path)")
+            logger.error("Failed to access input file: \(inputURL.path, privacy: .public)")
             await MainActor.run {
                 droppedFiles.wrappedValue[idx].status = .failed
                 droppedFiles.wrappedValue[idx].progress = 0
@@ -1089,7 +1090,7 @@ actor ConversionManager: Sendable {
         // Ensure the output directory exists with proper security-scoped access
         let resolvedOutputFolderURL = URL(fileURLWithPath: resolvedOutputFolder)
         guard ensureDirectoryAccessible(at: resolvedOutputFolderURL) else {
-            print("Failed to access output directory: \(resolvedOutputFolder)")
+            logger.error("Failed to access output directory: \(resolvedOutputFolder, privacy: .public)")
             await MainActor.run {
                 droppedFiles.wrappedValue[idx].status = .failed
                 droppedFiles.wrappedValue[idx].progress = 0
@@ -1220,7 +1221,7 @@ actor ConversionManager: Sendable {
                             if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                                let fileSize = attrs[.size] as? Int64 {
                                 capturedSize = fileSize
-                                print("📊 Captured file size (direct): \(fileSize) bytes")
+                                logger.debug("Captured file size (direct): \(fileSize) bytes")
                             }
 
                             // Second try: with security-scoped access on file
@@ -1229,7 +1230,7 @@ actor ConversionManager: Sendable {
                                 if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                                    let fileSize = attrs[.size] as? Int64 {
                                     capturedSize = fileSize
-                                    print("📊 Captured file size (file scope): \(fileSize) bytes")
+                                    logger.debug("Captured file size (file scope): \(fileSize) bytes")
                                 }
                                 if hasFileAccess {
                                     url.stopAccessingSecurityScopedResource()
@@ -1243,7 +1244,7 @@ actor ConversionManager: Sendable {
                                 if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                                    let fileSize = attrs[.size] as? Int64 {
                                     capturedSize = fileSize
-                                    print("📊 Captured file size (folder bookmark): \(fileSize) bytes")
+                                    logger.debug("Captured file size (folder bookmark): \(fileSize) bytes")
                                 }
                                 if hasFolderAccess {
                                     SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: outputFolderURL)
@@ -1251,8 +1252,8 @@ actor ConversionManager: Sendable {
                             }
 
                             if capturedSize == nil {
-                                print("⚠️ Failed to capture file size for: \(url.path)")
-                                print("   File exists: \(FileManager.default.fileExists(atPath: url.path))")
+                                logger.warning("Failed to capture file size for: \(url.path, privacy: .public)")
+                                logger.warning("File exists: \(FileManager.default.fileExists(atPath: url.path))")
                             }
                         }
                     }
@@ -1276,9 +1277,9 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[idx] = updatedItem
 
                     // Debug: verify the values
-                    print("📊 Final state - outputFileSizeBytes: \(droppedFiles.wrappedValue[idx].outputFileSizeBytes ?? -1)")
-                    print("📊 Final state - formattedOutputSize: \(droppedFiles.wrappedValue[idx].formattedOutputSize ?? "nil")")
-                    print("📊 Final state - status: \(droppedFiles.wrappedValue[idx].status)")
+                    logger.debug("Final state - outputFileSizeBytes: \(droppedFiles.wrappedValue[idx].outputFileSizeBytes ?? -1)")
+                    logger.debug("Final state - formattedOutputSize: \(droppedFiles.wrappedValue[idx].formattedOutputSize ?? "nil", privacy: .public)")
+                    logger.debug("Final state - status: \(String(describing: droppedFiles.wrappedValue[idx].status), privacy: .public)")
 
                     // Trigger upload if enabled for this item
                     if success && droppedFiles.wrappedValue[idx].uploadEnabled {
@@ -1353,7 +1354,7 @@ actor ConversionManager: Sendable {
             currentProcess = nil
             droppedFiles.wrappedValue[idx].status = .cancelled
         #if DEBUG
-        print("Item \(droppedFiles.wrappedValue[idx].name) cancelled (was converting).")
+        logger.debug("Item \(droppedFiles.wrappedValue[idx].name, privacy: .public) cancelled (was converting)")
         #endif
             droppedFiles.wrappedValue[idx].progress = 0.0
             
@@ -1368,7 +1369,7 @@ actor ConversionManager: Sendable {
         if let waitingIdx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == id && $0.status == .waiting }) {
             droppedFiles.wrappedValue[waitingIdx].status = .cancelled
             #if DEBUG
-            print("Item \(droppedFiles.wrappedValue[waitingIdx].name) cancelled (was waiting).")
+            logger.debug("Item \(droppedFiles.wrappedValue[waitingIdx].name, privacy: .public) cancelled (was waiting)")
             #endif
             await updateOverallProgress(droppedFiles: droppedFiles)
         }
@@ -1411,13 +1412,13 @@ actor ConversionManager: Sendable {
     
     private func updateOverallProgress(droppedFiles: Binding<[VideoItem]>) async {
         #if DEBUG
-        print("=== updateOverallProgress called ===")
+        logger.debug("updateOverallProgress called")
         #endif
         let files = droppedFiles.wrappedValue
         
         // Filter out cancelled items
         #if DEBUG
-        print("Files: \(files.map{($0.name, $0.status, $0.durationSeconds, $0.progress)})")
+        logger.debug("Files: \(files.map { ($0.name, $0.status, $0.durationSeconds, $0.progress) }, privacy: .public)")
         #endif
         let activeFiles = files.filter { $0.status != .cancelled && $0.status != .failed }
         
@@ -1449,7 +1450,7 @@ actor ConversionManager: Sendable {
         }
         let progress = min(max(completedDuration / totalDuration, 0.0), 1.0)
         #if DEBUG
-        print("totalDuration: \(totalDuration) s, completedDuration: \(completedDuration) s, overallProgress: \(progress * 100)%")
+        logger.debug("totalDuration: \(totalDuration) s, completedDuration: \(completedDuration) s, overallProgress: \(progress * 100)%")
         #endif
         progressContinuation?.yield(progress)
     }
@@ -1521,7 +1522,7 @@ actor ConversionManager: Sendable {
                 }
             }
 
-            print("📝 Subtitles generated: \(srtURL.lastPathComponent)")
+            logger.info("Subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
         } catch {
             await MainActor.run {
@@ -1529,7 +1530,7 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
                 }
             }
-            print("📝 Subtitle generation failed: \(error.localizedDescription)")
+            logger.error("Subtitle generation failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import OSLog
 import SwiftUI
 
 enum UpdateCheckFrequency: String, CaseIterable, Identifiable {
@@ -24,6 +25,7 @@ enum UpdateCheckFrequency: String, CaseIterable, Identifiable {
 @MainActor
 class UpdateChecker: ObservableObject {
     static let shared = UpdateChecker()
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "UpdateChecker")
     
     @AppStorage(AppConstants.checkForUpdatesKey) private var checkForUpdates = true
     @AppStorage(AppConstants.updateCheckFrequencyKey) private var checkFrequencyRaw = UpdateCheckFrequency.weekly.rawValue
@@ -75,7 +77,7 @@ class UpdateChecker: ObservableObject {
                 }
             }
         } catch {
-            print("Error checking for updates: \(error)")
+            Self.logger.error("Error checking for updates: \(error.localizedDescription, privacy: .public)")
         }
         
         isChecking = false

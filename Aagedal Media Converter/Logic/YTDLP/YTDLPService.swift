@@ -22,7 +22,7 @@ struct YTDLPDownloadResult: Sendable {
 
 /// Service for executing yt-dlp downloads
 actor YTDLPService {
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "YTDLPService")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "YTDLPService")
     private let updateService = YTDLPUpdateService.shared
 
     private enum CancelReason {

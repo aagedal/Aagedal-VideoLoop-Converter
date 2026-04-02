@@ -10,8 +10,11 @@
 import SwiftUI
 import AppKit
 import AVKit
+import OSLog
 
 struct PreviewPlayerView: View {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "PreviewPlayerView")
+
     @Binding var item: VideoItem
     @Environment(\.dismiss) private var dismiss
     @StateObject private var controller: PreviewPlayerController
@@ -177,7 +180,7 @@ struct PreviewPlayerView: View {
                     controller.showScreenshotConfirmationOverlay()
                 }
             } catch {
-                NSLog("Screenshot capture failed: \(error.localizedDescription)")
+                Self.logger.error("Screenshot capture failed: \(error.localizedDescription, privacy: .public)")
             }
         }
     }

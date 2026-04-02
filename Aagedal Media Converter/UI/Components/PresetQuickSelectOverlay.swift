@@ -2,10 +2,13 @@
 // Copyright 2025 Truls Aagedal
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import OSLog
 import SwiftUI
 
 /// Sheet for quickly selecting a preset with keyboard navigation
 struct PresetQuickSelectOverlay: View {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "PresetQuickSelect")
+
     @Binding var isPresented: Bool
     var presets: [ExportPreset]
     var currentPreset: ExportPreset
@@ -165,7 +168,7 @@ private struct PresetRow: View {
         currentPreset: .h264,
         displayName: { $0.description },
         onSelect: { preset in
-            print("Selected: \(preset)")
+            Self.logger.debug("Selected: \(String(describing: preset), privacy: .public)")
         }
     )
 }

@@ -9,7 +9,7 @@ import OSLog
 actor WhisperService {
     static let shared = WhisperService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "WhisperService")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "WhisperService")
     private let modelManager = WhisperModelManager.shared
 
     private var isCancelled = false
@@ -111,7 +111,7 @@ actor WhisperService {
             if let line = String(data: data, encoding: .utf8) {
                 // Debug output
                 if line.contains("whisper") || line.contains("Whisper") {
-                    print("📝 \(line)")
+                    self.logger.debug("\(line, privacy: .public)")
                 }
 
                 // Parse duration from ffmpeg output

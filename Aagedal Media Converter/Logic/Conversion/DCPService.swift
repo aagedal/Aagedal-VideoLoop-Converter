@@ -11,7 +11,7 @@ import CryptoKit
 actor DCPService {
     static let shared = DCPService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "DCPService")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "DCPService")
 
     private init() {}
 

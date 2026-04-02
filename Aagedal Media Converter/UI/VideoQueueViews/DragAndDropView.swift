@@ -10,8 +10,10 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import OSLog
 
 struct DragAndDropView: NSViewRepresentable {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "DragAndDropView")
     @Binding var droppedFiles: [VideoItem]
     
     // Using centralized VideoFileUtils for video file handling
@@ -48,7 +50,7 @@ struct DragAndDropView: NSViewRepresentable {
                             }
                         }
                     } else {
-                        print("Skipping unsupported file: \(url.lastPathComponent)")
+                        DragAndDropView.logger.info("Skipping unsupported file: \(url.lastPathComponent, privacy: .public)")
                     }
                 }
             }

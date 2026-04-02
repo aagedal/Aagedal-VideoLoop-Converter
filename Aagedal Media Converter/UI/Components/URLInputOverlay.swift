@@ -2,10 +2,13 @@
 // Copyright 2025 Truls Aagedal
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import OSLog
 import SwiftUI
 
 /// Overlay for entering a URL to download via yt-dlp
 struct URLInputOverlay: View {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "URLInput")
+
     @Binding var isPresented: Bool
     var onSubmit: (String, Bool) -> Void
     var onSchedule: ((String, Date, Bool) -> Void)?
@@ -394,6 +397,6 @@ struct URLInputOverlay: View {
 
 #Preview {
     URLInputOverlay(isPresented: .constant(true)) { url, liveFromStart in
-        print("Download: \(url), liveFromStart: \(liveFromStart)")
+        Self.logger.info("Download: \(url, privacy: .public), liveFromStart: \(liveFromStart, privacy: .public)")
     }
 }

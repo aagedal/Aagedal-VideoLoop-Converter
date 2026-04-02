@@ -43,7 +43,7 @@ enum ExifToolInstallationStatus: Sendable {
 actor ExifToolUpdateService {
     static let shared = ExifToolUpdateService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "ExifToolUpdate")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ExifToolUpdate")
 
     /// Path where downloaded ExifTool is stored
     var downloadedPath: URL {

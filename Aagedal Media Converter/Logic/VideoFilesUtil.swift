@@ -36,7 +36,7 @@ struct VideoFileUtils: Sendable {
         let details = await loadDetails(for: url, outputFolder: outputFolder, preset: preset)
         placeholder.apply(details: details)
         placeholder.detailsLoaded = true
-        print(" [createVideoItem] VideoItem created successfully: \(placeholder.name)")
+        logger.debug("[createVideoItem] VideoItem created successfully: \(placeholder.name, privacy: .public)")
         return placeholder
     }
 
@@ -252,7 +252,7 @@ struct VideoFileUtils: Sendable {
     static func prefetchPreviewAssets(for url: URL) {
         // Skip if file doesn't exist (e.g., scheduled downloads)
         guard FileManager.default.fileExists(atPath: url.path) else {
-            print(" [prefetchPreviewAssets] ⏭️ Skipping - file doesn't exist: \(url.lastPathComponent)")
+            logger.info("[prefetchPreviewAssets] Skipping - file doesn't exist: \(url.lastPathComponent, privacy: .public)")
             return
         }
 
@@ -261,9 +261,9 @@ struct VideoFileUtils: Sendable {
             do {
                 let generator = PreviewAssetGenerator.shared
                 let assets = try await generator.generateAssets(for: url)
-                print(" [prefetchPreviewAssets] ✅ Cached filmstrip/waveform for \(fileName) (\(assets.thumbnails.count) thumbnails, waveform: \(assets.waveform != nil))")
+                logger.debug("[prefetchPreviewAssets] Cached filmstrip/waveform for \(fileName, privacy: .public) (\(assets.thumbnails.count) thumbnails, waveform: \(assets.waveform != nil))")
             } catch {
-                print(" [prefetchPreviewAssets] ⚠️ Failed to generate preview assets for \(fileName): \(error.localizedDescription)")
+                logger.error("[prefetchPreviewAssets] Failed to generate preview assets for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -380,28 +380,28 @@ struct VideoFileUtils: Sendable {
 
         // Skip if file doesn't exist
         guard FileManager.default.fileExists(atPath: url.path) else {
-            print(" [fetchC2PAMetadata] ⏭️ Skipping - file doesn't exist: \(fileName)")
+            logger.info("[fetchC2PAMetadata] Skipping - file doesn't exist: \(fileName, privacy: .public)")
             return nil
         }
 
         // Check if ExifTool is available
         guard ExifToolService.shared.isAvailable else {
-            print(" [fetchC2PAMetadata] ⏭️ ExifTool not available")
+            logger.info("[fetchC2PAMetadata] ExifTool not available")
             return nil
         }
 
-        print(" [fetchC2PAMetadata] ⏱️ Checking C2PA for: \(fileName)")
+        logger.debug("[fetchC2PAMetadata] Checking C2PA for: \(fileName, privacy: .public)")
 
         do {
             let c2paMetadata = try await ExifToolService.shared.getC2PAMetadata(for: url)
             if c2paMetadata != nil {
-                print(" [fetchC2PAMetadata] ✅ Found C2PA metadata for: \(fileName)")
+                logger.debug("[fetchC2PAMetadata] Found C2PA metadata for: \(fileName, privacy: .public)")
             } else {
-                print(" [fetchC2PAMetadata] ℹ️ No C2PA metadata found for: \(fileName)")
+                logger.debug("[fetchC2PAMetadata] No C2PA metadata found for: \(fileName, privacy: .public)")
             }
             return c2paMetadata
         } catch {
-            print(" [fetchC2PAMetadata] ❌ Error fetching C2PA: \(error.localizedDescription)")
+            logger.error("[fetchC2PAMetadata] Error fetching C2PA: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -413,28 +413,28 @@ struct VideoFileUtils: Sendable {
 
         // Skip if file doesn't exist
         guard FileManager.default.fileExists(atPath: url.path) else {
-            print(" [fetchCameraMetadata] ⏭️ Skipping - file doesn't exist: \(fileName)")
+            logger.info("[fetchCameraMetadata] Skipping - file doesn't exist: \(fileName, privacy: .public)")
             return nil
         }
 
         // Check if ExifTool is available
         guard ExifToolService.shared.isAvailable else {
-            print(" [fetchCameraMetadata] ⏭️ ExifTool not available")
+            logger.info("[fetchCameraMetadata] ExifTool not available")
             return nil
         }
 
-        print(" [fetchCameraMetadata] ⏱️ Checking camera metadata for: \(fileName)")
+        logger.debug("[fetchCameraMetadata] Checking camera metadata for: \(fileName, privacy: .public)")
 
         do {
             let cameraMetadata = try await ExifToolService.shared.getCameraMetadata(for: url)
             if cameraMetadata != nil {
-                print(" [fetchCameraMetadata] ✅ Found camera metadata for: \(fileName)")
+                logger.debug("[fetchCameraMetadata] Found camera metadata for: \(fileName, privacy: .public)")
             } else {
-                print(" [fetchCameraMetadata] ℹ️ No camera metadata found for: \(fileName)")
+                logger.debug("[fetchCameraMetadata] No camera metadata found for: \(fileName, privacy: .public)")
             }
             return cameraMetadata
         } catch {
-            print(" [fetchCameraMetadata] ❌ Error fetching camera metadata: \(error.localizedDescription)")
+            logger.error("[fetchCameraMetadata] Error fetching camera metadata: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -458,10 +458,10 @@ struct VideoFileUtils: Sendable {
             let asset = AVURLAsset(url: url)
             let cmDuration = try await asset.load(.duration)
             let duration = CMTimeGetSeconds(cmDuration)
-            Logger().info("AVFoundation duration: \(duration) seconds for \(url.lastPathComponent)")
+            logger.info("AVFoundation duration: \(duration, privacy: .public) seconds for \(url.lastPathComponent, privacy: .public)")
             return duration
         } catch {
-            Logger().error("Error getting duration from AVFoundation: \(error.localizedDescription) for \(url.lastPathComponent)")
+            logger.error("Error getting duration from AVFoundation: \(error.localizedDescription, privacy: .public) for \(url.lastPathComponent, privacy: .public)")
             return nil
         }
     }
@@ -473,22 +473,22 @@ struct VideoFileUtils: Sendable {
         // First check if duration is already cached (avoids redundant ffprobe calls)
         if let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url), cachedDuration > 0 {
             duration = cachedDuration
-            Logger().debug("[getVideoDuration] Using cached duration: \(duration) seconds for \(fileName)")
+            logger.debug("[getVideoDuration] Using cached duration: \(duration, privacy: .public) seconds for \(fileName, privacy: .public)")
         } else if BinaryPathResolver.ffprobePath != nil {
-            Logger().info("[getVideoDuration] Attempting FFprobe for: \(fileName)")
+            logger.info("[getVideoDuration] Attempting FFprobe for: \(fileName, privacy: .public)")
             let ffprobeDuration = await FFMPEGConverter.getVideoDuration(url: url)
 
             if let ffprobeDuration = ffprobeDuration, ffprobeDuration > 0 {
                 duration = ffprobeDuration
-                Logger().info("[getVideoDuration] FFprobe success: \(duration) seconds for \(fileName)")
+                logger.info("[getVideoDuration] FFprobe success: \(duration, privacy: .public) seconds for \(fileName, privacy: .public)")
             } else {
-                Logger().warning("[getVideoDuration] FFprobe failed or returned 0, falling back to AVFoundation for \(fileName)")
+                logger.warning("[getVideoDuration] FFprobe failed or returned 0, falling back to AVFoundation for \(fileName, privacy: .public)")
                 if let durationFromAV = await getDurationFromAVFoundation(url: url) {
                     duration = durationFromAV
                 }
             }
         } else {
-            Logger().info("[getVideoDuration] FFprobe not found, using AVFoundation for \(fileName)")
+            logger.info("[getVideoDuration] FFprobe not found, using AVFoundation for \(fileName, privacy: .public)")
             if let durationFromAV = await getDurationFromAVFoundation(url: url) {
                 duration = durationFromAV
             }
@@ -576,7 +576,7 @@ struct VideoFileUtils: Sendable {
             
             return nil
         } catch {
-            print("Error generating thumbnail via PreviewAssetGenerator for \(url.lastPathComponent): \(error.localizedDescription)")
+            logger.error("Error generating thumbnail via PreviewAssetGenerator for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

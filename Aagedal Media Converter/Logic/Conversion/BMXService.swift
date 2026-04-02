@@ -22,7 +22,7 @@ private actor StderrCollector {
 actor BMXService {
     static let shared = BMXService()
 
-    private let logger = Logger(subsystem: "com.aagedal.media-converter", category: "BMXService")
+    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "BMXService")
     private var currentProcess: Process?
 
     private init() {}

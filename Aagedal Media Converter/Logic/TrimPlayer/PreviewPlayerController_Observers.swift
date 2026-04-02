@@ -172,8 +172,6 @@ extension PreviewPlayerController {
             Task { @MainActor [weak self] in
                 guard let self else { return }
 
-                let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
-                
                 switch item.status {
                 case .failed:
                     let failureDescription = item.error?.localizedDescription ?? "unknown error"
@@ -319,7 +317,7 @@ extension PreviewPlayerController {
                                             codecString = String(format: "%08X", codec)
                                         }
 
-                                        logger.debug("Video codec detected: '\(codecString)' (raw: \(codec)), isDecodable: \(isDecodable)")
+                                        logger.debug("Video codec detected: '\(codecString, privacy: .public)' (raw: \(codec, privacy: .public)), isDecodable: \(isDecodable, privacy: .public)")
                                     }
 
                                     if !isDecodable {
@@ -332,16 +330,16 @@ extension PreviewPlayerController {
                             }
 
                             // Direct playback successful
-                            logger.debug("Direct AVPlayer playback ready, seeking to startTime=\(startTime)")
+                            logger.debug("Direct AVPlayer playback ready, seeking to startTime=\(startTime, privacy: .public)")
                             self.isReady = true
 
                             // Seek to start time now that player is ready
                             // The seek in preparePreview() happens before the player is ready, so we need to seek again here
                             if let player = self.player {
                                 let seekTime = CMTime(seconds: startTime, preferredTimescale: 600)
-                                logger.debug("Seeking to \(seekTime.seconds) seconds")
+                                logger.debug("Seeking to \(seekTime.seconds, privacy: .public) seconds")
                                 await player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
-                                logger.debug("Seek completed, currentTime=\(player.currentTime().seconds)")
+                                logger.debug("Seek completed, currentTime=\(player.currentTime().seconds, privacy: .public)")
                             }
 
                             // Apply audio track selection now that tracks are loaded

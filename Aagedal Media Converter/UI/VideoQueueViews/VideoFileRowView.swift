@@ -12,8 +12,10 @@ import AVFoundation
 import AppKit
 import ImageIO
 import UniformTypeIdentifiers
+import OSLog
 
 struct VideoFileRowView: View {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "VideoFileRowView")
     @Binding var file: VideoItem
     @Binding var focusedCommentID: UUID?
     let preset: ExportPreset
@@ -1257,7 +1259,7 @@ struct VideoFileRowView: View {
                 }
             .onChange(of: focusedCommentID) { oldValue, newValue in
                 #if DEBUG
-                print("📍 focusedCommentID changed: \(oldValue?.uuidString.prefix(8) ?? "nil") → \(newValue?.uuidString.prefix(8) ?? "nil"), myID: \(file.id.uuidString.prefix(8))")
+                Self.logger.debug("focusedCommentID changed: \(oldValue?.uuidString.prefix(8) ?? "nil", privacy: .public) -> \(newValue?.uuidString.prefix(8) ?? "nil", privacy: .public), myID: \(file.id.uuidString.prefix(8), privacy: .public)")
                 #endif
                 guard commentIsEditable else {
                     if isCommentFieldFocused {
@@ -1273,7 +1275,7 @@ struct VideoFileRowView: View {
             }
             .onChange(of: isCommentFieldFocused) { _, isFocused in
                 #if DEBUG
-                print("✏️ isCommentFieldFocused changed to \(isFocused) for file \(file.id.uuidString.prefix(8))")
+                Self.logger.debug("isCommentFieldFocused changed to \(isFocused) for file \(file.id.uuidString.prefix(8), privacy: .public)")
                 #endif
                 guard commentIsEditable else {
                     if isFocused {
@@ -1307,7 +1309,7 @@ struct VideoFileRowView: View {
         .frame(height: 30)
         .onChange(of: isSelected) { _, selected in
             #if DEBUG
-            print("📌 Row selection changed to \(selected) for file \(file.id.uuidString.prefix(8))")
+            Self.logger.debug("Row selection changed to \(selected) for file \(file.id.uuidString.prefix(8), privacy: .public)")
             #endif
             guard commentIsEditable else {
                 if isCommentFieldFocused {
