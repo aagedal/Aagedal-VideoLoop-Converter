@@ -666,9 +666,9 @@ struct VideoFileListView: View {
         if selection.isEmpty {
             switch direction {
             case .down:
-                selection = [droppedFiles.first!.id]
+                if let first = droppedFiles.first { selection = [first.id] }
             case .up:
-                selection = [droppedFiles.last!.id]
+                if let last = droppedFiles.last { selection = [last.id] }
             }
             shouldScrollToSelection = true
             return

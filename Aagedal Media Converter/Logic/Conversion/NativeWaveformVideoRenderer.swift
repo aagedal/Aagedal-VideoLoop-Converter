@@ -449,7 +449,9 @@ enum NativeWaveformVideoRenderer {
                 path.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: path.currentPoint.y))
             }
         }
-        path.addLine(to: CGPoint(x: pts.last!.x, y: layout.centerY))
+        if let lastX = pts.last?.x {
+            path.addLine(to: CGPoint(x: lastX, y: layout.centerY))
+        }
         path.closeSubpath()
         return path
     }
@@ -460,7 +462,7 @@ enum NativeWaveformVideoRenderer {
         magnitudes: [Float], vMargin: CGFloat, mirrored: Bool
     ) {
         let pts = wirePoints(layout: layout, magnitudes: magnitudes)
-        guard pts.count > 2 else { return }
+        guard pts.count > 2, let lastX = pts.last?.x else { return }
         let halfMax = layout.maxBarHeight / 2.0
 
         // Top half
@@ -476,7 +478,7 @@ enum NativeWaveformVideoRenderer {
                 topPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: topPath.currentPoint.y))
             }
         }
-        topPath.addLine(to: CGPoint(x: pts.last!.x, y: layout.centerY))
+        topPath.addLine(to: CGPoint(x: lastX, y: layout.centerY))
         topPath.closeSubpath()
         ctx.addPath(topPath)
         ctx.fillPath()
@@ -494,7 +496,7 @@ enum NativeWaveformVideoRenderer {
                     bottomPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: bottomPath.currentPoint.y))
                 }
             }
-            bottomPath.addLine(to: CGPoint(x: pts.last!.x, y: layout.centerY))
+            bottomPath.addLine(to: CGPoint(x: lastX, y: layout.centerY))
             bottomPath.closeSubpath()
             ctx.addPath(bottomPath)
             ctx.fillPath()

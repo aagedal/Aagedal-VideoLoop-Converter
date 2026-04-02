@@ -681,7 +681,7 @@ struct MetadataComparisonView: View {
     @ViewBuilder
     private func comparisonRow(_ label: String, value: (VideoItem) -> String?) -> some View {
         let values = items.map { value($0) }
-        let hasAnyValue = values.contains { $0 != nil && !$0!.isEmpty }
+        let hasAnyValue = values.contains { $0?.isEmpty == false }
 
         if hasAnyValue {
             HStack(alignment: .top, spacing: columnSpacing) {

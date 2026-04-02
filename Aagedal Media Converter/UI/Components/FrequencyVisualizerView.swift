@@ -110,6 +110,8 @@ struct FrequencyVisualizerView: View {
         }
         pts.append((x: frameWidth, mag: 0))
 
+        guard let lastX = pts.last?.x else { return }
+
         // Top half fill
         var topPath = Path()
         topPath.move(to: CGPoint(x: pts[0].x, y: centerY))
@@ -120,10 +122,11 @@ struct FrequencyVisualizerView: View {
                 topPath.addLine(to: CGPoint(x: x, y: y))
             } else {
                 let cpX = (pts[i - 1].x + x) / 2.0
-                topPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: topPath.currentPoint!.y))
+                let cpY = topPath.currentPoint?.y ?? centerY
+                topPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: cpY))
             }
         }
-        topPath.addLine(to: CGPoint(x: pts.last!.x, y: centerY))
+        topPath.addLine(to: CGPoint(x: lastX, y: centerY))
         topPath.closeSubpath()
         context.fill(topPath, with: .color(foregroundColor))
 
@@ -137,10 +140,11 @@ struct FrequencyVisualizerView: View {
                 bottomPath.addLine(to: CGPoint(x: x, y: y))
             } else {
                 let cpX = (pts[i - 1].x + x) / 2.0
-                bottomPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: bottomPath.currentPoint!.y))
+                let cpY = bottomPath.currentPoint?.y ?? centerY
+                bottomPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: cpY))
             }
         }
-        bottomPath.addLine(to: CGPoint(x: pts.last!.x, y: centerY))
+        bottomPath.addLine(to: CGPoint(x: lastX, y: centerY))
         bottomPath.closeSubpath()
         context.fill(bottomPath, with: .color(foregroundColor))
 
@@ -156,7 +160,8 @@ struct FrequencyVisualizerView: View {
                     strokePath.move(to: CGPoint(x: x, y: y))
                 } else {
                     let cpX = (pts[i - 1].x + x) / 2.0
-                    strokePath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: strokePath.currentPoint!.y))
+                    let cpY = strokePath.currentPoint?.y ?? centerY
+                    strokePath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cpX, y: cpY))
                 }
             }
             context.stroke(strokePath, with: .color(foregroundColor), lineWidth: lineWidth)

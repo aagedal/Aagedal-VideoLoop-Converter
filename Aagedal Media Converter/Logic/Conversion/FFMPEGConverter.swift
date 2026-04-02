@@ -30,37 +30,18 @@ actor FFMPEGConverter {
 
     /// Converts a video file using the specified export preset
     /// - Parameters:
-    ///   - inputURL: The source video file URL
-    ///   - outputURL: The destination URL (without extension)
-    ///   - preset: The export preset to use
-    ///   - comment: The comment to be added to the metadata
+    ///   - request: All conversion parameters bundled in a ConversionRequest
     ///   - progressUpdate: Callback for progress updates (progress: Double, status: String?)
     ///   - completion: Callback for completion (success: Bool)
     func convert(
-        inputURL: URL,
-        outputURL: URL,
-        preset: ExportPreset = .videoLoop,
-        comment: String = "",
-        includeDateTag: Bool = true,
-        trimStart: Double? = nil,
-        trimEnd: Double? = nil,
-        audioRoutingConfig: AudioRoutingConfig? = nil,
-        cropConfig: CropConfig? = nil,
-        timecodeConfig: TimecodeConfig? = nil,
-        waveformRequest: WaveformVideoRequest? = nil,
-        synthesizedVideoRequest: SynthesizedVideoRequest? = nil,
-        customInputArguments: [String]? = nil,
-        additionalOutputArguments: [String]? = nil,
-        isMuted: Bool = false,
-        expectedDuration: Double? = nil,
-        videoFrameRate: Double? = nil,
-        waveformBackgroundImageURL: URL? = nil,
-        sourceMetadata: VideoMetadata? = nil,
-        sourceCameraMetadata: CameraMetadata? = nil,
-        dcpMetadata: DCPItemMetadata? = nil,
+        request: ConversionRequest,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool) -> Void
     ) async {
+        // Destructure frequently-used fields for readability
+        let inputURL = request.inputURL
+        let outputURL = request.outputURL
+        let preset = request.preset
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             Self.logger.error("FFMPEG binary not found")
             completion(false)
@@ -182,17 +163,17 @@ actor FFMPEGConverter {
         // Check if we need audio pre-processing for AVC-Intra with audio-only files
         // This creates a temp file with mono-split audio channels first
         var effectiveInputURL = inputURL
-        var effectiveCustomInputArguments = customInputArguments
+        var effectiveCustomInputArguments = request.customInputArguments
         var tempAudioURL: URL? = nil
 
-        if needsAudioPreProcessing(preset: preset, waveformRequest: waveformRequest, synthesizedVideoRequest: synthesizedVideoRequest) {
+        if needsAudioPreProcessing(preset: preset, waveformRequest: request.waveformRequest, synthesizedVideoRequest: request.synthesizedVideoRequest) {
             Self.logger.info("Audio-only file with AVC-Intra preset detected, running audio pre-processing pass")
 
             if let preProcessedURL = await preProcessAudioForAVCIntra(
                 inputURL: inputURL,
                 ffmpegPath: ffmpegPath,
-                trimStart: trimStart,
-                trimEnd: trimEnd
+                trimStart: request.trimStart,
+                trimEnd: request.trimEnd
             ) {
                 tempAudioURL = preProcessedURL
                 effectiveInputURL = preProcessedURL
@@ -205,26 +186,26 @@ actor FFMPEGConverter {
         }
 
         // MARK: Native waveform rendering branch (Swift engine)
-        if let waveformRequest, waveformRequest.renderingEngine == .swift {
+        if let waveformRequest = request.waveformRequest, waveformRequest.renderingEngine == .swift {
             await runNativeWaveformConversion(
                 inputURL: inputURL,
                 ffmpegOutputURL: ffmpegOutputURL,
                 ffmpegPath: ffmpegPath,
                 preset: preset,
                 waveformRequest: waveformRequest,
-                audioRoutingConfig: audioRoutingConfig,
-                trimStart: trimStart,
-                trimEnd: trimEnd,
-                comment: comment,
-                includeDateTag: includeDateTag,
-                isMuted: isMuted,
-                additionalOutputArguments: additionalOutputArguments,
-                expectedDuration: expectedDuration,
-                videoFrameRate: videoFrameRate,
+                audioRoutingConfig: request.audioRoutingConfig,
+                trimStart: request.trimStart,
+                trimEnd: request.trimEnd,
+                comment: request.comment,
+                includeDateTag: request.includeDateTag,
+                isMuted: request.isMuted,
+                additionalOutputArguments: request.additionalOutputArguments,
+                expectedDuration: request.expectedDuration,
+                videoFrameRate: request.videoFrameRate,
                 needsBMXRewrap: needsBMXRewrap,
                 tempMXFURL: tempMXFURL,
                 outputFileURL: outputFileURL,
-                waveformBackgroundImageURL: waveformBackgroundImageURL,
+                waveformBackgroundImageURL: request.waveformBackgroundImageURL,
                 progressUpdate: progressUpdate,
                 completion: completion
             )
@@ -240,18 +221,18 @@ actor FFMPEGConverter {
             inputURL: effectiveInputURL,
             outputFileURL: ffmpegOutputURL,  // Use temp file for AVC-Intra, final file otherwise
             preset: preset,
-            comment: comment,
-            includeDateTag: includeDateTag,
-            trimStart: tempAudioURL != nil ? nil : trimStart,  // Trim already applied in pre-processing
-            trimEnd: tempAudioURL != nil ? nil : trimEnd,
-            audioRoutingConfig: tempAudioURL != nil ? nil : audioRoutingConfig,  // Audio already processed
-            cropConfig: cropConfig,
-            timecodeConfig: timecodeConfig,
-            waveformRequest: waveformRequest,
-            synthesizedVideoRequest: synthesizedVideoRequest,
+            comment: request.comment,
+            includeDateTag: request.includeDateTag,
+            trimStart: tempAudioURL != nil ? nil : request.trimStart,  // Trim already applied in pre-processing
+            trimEnd: tempAudioURL != nil ? nil : request.trimEnd,
+            audioRoutingConfig: tempAudioURL != nil ? nil : request.audioRoutingConfig,  // Audio already processed
+            cropConfig: request.cropConfig,
+            timecodeConfig: request.timecodeConfig,
+            waveformRequest: request.waveformRequest,
+            synthesizedVideoRequest: request.synthesizedVideoRequest,
             customInputArguments: effectiveCustomInputArguments,
-            additionalOutputArguments: additionalOutputArguments,
-            isMuted: isMuted
+            additionalOutputArguments: request.additionalOutputArguments,
+            isMuted: request.isMuted
         )
 
         process.arguments = command.arguments
@@ -267,7 +248,7 @@ actor FFMPEGConverter {
         let totalDurationBox = DurationBox()
         let effectiveDurationBox = DurationBox()
         effectiveDurationBox.value = command.effectiveDuration
-        if let expectedDuration {
+        if let expectedDuration = request.expectedDuration {
             totalDurationBox.value = expectedDuration
             if effectiveDurationBox.value == nil {
                 effectiveDurationBox.value = expectedDuration
@@ -275,7 +256,7 @@ actor FFMPEGConverter {
         }
         let stderrCollector = StderrCollector()
         let frameStallTracker = FrameStallTracker()
-        let frameRate = videoFrameRate ?? 24.0  // Default to 24fps if not provided
+        let frameRate = request.videoFrameRate ?? 24.0  // Default to 24fps if not provided
 
         // For DCP exports, scale FFmpeg progress to 0-75% to leave room for post-processing steps
         let ffmpegProgressUpdate: @Sendable (Double, String?) -> Void
@@ -316,6 +297,7 @@ actor FFMPEGConverter {
         errorPipe.fileHandleForReading.readabilityHandler = errorReadabilityHandler
 
         // Capture values for the closure
+        let capturedRequest = request
         let capturedTempAudioURL = tempAudioURL
         let capturedTempMXFURL = tempMXFURL
         let capturedFinalOutputURL = outputFileURL
@@ -324,15 +306,8 @@ actor FFMPEGConverter {
         let capturedIsImageSequenceExport = isImageSequenceExport
         let capturedIsDCPExport = isDCPExport
         let capturedDCPSubfolderURL = dcpSubfolderURL
-        let capturedDCPMetadata = dcpMetadata
         let capturedInputURL = inputURL
         let capturedFfmpegPath = ffmpegPath
-        let capturedTrimStart = trimStart
-        let capturedTrimEnd = trimEnd
-        let capturedCustomInputArguments = customInputArguments
-        let capturedSourceMetadata = sourceMetadata
-        let capturedAudioRoutingConfig = audioRoutingConfig
-        let capturedSourceCameraMetadata = sourceCameraMetadata
 
         process.terminationHandler = { [weak self] _ in
             // Stop the readability handler to prevent log spam after process ends
@@ -512,9 +487,9 @@ actor FFMPEGConverter {
                         inputURL: capturedInputURL,
                         outputFolder: FileManager.default.temporaryDirectory,
                         ffmpegPath: capturedFfmpegPath,
-                        trimStart: capturedTrimStart,
-                        trimEnd: capturedTrimEnd,
-                        audioRoutingConfig: capturedAudioRoutingConfig
+                        trimStart: capturedRequest.trimStart,
+                        trimEnd: capturedRequest.trimEnd,
+                        audioRoutingConfig: capturedRequest.audioRoutingConfig
                     )
 
                     // Step 3: Wrap audio WAV to DCP MXF with asdcp-wrap
@@ -574,12 +549,16 @@ actor FFMPEGConverter {
                         let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
                         let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
 
-                        let dcpTitle = capturedDCPMetadata?.contentTitleText.isEmpty == false
-                            ? capturedDCPMetadata!.contentTitleText : capturedInputBaseName
+                        let dcpTitle: String
+                        if let metadataTitle = capturedRequest.dcpMetadata?.contentTitleText, !metadataTitle.isEmpty {
+                            dcpTitle = metadataTitle
+                        } else {
+                            dcpTitle = capturedInputBaseName
+                        }
 
                         // Create ISDCF-named DCP folder inside the working folder
-                        let contentKind = capturedDCPMetadata?.contentKind ?? .feature
-                        let audioLanguage = capturedDCPMetadata?.audioLanguage ?? "en"
+                        let contentKind = capturedRequest.dcpMetadata?.contentKind ?? .feature
+                        let audioLanguage = capturedRequest.dcpMetadata?.audioLanguage ?? "en"
                         let isdcfName = await DCPService.shared.isdcfFolderName(
                             title: dcpTitle,
                             contentKind: contentKind,
@@ -603,7 +582,7 @@ actor FFMPEGConverter {
                             resolution: resolution,
                             frameRate: frameRate,
                             frameCount: max(frameCount, 1),
-                            itemMetadata: capturedDCPMetadata,
+                            itemMetadata: capturedRequest.dcpMetadata,
                             progress: { dcpProgress in
                                 let overall = 0.91 + dcpProgress * 0.09
                                 Task { @MainActor in
@@ -626,7 +605,7 @@ actor FFMPEGConverter {
 
                 // Extract audio as WAV for image sequence exports (if source has audio)
                 // Use the output pattern's base name so the WAV matches the image filenames
-                if success && capturedIsImageSequenceExport && capturedCustomInputArguments == nil {
+                if success && capturedIsImageSequenceExport && capturedRequest.customInputArguments == nil {
                     let outputFolder = capturedFinalOutputURL.deletingLastPathComponent()
                     let outputBaseName = outputFolder.lastPathComponent
                     await Self.extractAudioAsWAV(
@@ -634,8 +613,8 @@ actor FFMPEGConverter {
                         outputFolder: outputFolder,
                         baseName: outputBaseName,
                         ffmpegPath: capturedFfmpegPath,
-                        trimStart: capturedTrimStart,
-                        trimEnd: capturedTrimEnd
+                        trimStart: capturedRequest.trimStart,
+                        trimEnd: capturedRequest.trimEnd
                     )
 
                     // Generate metadata sidecar with source color space and technical specs
@@ -643,7 +622,7 @@ actor FFMPEGConverter {
                         ? UserDefaults.standard.bool(forKey: AppConstants.imageSequenceMetadataSidecarEnabledKey)
                         : AppConstants.defaultImageSequenceMetadataSidecarEnabled
 
-                    if sidecarEnabled, let metadata = capturedSourceMetadata {
+                    if sidecarEnabled, let metadata = capturedRequest.sourceMetadata {
                         let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceMetadataSidecarFormatKey)
                             ?? AppConstants.defaultImageSequenceMetadataSidecarFormat
                         let format = MetadataSidecarGenerator.SidecarFormat(rawValue: formatRaw) ?? .markdown
@@ -651,7 +630,7 @@ actor FFMPEGConverter {
                             originalFileName: capturedInputBaseName,
                             outputFolder: outputFolder,
                             metadata: metadata,
-                            cameraMetadata: capturedSourceCameraMetadata,
+                            cameraMetadata: capturedRequest.sourceCameraMetadata,
                             format: format
                         )
                     }
