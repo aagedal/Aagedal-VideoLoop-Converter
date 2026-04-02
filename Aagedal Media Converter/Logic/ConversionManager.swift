@@ -471,25 +471,27 @@ actor ConversionManager: Sendable {
         // Note: Crop requires re-encoding and won't work with Stream Copy preset
         let mergeCropConfig = primaryInput.cropConfig
 
-        await ffmpegConverter.convert(
+        let mergeRequest = ConversionRequest(
             inputURL: primaryInput.url,
             outputURL: plan.outputBaseURL,
             preset: plan.preset,
             comment: plan.comment,
             includeDateTag: plan.includeDateTag,
-            trimStart: nil,
-            trimEnd: nil,
+            expectedDuration: plan.totalDuration,
+            videoFrameRate: primaryInput.metadata?.primaryVideoStream?.frameRate?.value,
             audioRoutingConfig: mergeAudioRoutingConfig,
             cropConfig: mergeCropConfig,
             timecodeConfig: mergeTimecodeConfig,
+            isMuted: primaryInput.isMuted,
             waveformRequest: plan.waveformRequest,
             synthesizedVideoRequest: plan.synthesizedVideoRequest,
-            customInputArguments: customInputs,
-            additionalOutputArguments: mergeOutputArguments,
-            isMuted: primaryInput.isMuted,
-            expectedDuration: plan.totalDuration,
-            videoFrameRate: primaryInput.metadata?.primaryVideoStream?.frameRate?.value,
             waveformBackgroundImageURL: primaryInput.waveformBackgroundImageURL,
+            customInputArguments: customInputs,
+            additionalOutputArguments: mergeOutputArguments
+        )
+
+        await ffmpegConverter.convert(
+            request: mergeRequest,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     for index in indices {
@@ -1159,27 +1161,31 @@ actor ConversionManager: Sendable {
         let imageSeqInputArgs = currentItem.imageSequenceConfig?.ffmpegInputArguments
         let imageSeqExpectedDuration = currentItem.imageSequenceConfig?.durationSeconds
 
-        await ffmpegConverter.convert(
+        let conversionRequest = ConversionRequest(
             inputURL: inputURL,
             outputURL: outputURL,
             preset: preset,
             comment: currentItem.comment,
             includeDateTag: currentItem.includeDateTag,
-            trimStart: currentItem.trimStart,
-            trimEnd: currentItem.trimEnd,
-            audioRoutingConfig: currentItem.audioRoutingConfig,
-            cropConfig: currentItem.cropConfig,
-            timecodeConfig: currentItem.timecodeConfig,
-            waveformRequest: waveformRequest,
-            synthesizedVideoRequest: synthesizedVideoRequest,
-            customInputArguments: imageSeqInputArgs,
-            isMuted: currentItem.isMuted,
-            expectedDuration: imageSeqExpectedDuration,
-            videoFrameRate: currentItem.metadata?.primaryVideoStream?.frameRate?.value,
-            waveformBackgroundImageURL: currentItem.waveformBackgroundImageURL,
             sourceMetadata: currentItem.metadata,
             sourceCameraMetadata: currentItem.cameraMetadata,
             dcpMetadata: currentItem.dcpMetadata,
+            trimStart: currentItem.trimStart,
+            trimEnd: currentItem.trimEnd,
+            expectedDuration: imageSeqExpectedDuration,
+            videoFrameRate: currentItem.metadata?.primaryVideoStream?.frameRate?.value,
+            audioRoutingConfig: currentItem.audioRoutingConfig,
+            cropConfig: currentItem.cropConfig,
+            timecodeConfig: currentItem.timecodeConfig,
+            isMuted: currentItem.isMuted,
+            waveformRequest: waveformRequest,
+            synthesizedVideoRequest: synthesizedVideoRequest,
+            waveformBackgroundImageURL: currentItem.waveformBackgroundImageURL,
+            customInputArguments: imageSeqInputArgs
+        )
+
+        await ffmpegConverter.convert(
+            request: conversionRequest,
             progressUpdate: { progress, eta in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {

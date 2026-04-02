@@ -174,14 +174,20 @@ private extension WatchFolderManager {
         let ignoreEnabled = defaults.bool(forKey: AppConstants.watchFolderIgnoreOlderThan24hKey)
         let deleteEnabled = defaults.bool(forKey: AppConstants.watchFolderAutoDeleteOlderThanWeekKey)
         let ignoreValueRaw = defaults.object(forKey: AppConstants.watchFolderIgnoreDurationValueKey) as? NSNumber
-        let ignoreValue = AppConstants.watchFolderDurationValues.contains(ignoreValueRaw?.intValue ?? 0)
-            ? ignoreValueRaw!.intValue
-            : AppConstants.defaultWatchFolderIgnoreDurationValue
+        let ignoreValue: Int
+        if let raw = ignoreValueRaw?.intValue, AppConstants.watchFolderDurationValues.contains(raw) {
+            ignoreValue = raw
+        } else {
+            ignoreValue = AppConstants.defaultWatchFolderIgnoreDurationValue
+        }
         let ignoreUnitRaw = defaults.string(forKey: AppConstants.watchFolderIgnoreDurationUnitKey) ?? AppConstants.defaultWatchFolderIgnoreDurationUnitRaw
         let deleteValueRaw = defaults.object(forKey: AppConstants.watchFolderDeleteDurationValueKey) as? NSNumber
-        let deleteValue = AppConstants.watchFolderDurationValues.contains(deleteValueRaw?.intValue ?? 0)
-            ? deleteValueRaw!.intValue
-            : AppConstants.defaultWatchFolderDeleteDurationValue
+        let deleteValue: Int
+        if let raw = deleteValueRaw?.intValue, AppConstants.watchFolderDurationValues.contains(raw) {
+            deleteValue = raw
+        } else {
+            deleteValue = AppConstants.defaultWatchFolderDeleteDurationValue
+        }
         let deleteUnitRaw = defaults.string(forKey: AppConstants.watchFolderDeleteDurationUnitKey) ?? AppConstants.defaultWatchFolderDeleteDurationUnitRaw
         let ignoreUnit = WatchFolderDurationUnit(rawValue: ignoreUnitRaw) ?? .hours
         let deleteUnit = WatchFolderDurationUnit(rawValue: deleteUnitRaw) ?? .days

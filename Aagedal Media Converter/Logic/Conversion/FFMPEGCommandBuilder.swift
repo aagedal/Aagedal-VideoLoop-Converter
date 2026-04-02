@@ -24,7 +24,7 @@ struct FFMPEGCommand {
     let effectiveDuration: Double?
 }
 
-struct WaveformVideoRequest {
+struct WaveformVideoRequest: Sendable {
     let width: Int
     let height: Int
     let backgroundHex: String
@@ -55,7 +55,7 @@ struct WaveformVideoRequest {
     }
 }
 
-struct SynthesizedVideoRequest {
+struct SynthesizedVideoRequest: Sendable {
     let width: Int
     let height: Int
     let backgroundHex: String
