@@ -251,10 +251,10 @@ actor YTDLPService {
         if let ffmpegPath = resolvedFFmpegPath {
             // yt-dlp needs the directory containing ffmpeg, not the binary itself
             let ffmpegDir = (ffmpegPath as NSString).deletingLastPathComponent
-            print("[YTDLPService] Using ffmpeg dir: \(ffmpegDir)")
+            logger.debug("Using ffmpeg dir: \(ffmpegDir)")
             args.append(contentsOf: ["--ffmpeg-location", ffmpegDir])
         } else {
-            print("[YTDLPService] WARNING: No ffmpeg path available for yt-dlp postprocessing")
+            logger.warning("No ffmpeg path available for yt-dlp postprocessing")
         }
 
         // Add browser cookies if configured
@@ -342,6 +342,9 @@ actor YTDLPService {
         let parsedState = ParsedState()
         let processStartBox = DateBox(value: Date())
 
+        // Capture logger for use in @Sendable closures and local functions
+        let logger = self.logger
+
         // Helper to process a line of output
         @Sendable func processLine(_ trimmed: String, isStderr: Bool) {
             guard !trimmed.isEmpty else { return }
@@ -349,25 +352,23 @@ actor YTDLPService {
             if isStderr {
                 if parsedState.markFirstStderr() {
                     let delta = Date().timeIntervalSince(processStartBox.value)
-                    print("[TIMING] First yt-dlp stderr after \(String(format: "%.3f", delta))s")
+                    logger.debug("First yt-dlp stderr after \(String(format: "%.3f", delta))s")
                 }
-                // Debug: Log all stderr output
-                print("[YTDLPService] stderr: \(trimmed)")
+                logger.debug("stderr: \(trimmed, privacy: .public)")
             } else {
                 if parsedState.markFirstStdout() {
                     let delta = Date().timeIntervalSince(processStartBox.value)
-                    print("[TIMING] First yt-dlp stdout after \(String(format: "%.3f", delta))s")
+                    logger.debug("First yt-dlp stdout after \(String(format: "%.3f", delta))s")
                 }
-                // Debug: Log stdout output
-                print("[YTDLPService] stdout: \(trimmed)")
+                logger.debug("stdout: \(trimmed, privacy: .public)")
             }
 
             // Parse progress from either stream
             if let progressInfo = YTDLPProgressParser.parse(trimmed) {
-                print("[YTDLPService] Progress parsed: \(progressInfo.progress * 100)%, isLive: \(progressInfo.isLiveStream)")
+                logger.debug("Progress parsed: \(progressInfo.progress * 100)%, isLive: \(progressInfo.isLiveStream)")
                 if parsedState.markFirstProgress() {
                     let delta = Date().timeIntervalSince(processStartBox.value)
-                    print("[TIMING] First yt-dlp progress after \(String(format: "%.3f", delta))s")
+                    logger.debug("First yt-dlp progress after \(String(format: "%.3f", delta))s")
                 }
                 progress(progressInfo.progress, progressInfo.speed, progressInfo.isLiveStream)
             }
@@ -379,7 +380,7 @@ actor YTDLPService {
                 parsedState.videoTitle = title
                 parsedState.lock.unlock()
                 if title != previousTitle && title != "Downloaded Video" {
-                    print("[YTDLPService] Title discovered: \(title)")
+                    logger.info("Title discovered: \(title, privacy: .public)")
                     titleUpdate(title)
                 }
             }
@@ -400,7 +401,7 @@ actor YTDLPService {
 
             // Check for "already been downloaded" message (stdout only)
             if !isStderr && trimmed.contains("has already been downloaded") {
-                print("[YTDLPService] File already exists detected")
+                logger.info("File already exists detected")
                 parsedState.lock.lock()
                 parsedState.fileAlreadyExists = true
                 if let range = trimmed.range(of: "] "),
@@ -432,7 +433,7 @@ actor YTDLPService {
             // Read stderr in background
             group.enter()
             DispatchQueue.global(qos: .userInitiated).async {
-                print("[YTDLPService] stderr reader started")
+                logger.debug("stderr reader started")
                 let handle = stderrPipe.fileHandleForReading
                 var buffer = Data()
                 var chunkCount = 0
@@ -440,10 +441,10 @@ actor YTDLPService {
                     let chunk = handle.availableData
                     chunkCount += 1
                     if chunkCount == 1 {
-                        print("[YTDLPService] stderr first chunk received, size: \(chunk.count)")
+                        logger.debug("stderr first chunk received, size: \(chunk.count)")
                     }
                     if chunk.isEmpty {
-                        print("[YTDLPService] stderr EOF after \(chunkCount) chunks")
+                        logger.debug("stderr EOF after \(chunkCount) chunks")
                         // Process any remaining data in buffer
                         if !buffer.isEmpty, let str = String(data: buffer, encoding: .utf8) {
                             for line in str.components(separatedBy: .newlines) {
@@ -474,7 +475,7 @@ actor YTDLPService {
             // Read stdout in background
             group.enter()
             DispatchQueue.global(qos: .userInitiated).async {
-                print("[YTDLPService] stdout reader started")
+                logger.debug("stdout reader started")
                 let handle = stdoutPipe.fileHandleForReading
                 var buffer = Data()
                 var chunkCount = 0
@@ -482,10 +483,10 @@ actor YTDLPService {
                     let chunk = handle.availableData
                     chunkCount += 1
                     if chunkCount == 1 {
-                        print("[YTDLPService] stdout first chunk received, size: \(chunk.count)")
+                        logger.debug("stdout first chunk received, size: \(chunk.count)")
                     }
                     if chunk.isEmpty {
-                        print("[YTDLPService] stdout EOF after \(chunkCount) chunks")
+                        logger.debug("stdout EOF after \(chunkCount) chunks")
                         // Process any remaining data in buffer
                         if !buffer.isEmpty, let str = String(data: buffer, encoding: .utf8) {
                             for line in str.components(separatedBy: .newlines) {
@@ -520,7 +521,7 @@ actor YTDLPService {
 
             do {
                 try process.run()
-                print("[YTDLPService] Process started with PID: \(process.processIdentifier)")
+                logger.info("Process started with PID: \(process.processIdentifier)")
             } catch {
                 continuation.resume(throwing: error)
             }
@@ -555,7 +556,7 @@ actor YTDLPService {
         // Check if file already exists (detected via --no-overwrites)
         if fileAlreadyExists {
             let existingPath = existingFilePath ?? outputFolder.appendingPathComponent(videoTitle).path
-            print("[YTDLPService] File already exists at: \(existingPath)")
+            logger.info("File already exists at: \(existingPath, privacy: .auto)")
             throw YTDLPError.fileAlreadyExists(path: existingPath, title: videoTitle)
         }
 
@@ -567,7 +568,7 @@ actor YTDLPService {
 
         // Note: Output path is captured from stdout via the readabilityHandler above
         // The --print after_move:filepath outputs the final path which we parse there
-        print("[YTDLPService] Final output path from parsing: \(outputPath ?? "nil")")
+        logger.info("Final output path from parsing: \(outputPath ?? "nil", privacy: .auto)")
 
         // Verify output file exists
         guard let finalPath = outputPath else {
@@ -594,14 +595,14 @@ actor YTDLPService {
     /// Cancels the current download (nonisolated for immediate response)
     nonisolated func cancelDownload() {
         if processHolder.terminate(reason: .userRequested) {
-            print("[YTDLPService] Download cancelled by user")
+            logger.info("Download cancelled by user")
         }
     }
 
     /// Stops a live stream download but keeps the partial file (nonisolated for immediate response)
     nonisolated func stopLiveDownload() {
         if processHolder.terminate(reason: .liveRecordingStop) {
-            print("[YTDLPService] Live stream recording stopped (keeping partial file)")
+            logger.info("Live stream recording stopped (keeping partial file)")
         }
     }
 }
