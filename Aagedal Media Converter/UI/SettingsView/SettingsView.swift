@@ -7,7 +7,7 @@ import SwiftUI
 struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .general
 
-    private enum SettingsTab: Hashable {
+    private enum SettingsTab: String, Hashable {
         case general
         case metadata
         case presets
@@ -102,8 +102,8 @@ struct SettingsView: View {
         .onAppear {
             // Check if we should open to a specific tab (e.g., from Control+K in main window)
             if let tabToOpen = UserDefaults.standard.string(forKey: AppConstants.settingsTabToOpenKey) {
-                if tabToOpen == "shortcuts" {
-                    selectedTab = .shortcuts
+                if let tab = SettingsTab(rawValue: tabToOpen) {
+                    selectedTab = tab
                 }
                 // Clear the key so subsequent opens go to the default tab
                 UserDefaults.standard.removeObject(forKey: AppConstants.settingsTabToOpenKey)

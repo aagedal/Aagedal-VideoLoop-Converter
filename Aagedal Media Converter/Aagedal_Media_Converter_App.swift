@@ -77,11 +77,24 @@ struct MainAppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        // Disable "New Window" — replaced by "New Encoding Group"
+        CommandGroup(replacing: .newItem) {
+            Button("New Encoding Group") {
+                NotificationCenter.default.post(name: .createEncodingGroup, object: nil)
+            }
+            .keyboardShortcut("n", modifiers: .command)
+        }
+
         CommandGroup(after: .importExport) {
             Button("Import…") {
                 NotificationCenter.default.post(name: .showFileImporter, object: nil)
             }
             .keyboardShortcut("i", modifiers: .command)
+
+            Button("Import Camera Card…") {
+                NotificationCenter.default.post(name: .showCameraCardImporter, object: nil)
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
         }
         CommandGroup(after: .windowArrangement) {
             Button("Show Metadata") {
