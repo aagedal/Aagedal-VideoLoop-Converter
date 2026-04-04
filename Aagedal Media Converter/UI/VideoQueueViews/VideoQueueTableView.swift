@@ -134,8 +134,10 @@ struct VideoQueueTableView: NSViewRepresentable {
         scrollView.documentView = tableView
         context.coordinator.tableView = tableView
 
-        // Store initial snapshot
-        context.coordinator.previousIDs = computeDisplayRows().map(\.id)
+        // Store initial snapshot and populate cache
+        let initialRows = computeDisplayRows()
+        context.coordinator.cachedDisplayRows = initialRows
+        context.coordinator.previousIDs = initialRows.map(\.id)
         context.coordinator.previousCompactMode = isCompactMode
 
         return scrollView
@@ -151,6 +153,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         coordinator.parent = self
 
         let displayRows = computeDisplayRows()
+        coordinator.cachedDisplayRows = displayRows
         let newIDs = displayRows.map(\.id)
         let oldIDs = coordinator.previousIDs
 
@@ -194,7 +197,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         coordinator.isUpdatingSelection = true
         defer { coordinator.isUpdatingSelection = false }
 
-        let rows = computeDisplayRows()
+        let rows = coordinator.cachedDisplayRows
         let desiredRows = IndexSet(selection.compactMap { id in
             rows.firstIndex(where: { $0.id == id })
         })
@@ -219,6 +222,9 @@ struct VideoQueueTableView: NSViewRepresentable {
         var previousIDs: [UUID] = []
         var previousCompactMode = false
         var isUpdatingSelection = false
+        /// Cached display rows to avoid redundant recomputation in delegate callbacks.
+        /// Refreshed in updateNSView when SwiftUI pushes new data.
+        var cachedDisplayRows: [FlatQueueRow] = []
 
         private static let cellID = NSUserInterfaceItemIdentifier("VideoQueueCell")
 
@@ -229,13 +235,13 @@ struct VideoQueueTableView: NSViewRepresentable {
         // MARK: NSTableViewDataSource
 
         func numberOfRows(in tableView: NSTableView) -> Int {
-            parent.computeDisplayRows().count
+            cachedDisplayRows.count
         }
 
         // MARK: NSTableViewDelegate
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-            let displayRows = parent.computeDisplayRows()
+            let displayRows = cachedDisplayRows
             guard row < displayRows.count else { return nil }
 
             let cell = tableView.makeView(withIdentifier: Self.cellID, owner: nil) as? VideoQueueTableCellView
@@ -259,7 +265,7 @@ struct VideoQueueTableView: NSViewRepresentable {
             defer { isUpdatingSelection = false }
 
             guard let tableView = tableView else { return }
-            let displayRows = parent.computeDisplayRows()
+            let displayRows = cachedDisplayRows
             let selectedRows = tableView.selectedRowIndexes
             let newSelection = Set(selectedRows.compactMap { row -> UUID? in
                 guard row < displayRows.count else { return nil }
@@ -272,7 +278,7 @@ struct VideoQueueTableView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
             // Allow dragging ungrouped (.single) and group item rows
-            let displayRows = parent.computeDisplayRows()
+            let displayRows = cachedDisplayRows
             guard row < displayRows.count else { return nil }
             switch displayRows[row] {
             case .single, .groupItem:
@@ -287,7 +293,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
             guard info.draggingSource as? NSTableView === tableView else { return [] }
 
-            let displayRows = parent.computeDisplayRows()
+            let displayRows = cachedDisplayRows
 
             // Dropping ON a group header → move files into that group
             if dropOperation == .on, row < displayRows.count {
@@ -314,7 +320,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
             guard info.draggingSource as? NSTableView === tableView else { return false }
 
-            let displayRows = parent.computeDisplayRows()
+            let displayRows = cachedDisplayRows
 
             // Collect source row indices
             var sourceRows: [Int] = []
@@ -436,7 +442,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         /// unlike reloadData(forRowIndexes:) which destroys and recreates cells.
         func updateVisibleCells() {
             guard let tableView = tableView else { return }
-            let displayRows = parent.computeDisplayRows()
+            let displayRows = cachedDisplayRows
             let visibleRange = tableView.rows(in: tableView.visibleRect)
             guard visibleRange.length > 0 else { return }
             let start = visibleRange.location

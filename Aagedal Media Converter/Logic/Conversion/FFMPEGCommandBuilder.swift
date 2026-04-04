@@ -332,6 +332,22 @@ enum FFMPEGCommandBuilder {
 
         arguments.append(contentsOf: ffmpegArgs)
 
+        // Map subtitle streams if the user has enabled subtitle preservation.
+        // Only applies to encoding presets (not stream copy, audio-only, or image sequences)
+        // that output into containers supporting subtitles.
+        if preset != .streamCopy && preset.outputsVideoTrack {
+            let keepSubtitles = UserDefaults.standard.bool(forKey: AppConstants.keepSubtitlesKey)
+            if keepSubtitles {
+                let outputExtension = outputFileURL.pathExtension.lowercased()
+                if outputExtension == "mkv" {
+                    arguments.append(contentsOf: ["-map", "0:s?", "-c:s", "copy"])
+                } else {
+                    // MP4/MOV only support mov_text subtitles; bitmap subs will be skipped by FFmpeg
+                    arguments.append(contentsOf: ["-map", "0:s?", "-c:s", "mov_text"])
+                }
+            }
+        }
+
         // For MOV/QuickTime files with stream copy, add movflags to preserve vendor-specific metadata
         // This is critical for ProRes RAW files to preserve white balance and camera metadata
         if preset == .streamCopy {

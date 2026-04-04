@@ -418,6 +418,12 @@ enum AppConstants {
     static let defaultAV1AudioFormat = "AAC"
     static let av1AudioBitrateKey = "av1AudioBitrate"
     static let defaultAV1AudioBitrate = "192 kbps"
+    static let av1TuneKey = "av1Tune"
+    static let defaultAV1Tune = "Default"
+
+    // Subtitle preservation
+    static let keepSubtitlesKey = "keepSubtitles"
+    static let defaultKeepSubtitles = false
 
     // VideoLoop mute settings
     static let videoLoopDefaultMutedKey = "videoLoopDefaultMuted"
