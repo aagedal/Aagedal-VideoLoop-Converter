@@ -332,6 +332,24 @@ enum AV1EncodingSpeed: Int, CaseIterable, Identifiable {
     }
 }
 
+/// Tune mode for AV1 (SVT-AV1)
+enum AV1TuneMode: String, CaseIterable, Identifiable {
+    case none = "Default"
+    case psnr = "PSNR"
+    case fastDecode = "Fast Decode"
+
+    var id: String { rawValue }
+
+    /// Returns the FFmpeg arguments for this tune mode, or empty if default.
+    var ffmpegArgs: [String] {
+        switch self {
+        case .none: return []
+        case .psnr: return ["-tune", "1"]
+        case .fastDecode: return ["-svtav1-params", "fast-decode=1"]
+        }
+    }
+}
+
 /// Resolution limit for codec presets
 enum CodecResolutionLimit: String, CaseIterable, Identifiable {
     case r720 = "720p"
@@ -355,46 +373,62 @@ enum CodecResolutionLimit: String, CaseIterable, Identifiable {
 
 /// Quality level for CRF-based encoding (x264/x265)
 enum CodecQualityLevel: String, CaseIterable, Identifiable {
+    case nearLossless = "Near Lossless (8)"
     case veryHigh = "Very High (15)"
     case high = "High (18)"
+    case aboveGood = "Above Good (20)"
     case good = "Good (23)"
+    case belowGood = "Below Good (25)"
     case balanced = "Balanced (28)"
     case medium = "Medium (32)"
     case low = "Low (38)"
+    case veryLow = "Very Low (45)"
 
     var id: String { rawValue }
 
     var crfValue: Int {
         switch self {
+        case .nearLossless: return 8
         case .veryHigh: return 15
         case .high: return 18
+        case .aboveGood: return 20
         case .good: return 23
+        case .belowGood: return 25
         case .balanced: return 28
         case .medium: return 32
         case .low: return 38
+        case .veryLow: return 45
         }
     }
 }
 
 /// Quality level for AV1 (0-63 scale)
 enum AV1QualityLevel: String, CaseIterable, Identifiable {
+    case nearLossless = "Near Lossless (5)"
     case veryHigh = "Very High (15)"
     case high = "High (23)"
+    case aboveGood = "Above Good (27)"
     case good = "Good (30)"
+    case belowGood = "Below Good (33)"
     case balanced = "Balanced (35)"
     case medium = "Medium (40)"
     case low = "Low (50)"
+    case veryLow = "Very Low (58)"
 
     var id: String { rawValue }
 
     var crfValue: Int {
         switch self {
+        case .nearLossless: return 5
         case .veryHigh: return 15
         case .high: return 23
+        case .aboveGood: return 27
         case .good: return 30
+        case .belowGood: return 33
         case .balanced: return 35
         case .medium: return 40
         case .low: return 50
+        case .veryLow: return 58
         }
     }
 }
@@ -857,6 +891,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let speed = UserDefaults.standard.integer(forKey: AppConstants.av1SpeedKey)
             let presetValue = speed > 0 ? speed : AppConstants.defaultAV1Speed
 
+            // Get tune setting
+            let tuneRaw = UserDefaults.standard.string(forKey: AppConstants.av1TuneKey) ?? AppConstants.defaultAV1Tune
+            let tune = AV1TuneMode(rawValue: tuneRaw) ?? .none
+
             // Get resolution limit
             let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.av1ResolutionLimitKey) ?? AppConstants.defaultAV1ResolutionLimit
             let resolution = CodecResolutionLimit(rawValue: resolutionRaw) ?? .unlimited
@@ -887,6 +925,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-vf", scaleFilter,
                 "-map", "0:v:0"
             ]
+            args += tune.ffmpegArgs
             args += audioFormat.ffmpegArgs(bitrate: audioBitrate.ffmpegValue)
             args += ["-map", "0:a?"]
 

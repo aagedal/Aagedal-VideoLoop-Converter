@@ -148,6 +148,8 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.av1ResolutionLimitKey) private var av1ResolutionLimit = AppConstants.defaultAV1ResolutionLimit
     @AppStorage(AppConstants.av1AudioFormatKey) private var av1AudioFormat = AppConstants.defaultAV1AudioFormat
     @AppStorage(AppConstants.av1AudioBitrateKey) private var av1AudioBitrate = AppConstants.defaultAV1AudioBitrate
+    @AppStorage(AppConstants.av1TuneKey) private var av1Tune = AppConstants.defaultAV1Tune
+    @AppStorage(AppConstants.keepSubtitlesKey) private var keepSubtitles = AppConstants.defaultKeepSubtitles
 
     // Built-in preset visibility (default to true)
     @AppStorage(AppConstants.videoLoopVisibleKey) private var videoLoopVisible = true
@@ -796,6 +798,20 @@ struct PresetsSettingsView: View {
                     }
 
                     HStack {
+                        Text("Tune")
+                        Spacer()
+                        Picker("", selection: $av1Tune) {
+                            ForEach(AV1TuneMode.allCases) { tune in
+                                Text(tune.rawValue).tag(tune.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Default optimizes for visual quality. PSNR optimizes for objective metrics. Fast Decode produces output optimized for playback on weaker devices.")
+                    }
+
+                    HStack {
                         Text("Container")
                         Spacer()
                         Picker("", selection: $av1Container) {
@@ -1019,6 +1035,44 @@ struct PresetsSettingsView: View {
                     }
                 }
                 .toggleStyle(SwitchToggleStyle())
+            }
+        }
+
+        // Subtitle preservation toggle — shown for encoding presets that output video into containers
+        if selectedPreset.outputsVideoTrack
+            && selectedPreset != .streamCopy
+            && selectedPreset != .imageSequence
+            && selectedPreset != .dcp
+            && selectedPreset != .videoLoop
+            && selectedPreset != .videoLoopWithSound
+            && selectedPreset != .animatedStill {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $keepSubtitles) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Keep Subtitles")
+                                .font(.subheadline)
+                            Text("Copy subtitle streams from the source file into the output")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .toggleStyle(SwitchToggleStyle())
+
+                    if keepSubtitles {
+                        HStack(spacing: 4) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.yellow)
+                                .font(.caption)
+                            Text("Subtitles may be out of sync when trimming. Bitmap subtitles (PGS, DVB) are not supported in MP4 — use MKV instead.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(8)
+                        .background(Color.yellow.opacity(0.1))
+                        .cornerRadius(6)
+                    }
+                }
             }
         }
 
