@@ -48,6 +48,11 @@ struct AnalyticsSettingsView: View {
                         Text(metric.description)
                             .font(.caption)
                             .foregroundColor(.secondary)
+                        if metric == .ssimulacra2 {
+                            Label("Slow — extracts and compares individual frames", systemImage: "tortoise.fill")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
                     }
                 }
             }
