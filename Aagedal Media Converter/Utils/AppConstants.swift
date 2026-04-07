@@ -658,4 +658,13 @@ enum AppConstants {
     static let defaultAnalyticsEnabledMetrics: [String] = ["vmaf"]
     static let defaultAnalyticsVMAFModel = "vmaf_v0.6.1"
     static let defaultAnalyticsExportFormat = "json"
+
+    static let analyticsAutoExportKey = "analyticsAutoExport"
+    static let analyticsAutoExportFormatKey = "analyticsAutoExportFormat"
+    static let defaultAnalyticsAutoExportFormat = "json"
+
+    // MARK: - SSIMULACRA2 Settings
+    static let ssimulacra2CustomPathKey = "ssimulacra2CustomPath"
+    static let ssimulacra2MaxFramesKey = "ssimulacra2MaxFrames"
+    static let defaultSSIMULACRA2MaxFrames: Int = 50
 }

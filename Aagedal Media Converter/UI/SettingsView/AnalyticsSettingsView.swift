@@ -6,8 +6,10 @@ import SwiftUI
 
 struct AnalyticsSettingsView: View {
     @AppStorage(AppConstants.analyticsVMAFModelKey) private var vmafModel = AppConstants.defaultAnalyticsVMAFModel
-    @AppStorage(AppConstants.analyticsExportFormatKey) private var exportFormat = AppConstants.defaultAnalyticsExportFormat
     @AppStorage(AppConstants.analyticsAutoRunKey) private var autoRunAfterConversion = false
+    @AppStorage(AppConstants.analyticsAutoExportKey) private var autoExport = false
+    @AppStorage(AppConstants.analyticsAutoExportFormatKey) private var autoExportFormat = AppConstants.defaultAnalyticsAutoExportFormat
+    @AppStorage(AppConstants.ssimulacra2MaxFramesKey) private var ssimulacra2MaxFrames = AppConstants.defaultSSIMULACRA2MaxFrames
 
     @State private var enabledMetrics: Set<String> = []
 
@@ -15,7 +17,7 @@ struct AnalyticsSettingsView: View {
         Form {
             metricsSection
             vmafSettingsSection
-            exportSection
+            ssimulacra2SettingsSection
             automationSection
             aboutSection
         }
@@ -70,15 +72,45 @@ struct AnalyticsSettingsView: View {
         }
     }
 
-    // MARK: - Export Section
+    // MARK: - SSIMULACRA2 Settings Section
 
-    private var exportSection: some View {
-        Section(header: Text("Export")) {
-            Picker("Export Format", selection: $exportFormat) {
-                ForEach(AnalyticsExportFormat.allCases, id: \.self) { format in
-                    Text(format.displayName).tag(format.rawValue)
+    private var ssimulacra2SettingsSection: some View {
+        Section(header: Text("SSIMULACRA2 Settings")) {
+            HStack {
+                Text("ssimulacra2_rs")
+                Spacer()
+                if BinaryPathResolver.isSSIMULACRA2Available {
+                    Label("Available", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                } else {
+                    Label("Not Found", systemImage: "xmark.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.caption)
                 }
             }
+
+            if !BinaryPathResolver.isSSIMULACRA2Available {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Requires Rust. Install Rust first, then the tool:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                    Text("cargo install ssimulacra2_rs --no-default-features")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Stepper("Max Frames: \(ssimulacra2MaxFrames)", value: $ssimulacra2MaxFrames, in: 5...500, step: 5)
+
+            Text("Number of frames sampled evenly across the video for comparison. More frames gives higher accuracy but takes longer.")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
     }
 
@@ -90,6 +122,20 @@ struct AnalyticsSettingsView: View {
             Text("When enabled, quality analytics will run on each file immediately after encoding completes.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+            Toggle("Auto-export analytics results", isOn: $autoExport)
+
+            if autoExport {
+                Picker("Export Format", selection: $autoExportFormat) {
+                    ForEach(AnalyticsExportFormat.allCases, id: \.self) { format in
+                        Text(format.displayName).tag(format.rawValue)
+                    }
+                }
+
+                Text("Analytics results will be saved next to the encoded file after each analysis completes.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
@@ -107,8 +153,12 @@ struct AnalyticsSettingsView: View {
                     detail: "Peak Signal-to-Noise Ratio. Traditional mathematical metric measured in dB. Higher values indicate better quality. Typical range: 30-50 dB."
                 )
                 metricInfoRow(
+                    name: "XPSNR",
+                    detail: "Extended PSNR by Fraunhofer HHI. Perceptually weighted PSNR metric measured in dB. Values above 42 dB are considered visually lossless."
+                )
+                metricInfoRow(
                     name: "SSIMULACRA2",
-                    detail: "Perceptual quality metric by Cloudflare. Measures structural similarity on a 0-100 scale. Scores above 70 indicate good quality."
+                    detail: "Perceptual quality metric by Cloudflare. Measures structural similarity on a 0-100 scale. Scores above 70 indicate good quality. Requires the external ssimulacra2_rs binary."
                 )
             }
         }

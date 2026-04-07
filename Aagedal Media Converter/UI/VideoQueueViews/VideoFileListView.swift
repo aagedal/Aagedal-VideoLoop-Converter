@@ -156,6 +156,9 @@ struct VideoFileListView: View {
                     analyzeOnly: { itemID in
                         await analyzeOnly(itemID: itemID)
                     },
+                    analyzeMetrics: { itemID, metrics in
+                        await analyzeMetrics(itemID: itemID, metrics: metrics)
+                    },
                     onDeleteGroup: onDeleteGroup,
                     onAddFilesToGroup: onAddFilesToGroup,
                     onResetGroup: onResetGroup
@@ -1000,6 +1003,7 @@ struct VideoFileListView: View {
                     droppedFiles[idx].analyticsResults = analyticsResults
                     droppedFiles[idx].analyticsProgress = 1.0
                 }
+                AnalyticsExporter.autoExportIfEnabled(results: analyticsResults, encodedFileURL: encodedURL)
             }
 
             Self.logger.info("Analyze-only completed for \(encodedURL.lastPathComponent, privacy: .public)")
@@ -1011,6 +1015,90 @@ struct VideoFileListView: View {
                 }
             }
             Self.logger.error("Analyze-only failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Runs specific quality metrics and merges results with existing analytics
+    func analyzeMetrics(itemID: UUID, metrics: [QualityMetric]) async {
+        guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+
+        let sourceURL = droppedFiles[index].url
+        guard let encodedURL = droppedFiles[index].outputURL else {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].analyticsStatus = .failed("No encoded output file available")
+                }
+            }
+            return
+        }
+
+        let vmafModelRaw = UserDefaults.standard.string(forKey: AppConstants.analyticsVMAFModelKey)
+            ?? AppConstants.defaultAnalyticsVMAFModel
+        let vmafModel = VMAFModel(rawValue: vmafModelRaw) ?? .vmaf_v0_6_1
+
+        await MainActor.run {
+            if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].analyticsStatus = .pending
+            }
+        }
+
+        do {
+            let newResults = try await AnalyticsService.shared.runAnalytics(
+                sourceFile: sourceURL,
+                encodedFile: encodedURL,
+                enabledMetrics: metrics,
+                vmafModel: vmafModel
+            ) { metric, progressValue in
+                Task { @MainActor in
+                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        self.droppedFiles[idx].analyticsStatus = .running(metric: metric, progress: progressValue)
+                        self.droppedFiles[idx].analyticsProgress = progressValue
+                    }
+                }
+            }
+
+            let durationSeconds = droppedFiles.first(where: { $0.id == itemID })?.durationSeconds ?? 0
+
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    // Merge new results with existing
+                    var existingMetrics = droppedFiles[idx].analyticsResults?.metrics ?? []
+                    let newMetricTypes = Set(newResults.map(\.metric))
+                    existingMetrics.removeAll { newMetricTypes.contains($0.metric) }
+                    existingMetrics.append(contentsOf: newResults)
+
+                    droppedFiles[idx].analyticsResults = AnalyticsResults(
+                        sourceFileName: sourceURL.lastPathComponent,
+                        encodedFileName: encodedURL.lastPathComponent,
+                        metrics: existingMetrics,
+                        timestamp: Date(),
+                        durationSeconds: durationSeconds
+                    )
+                    droppedFiles[idx].analyticsStatus = .completed
+                    droppedFiles[idx].analyticsProgress = 1.0
+
+                    if let updatedResults = droppedFiles[idx].analyticsResults {
+                        AnalyticsExporter.autoExportIfEnabled(results: updatedResults, encodedFileURL: encodedURL)
+                    }
+                }
+            }
+
+            Self.logger.info("Additional metrics completed for \(encodedURL.lastPathComponent, privacy: .public)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    // Restore to completed if we had prior results
+                    if droppedFiles[idx].analyticsResults != nil {
+                        droppedFiles[idx].analyticsStatus = .completed
+                    } else {
+                        droppedFiles[idx].analyticsStatus = .failed(error.localizedDescription)
+                    }
+                }
+            }
+            Self.logger.error("Additional metrics failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

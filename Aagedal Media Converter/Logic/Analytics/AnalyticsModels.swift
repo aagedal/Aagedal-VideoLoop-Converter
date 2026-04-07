@@ -8,12 +8,14 @@ import Foundation
 enum QualityMetric: String, CaseIterable, Codable, Sendable {
     case vmaf
     case psnr
+    case xpsnr
     case ssimulacra2
 
     var displayName: String {
         switch self {
         case .vmaf: return "VMAF"
         case .psnr: return "PSNR"
+        case .xpsnr: return "XPSNR"
         case .ssimulacra2: return "SSIMULACRA2"
         }
     }
@@ -24,6 +26,8 @@ enum QualityMetric: String, CaseIterable, Codable, Sendable {
             return "Video Multi-Method Assessment Fusion. Perceptual quality metric developed by Netflix. Scale: 0-100."
         case .psnr:
             return "Peak Signal-to-Noise Ratio. Traditional mathematical quality metric measured in dB."
+        case .xpsnr:
+            return "Extended PSNR by Fraunhofer HHI. Perceptually weighted PSNR metric measured in dB."
         case .ssimulacra2:
             return "Perceptual image quality metric by Cloudflare. Scale: 0-100."
         }
@@ -76,7 +80,7 @@ struct MetricResult: Codable, Equatable, Sendable {
 
     var formattedScore: String {
         switch metric {
-        case .psnr:
+        case .psnr, .xpsnr:
             return String(format: "%.2f %@", overallScore, unit)
         case .vmaf, .ssimulacra2:
             return String(format: "%.1f", overallScore)
@@ -95,6 +99,11 @@ struct MetricResult: Codable, Equatable, Sendable {
             if overallScore >= 30 { return "Good" }
             if overallScore >= 20 { return "Fair" }
             return "Poor"
+        case .xpsnr:
+            if overallScore >= 42 { return "Excellent" }
+            if overallScore >= 32 { return "Good" }
+            if overallScore >= 22 { return "Fair" }
+            return "Poor"
         case .ssimulacra2:
             if overallScore >= 90 { return "Excellent" }
             if overallScore >= 70 { return "Good" }
@@ -112,6 +121,10 @@ struct MetricResult: Codable, Equatable, Sendable {
         case .psnr:
             if overallScore >= 30 { return "green" }
             if overallScore >= 20 { return "yellow" }
+            return "red"
+        case .xpsnr:
+            if overallScore >= 32 { return "green" }
+            if overallScore >= 22 { return "yellow" }
             return "red"
         case .ssimulacra2:
             if overallScore >= 70 { return "green" }
@@ -187,12 +200,15 @@ enum AnalyticsError: Error, LocalizedError {
     case encodedFileNotFound
     case metricFailed(QualityMetric, String)
     case parsingFailed(String)
+    case ssimulacra2NotFound
     case cancelled
 
     var errorDescription: String? {
         switch self {
         case .ffmpegNotFound:
             return "FFmpeg binary not found."
+        case .ssimulacra2NotFound:
+            return "ssimulacra2_rs binary not found. Install Rust (curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh), then run: cargo install ssimulacra2_rs --no-default-features"
         case .sourceFileNotFound:
             return "Source file not found."
         case .encodedFileNotFound:

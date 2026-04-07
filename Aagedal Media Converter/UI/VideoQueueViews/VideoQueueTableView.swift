@@ -80,6 +80,7 @@ struct VideoQueueTableView: NSViewRepresentable {
     var onRenameOutputFileName: ((UUID, String?) -> Void)?
     var transcribeOnly: ((UUID, SubtitleConversionMethod) async -> Void)?
     var analyzeOnly: ((UUID) async -> Void)?
+    var analyzeMetrics: ((UUID, [QualityMetric]) async -> Void)?
     var onDeleteGroup: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
@@ -667,6 +668,13 @@ struct VideoQueueTableView: NSViewRepresentable {
                     let callback = self.parent.analyzeOnly
                     Task { @MainActor in
                         await callback?(itemID)
+                    }
+                },
+                onAnalyzeMetrics: { [weak self] metrics in
+                    guard let self else { return }
+                    let callback = self.parent.analyzeMetrics
+                    Task { @MainActor in
+                        await callback?(itemID, metrics)
                     }
                 },
                 onAttachSubtitleFile: { [weak self] in

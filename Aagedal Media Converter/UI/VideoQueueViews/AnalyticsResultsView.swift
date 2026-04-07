@@ -7,7 +7,14 @@ import AppKit
 
 struct AnalyticsResultsView: View {
     let results: AnalyticsResults
+    var onRunMetrics: (([QualityMetric]) -> Void)?
     @Environment(\.dismiss) var dismiss
+
+    /// Metrics that have not been run yet
+    private var missingMetrics: [QualityMetric] {
+        let completedMetrics = Set(results.metrics.map(\.metric))
+        return QualityMetric.allCases.filter { !completedMetrics.contains($0) }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,6 +29,10 @@ struct AnalyticsResultsView: View {
                 VStack(spacing: 16) {
                     ForEach(results.metrics, id: \.metric) { metric in
                         MetricScoreCard(result: metric)
+                    }
+
+                    if !missingMetrics.isEmpty, onRunMetrics != nil {
+                        missingMetricsSection
                     }
                 }
                 .padding()
@@ -67,6 +78,64 @@ struct AnalyticsResultsView: View {
                 Text(results.timestamp, style: .date)
                     .font(.caption)
                     .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Missing Metrics
+
+    private var missingMetricsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Additional Metrics")
+                .font(.headline)
+                .foregroundColor(.secondary)
+
+            ForEach(missingMetrics, id: \.self) { metric in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(metric.displayName)
+                            .font(.subheadline)
+                        Text(metric.description)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    if metric == .ssimulacra2 && !BinaryPathResolver.isSSIMULACRA2Available {
+                        Text("Not installed")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Button("Run") {
+                            dismiss()
+                            onRunMetrics?([metric])
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+            }
+
+            if missingMetrics.count > 1 {
+                let runnableMetrics = missingMetrics.filter { metric in
+                    metric != .ssimulacra2 || BinaryPathResolver.isSSIMULACRA2Available
+                }
+                if runnableMetrics.count > 1 {
+                    Button("Run All") {
+                        dismiss()
+                        onRunMetrics?(runnableMetrics)
+                    }
+                    .controlSize(.small)
+                }
             }
         }
     }
@@ -150,7 +219,7 @@ struct MetricScoreCard: View {
                     .font(.system(size: 36, weight: .bold, design: .rounded))
                     .foregroundColor(ratingColor)
 
-                if result.metric == .psnr {
+                if result.metric == .psnr || result.metric == .xpsnr {
                     Text("dB")
                         .font(.title3)
                         .foregroundColor(.secondary)
@@ -219,6 +288,8 @@ struct MetricScoreCard: View {
             return "Scale: 0-100. >93 Excellent, >80 Good, >60 Fair, <60 Poor"
         case .psnr:
             return "Scale: dB. >40 Excellent, >30 Good, >20 Fair, <20 Poor"
+        case .xpsnr:
+            return "Scale: dB. >42 Excellent, >32 Good, >22 Fair, <22 Poor"
         case .ssimulacra2:
             return "Scale: 0-100. >90 Excellent, >70 Good, >50 Fair, <50 Poor"
         }
