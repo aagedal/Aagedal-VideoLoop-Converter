@@ -30,6 +30,7 @@ struct VideoFileRowView: View {
     var onTranscribeOnly: ((SubtitleConversionMethod) -> Void)?
     var onCancelSubtitleGeneration: (() -> Void)?
     var onAnalyzeOnly: (() -> Void)?
+    var onAttachSubtitleFile: (() -> Void)?
     var onRenameOutputFileName: ((String?) -> Void)? = nil
     /// Indicates if this row is selected in the list
     var isSelected: Bool = false
@@ -712,6 +713,94 @@ struct VideoFileRowView: View {
                 .stroke(isSelected ? Color.accentColor : Color.gray.opacity(0.3), lineWidth: isSelected ? 2 : 0.8)
         )
         .padding(.horizontal, 4)
+        .contextMenu {
+            // Show in Finder
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([file.url])
+            } label: {
+                Label("Show Source in Finder", systemImage: "folder")
+            }
+
+            if file.status == .done, let outputURL = file.outputURL {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([outputURL])
+                } label: {
+                    Label("Show Output in Finder", systemImage: "folder.badge.gearshape")
+                }
+            }
+
+            if let srtURL = file.subtitleFilePath {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([srtURL])
+                } label: {
+                    Label("Show Subtitle File in Finder", systemImage: "captions.bubble")
+                }
+            }
+
+            Divider()
+
+            // Preview / Trim
+            if !file.isDownloading && file.scheduledDownloadTime == nil {
+                Button {
+                    showPreview = true
+                } label: {
+                    Label("Preview / Trim", systemImage: "scissors")
+                }
+            }
+
+            // Metadata
+            Button {
+                showMetadata = true
+            } label: {
+                Label("Metadata", systemImage: "info.circle")
+            }
+
+            // Audio Routing
+            if preset.outputsVideoTrack {
+                Button {
+                    showAudioRouting = true
+                } label: {
+                    Label("Audio Routing", systemImage: "speaker.wave.2")
+                }
+            }
+
+            Divider()
+
+            // Attach Subtitle File
+            Button {
+                onAttachSubtitleFile?()
+            } label: {
+                Label("Attach Subtitle File\u{2026}", systemImage: "doc.text")
+            }
+
+            Divider()
+
+            // Rename output
+            Button {
+                beginOutputNameEdit()
+            } label: {
+                Label("Rename Output", systemImage: "pencil")
+            }
+            .disabled(file.status != .waiting)
+
+            // Reset
+            Button {
+                onReset(false)
+            } label: {
+                Label("Reset", systemImage: "arrow.counterclockwise")
+            }
+            .disabled(file.status == .waiting || file.status == .converting)
+
+            Divider()
+
+            // Remove
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Remove", systemImage: "trash")
+            }
+            .disabled(file.status == .converting)
+        }
         .sheet(isPresented: $showPreview) {
             // Don't show preview for scheduled downloads or items being downloaded
             if showPreview && !file.isDownloading && file.scheduledDownloadTime == nil {

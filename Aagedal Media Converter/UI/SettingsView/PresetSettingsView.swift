@@ -1065,7 +1065,7 @@ struct PresetsSettingsView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.yellow)
                                 .font(.caption)
-                            Text("Subtitles may be out of sync when trimming. Bitmap subtitles (PGS, DVB) are not supported in MP4 — use MKV instead.")
+                            Text("Subtitles may be out of sync when trimming. Bitmap subtitles (PGS, DVB) are not supported in MP4/MOV — use MKV instead.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
