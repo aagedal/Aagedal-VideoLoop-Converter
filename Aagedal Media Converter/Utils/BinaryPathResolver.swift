@@ -341,6 +341,57 @@ enum BinaryPathResolver {
     private static func resolveBundledTesseractPath() -> String? {
         Bundle.main.path(forResource: "tesseract", ofType: nil)
     }
+
+    // MARK: - SSIMULACRA2
+
+    /// Resolves the path to the ssimulacra2_rs binary.
+    /// Priority: custom path > cargo bin > bundled
+    static var ssimulacra2Path: String? {
+        if let customPath = resolveCustomSSIMULACRA2Path() {
+            return customPath
+        }
+        if let cargoPath = resolveCargoSSIMULACRA2Path() {
+            return cargoPath
+        }
+        return resolveBundledSSIMULACRA2Path()
+    }
+
+    /// Returns whether ssimulacra2_rs is available
+    static var isSSIMULACRA2Available: Bool {
+        ssimulacra2Path != nil
+    }
+
+    /// Saves a custom ssimulacra2_rs path
+    static func saveCustomSSIMULACRA2Path(_ path: String?) {
+        if let path = path, !path.isEmpty {
+            UserDefaults.standard.set(path, forKey: AppConstants.ssimulacra2CustomPathKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: AppConstants.ssimulacra2CustomPathKey)
+        }
+    }
+
+    private static func resolveCustomSSIMULACRA2Path() -> String? {
+        if let path = UserDefaults.standard.string(forKey: AppConstants.ssimulacra2CustomPathKey),
+           !path.isEmpty,
+           FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private static func resolveCargoSSIMULACRA2Path() -> String? {
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "\(homeDir)/.cargo/bin/ssimulacra2_rs",
+            "/opt/homebrew/bin/ssimulacra2_rs",
+            "/usr/local/bin/ssimulacra2_rs"
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    private static func resolveBundledSSIMULACRA2Path() -> String? {
+        Bundle.main.path(forResource: "ssimulacra2_rs", ofType: nil)
+    }
 }
 
 // MARK: - Homebrew Python Script Executor

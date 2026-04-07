@@ -30,6 +30,7 @@ struct VideoFileRowView: View {
     var onTranscribeOnly: ((SubtitleConversionMethod) -> Void)?
     var onCancelSubtitleGeneration: (() -> Void)?
     var onAnalyzeOnly: (() -> Void)?
+    var onAnalyzeMetrics: (([QualityMetric]) -> Void)?
     var onAttachSubtitleFile: (() -> Void)?
     var onRenameOutputFileName: ((String?) -> Void)? = nil
     /// Indicates if this row is selected in the list
@@ -423,6 +424,19 @@ struct VideoFileRowView: View {
                                         }
                                         .buttonStyle(BorderlessButtonStyle())
                                         .help("Cancel subtitle generation")
+                                    } else if file.analyticsStatus.isInProgress {
+                                        Button(action: {
+                                            Task {
+                                                await AnalyticsService.shared.cancelAnalysis()
+                                            }
+                                            file.analyticsStatus = .notQueued
+                                            file.analyticsProgress = 0
+                                        }) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel analytics")
                                     } else {
                                         Button(action: {
                                             isBeingDeleted = true
@@ -692,6 +706,21 @@ struct VideoFileRowView: View {
                                         }
                                         .buttonStyle(.borderless)
                                         .help("Cancel subtitle generation")
+                                    } else if file.analyticsStatus.isInProgress {
+                                        Button(action: {
+                                            Task {
+                                                await AnalyticsService.shared.cancelAnalysis()
+                                            }
+                                            file.analyticsStatus = .notQueued
+                                            file.analyticsProgress = 0
+                                        }) {
+                                            Image(systemName: "xmark.circle")
+                                                .font(.system(size: 14))
+                                                .frame(width: 20, height: 20)
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .help("Cancel analytics")
                                     } else {
                                         Button(action: {
                                             // Set deletion flag and clear focus BEFORE deleting
@@ -877,7 +906,9 @@ struct VideoFileRowView: View {
         }
         .sheet(isPresented: $showAnalyticsResults) {
             if showAnalyticsResults, let results = file.analyticsResults {
-                AnalyticsResultsView(results: results)
+                AnalyticsResultsView(results: results) { metrics in
+                    onAnalyzeMetrics?(metrics)
+                }
             }
         }
         .fileImporter(

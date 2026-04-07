@@ -93,6 +93,16 @@ actor AnalyticsService {
     ) async throws -> MetricResult {
         logger.info("Starting \(metric.displayName, privacy: .public) analysis")
 
+        // SSIMULACRA2 uses a separate binary (ssimulacra2_rs), not an FFmpeg filter
+        if metric == .ssimulacra2 {
+            return try await runSSIMULACRA2Metric(
+                ffmpegPath: ffmpegPath,
+                sourceFile: sourceFile,
+                encodedFile: encodedFile,
+                progress: progress
+            )
+        }
+
         let process = Process()
         let stderrPipe = Pipe()
 
@@ -120,11 +130,13 @@ actor AnalyticsService {
                 encodedFile: encodedFile,
                 sourceFile: sourceFile
             )
-        case .ssimulacra2:
-            process.arguments = buildSSIMULACRA2Arguments(
+        case .xpsnr:
+            process.arguments = buildXPSNRArguments(
                 encodedFile: encodedFile,
                 sourceFile: sourceFile
             )
+        case .ssimulacra2:
+            fatalError("SSIMULACRA2 should be handled by runSSIMULACRA2Metric")
         }
 
         currentProcess = process
@@ -233,8 +245,10 @@ actor AnalyticsService {
             try? FileManager.default.removeItem(at: logURL)
         case .psnr:
             result = try parsePSNRResults(from: stderrOutput)
+        case .xpsnr:
+            result = try parseXPSNRResults(from: stderrOutput)
         case .ssimulacra2:
-            result = try parseSSIMULACRA2Results(from: stderrOutput)
+            fatalError("SSIMULACRA2 should be handled by runSSIMULACRA2Metric")
         }
 
         progress(1.0)
@@ -278,18 +292,231 @@ actor AnalyticsService {
         ]
     }
 
-    private func buildSSIMULACRA2Arguments(
+    private func buildXPSNRArguments(
         encodedFile: URL,
         sourceFile: URL
     ) -> [String] {
-        let filter = "[1:v][0:v]scale2ref=flags=bicubic[ref][dist];[dist][ref]ssimulacra2"
+        // XPSNR expects reference first, distorted second
+        // scale2ref scales source (input 0) to match encoded (input 1) dimensions
+        let filter = "[0:v][1:v]scale2ref=flags=bicubic[ref][dist];[ref][dist]xpsnr"
         return [
-            "-i", encodedFile.path,
             "-i", sourceFile.path,
-            "-filter_complex", filter,
+            "-i", encodedFile.path,
+            "-lavfi", filter,
             "-f", "null",
             "-"
         ]
+    }
+
+    // MARK: - SSIMULACRA2 (Frame-Based)
+
+    /// Runs SSIMULACRA2 analysis by extracting frames and comparing with ssimulacra2_rs binary
+    private func runSSIMULACRA2Metric(
+        ffmpegPath: String,
+        sourceFile: URL,
+        encodedFile: URL,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> MetricResult {
+        guard let ssimulacra2Path = BinaryPathResolver.ssimulacra2Path else {
+            throw AnalyticsError.ssimulacra2NotFound
+        }
+
+        let duration = try await getVideoDuration(for: encodedFile)
+        let resolution = try await getVideoResolution(for: sourceFile)
+
+        let maxFrames = UserDefaults.standard.integer(forKey: AppConstants.ssimulacra2MaxFramesKey)
+        let frameCount = max(1, maxFrames > 0 ? maxFrames : AppConstants.defaultSSIMULACRA2MaxFrames)
+        let actualFrameCount = min(frameCount, max(1, Int(duration)))
+        let interval = duration / Double(actualFrameCount)
+
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ssimulacra2_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+
+        var scores: [Double] = []
+
+        for i in 0..<actualFrameCount {
+            guard !isCancelled else { throw AnalyticsError.cancelled }
+
+            let timestamp = Double(i) * interval
+            let sourceFrame = tempDir.appendingPathComponent("source_\(String(format: "%04d", i)).png")
+            let encodedFrame = tempDir.appendingPathComponent("encoded_\(String(format: "%04d", i)).png")
+
+            // Extract frames from both videos
+            try extractFrame(ffmpegPath: ffmpegPath, input: sourceFile, timestamp: timestamp, output: sourceFrame, scaleFilter: nil)
+            try extractFrame(ffmpegPath: ffmpegPath, input: encodedFile, timestamp: timestamp, output: encodedFrame, scaleFilter: "scale=\(resolution.width):\(resolution.height)")
+
+            // Compare with ssimulacra2_rs
+            let score = try compareFrames(ssimulacra2Path: ssimulacra2Path, source: sourceFrame, encoded: encodedFrame)
+            scores.append(score)
+
+            // Clean up frames immediately to save disk space
+            try? FileManager.default.removeItem(at: sourceFrame)
+            try? FileManager.default.removeItem(at: encodedFrame)
+
+            let currentProgress = Double(i + 1) / Double(actualFrameCount)
+            Task { @MainActor in
+                progress(min(currentProgress, 0.99))
+            }
+        }
+
+        guard !scores.isEmpty else {
+            throw AnalyticsError.parsingFailed("No SSIMULACRA2 scores were computed")
+        }
+
+        let mean = scores.reduce(0, +) / Double(scores.count)
+        progress(1.0)
+
+        logger.info("SSIMULACRA2 complete: \(String(format: "%.1f", mean), privacy: .public) (sampled \(scores.count) frames)")
+
+        return MetricResult(
+            metric: .ssimulacra2,
+            overallScore: mean,
+            min: scores.min(),
+            max: scores.max(),
+            unit: "score",
+            channelScores: nil
+        )
+    }
+
+    /// Extracts a single frame from a video at the given timestamp
+    private func extractFrame(ffmpegPath: String, input: URL, timestamp: Double, output: URL, scaleFilter: String?) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+
+        var args = [
+            "-ss", String(format: "%.3f", timestamp),
+            "-i", input.path
+        ]
+        if let scaleFilter = scaleFilter {
+            args += ["-vf", scaleFilter]
+        }
+        args += [
+            "-frames:v", "1",
+            "-update", "1",
+            "-y",
+            output.path
+        ]
+
+        process.arguments = args
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        currentProcess = process
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            throw AnalyticsError.metricFailed(.ssimulacra2, "Failed to extract frame at \(String(format: "%.1f", timestamp))s")
+        }
+    }
+
+    /// Compares two image files using ssimulacra2_rs and returns the score
+    private func compareFrames(ssimulacra2Path: String, source: URL, encoded: URL) throws -> Double {
+        let process = Process()
+        let stdoutPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: ssimulacra2Path)
+        process.arguments = ["image", source.path, encoded.path]
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        currentProcess = process
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            throw AnalyticsError.metricFailed(.ssimulacra2, "ssimulacra2_rs exited with code \(process.terminationStatus)")
+        }
+
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            throw AnalyticsError.parsingFailed("Could not parse ssimulacra2_rs output")
+        }
+
+        // Output format: "Score: 97.53500802"
+        let scoreString = output.hasPrefix("Score:") ? output.dropFirst(6).trimmingCharacters(in: .whitespaces) : output
+        guard let score = Double(scoreString) else {
+            throw AnalyticsError.parsingFailed("Could not parse ssimulacra2_rs output: \(output)")
+        }
+
+        return score
+    }
+
+    /// Gets video duration in seconds using ffprobe
+    private func getVideoDuration(for file: URL) throws -> Double {
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
+            throw AnalyticsError.ffmpegNotFound
+        }
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: ffprobePath)
+        process.arguments = [
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            file.path
+        ]
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let duration = Double(output), duration > 0 else {
+            throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video duration")
+        }
+
+        return duration
+    }
+
+    /// Gets video resolution (width x height) using ffprobe
+    private func getVideoResolution(for file: URL) throws -> (width: Int, height: Int) {
+        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
+            throw AnalyticsError.ffmpegNotFound
+        }
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: ffprobePath)
+        process.arguments = [
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0",
+            file.path
+        ]
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video resolution")
+        }
+
+        let parts = output.components(separatedBy: "x")
+        guard parts.count == 2,
+              let width = Int(parts[0]),
+              let height = Int(parts[1]) else {
+            throw AnalyticsError.metricFailed(.ssimulacra2, "Could not parse video resolution: \(output)")
+        }
+
+        return (width, height)
     }
 
     // MARK: - Result Parsing
@@ -357,59 +584,38 @@ actor AnalyticsService {
         )
     }
 
-    private func parseSSIMULACRA2Results(from stderrOutput: String) throws -> MetricResult {
-        // Parse the final aggregate score from ssimulacra2 filter output
-        // Try the "All:" summary line first
-        let patterns = [
-            #"All:\s*([\d.]+)"#,
-            #"SSIMULACRA2\s+score:\s*([\d.]+)"#,
-            #"\[Parsed_ssimulacra2_0.*?\]\s*([\d.]+)"#
-        ]
+    private func parseXPSNRResults(from stderrOutput: String) throws -> MetricResult {
+        // Parse: [Parsed_xpsnr_1 @ 0x...] XPSNR  y: 35.0515  u: 49.0707  v: 50.7158  (minimum: 35.0515)
+        let pattern = #"XPSNR\s+y:\s*([\d.]+)\s+u:\s*([\d.]+)\s+v:\s*([\d.]+)\s+\(minimum:\s*([\d.]+)\)"#
 
-        var scores: [Double] = []
-
-        // Collect all per-frame scores to compute the mean
-        let perFramePattern = #"SSIMULACRA2\s+score:\s*([\d.]+)"#
-        if let perFrameRegex = try? NSRegularExpression(pattern: perFramePattern) {
-            let matches = perFrameRegex.matches(in: stderrOutput, range: NSRange(stderrOutput.startIndex..., in: stderrOutput))
-            for match in matches {
-                if let range = Range(match.range(at: 1), in: stderrOutput),
-                   let score = Double(stderrOutput[range]) {
-                    scores.append(score)
-                }
-            }
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: stderrOutput, range: NSRange(stderrOutput.startIndex..., in: stderrOutput)) else {
+            throw AnalyticsError.parsingFailed("Could not find XPSNR summary in FFmpeg output")
         }
 
-        // Try aggregate patterns
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern),
-               let match = regex.firstMatch(in: stderrOutput, range: NSRange(stderrOutput.startIndex..., in: stderrOutput)),
-               let range = Range(match.range(at: 1), in: stderrOutput),
-               let score = Double(stderrOutput[range]) {
-                return MetricResult(
-                    metric: .ssimulacra2,
-                    overallScore: score,
-                    min: scores.min(),
-                    max: scores.max(),
-                    unit: "score",
-                    channelScores: nil
-                )
-            }
+        func extractDouble(_ index: Int) -> Double? {
+            guard let range = Range(match.range(at: index), in: stderrOutput) else { return nil }
+            return Double(stderrOutput[range])
         }
 
-        // Fall back to mean of per-frame scores
-        guard !scores.isEmpty else {
-            throw AnalyticsError.parsingFailed("Could not find SSIMULACRA2 scores in FFmpeg output")
+        guard let y = extractDouble(1),
+              let u = extractDouble(2),
+              let v = extractDouble(3),
+              let minimum = extractDouble(4) else {
+            throw AnalyticsError.parsingFailed("Could not parse XPSNR values")
         }
 
-        let mean = scores.reduce(0, +) / Double(scores.count)
+        // Weighted XPSNR: (6*Y + U + V) / 8 (luma-weighted average)
+        let weighted = (6.0 * y + u + v) / 8.0
+
         return MetricResult(
-            metric: .ssimulacra2,
-            overallScore: mean,
-            min: scores.min(),
-            max: scores.max(),
-            unit: "score",
-            channelScores: nil
+            metric: .xpsnr,
+            overallScore: weighted,
+            min: minimum,
+            max: nil,
+            unit: "dB",
+            channelScores: ["Y": y, "U": u, "V": v]
         )
     }
+
 }

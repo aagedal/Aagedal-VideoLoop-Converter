@@ -5,9 +5,38 @@
 import Foundation
 import AppKit
 import SwiftUI
+import OSLog
 
 /// Exports analytics results to JSON or PDF
 enum AnalyticsExporter {
+
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "AnalyticsExporter")
+
+    /// Automatically exports analytics results next to the encoded file if auto-export is enabled in settings
+    @MainActor
+    static func autoExportIfEnabled(results: AnalyticsResults, encodedFileURL: URL) {
+        guard UserDefaults.standard.bool(forKey: AppConstants.analyticsAutoExportKey) else { return }
+
+        let formatRaw = UserDefaults.standard.string(forKey: AppConstants.analyticsAutoExportFormatKey)
+            ?? AppConstants.defaultAnalyticsAutoExportFormat
+        let format = AnalyticsExportFormat(rawValue: formatRaw) ?? .json
+
+        let baseName = encodedFileURL.deletingPathExtension().lastPathComponent
+        let exportURL = encodedFileURL.deletingLastPathComponent()
+            .appendingPathComponent("\(baseName)_analytics.\(format.fileExtension)")
+
+        do {
+            switch format {
+            case .json:
+                try exportJSON(results: results, to: exportURL)
+            case .pdf:
+                try exportPDF(results: results, to: exportURL)
+            }
+            logger.info("Auto-exported analytics to \(exportURL.lastPathComponent, privacy: .public)")
+        } catch {
+            logger.error("Auto-export failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 
     /// Exports results to a pretty-printed JSON file
     static func exportJSON(results: AnalyticsResults, to url: URL) throws {
