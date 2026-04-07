@@ -669,6 +669,9 @@ struct VideoQueueTableView: NSViewRepresentable {
                         await callback?(itemID)
                     }
                 },
+                onAttachSubtitleFile: { [weak self] in
+                    self?.promptAttachSubtitleFile(itemID: itemID, source: source)
+                },
                 onRenameOutputFileName: { [weak self] newName in
                     self?.parent.onRenameOutputFileName?(itemID, newName)
                 },
@@ -695,6 +698,69 @@ struct VideoQueueTableView: NSViewRepresentable {
                 showDateTagButton: isGroupItem ? false : parent.showDateTagButton,
                 isCompactMode: isGroupItem ? true : parent.isCompactMode
             )
+        }
+
+        // MARK: - Attach Subtitle File
+
+        /// Opens a file picker for SRT/ASS/SSA subtitle files and attaches the selected
+        /// file to the given queue item. If the embed-subtitles setting is on and the
+        /// item already has an output file, the subtitle is also muxed in.
+        private func promptAttachSubtitleFile(itemID: UUID, source: ItemSource) {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.title = "Select Subtitle File"
+            panel.message = "Choose an SRT, ASS, or SSA subtitle file to attach."
+            panel.allowedContentTypes = [
+                .init(filenameExtension: "srt")!,
+                .init(filenameExtension: "ass")!,
+                .init(filenameExtension: "ssa")!,
+            ]
+
+            panel.begin { [weak self] response in
+                guard response == .OK, let url = panel.url, let self else { return }
+
+                // Update the item's subtitleFilePath
+                switch source {
+                case .ungrouped:
+                    if let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        self.parent.droppedFiles[idx].subtitleFilePath = url
+                        self.parent.droppedFiles[idx].subtitleStatus = .completed
+
+                        // If embed is enabled and the item already has an output, mux it in
+                        let shouldEmbed = UserDefaults.standard.bool(forKey: AppConstants.embedSubtitlesKey)
+                        if shouldEmbed, let outputURL = self.parent.droppedFiles[idx].outputURL,
+                           self.parent.droppedFiles[idx].status == .done {
+                            Task {
+                                await ConversionManager.shared.embedSubtitlesForAttachedFile(
+                                    srtURL: url,
+                                    videoURL: outputURL,
+                                    itemID: itemID
+                                )
+                            }
+                        }
+                    }
+                case .group(let groupID):
+                    if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
+                       let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
+                        self.parent.encodingGroups[gIdx].items[iIdx].subtitleFilePath = url
+                        self.parent.encodingGroups[gIdx].items[iIdx].subtitleStatus = .completed
+
+                        let shouldEmbed = UserDefaults.standard.bool(forKey: AppConstants.embedSubtitlesKey)
+                        if shouldEmbed, let outputURL = self.parent.encodingGroups[gIdx].items[iIdx].outputURL,
+                           self.parent.encodingGroups[gIdx].items[iIdx].status == .done {
+                            Task {
+                                await ConversionManager.shared.embedSubtitlesForAttachedFile(
+                                    srtURL: url,
+                                    videoURL: outputURL,
+                                    itemID: itemID
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

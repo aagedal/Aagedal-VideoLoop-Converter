@@ -300,12 +300,13 @@ enum SubtitleStatus: Equatable, Sendable {
     case pending
     case extractingAudio
     case generating(progress: Double)
+    case embedding
     case completed
     case failed(String)
 
     var isInProgress: Bool {
         switch self {
-        case .pending, .extractingAudio, .generating:
+        case .pending, .extractingAudio, .generating, .embedding:
             return true
         default:
             return false
@@ -322,6 +323,8 @@ enum SubtitleStatus: Equatable, Sendable {
             return "Extracting audio"
         case .generating(let progress):
             return "Generating \(Int(progress * 100))%"
+        case .embedding:
+            return "Embedding subtitles"
         case .completed:
             return "Done"
         case .failed(let error):

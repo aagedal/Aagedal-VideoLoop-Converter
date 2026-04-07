@@ -627,6 +627,8 @@ enum AppConstants {
     static let defaultWhisperLanguage = "auto"
     static let whisperMaxLineLengthKey = "whisperMaxLineLength"
     static let defaultWhisperMaxLineLength = 42  // Characters per subtitle line
+    static let embedSubtitlesKey = "embedSubtitles"
+    static let defaultEmbedSubtitles = false
 
     // MARK: - Tesseract Settings
 

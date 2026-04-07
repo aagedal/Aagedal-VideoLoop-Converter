@@ -1562,6 +1562,17 @@ actor ConversionManager: Sendable {
 
             logger.info("Subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
+            // Embed SRT into the output file if enabled
+            let shouldEmbed = UserDefaults.standard.bool(forKey: AppConstants.embedSubtitlesKey)
+            if shouldEmbed {
+                await embedSubtitles(
+                    srtURL: srtURL,
+                    into: inputURL,
+                    itemID: itemID,
+                    droppedFiles: droppedFiles
+                )
+            }
+
         } catch {
             await MainActor.run {
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
@@ -1655,6 +1666,17 @@ actor ConversionManager: Sendable {
 
             logger.info("OCR subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
+            // Embed SRT into the output file if enabled
+            let shouldEmbed = UserDefaults.standard.bool(forKey: AppConstants.embedSubtitlesKey)
+            if shouldEmbed {
+                await embedSubtitles(
+                    srtURL: srtURL,
+                    into: outputURL,
+                    itemID: itemID,
+                    droppedFiles: droppedFiles
+                )
+            }
+
         } catch {
             await MainActor.run {
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
@@ -1662,6 +1684,172 @@ actor ConversionManager: Sendable {
                 }
             }
             logger.error("OCR subtitle generation failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Subtitle Embedding
+
+    /// Muxes a generated SRT file into the output video as a subtitle track using FFmpeg.
+    /// The original output file is replaced in-place; the external SRT is kept.
+    private func embedSubtitles(
+        srtURL: URL,
+        into videoURL: URL,
+        itemID: UUID,
+        droppedFiles: Binding<[VideoItem]>
+    ) async {
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+            logger.error("FFmpeg binary not found for subtitle embedding")
+            return
+        }
+
+        await MainActor.run {
+            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles.wrappedValue[idx].subtitleStatus = .embedding
+            }
+        }
+
+        let ext = videoURL.pathExtension.lowercased()
+        let tempURL = videoURL.deletingLastPathComponent()
+            .appendingPathComponent(UUID().uuidString + "." + ext)
+
+        // Choose subtitle codec based on container
+        let subtitleCodec: String
+        switch ext {
+        case "mkv", "mka":
+            subtitleCodec = "srt"
+        default:
+            // MP4, MOV, and others that support mov_text
+            subtitleCodec = "mov_text"
+        }
+
+        var arguments = [
+            "-y",
+            "-i", videoURL.path,
+            "-i", srtURL.path,
+            "-map", "0",          // all streams from the video
+            "-map", "1:s",        // subtitle stream from the SRT
+            "-c", "copy",         // copy all existing streams
+            "-c:s", subtitleCodec // encode the subtitle track
+        ]
+
+        // Tag the subtitle stream with a language if we can infer it from the SRT filename
+        // (e.g. "output.eng.srt") — otherwise leave unset
+        let srtStem = srtURL.deletingPathExtension().pathExtension
+        if !srtStem.isEmpty && srtStem.count <= 3 {
+            arguments.append(contentsOf: ["-metadata:s:s:0", "language=\(srtStem)"])
+        }
+
+        arguments.append(tempURL.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            if process.terminationStatus == 0 {
+                // Replace original with muxed version
+                let fm = FileManager.default
+                try fm.removeItem(at: videoURL)
+                try fm.moveItem(at: tempURL, to: videoURL)
+
+                logger.info("Subtitles embedded into \(videoURL.lastPathComponent, privacy: .public)")
+
+                await MainActor.run {
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                    }
+                }
+            } else {
+                // Clean up temp file on failure
+                try? FileManager.default.removeItem(at: tempURL)
+                logger.error("Subtitle embedding failed with exit code \(process.terminationStatus)")
+
+                await MainActor.run {
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        droppedFiles.wrappedValue[idx].subtitleStatus = .failed("Subtitle embedding failed")
+                    }
+                }
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            logger.error("Subtitle embedding error: \(error.localizedDescription, privacy: .public)")
+
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Standalone subtitle embedding for manually attached files (no queue binding needed).
+    /// Called from the context menu "Attach Subtitle File" action when the item is already done.
+    func embedSubtitlesForAttachedFile(
+        srtURL: URL,
+        videoURL: URL,
+        itemID: UUID
+    ) async {
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+            logger.error("FFmpeg binary not found for subtitle embedding")
+            return
+        }
+
+        let ext = videoURL.pathExtension.lowercased()
+        let tempURL = videoURL.deletingLastPathComponent()
+            .appendingPathComponent(UUID().uuidString + "." + ext)
+
+        let subtitleCodec: String
+        switch ext {
+        case "mkv", "mka":
+            subtitleCodec = "srt"
+        default:
+            subtitleCodec = "mov_text"
+        }
+
+        var arguments = [
+            "-y",
+            "-i", videoURL.path,
+            "-i", srtURL.path,
+            "-map", "0",
+            "-map", "1:s",
+            "-c", "copy",
+            "-c:s", subtitleCodec
+        ]
+
+        let srtStem = srtURL.deletingPathExtension().pathExtension
+        if !srtStem.isEmpty && srtStem.count <= 3 {
+            arguments.append(contentsOf: ["-metadata:s:s:0", "language=\(srtStem)"])
+        }
+
+        arguments.append(tempURL.path)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            if process.terminationStatus == 0 {
+                let fm = FileManager.default
+                try fm.removeItem(at: videoURL)
+                try fm.moveItem(at: tempURL, to: videoURL)
+                logger.info("Subtitles embedded (attached) into \(videoURL.lastPathComponent, privacy: .public)")
+            } else {
+                try? FileManager.default.removeItem(at: tempURL)
+                logger.error("Subtitle embedding (attached) failed with exit code \(process.terminationStatus)")
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            logger.error("Subtitle embedding (attached) error: \(error.localizedDescription, privacy: .public)")
         }
     }
 
