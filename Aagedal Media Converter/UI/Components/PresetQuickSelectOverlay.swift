@@ -168,7 +168,7 @@ private struct PresetRow: View {
         currentPreset: .h264,
         displayName: { $0.description },
         onSelect: { preset in
-            Self.logger.debug("Selected: \(String(describing: preset), privacy: .public)")
+            print("Selected: \(preset)")
         }
     )
 }

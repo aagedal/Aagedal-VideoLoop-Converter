@@ -27,7 +27,9 @@ struct VideoFileRowView: View {
     var onRetryDownload: (() -> Void)?
     var onForceRedownload: (() -> Void)?
     var onCancelScheduledDownload: (() -> Void)?
-    var onTranscribeOnly: (() -> Void)?
+    var onTranscribeOnly: ((SubtitleConversionMethod) -> Void)?
+    var onCancelSubtitleGeneration: (() -> Void)?
+    var onAnalyzeOnly: (() -> Void)?
     var onRenameOutputFileName: ((String?) -> Void)? = nil
     /// Indicates if this row is selected in the list
     var isSelected: Bool = false
@@ -52,6 +54,13 @@ struct VideoFileRowView: View {
         guard let tracks = file.audioRoutingConfig?.inputTracks, tracks.count > 1 else { return false }
         let allMono = tracks.allSatisfy { ($0.channels ?? 0) == 1 }
         return !allMono
+    }
+
+    @ViewBuilder private var dcpAudioWarningView: some View {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.subheadline)
+            .foregroundColor(.yellow)
+            .help("Multiple audio tracks detected — only the first track will be used for DCP encoding unless you configure audio routing.")
     }
 
     private var shouldShowMergeIndicator: Bool {
@@ -111,17 +120,91 @@ struct VideoFileRowView: View {
         file.subtitleEnabled ? .green : .secondary
     }
 
+    private static let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
+
+    private var bitmapSubtitleStreams: [VideoMetadata.SubtitleStream] {
+        file.metadata?.subtitleStreams.filter {
+            Self.bitmapCodecs.contains($0.codec?.lowercased() ?? "")
+        } ?? []
+    }
+
+    private var hasBitmapSubtitles: Bool { !bitmapSubtitleStreams.isEmpty }
+
+    private var audioStreams: [VideoMetadata.AudioStream] {
+        file.metadata?.audioStreams ?? []
+    }
+
     private var subtitleHelpText: String {
         if file.subtitleEnabled {
-            return "Subtitle generation enabled. SRT will be created after encoding. Option+click to generate SRT only (no encoding)."
+            let method = file.subtitleMethod == .ocr ? "OCR (Tesseract)" : "Transcription (Whisper)"
+            return "Subtitle generation enabled (\(method)). SRT will be created after encoding. Option+click to generate SRT only (no encoding)."
+        } else if hasBitmapSubtitles {
+            return "Enable subtitle generation. File has embedded picture subtitles — choose OCR or Whisper."
         } else {
             return "Enable subtitle generation after encoding. Option+click to generate SRT only (no encoding)."
+        }
+    }
+
+    private var analyticsIconName: String {
+        if file.analyticsResults != nil {
+            return "chart.bar.xaxis.ascending"
+        } else if file.analyticsEnabled || file.analyticsStatus.isInProgress {
+            return "chart.bar.xaxis.ascending"
+        } else {
+            return "chart.bar.xaxis"
+        }
+    }
+
+    private var analyticsIconColor: Color {
+        if file.analyticsResults != nil {
+            return .green
+        } else if file.analyticsStatus.isInProgress {
+            return .orange
+        } else if file.analyticsEnabled {
+            return .cyan
+        } else {
+            return .secondary
+        }
+    }
+
+    private var analyticsHelpText: String {
+        if file.analyticsResults != nil {
+            return "View quality analytics results. Option+click to rerun."
+        } else if file.analyticsStatus.isInProgress {
+            return file.analyticsStatus.displayText
+        } else if file.isReadyForAnalytics {
+            return "Run quality analytics now (VMAF/PSNR/SSIMULACRA2)."
+        } else if file.analyticsEnabled {
+            return "Quality analytics will run after encoding."
+        } else {
+            return "Enable quality analytics (VMAF/PSNR/SSIMULACRA2) after encoding."
         }
     }
 
     private func isOptionKeyPressed() -> Bool {
         let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
         return flags.contains(.option)
+    }
+
+    private func audioTrackLabel(_ stream: VideoMetadata.AudioStream, trackNumber: Int) -> String {
+        var parts: [String] = ["Track \(trackNumber)"]
+        if let lang = stream.languageCode { parts.append(lang.uppercased()) }
+        if let codec = stream.codec?.uppercased() { parts.append(codec) }
+        if let ch = stream.channels {
+            parts.append(ch == 1 ? "Mono" : ch == 2 ? "Stereo" : "\(ch)ch")
+        }
+        if let title = stream.title, !title.isEmpty { parts.append("(\(title))") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func subtitleTrackLabel(_ stream: VideoMetadata.SubtitleStream, trackNumber: Int) -> String {
+        var parts: [String] = ["Track \(trackNumber)"]
+        if let lang = stream.languageCode { parts.append(lang.uppercased()) }
+        if let codec = stream.codec?.lowercased() {
+            parts.append(codec == "pgssub" || codec == "hdmv_pgs_subtitle" ? "PGS" : "VOBSUB")
+        }
+        if let title = stream.title, !title.isEmpty { parts.append("(\(title))") }
+        return parts.joined(separator: " · ")
     }
 
     @FocusState private var isCommentFieldFocused: Bool
@@ -139,6 +222,13 @@ struct VideoFileRowView: View {
     @State private var outputNameDraft: String = ""
     @State private var showBackgroundImagePicker = false
     @State private var showAudioFilePicker = false
+    @State private var showAnalyticsResults = false
+    @State private var showSubtitleMethodPicker = false
+    @State private var showSubtitleTrackSheet = false
+    @State private var showAudioTrackSheet = false
+    @State private var pendingTranscribeOnly = false
+    @State private var showMetadataPendingAlert = false
+    @State private var metadataPendingIsTranscribeOnly = false
     @FocusState private var isOutputNameFieldFocused: Bool
 
     var body: some View {
@@ -313,6 +403,13 @@ struct VideoFileRowView: View {
                                         }
                                         .buttonStyle(BorderlessButtonStyle())
                                         .help("Cancel conversion")
+                                    } else if file.subtitleStatus.isInProgress {
+                                        Button(action: { onCancelSubtitleGeneration?() }) {
+                                            Image(systemName: "xmark.circle")
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(BorderlessButtonStyle())
+                                        .help("Cancel subtitle generation")
                                     } else {
                                         Button(action: {
                                             isBeingDeleted = true
@@ -339,7 +436,7 @@ struct VideoFileRowView: View {
                         }
 
                         // Progress bar (always present to prevent layout shifts on selection)
-                        if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading || file.subtitleStatus.isInProgress {
+                        if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading || file.subtitleStatus.isInProgress || file.analyticsStatus.isInProgress {
                             if (file.isDownloading && isDownloadPreparing) || isSubtitlePreparing || file.isLiveStreamRecording {
                                 // Indeterminate progress for preparing or live stream recording
                                 ProgressView()
@@ -368,11 +465,7 @@ struct VideoFileRowView: View {
                                         .foregroundColor(.yellow)
                                         .help("Duration exceeds 15 seconds. VideoLoops are best suited for shorter videos.")
                                 }
-                                if showDCPAudioWarning {
-                                    Image(systemName: "exclamationmark.triangle.fill").font(.subheadline)
-                                        .foregroundColor(.yellow)
-                                        .help("Multiple audio tracks detected — only the first track will be used. Use audio routing to select a different track.")
-                                }
+                                if showDCPAudioWarning { dcpAudioWarningView }
 
                                 Text("•")
                                     .foregroundColor(.gray)
@@ -426,7 +519,32 @@ struct VideoFileRowView: View {
                                 Button {
                                     if isOptionKeyPressed() {
                                         // Option+click: generate SRT only (no encoding)
-                                        onTranscribeOnly?()
+                                        if !file.subtitleEnabled && file.metadata == nil {
+                                            metadataPendingIsTranscribeOnly = true
+                                            showMetadataPendingAlert = true
+                                        } else if !file.subtitleEnabled && hasBitmapSubtitles {
+                                            pendingTranscribeOnly = true
+                                            showSubtitleMethodPicker = true
+                                        } else if !file.subtitleEnabled && audioStreams.count > 1 {
+                                            pendingTranscribeOnly = true
+                                            file.subtitleEnabled = true
+                                            file.subtitleMethod = .whisper
+                                            showAudioTrackSheet = true
+                                        } else {
+                                            onTranscribeOnly?(file.subtitleMethod)
+                                        }
+                                    } else if !file.subtitleEnabled && file.metadata == nil {
+                                        // Metadata not yet loaded: warn before silently enabling Whisper
+                                        metadataPendingIsTranscribeOnly = false
+                                        showMetadataPendingAlert = true
+                                    } else if !file.subtitleEnabled && hasBitmapSubtitles {
+                                        // First enable on a file with bitmap subs: ask which method
+                                        showSubtitleMethodPicker = true
+                                    } else if !file.subtitleEnabled && audioStreams.count > 1 {
+                                        // Non-bitmap file, Whisper only: pick audio track
+                                        file.subtitleEnabled = true
+                                        file.subtitleMethod = .whisper
+                                        showAudioTrackSheet = true
                                     } else {
                                         file.subtitleEnabled.toggle()
                                     }
@@ -436,6 +554,29 @@ struct VideoFileRowView: View {
                                 .buttonStyle(.borderless)
                                 .foregroundColor(subtitleIconColor)
                                 .help(subtitleHelpText)
+
+                                // Analytics toggle button (click to view results when available, Option+click to rerun)
+                                Button {
+                                    if file.analyticsResults != nil {
+                                        if isOptionKeyPressed() && file.isReadyForAnalytics {
+                                            file.analyticsResults = nil
+                                            file.analyticsStatus = .notQueued
+                                            onAnalyzeOnly?()
+                                        } else {
+                                            showAnalyticsResults = true
+                                        }
+                                    } else if file.isReadyForAnalytics {
+                                        onAnalyzeOnly?()
+                                    } else {
+                                        file.analyticsEnabled.toggle()
+                                    }
+                                } label: {
+                                    Image(systemName: analyticsIconName)
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundColor(analyticsIconColor)
+                                .disabled(!file.hasVideoStream)
+                                .help(analyticsHelpText)
 
                                 // Action buttons container with fixed width
                                 HStack(spacing: 4) {
@@ -492,6 +633,15 @@ struct VideoFileRowView: View {
                                         }
                                         .buttonStyle(BorderlessButtonStyle())
                                         .help("Cancel conversion")
+                                    } else if file.subtitleStatus.isInProgress {
+                                        Button(action: { onCancelSubtitleGeneration?() }) {
+                                            Image(systemName: "xmark.circle")
+                                                .font(.system(size: 14))
+                                                .frame(width: 20, height: 20)
+                                                .foregroundColor(.orange)
+                                        }
+                                        .buttonStyle(.borderless)
+                                        .help("Cancel subtitle generation")
                                     } else {
                                         Button(action: {
                                             // Set deletion flag and clear focus BEFORE deleting
@@ -587,6 +737,121 @@ struct VideoFileRowView: View {
                 DCPMetadataView(item: $file)
             }
         }
+        .sheet(isPresented: $showAnalyticsResults) {
+            if showAnalyticsResults, let results = file.analyticsResults {
+                AnalyticsResultsView(results: results)
+            }
+        }
+        .confirmationDialog(
+            "Choose Subtitle Method",
+            isPresented: $showSubtitleMethodPicker,
+            titleVisibility: .visible
+        ) {
+            Button("OCR (Tesseract)") {
+                file.subtitleMethod = .ocr
+                file.subtitleEnabled = true
+                if bitmapSubtitleStreams.count > 1 {
+                    showSubtitleTrackSheet = true
+                } else {
+                    file.selectedBitmapSubtitleStreamIndex = bitmapSubtitleStreams.first?.index
+                    if pendingTranscribeOnly {
+                        pendingTranscribeOnly = false
+                        onTranscribeOnly?(.ocr)
+                    }
+                }
+            }
+            Button("Transcription (Whisper)") {
+                file.subtitleMethod = .whisper
+                file.subtitleEnabled = true
+                if audioStreams.count > 1 {
+                    showAudioTrackSheet = true
+                } else {
+                    file.selectedAudioStreamIndex = audioStreams.first?.index
+                    if pendingTranscribeOnly {
+                        pendingTranscribeOnly = false
+                        onTranscribeOnly?(.whisper)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingTranscribeOnly = false
+            }
+        } message: {
+            Text("""
+                This file contains embedded picture-based subtitles (PGS/VOBSUB).
+
+                OCR (Tesseract)
+                + Fast — reads embedded subtitle images directly
+                + Preserves exact original timing
+                + Works offline without touching the audio
+                - Accuracy depends on image quality; may struggle with stylised or non-Latin text
+
+                Transcription (Whisper)
+                + Creates subtitles from speech — useful if audio differs from on-screen text
+                + Handles any language the selected Whisper model supports
+                - Slower — must process the full audio track
+                - Timings come from speech detection, not the original subtitle cues
+                """)
+        }
+        .confirmationDialog(
+            "Metadata Still Loading",
+            isPresented: $showMetadataPendingAlert,
+            titleVisibility: .visible
+        ) {
+            Button("Use Whisper Now") {
+                file.subtitleMethod = .whisper
+                if metadataPendingIsTranscribeOnly {
+                    onTranscribeOnly?(.whisper)
+                } else {
+                    file.subtitleEnabled = true
+                }
+            }
+            Button("Wait", role: .cancel) { }
+        } message: {
+            Text("Stream information hasn't finished loading. There may be embedded picture-based subtitle tracks (PGS/VOBSUB) in this file that could be converted with OCR. Wait a moment and try again, or start Whisper now.")
+        }
+        .sheet(isPresented: $showSubtitleTrackSheet) {
+            TrackPickerSheet(
+                title: "Select Subtitle Track",
+                message: "This file has multiple bitmap subtitle tracks. Select the one to convert with OCR.",
+                rows: bitmapSubtitleStreams.enumerated().map { offset, stream in
+                    TrackPickerSheet.Row(label: subtitleTrackLabel(stream, trackNumber: offset + 1), action: {
+                        file.selectedBitmapSubtitleStreamIndex = stream.index
+                        showSubtitleTrackSheet = false
+                        if pendingTranscribeOnly {
+                            pendingTranscribeOnly = false
+                            onTranscribeOnly?(.ocr)
+                        }
+                    })
+                },
+                onCancel: {
+                    showSubtitleTrackSheet = false
+                    pendingTranscribeOnly = false
+                    file.subtitleEnabled = false
+                }
+            )
+        }
+        .sheet(isPresented: $showAudioTrackSheet) {
+            TrackPickerSheet(
+                title: "Select Audio Track",
+                message: "Select the audio track to transcribe with Whisper.",
+                rows: audioStreams.enumerated().map { offset, stream in
+                    TrackPickerSheet.Row(label: audioTrackLabel(stream, trackNumber: offset + 1), action: {
+                        file.selectedAudioStreamIndex = stream.index
+                        showAudioTrackSheet = false
+                        if pendingTranscribeOnly {
+                            pendingTranscribeOnly = false
+                            onTranscribeOnly?(.whisper)
+                        }
+                    })
+                },
+                onCancel: {
+                    showAudioTrackSheet = false
+                    pendingTranscribeOnly = false
+                    file.subtitleEnabled = false
+                }
+            )
+        }
         .task(id: file.thumbnailData) {
             await Task.yield()
             // Decode thumbnail asynchronously off main thread
@@ -638,6 +903,7 @@ struct VideoFileRowView: View {
             .overlay(alignment: .bottomLeading, content: { trimBadge })
             .overlay(alignment: .bottomTrailing, content: { cropBadge })
             .overlay(alignment: .trailing, content: { uploadBadge })
+            .overlay(alignment: .leading, content: { analyticsBadge })
             .overlay { if isThumbnailHovered { thumbnailHoverOverlay } }
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -889,6 +1155,24 @@ struct VideoFileRowView: View {
         }
     }
 
+    @ViewBuilder
+    private var analyticsBadge: some View {
+        switch file.analyticsStatus {
+        case .running(let metric, _):
+            badgeView(icon: "chart.bar.xaxis", text: metric.displayName, color: .orange)
+        case .completed:
+            badgeView(icon: "chart.bar.xaxis", text: "", color: .green)
+        case .failed:
+            badgeView(icon: "chart.bar.xaxis", text: "!", color: .red)
+        case .pending:
+            badgeView(icon: "chart.bar.xaxis", text: "", color: .cyan)
+        case .notQueued:
+            if file.analyticsEnabled {
+                badgeView(icon: "chart.bar.xaxis", text: "", color: .cyan.opacity(0.7))
+            }
+        }
+    }
+
     private func badgeView(icon: String, text: String, color: Color? = nil) -> some View {
         HStack(spacing: text.isEmpty ? 0 : (isCompactMode ? 2 : 4)) {
             Image(systemName: icon)
@@ -1120,7 +1404,29 @@ struct VideoFileRowView: View {
             Button {
                 if isOptionKeyPressed() {
                     // Option+click: generate SRT only (no encoding)
-                    onTranscribeOnly?()
+                    if !file.subtitleEnabled && file.metadata == nil {
+                        metadataPendingIsTranscribeOnly = true
+                        showMetadataPendingAlert = true
+                    } else if !file.subtitleEnabled && hasBitmapSubtitles {
+                        pendingTranscribeOnly = true
+                        showSubtitleMethodPicker = true
+                    } else if !file.subtitleEnabled && audioStreams.count > 1 {
+                        pendingTranscribeOnly = true
+                        file.subtitleEnabled = true
+                        file.subtitleMethod = .whisper
+                        showAudioTrackSheet = true
+                    } else {
+                        onTranscribeOnly?(file.subtitleMethod)
+                    }
+                } else if !file.subtitleEnabled && file.metadata == nil {
+                    metadataPendingIsTranscribeOnly = false
+                    showMetadataPendingAlert = true
+                } else if !file.subtitleEnabled && hasBitmapSubtitles {
+                    showSubtitleMethodPicker = true
+                } else if !file.subtitleEnabled && audioStreams.count > 1 {
+                    file.subtitleEnabled = true
+                    file.subtitleMethod = .whisper
+                    showAudioTrackSheet = true
                 } else {
                     file.subtitleEnabled.toggle()
                 }
@@ -1132,6 +1438,31 @@ struct VideoFileRowView: View {
             .buttonStyle(.borderless)
             .foregroundColor(subtitleIconColor)
             .help(subtitleHelpText)
+
+            // Analytics toggle button (compact, Option+click to rerun)
+            Button {
+                if file.analyticsResults != nil {
+                    if isOptionKeyPressed() && file.isReadyForAnalytics {
+                        file.analyticsResults = nil
+                        file.analyticsStatus = .notQueued
+                        onAnalyzeOnly?()
+                    } else {
+                        showAnalyticsResults = true
+                    }
+                } else if file.isReadyForAnalytics {
+                    onAnalyzeOnly?()
+                } else {
+                    file.analyticsEnabled.toggle()
+                }
+            } label: {
+                Image(systemName: analyticsIconName)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(analyticsIconColor)
+            .disabled(!file.hasVideoStream)
+            .help(analyticsHelpText)
         }
     }
 
@@ -1477,6 +1808,11 @@ struct VideoFileRowView: View {
             return "Download failed: \(error)"
         }
 
+        // Analytics status takes precedence over done state
+        if file.analyticsStatus.isInProgress {
+            return file.analyticsStatus.displayText
+        }
+
         switch file.status {
         case .waiting:
             return "Waiting"
@@ -1487,6 +1823,9 @@ struct VideoFileRowView: View {
                 return "Converting..."
             }
         case .done:
+            if file.subtitleStatus.isInProgress {
+                return file.subtitleStatus.displayText
+            }
             return "Done"
         case .cancelled:
             return "Cancelled"
@@ -1566,6 +1905,8 @@ struct VideoFileRowView: View {
             return file.progress
         } else if file.subtitleStatus.isInProgress {
             return file.subtitleProgress
+        } else if file.analyticsStatus.isInProgress {
+            return file.analyticsProgress
         } else {
             return file.progress
         }
@@ -1584,6 +1925,8 @@ struct VideoFileRowView: View {
             return .accentColor
         } else if file.subtitleStatus.isInProgress {
             return .green
+        } else if file.analyticsStatus.isInProgress {
+            return .cyan
         } else {
             return .accentColor
         }

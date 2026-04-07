@@ -397,6 +397,6 @@ struct URLInputOverlay: View {
 
 #Preview {
     URLInputOverlay(isPresented: .constant(true)) { url, liveFromStart in
-        Self.logger.info("Download: \(url, privacy: .public), liveFromStart: \(liveFromStart, privacy: .public)")
+        print("Download: \(url), liveFromStart: \(liveFromStart)")
     }
 }

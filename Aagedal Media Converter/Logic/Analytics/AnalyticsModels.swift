@@ -1,0 +1,208 @@
+// Aagedal Media Converter
+// Copyright 2025 Truls Aagedal
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import Foundation
+
+/// Available video quality metrics
+enum QualityMetric: String, CaseIterable, Codable, Sendable {
+    case vmaf
+    case psnr
+    case ssimulacra2
+
+    var displayName: String {
+        switch self {
+        case .vmaf: return "VMAF"
+        case .psnr: return "PSNR"
+        case .ssimulacra2: return "SSIMULACRA2"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .vmaf:
+            return "Video Multi-Method Assessment Fusion. Perceptual quality metric developed by Netflix. Scale: 0-100."
+        case .psnr:
+            return "Peak Signal-to-Noise Ratio. Traditional mathematical quality metric measured in dB."
+        case .ssimulacra2:
+            return "Perceptual image quality metric by Cloudflare. Scale: 0-100."
+        }
+    }
+}
+
+/// Analytics status for a VideoItem (mirrors SubtitleStatus pattern)
+enum AnalyticsStatus: Equatable, Sendable {
+    case notQueued
+    case pending
+    case running(metric: QualityMetric, progress: Double)
+    case completed
+    case failed(String)
+
+    var isInProgress: Bool {
+        switch self {
+        case .pending, .running:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var displayText: String {
+        switch self {
+        case .notQueued:
+            return ""
+        case .pending:
+            return "Pending"
+        case .running(let metric, let progress):
+            return "Analyzing \(metric.displayName) \(Int(progress * 100))%"
+        case .completed:
+            return "Done"
+        case .failed(let error):
+            return "Failed: \(error)"
+        }
+    }
+}
+
+/// Result for a single quality metric
+struct MetricResult: Codable, Equatable, Sendable {
+    let metric: QualityMetric
+    let overallScore: Double
+    let min: Double?
+    let max: Double?
+    let unit: String
+
+    /// Individual channel scores (PSNR y/u/v)
+    let channelScores: [String: Double]?
+
+    var formattedScore: String {
+        switch metric {
+        case .psnr:
+            return String(format: "%.2f %@", overallScore, unit)
+        case .vmaf, .ssimulacra2:
+            return String(format: "%.1f", overallScore)
+        }
+    }
+
+    var qualityRating: String {
+        switch metric {
+        case .vmaf:
+            if overallScore >= 93 { return "Excellent" }
+            if overallScore >= 80 { return "Good" }
+            if overallScore >= 60 { return "Fair" }
+            return "Poor"
+        case .psnr:
+            if overallScore >= 40 { return "Excellent" }
+            if overallScore >= 30 { return "Good" }
+            if overallScore >= 20 { return "Fair" }
+            return "Poor"
+        case .ssimulacra2:
+            if overallScore >= 90 { return "Excellent" }
+            if overallScore >= 70 { return "Good" }
+            if overallScore >= 50 { return "Fair" }
+            return "Poor"
+        }
+    }
+
+    var qualityColor: String {
+        switch metric {
+        case .vmaf:
+            if overallScore >= 80 { return "green" }
+            if overallScore >= 60 { return "yellow" }
+            return "red"
+        case .psnr:
+            if overallScore >= 30 { return "green" }
+            if overallScore >= 20 { return "yellow" }
+            return "red"
+        case .ssimulacra2:
+            if overallScore >= 70 { return "green" }
+            if overallScore >= 50 { return "yellow" }
+            return "red"
+        }
+    }
+}
+
+/// Complete analytics results for one video item
+struct AnalyticsResults: Codable, Equatable, Sendable {
+    let sourceFileName: String
+    let encodedFileName: String
+    let metrics: [MetricResult]
+    let timestamp: Date
+    let durationSeconds: Double
+
+    func toJSON() -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return try? encoder.encode(self)
+    }
+}
+
+/// VMAF model variants
+enum VMAFModel: String, CaseIterable, Codable, Sendable {
+    case vmaf_v0_6_1 = "vmaf_v0.6.1"
+    case vmaf_v0_6_1neg = "vmaf_v0.6.1neg"
+    case vmaf_4k_v0_6_1 = "vmaf_4k_v0.6.1"
+
+    var displayName: String {
+        switch self {
+        case .vmaf_v0_6_1: return "VMAF v0.6.1 (Default)"
+        case .vmaf_v0_6_1neg: return "VMAF v0.6.1neg (No Enhancement Gain)"
+        case .vmaf_4k_v0_6_1: return "VMAF 4K v0.6.1 (4K content)"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .vmaf_v0_6_1:
+            return "Standard VMAF model. Recommended for most content."
+        case .vmaf_v0_6_1neg:
+            return "Penalizes enhancement artifacts. Use when encoder may sharpen or upscale."
+        case .vmaf_4k_v0_6_1:
+            return "Optimized for 4K/UHD content. Use for high-resolution videos."
+        }
+    }
+}
+
+/// Export format for analytics results
+enum AnalyticsExportFormat: String, CaseIterable, Codable, Sendable {
+    case json
+    case pdf
+
+    var displayName: String {
+        switch self {
+        case .json: return "JSON"
+        case .pdf: return "PDF"
+        }
+    }
+
+    var fileExtension: String {
+        rawValue
+    }
+}
+
+/// Errors for analytics operations
+enum AnalyticsError: Error, LocalizedError {
+    case ffmpegNotFound
+    case sourceFileNotFound
+    case encodedFileNotFound
+    case metricFailed(QualityMetric, String)
+    case parsingFailed(String)
+    case cancelled
+
+    var errorDescription: String? {
+        switch self {
+        case .ffmpegNotFound:
+            return "FFmpeg binary not found."
+        case .sourceFileNotFound:
+            return "Source file not found."
+        case .encodedFileNotFound:
+            return "Encoded output file not found."
+        case .metricFailed(let metric, let reason):
+            return "\(metric.displayName) failed: \(reason)"
+        case .parsingFailed(let reason):
+            return "Failed to parse results: \(reason)"
+        case .cancelled:
+            return "Analysis was cancelled."
+        }
+    }
+}

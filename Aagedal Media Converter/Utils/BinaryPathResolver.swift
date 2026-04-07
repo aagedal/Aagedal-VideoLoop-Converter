@@ -261,6 +261,86 @@ enum BinaryPathResolver {
     private static func resolveBundledFFprobePath() -> String? {
         Bundle.main.path(forResource: "ffprobe", ofType: nil)
     }
+
+    // MARK: - Tesseract
+
+    /// Resolves the path to the tesseract binary.
+    /// Priority: custom path > Homebrew > bundled
+    static var tesseractPath: String? {
+        if let selection = selectedTesseractSource() {
+            switch selection {
+            case .custom:
+                return resolveCustomTesseractPath()
+            case .homebrew:
+                return resolveHomebrewTesseractPath()
+            case .app:
+                return resolveBundledTesseractPath()
+            }
+        }
+        // Auto-detection fallback: bundled > Homebrew
+        if let bundled = resolveBundledTesseractPath() { return bundled }
+        return resolveHomebrewTesseractPath()
+    }
+
+    /// Resolves the tessdata directory to pass as TESSDATA_PREFIX.
+    /// Priority: user Application Support tessdata > bundled Resources/tessdata > Homebrew tessdata
+    static var tessdataDirectory: String? {
+        let candidates: [String] = [
+            AppConstants.tesseractTessdataDirectory.path,
+            Bundle.main.path(forResource: "tessdata", ofType: nil) ?? "",
+            "/opt/homebrew/share/tessdata",
+            "/usr/local/share/tessdata",
+        ]
+        return candidates.first { path in
+            !path.isEmpty &&
+            ((try? FileManager.default.contentsOfDirectory(atPath: path)
+                .contains { $0.hasSuffix(".traineddata") }) ?? false)
+        }
+    }
+
+    /// Returns the tesseract version string
+    static func getTesseractVersion() async -> String? {
+        guard let path = tesseractPath else { return nil }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = ["--version"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8) {
+                return output.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        } catch { return nil }
+        return nil
+    }
+
+    private static func selectedTesseractSource() -> BinarySourceSelection? {
+        guard let raw = UserDefaults.standard.string(forKey: AppConstants.tesseractBinarySourceKey),
+              !raw.isEmpty else { return nil }
+        return BinarySourceSelection(rawValue: raw)
+    }
+
+    private static func resolveCustomTesseractPath() -> String? {
+        if let path = UserDefaults.standard.string(forKey: AppConstants.tesseractCustomPathKey),
+           !path.isEmpty,
+           FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private static func resolveHomebrewTesseractPath() -> String? {
+        let candidates = ["/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract"]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    private static func resolveBundledTesseractPath() -> String? {
+        Bundle.main.path(forResource: "tesseract", ofType: nil)
+    }
 }
 
 // MARK: - Homebrew Python Script Executor

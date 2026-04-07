@@ -228,6 +228,10 @@ struct ContentView: View {
             } else if let _ = item.scheduledDownloadTime {
                 ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
             }
+            if item.subtitleStatus.isInProgress {
+                Task { await TesseractService.shared.cancelGeneration() }
+                Task { await WhisperService.shared.cancelGeneration() }
+            }
         }
 
         // Note: Cache cleanup is handled by the user's cleanup policy (on app launch or manually)
@@ -1810,6 +1814,8 @@ private struct ContentViewChangeHandlers: ViewModifier {
 
 /// ViewModifier for notification handlers (enqueue and convert immediately)
 private struct ContentViewNotificationHandlers: ViewModifier {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ContentViewNotificationHandlers")
+
     @Binding var droppedFiles: [VideoItem]
     @Binding var currentOutputFolder: URL
     @Binding var outputFolder: String

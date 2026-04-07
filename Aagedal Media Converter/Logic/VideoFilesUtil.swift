@@ -760,6 +760,22 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var subtitleProgress: Double = 0.0
     /// Path to generated SRT file
     var subtitleFilePath: URL? = nil
+    /// Which method (Whisper or OCR) was chosen by the user for this item
+    var subtitleMethod: SubtitleConversionMethod = .whisper
+    /// Absolute stream index of the bitmap subtitle track chosen for OCR. nil = first bitmap track.
+    var selectedBitmapSubtitleStreamIndex: Int? = nil
+    /// Absolute stream index of the audio track to use for Whisper transcription. nil = default track.
+    var selectedAudioStreamIndex: Int? = nil
+
+    // MARK: - Analytics State
+    /// Whether quality analytics is enabled for this item
+    var analyticsEnabled: Bool = false
+    /// Current analytics status
+    var analyticsStatus: AnalyticsStatus = .notQueued
+    /// Analytics progress (0.0 to 1.0)
+    var analyticsProgress: Double = 0.0
+    /// Computed analytics results
+    var analyticsResults: AnalyticsResults? = nil
 
     /// Manual override for output filename (base name, no extension)
     var outputFileNameOverride: String? = nil
@@ -775,6 +791,11 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     /// The file URL to upload (source or output depending on uploadSourceFile setting)
     var fileToUpload: URL? {
         uploadSourceFile ? url : outputURL
+    }
+
+    /// Whether this item is ready for quality analytics (conversion done, both source and output exist)
+    var isReadyForAnalytics: Bool {
+        status == .done && outputURL != nil && hasVideoStream
     }
 
     /// Whether this item is scheduled for future download

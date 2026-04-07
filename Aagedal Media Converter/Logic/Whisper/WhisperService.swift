@@ -31,6 +31,7 @@ actor WhisperService {
         outputDirectory: URL,
         model: WhisperModel,
         language: String,
+        audioStreamIndex: Int? = nil,
         maxLineLength: Int? = nil,
         progress: @escaping @Sendable (WhisperProgress) -> Void
     ) async throws -> URL {
@@ -85,12 +86,12 @@ actor WhisperService {
         let stderrPipe = Pipe()
 
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = [
-            "-i", inputFile.path,
-            "-af", whisperFilter,
-            "-f", "null",
-            "-"
-        ]
+        var args = ["-i", inputFile.path]
+        if let idx = audioStreamIndex {
+            args += ["-map", "0:\(idx)"]
+        }
+        args += ["-af", whisperFilter, "-f", "null", "-"]
+        process.arguments = args
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
         process.standardInput = FileHandle.nullDevice
@@ -198,6 +199,7 @@ actor WhisperService {
         inputFile: URL,
         model: WhisperModel,
         language: String,
+        audioStreamIndex: Int? = nil,
         maxLineLength: Int? = nil,
         progress: @escaping @Sendable (WhisperProgress) -> Void
     ) async throws -> URL {
@@ -207,6 +209,7 @@ actor WhisperService {
             outputDirectory: outputDirectory,
             model: model,
             language: language,
+            audioStreamIndex: audioStreamIndex,
             maxLineLength: maxLineLength,
             progress: progress
         )
