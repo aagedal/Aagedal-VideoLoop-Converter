@@ -6,8 +6,9 @@ import SwiftUI
 
 struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .general
+    @State private var sidebarCollapsed = false
 
-    private enum SettingsTab: String, Hashable {
+    private enum SettingsTab: String, CaseIterable, Hashable {
         case general
         case metadata
         case presets
@@ -21,65 +22,110 @@ struct SettingsView: View {
         case analytics
         case updates
         case shortcuts
+
+        var label: String {
+            switch self {
+            case .general: return "General"
+            case .metadata: return "Metadata"
+            case .presets: return "Presets"
+            case .screenCapture: return "Screen Capture"
+            case .waveform: return "Audio Waveform"
+            case .watchFolder: return "Watch Folder"
+            case .ytdlp: return "Downloads"
+            case .upload: return "Upload"
+            case .whisper: return "Transcription"
+            case .ocr: return "OCR"
+            case .analytics: return "Analytics"
+            case .updates: return "Updates"
+            case .shortcuts: return "Shortcuts"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .general: return "gearshape"
+            case .metadata: return "info.circle"
+            case .presets: return "slider.horizontal.3"
+            case .screenCapture: return "record.circle"
+            case .waveform: return "waveform"
+            case .watchFolder: return "eye.fill"
+            case .ytdlp: return "arrow.down.circle"
+            case .upload: return "icloud.and.arrow.up"
+            case .whisper: return "captions.bubble"
+            case .ocr: return "character.magnify"
+            case .analytics: return "chart.bar.xaxis"
+            case .updates: return "arrow.triangle.2.circlepath"
+            case .shortcuts: return "command"
+            }
+        }
+    }
+
+    // Prevents deselection when clicking the already-selected row
+    private var tabSelection: Binding<SettingsTab?> {
+        Binding(get: { selectedTab }, set: { if let t = $0 { selectedTab = t } })
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
+        switch selectedTab {
+        case .general: GeneralSettingsView()
+        case .metadata: MetadataSettingsView()
+        case .presets: PresetsSettingsView()
+        case .screenCapture: ScreenCaptureSettingsView()
+        case .waveform: WaveformSettingsView()
+        case .watchFolder: WatchFolderSettingsView()
+        case .ytdlp: YTDLPSettingsView()
+        case .upload: UploadSettingsView()
+        case .whisper: WhisperSettingsView()
+        case .ocr: TesseractSettingsView()
+        case .analytics: AnalyticsSettingsView()
+        case .updates: UpdateSettingsView()
+        case .shortcuts: ShortcutsSettingsView()
+        }
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            GeneralSettingsView()
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(SettingsTab.general)
+        HStack(spacing: 0) {
+            List(SettingsTab.allCases, id: \.self, selection: tabSelection) { tab in
+                if sidebarCollapsed {
+                    Label(tab.label, systemImage: tab.icon)
+                        .labelStyle(.iconOnly)
+                        .help(tab.label)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label(tab.label, systemImage: tab.icon)
+                }
+            }
+            .listStyle(.sidebar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    Divider()
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            sidebarCollapsed.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "sidebar.leading")
+                            .frame(maxWidth: .infinity, alignment: sidebarCollapsed ? .center : .leading)
+                            .padding(.leading, sidebarCollapsed ? 0 : 10)
+                            .frame(height: 32)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help(sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar")
+                }
+                .background(Color(NSColor.windowBackgroundColor))
+            }
+            .frame(width: sidebarCollapsed ? 46 : 165)
+            .clipped()
 
-            MetadataSettingsView()
-                .tabItem { Label("Metadata", systemImage: "info.circle") }
-                .tag(SettingsTab.metadata)
+            Divider()
 
-            PresetsSettingsView()
-                .tabItem { Label("Presets", systemImage: "slider.horizontal.3") }
-                .tag(SettingsTab.presets)
-
-            ScreenCaptureSettingsView()
-                .tabItem { Label("Screen Capture", systemImage: "record.circle") }
-                .tag(SettingsTab.screenCapture)
-
-            WaveformSettingsView()
-                .tabItem { Label("Audio Waveform", systemImage: "waveform") }
-                .tag(SettingsTab.waveform)
-
-            WatchFolderSettingsView()
-                .tabItem { Label("Watch Folder", systemImage: "eye.fill") }
-                .tag(SettingsTab.watchFolder)
-
-            YTDLPSettingsView()
-                .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
-                .tag(SettingsTab.ytdlp)
-
-            UploadSettingsView()
-                .tabItem { Label("Upload", systemImage: "icloud.and.arrow.up") }
-                .tag(SettingsTab.upload)
-
-            WhisperSettingsView()
-                .tabItem { Label("Transcription", systemImage: "captions.bubble") }
-                .tag(SettingsTab.whisper)
-
-            TesseractSettingsView()
-                .tabItem { Label("OCR", systemImage: "character.magnify") }
-                .tag(SettingsTab.ocr)
-
-            AnalyticsSettingsView()
-                .tabItem { Label("Analytics", systemImage: "chart.bar.xaxis") }
-                .tag(SettingsTab.analytics)
-
-            UpdateSettingsView()
-                .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
-                .tag(SettingsTab.updates)
-
-            ShortcutsSettingsView()
-                .tabItem { Label("Shortcuts", systemImage: "command") }
-                .tag(SettingsTab.shortcuts)
+            contentView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 760, height: 600)
+        .frame(width: 900, height: 600)
         .navigationTitle("Settings – Aagedal Media Converter")
-        .padding(.horizontal, 20)
         .background {
             // Keyboard shortcuts for tab switching (Control+1-9, 0 to avoid conflict with main window's CMD+1-9, 0 preset selection)
             VStack(spacing: 0) {
