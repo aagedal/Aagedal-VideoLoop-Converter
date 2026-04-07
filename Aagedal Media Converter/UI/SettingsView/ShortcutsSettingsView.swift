@@ -504,6 +504,9 @@ private struct ShortcutGroup {
     let shortcuts: [ShortcutItem]
 
     func filtered(by query: String) -> ShortcutGroup? {
+        if title.localizedCaseInsensitiveContains(query) {
+            return self
+        }
         let matched = shortcuts.filter {
             $0.keys.localizedCaseInsensitiveContains(query) ||
             $0.description.localizedCaseInsensitiveContains(query)
