@@ -514,6 +514,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     case streamCopy = "Stream Copy"
     case audioUncompressedWAV = "Audio only WAV (all channels)"
     case audioStereoAAC = "Audio only AAC (stereo downmix)"
+    case audioAllTracksMP4 = "Audio only MP4 (all tracks)"
     case imageSequence = "Image Sequence"
     case dcp = "DCP (Digital Cinema Package)"
     case custom1 = "Custom"
@@ -560,6 +561,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "wav"
         case .audioStereoAAC:
             return "m4a"
+        case .audioAllTracksMP4:
+            return "mp4"
         case .imageSequence:
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
@@ -638,6 +641,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_AUDIO_WAV_DESCRIPTION", comment: "Description for Audio WAV preset")
         case .audioStereoAAC:
             return NSLocalizedString("PRESET_AUDIO_AAC_STEREO_DESCRIPTION", comment: "Description for Audio AAC Stereo preset")
+        case .audioAllTracksMP4:
+            return NSLocalizedString("PRESET_AUDIO_MP4_ALL_TRACKS_DESCRIPTION", comment: "Description for Audio MP4 all tracks preset")
         case .imageSequence:
             return NSLocalizedString("PRESET_IMAGE_SEQUENCE_DESCRIPTION", comment: "Description for Image Sequence preset")
         case .dcp:
@@ -677,6 +682,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_audio_wav"
         case .audioStereoAAC:
             return "_audio_aac"
+        case .audioAllTracksMP4:
+            return "_audio_mp4"
         case .imageSequence:
             return "_seq"
         case .dcp:
@@ -1218,6 +1225,15 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             ]
             ExportPreset.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
+        case .audioAllTracksMP4:
+            var args = commonArgs + [
+                "-vn",
+                "-map", "0:a",
+                "-c:a", "pcm_s24le",
+                "-movflags", "+faststart"
+            ]
+            Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
+            return args
         case .imageSequence:
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
@@ -1399,6 +1415,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .streamCopy: key = AppConstants.streamCopyVisibleKey
         case .audioUncompressedWAV: key = AppConstants.audioWAVVisibleKey
         case .audioStereoAAC: key = AppConstants.audioAACVisibleKey
+        case .audioAllTracksMP4: key = AppConstants.audioMP4VisibleKey
         case .imageSequence: key = AppConstants.imageSequenceVisibleKey
         case .dcp: key = AppConstants.dcpVisibleKey
         default: return true
@@ -1416,7 +1433,7 @@ extension ExportPreset {
     /// Indicates whether this preset is expected to output a video track even if the source lacks one.
     var outputsVideoTrack: Bool {
         switch self {
-        case .audioUncompressedWAV, .audioStereoAAC:
+        case .audioUncompressedWAV, .audioStereoAAC, .audioAllTracksMP4:
             return false
         case .imageSequence:
             return false // Output is individual image files, not a video container
@@ -1438,7 +1455,7 @@ extension ExportPreset {
             return false // DCP audio is in a separate MXF file
         case .videoLoopWithSound:
             return true
-        case .audioUncompressedWAV, .audioStereoAAC:
+        case .audioUncompressedWAV, .audioStereoAAC, .audioAllTracksMP4:
             return true
         case .streamCopy:
             return true

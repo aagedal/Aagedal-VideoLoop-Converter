@@ -78,7 +78,8 @@ struct VideoQueueTableView: NSViewRepresentable {
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)?
-    var transcribeOnly: ((UUID) async -> Void)?
+    var transcribeOnly: ((UUID, SubtitleConversionMethod) async -> Void)?
+    var analyzeOnly: ((UUID) async -> Void)?
     var onDeleteGroup: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
@@ -139,6 +140,11 @@ struct VideoQueueTableView: NSViewRepresentable {
         context.coordinator.cachedDisplayRows = initialRows
         context.coordinator.previousIDs = initialRows.map(\.id)
         context.coordinator.previousCompactMode = isCompactMode
+
+        // Ensure the table loads its initial data — without this, the first
+        // updateNSView sees newIDs == oldIDs and only calls updateVisibleCells,
+        // which is a no-op on an empty table, leaving the view blank.
+        tableView.reloadData()
 
         return scrollView
     }
@@ -337,7 +343,7 @@ struct VideoQueueTableView: NSViewRepresentable {
             // Dropping ON a group header → move items into that group
             if dropOperation == .on, row < displayRows.count,
                case .groupHeader(let targetGroup) = displayRows[row] {
-                guard let gIdx = parent.encodingGroups.firstIndex(where: { $0.id == targetGroup.id }) else { return false }
+                guard parent.encodingGroups.contains(where: { $0.id == targetGroup.id }) else { return false }
 
                 // Collect items to move and remove from their sources (reverse order)
                 var itemsToMove: [VideoItem] = []
@@ -368,7 +374,7 @@ struct VideoQueueTableView: NSViewRepresentable {
             }
 
             // Dropping ABOVE in ungrouped section → reorder or move from group to ungrouped
-            let ungroupedCount = parent.droppedFiles.count
+            _ = parent.droppedFiles.count
 
             // Collect items from sources (may be ungrouped or group items)
             var itemsToInsert: [VideoItem] = []
@@ -586,6 +592,12 @@ struct VideoQueueTableView: NSViewRepresentable {
                         }
                     case .group(let groupID):
                         if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }) {
+                            if let item = self.parent.encodingGroups[gIdx].items.first(where: { $0.id == itemID }) {
+                                if item.subtitleStatus.isInProgress {
+                                    Task { await TesseractService.shared.cancelGeneration() }
+                                    Task { await WhisperService.shared.cancelGeneration() }
+                                }
+                            }
                             self.parent.encodingGroups[gIdx].items.removeAll { $0.id == itemID }
                         }
                     }
@@ -625,9 +637,34 @@ struct VideoQueueTableView: NSViewRepresentable {
                         self.parent.onDelete(IndexSet(integer: idx))
                     }
                 },
-                onTranscribeOnly: { [weak self] in
+                onTranscribeOnly: { [weak self] method in
                     guard let self else { return }
                     let callback = self.parent.transcribeOnly
+                    Task { @MainActor in
+                        await callback?(itemID, method)
+                    }
+                },
+                onCancelSubtitleGeneration: { [weak self] in
+                    guard let self else { return }
+                    // Cancel whichever subtitle service is running
+                    Task { await TesseractService.shared.cancelGeneration() }
+                    Task { await WhisperService.shared.cancelGeneration() }
+                    // Reset subtitle status so the row returns to idle
+                    switch source {
+                    case .ungrouped:
+                        if let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                            self.parent.droppedFiles[idx].subtitleStatus = .notQueued
+                        }
+                    case .group(let groupID):
+                        if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
+                           let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
+                            self.parent.encodingGroups[gIdx].items[iIdx].subtitleStatus = .notQueued
+                        }
+                    }
+                },
+                onAnalyzeOnly: { [weak self] in
+                    guard let self else { return }
+                    let callback = self.parent.analyzeOnly
                     Task { @MainActor in
                         await callback?(itemID)
                     }

@@ -1227,7 +1227,7 @@ actor ConversionManager: Sendable {
                             if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                                let fileSize = attrs[.size] as? Int64 {
                                 capturedSize = fileSize
-                                logger.debug("Captured file size (direct): \(fileSize) bytes")
+                                self.logger.debug("Captured file size (direct): \(fileSize) bytes")
                             }
 
                             // Second try: with security-scoped access on file
@@ -1236,7 +1236,7 @@ actor ConversionManager: Sendable {
                                 if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                                    let fileSize = attrs[.size] as? Int64 {
                                     capturedSize = fileSize
-                                    logger.debug("Captured file size (file scope): \(fileSize) bytes")
+                                    self.logger.debug("Captured file size (file scope): \(fileSize) bytes")
                                 }
                                 if hasFileAccess {
                                     url.stopAccessingSecurityScopedResource()
@@ -1250,7 +1250,7 @@ actor ConversionManager: Sendable {
                                 if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                                    let fileSize = attrs[.size] as? Int64 {
                                     capturedSize = fileSize
-                                    logger.debug("Captured file size (folder bookmark): \(fileSize) bytes")
+                                    self.logger.debug("Captured file size (folder bookmark): \(fileSize) bytes")
                                 }
                                 if hasFolderAccess {
                                     SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: outputFolderURL)
@@ -1258,8 +1258,8 @@ actor ConversionManager: Sendable {
                             }
 
                             if capturedSize == nil {
-                                logger.warning("Failed to capture file size for: \(url.path, privacy: .public)")
-                                logger.warning("File exists: \(FileManager.default.fileExists(atPath: url.path))")
+                                self.logger.warning("Failed to capture file size for: \(url.path, privacy: .public)")
+                                self.logger.warning("File exists: \(FileManager.default.fileExists(atPath: url.path))")
                             }
                         }
                     }
@@ -1283,9 +1283,9 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[idx] = updatedItem
 
                     // Debug: verify the values
-                    logger.debug("Final state - outputFileSizeBytes: \(droppedFiles.wrappedValue[idx].outputFileSizeBytes ?? -1)")
-                    logger.debug("Final state - formattedOutputSize: \(droppedFiles.wrappedValue[idx].formattedOutputSize ?? "nil", privacy: .public)")
-                    logger.debug("Final state - status: \(String(describing: droppedFiles.wrappedValue[idx].status), privacy: .public)")
+                    self.logger.debug("Final state - outputFileSizeBytes: \(droppedFiles.wrappedValue[idx].outputFileSizeBytes ?? -1)")
+                    self.logger.debug("Final state - formattedOutputSize: \(droppedFiles.wrappedValue[idx].formattedOutputSize ?? "nil", privacy: .public)")
+                    self.logger.debug("Final state - status: \(String(describing: droppedFiles.wrappedValue[idx].status), privacy: .public)")
 
                     // Trigger upload if enabled for this item
                     if success && droppedFiles.wrappedValue[idx].uploadEnabled {
@@ -1296,11 +1296,41 @@ actor ConversionManager: Sendable {
 
                     // Trigger subtitle generation if enabled for this item
                     if success && droppedFiles.wrappedValue[idx].subtitleEnabled {
-                        if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
+                        let method = droppedFiles.wrappedValue[idx].subtitleMethod
+                        if method == .ocr, let outputURL = droppedFiles.wrappedValue[idx].outputURL {
+                            // OCR reads from the original source file (PGS lives in the MKV, not the re-encode)
+                            // but saves the SRT alongside the encoded output
+                            let sourceURL = droppedFiles.wrappedValue[idx].url
+                            let metadata  = droppedFiles.wrappedValue[idx].metadata
+                            Task {
+                                await self.generateOCRSubtitles(
+                                    for: fileId,
+                                    sourceURL: sourceURL,
+                                    outputURL: outputURL,
+                                    metadata: metadata,
+                                    droppedFiles: droppedFiles
+                                )
+                            }
+                        } else if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
                             Task {
                                 await self.generateSubtitles(
                                     for: fileId,
                                     inputURL: outputURL,
+                                    droppedFiles: droppedFiles
+                                )
+                            }
+                        }
+                    }
+
+                    // Trigger quality analytics if enabled for this item
+                    if success && droppedFiles.wrappedValue[idx].analyticsEnabled {
+                        if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
+                            let sourceURL = droppedFiles.wrappedValue[idx].url
+                            Task {
+                                await self.runAnalytics(
+                                    for: fileId,
+                                    sourceURL: sourceURL,
+                                    encodedURL: outputURL,
                                     droppedFiles: droppedFiles
                                 )
                             }
@@ -1494,11 +1524,13 @@ actor ConversionManager: Sendable {
         do {
             let outputDir = inputURL.deletingLastPathComponent()
 
+            let audioStreamIndex = droppedFiles.wrappedValue.first(where: { $0.id == itemID })?.selectedAudioStreamIndex
             let srtURL = try await WhisperService.shared.generateSubtitles(
                 inputFile: inputURL,
                 outputDirectory: outputDir,
                 model: model,
-                language: language
+                language: language,
+                audioStreamIndex: audioStreamIndex
             ) { [weak self] whisperProgress in
                 Task { @MainActor in
                     guard let _ = self else { return }
@@ -1537,6 +1569,172 @@ actor ConversionManager: Sendable {
                 }
             }
             logger.error("Subtitle generation failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - OCR Subtitle Generation
+
+    /// Converts bitmap subtitle stream in the source MKV to SRT using Tesseract OCR.
+    /// Saves the SRT alongside the encoded output file.
+    private func generateOCRSubtitles(
+        for itemID: UUID,
+        sourceURL: URL,
+        outputURL: URL,
+        metadata: VideoMetadata?,
+        droppedFiles: Binding<[VideoItem]>
+    ) async {
+        // Identify the chosen (or first) bitmap subtitle stream
+        let chosenStreamIndex = droppedFiles.wrappedValue.first(where: { $0.id == itemID })?.selectedBitmapSubtitleStreamIndex
+        let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
+        guard let stream = metadata?.subtitleStreams.first(where: {
+            if let chosen = chosenStreamIndex { return $0.index == chosen }
+            return bitmapCodecs.contains($0.codec?.lowercased() ?? "")
+        }) else {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed("No bitmap subtitle stream found")
+                }
+            }
+            return
+        }
+
+        let streamIndex = stream.index ?? 0
+        let codec = stream.codec ?? "pgssub"
+
+        // Language: stream language → user default → "eng"
+        let streamLang = stream.languageCode
+        let language = streamLang
+            ?? UserDefaults.standard.string(forKey: AppConstants.tesseractLanguageKey)
+            ?? AppConstants.defaultTesseractLanguage
+
+        await MainActor.run {
+            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles.wrappedValue[idx].subtitleStatus = .pending
+            }
+        }
+
+        do {
+            // Save SRT alongside the encoded output (mirrors Whisper behaviour)
+            let outputDir = outputURL.deletingLastPathComponent()
+            let srtURL = try await TesseractService.shared.generateSubtitles(
+                sourceFile: sourceURL,
+                outputDirectory: outputDir,
+                subtitleStreamIndex: streamIndex,
+                codec: codec,
+                language: language
+            ) { [weak self] ocrProgress in
+                Task { @MainActor in
+                    guard let _ = self else { return }
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        switch ocrProgress.stage {
+                        case .extractingTrack:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .extractingAudio
+                        case .parsingFrames:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .extractingAudio
+                        case .recognizing:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .generating(progress: ocrProgress.percentage)
+                        case .complete:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                        case .failed(let error):
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error)
+                        case .writingSRT:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .generating(progress: ocrProgress.percentage)
+                        }
+                        droppedFiles.wrappedValue[idx].subtitleProgress = ocrProgress.percentage
+                    }
+                }
+            }
+
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                    droppedFiles.wrappedValue[idx].subtitleFilePath = srtURL
+                    droppedFiles.wrappedValue[idx].subtitleProgress = 1.0
+                }
+            }
+
+            logger.info("OCR subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+            logger.error("OCR subtitle generation failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Quality Analytics
+
+    /// Runs quality analytics for a completed conversion
+    private func runAnalytics(
+        for itemID: UUID,
+        sourceURL: URL,
+        encodedURL: URL,
+        droppedFiles: Binding<[VideoItem]>
+    ) async {
+        // Load analytics config from settings
+        let enabledMetricsRaw = UserDefaults.standard.stringArray(forKey: AppConstants.analyticsEnabledMetricsKey)
+            ?? AppConstants.defaultAnalyticsEnabledMetrics
+        let enabledMetrics = enabledMetricsRaw.compactMap { QualityMetric(rawValue: $0) }
+        let vmafModelRaw = UserDefaults.standard.string(forKey: AppConstants.analyticsVMAFModelKey)
+            ?? AppConstants.defaultAnalyticsVMAFModel
+        let vmafModel = VMAFModel(rawValue: vmafModelRaw) ?? .vmaf_v0_6_1
+
+        guard !enabledMetrics.isEmpty else { return }
+
+        // Update status to pending
+        await MainActor.run {
+            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles.wrappedValue[idx].analyticsStatus = .pending
+            }
+        }
+
+        do {
+            let results = try await AnalyticsService.shared.runAnalytics(
+                sourceFile: sourceURL,
+                encodedFile: encodedURL,
+                enabledMetrics: enabledMetrics,
+                vmafModel: vmafModel
+            ) { metric, progressValue in
+                Task { @MainActor in
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        droppedFiles.wrappedValue[idx].analyticsStatus = .running(metric: metric, progress: progressValue)
+                        droppedFiles.wrappedValue[idx].analyticsProgress = progressValue
+                    }
+                }
+            }
+
+            let durationSeconds = await MainActor.run {
+                droppedFiles.wrappedValue.first(where: { $0.id == itemID })?.durationSeconds ?? 0
+            }
+
+            let analyticsResults = AnalyticsResults(
+                sourceFileName: sourceURL.lastPathComponent,
+                encodedFileName: encodedURL.lastPathComponent,
+                metrics: results,
+                timestamp: Date(),
+                durationSeconds: durationSeconds
+            )
+
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].analyticsStatus = .completed
+                    droppedFiles.wrappedValue[idx].analyticsResults = analyticsResults
+                    droppedFiles.wrappedValue[idx].analyticsProgress = 1.0
+                }
+            }
+
+            logger.info("Quality analytics completed for \(encodedURL.lastPathComponent, privacy: .public)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].analyticsStatus = .failed(error.localizedDescription)
+                }
+            }
+            logger.error("Quality analytics failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

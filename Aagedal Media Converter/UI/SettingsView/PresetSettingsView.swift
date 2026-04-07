@@ -165,6 +165,7 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.streamCopyVisibleKey) private var streamCopyVisible = true
     @AppStorage(AppConstants.audioWAVVisibleKey) private var audioWAVVisible = true
     @AppStorage(AppConstants.audioAACVisibleKey) private var audioAACVisible = true
+    @AppStorage(AppConstants.audioMP4VisibleKey) private var audioMP4Visible = true
     @AppStorage(AppConstants.imageSequenceVisibleKey) private var imageSequenceVisible = true
     @AppStorage(AppConstants.dcpVisibleKey) private var dcpVisible = true
 
@@ -1424,6 +1425,8 @@ struct PresetsSettingsView: View {
             return $audioWAVVisible
         case .audioStereoAAC:
             return $audioAACVisible
+        case .audioAllTracksMP4:
+            return $audioMP4Visible
         case .imageSequence:
             return $imageSequenceVisible
         case .dcp:

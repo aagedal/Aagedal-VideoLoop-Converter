@@ -17,6 +17,8 @@ struct SettingsView: View {
         case ytdlp
         case upload
         case whisper
+        case ocr
+        case analytics
         case updates
         case shortcuts
     }
@@ -59,6 +61,14 @@ struct SettingsView: View {
                 .tabItem { Label("Transcription", systemImage: "captions.bubble") }
                 .tag(SettingsTab.whisper)
 
+            TesseractSettingsView()
+                .tabItem { Label("OCR", systemImage: "character.magnify") }
+                .tag(SettingsTab.ocr)
+
+            AnalyticsSettingsView()
+                .tabItem { Label("Analytics", systemImage: "chart.bar.xaxis") }
+                .tag(SettingsTab.analytics)
+
             UpdateSettingsView()
                 .tabItem { Label("Updates", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(SettingsTab.updates)
@@ -91,8 +101,10 @@ struct SettingsView: View {
                     .keyboardShortcut("8", modifiers: .control)
                 Button("") { selectedTab = .whisper }
                     .keyboardShortcut("9", modifiers: .control)
-                Button("") { selectedTab = .updates }
+                Button("") { selectedTab = .analytics }
                     .keyboardShortcut("0", modifiers: .control)
+                Button("") { selectedTab = .updates }
+                    .keyboardShortcut("a", modifiers: .control)
                 Button("") { selectedTab = .shortcuts }
                     .keyboardShortcut("k", modifiers: .control)
             }

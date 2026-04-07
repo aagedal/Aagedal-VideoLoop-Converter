@@ -13,7 +13,7 @@ import OSLog
 
 @MainActor
 final class PreviewPlayerController: ObservableObject {
-    private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
+    let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "Preview")
 
     struct AudioTrackOption: Identifiable, Equatable {
         let id: Int

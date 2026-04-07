@@ -150,8 +150,11 @@ struct VideoFileListView: View {
                     onToggleDateTag: onToggleDateTag,
                     onPlayFullscreen: onPlayFullscreen,
                     onRenameOutputFileName: onRenameOutputFileName,
-                    transcribeOnly: { itemID in
-                        await transcribeOnly(itemID: itemID)
+                    transcribeOnly: { itemID, method in
+                        await transcribeOnly(itemID: itemID, method: method)
+                    },
+                    analyzeOnly: { itemID in
+                        await analyzeOnly(itemID: itemID)
                     },
                     onDeleteGroup: onDeleteGroup,
                     onAddFilesToGroup: onAddFilesToGroup,
@@ -738,13 +741,22 @@ struct VideoFileListView: View {
     // MARK: - Transcribe Only (Option+click)
 
     /// Generates subtitles directly from source file without encoding
-    private func transcribeOnly(itemID: UUID) async {
+    private func transcribeOnly(itemID: UUID, method: SubtitleConversionMethod) async {
+        if method == .ocr {
+            await transcribeOnlyOCR(itemID: itemID)
+        } else {
+            await transcribeOnlyWhisper(itemID: itemID)
+        }
+    }
+
+    private func transcribeOnlyWhisper(itemID: UUID) async {
         // Find the item
         guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else {
             return
         }
 
         let inputURL = droppedFiles[index].url
+        let audioStreamIndex = droppedFiles[index].selectedAudioStreamIndex
 
         // Get model from settings
         let modelRaw = UserDefaults.standard.string(forKey: AppConstants.whisperModelKey) ?? "base"
@@ -774,7 +786,8 @@ struct VideoFileListView: View {
             let srtURL = try await WhisperService.shared.generateSubtitlesOnly(
                 inputFile: inputURL,
                 model: model,
-                language: language
+                language: language,
+                audioStreamIndex: audioStreamIndex
             ) { whisperProgress in
                 Task { @MainActor in
                     if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
@@ -811,6 +824,179 @@ struct VideoFileListView: View {
                 }
             }
             Self.logger.error("Transcribe-only failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func transcribeOnlyOCR(itemID: UUID) async {
+        guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+
+        let sourceURL = droppedFiles[index].url
+        let metadata  = droppedFiles[index].metadata
+        let chosenStreamIndex = droppedFiles[index].selectedBitmapSubtitleStreamIndex
+
+        let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
+        guard let stream = metadata?.subtitleStreams.first(where: {
+            if let chosen = chosenStreamIndex { return $0.index == chosen }
+            return bitmapCodecs.contains($0.codec?.lowercased() ?? "")
+        }) else {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .failed("No bitmap subtitle stream found")
+                }
+            }
+            return
+        }
+
+        let streamIndex = stream.index ?? 0
+        let codec = stream.codec ?? "pgssub"
+        let language = stream.languageCode
+            ?? UserDefaults.standard.string(forKey: AppConstants.tesseractLanguageKey)
+            ?? AppConstants.defaultTesseractLanguage
+
+        guard BinaryPathResolver.tesseractPath != nil else {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .failed("Tesseract not found. Configure in Settings → OCR.")
+                }
+            }
+            return
+        }
+
+        await MainActor.run {
+            if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].subtitleStatus = .pending
+            }
+        }
+
+        do {
+            let srtURL = try await TesseractService.shared.generateSubtitlesOnly(
+                sourceFile: sourceURL,
+                subtitleStreamIndex: streamIndex,
+                codec: codec,
+                language: language
+            ) { ocrProgress in
+                Task { @MainActor in
+                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        switch ocrProgress.stage {
+                        case .extractingTrack, .parsingFrames:
+                            self.droppedFiles[idx].subtitleStatus = .extractingAudio
+                        case .recognizing:
+                            self.droppedFiles[idx].subtitleStatus = .generating(progress: ocrProgress.percentage)
+                        case .writingSRT:
+                            self.droppedFiles[idx].subtitleStatus = .generating(progress: ocrProgress.percentage)
+                        case .complete:
+                            self.droppedFiles[idx].subtitleStatus = .completed
+                        case .failed(let error):
+                            self.droppedFiles[idx].subtitleStatus = .failed(error)
+                        }
+                        self.droppedFiles[idx].subtitleProgress = ocrProgress.percentage
+                    }
+                }
+            }
+
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .completed
+                    droppedFiles[idx].subtitleFilePath = srtURL
+                    droppedFiles[idx].subtitleProgress = 1.0
+                }
+            }
+            Self.logger.info("OCR-only completed: \(srtURL.lastPathComponent, privacy: .public)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+            Self.logger.error("OCR-only failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Analyze Only (run analytics on already-encoded item)
+
+    /// Runs quality analytics on a completed item using source and output files
+    private func analyzeOnly(itemID: UUID) async {
+        guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else {
+            return
+        }
+
+        let sourceURL = droppedFiles[index].url
+        guard let encodedURL = droppedFiles[index].outputURL else {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].analyticsStatus = .failed("No encoded output file available")
+                }
+            }
+            return
+        }
+
+        // Load analytics config from settings
+        let enabledMetricsRaw = UserDefaults.standard.stringArray(forKey: AppConstants.analyticsEnabledMetricsKey)
+            ?? AppConstants.defaultAnalyticsEnabledMetrics
+        let enabledMetrics = enabledMetricsRaw.compactMap { QualityMetric(rawValue: $0) }
+        let vmafModelRaw = UserDefaults.standard.string(forKey: AppConstants.analyticsVMAFModelKey)
+            ?? AppConstants.defaultAnalyticsVMAFModel
+        let vmafModel = VMAFModel(rawValue: vmafModelRaw) ?? .vmaf_v0_6_1
+
+        guard !enabledMetrics.isEmpty else {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].analyticsStatus = .failed("No metrics enabled in Settings > Analytics")
+                }
+            }
+            return
+        }
+
+        // Update status to pending
+        await MainActor.run {
+            if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].analyticsStatus = .pending
+            }
+        }
+
+        do {
+            let results = try await AnalyticsService.shared.runAnalytics(
+                sourceFile: sourceURL,
+                encodedFile: encodedURL,
+                enabledMetrics: enabledMetrics,
+                vmafModel: vmafModel
+            ) { metric, progressValue in
+                Task { @MainActor in
+                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        self.droppedFiles[idx].analyticsStatus = .running(metric: metric, progress: progressValue)
+                        self.droppedFiles[idx].analyticsProgress = progressValue
+                    }
+                }
+            }
+
+            let durationSeconds = droppedFiles.first(where: { $0.id == itemID })?.durationSeconds ?? 0
+
+            let analyticsResults = AnalyticsResults(
+                sourceFileName: sourceURL.lastPathComponent,
+                encodedFileName: encodedURL.lastPathComponent,
+                metrics: results,
+                timestamp: Date(),
+                durationSeconds: durationSeconds
+            )
+
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].analyticsStatus = .completed
+                    droppedFiles[idx].analyticsResults = analyticsResults
+                    droppedFiles[idx].analyticsProgress = 1.0
+                }
+            }
+
+            Self.logger.info("Analyze-only completed for \(encodedURL.lastPathComponent, privacy: .public)")
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].analyticsStatus = .failed(error.localizedDescription)
+                }
+            }
+            Self.logger.error("Analyze-only failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

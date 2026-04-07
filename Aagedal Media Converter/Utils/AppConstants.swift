@@ -443,6 +443,7 @@ enum AppConstants {
     static let streamCopyVisibleKey = "streamCopyVisible"
     static let audioWAVVisibleKey = "audioWAVVisible"
     static let audioAACVisibleKey = "audioAACVisible"
+    static let audioMP4VisibleKey = "audioMP4Visible"
     static let imageSequenceVisibleKey = "imageSequenceVisible"
     static let dcpVisibleKey = "dcpVisible"
 
@@ -626,4 +627,33 @@ enum AppConstants {
     static let defaultWhisperLanguage = "auto"
     static let whisperMaxLineLengthKey = "whisperMaxLineLength"
     static let defaultWhisperMaxLineLength = 42  // Characters per subtitle line
+
+    // MARK: - Tesseract Settings
+
+    // Tesseract binary management
+    static let tesseractBinarySourceKey = "tesseractBinarySource"
+    static let tesseractCustomPathKey = "tesseractCustomPath"
+
+    // Tesseract language / tessdata
+    static let tesseractLanguageKey = "tesseractLanguage"
+    static let defaultTesseractLanguage = "eng"
+
+    // tessdata directory in Application Support (user can add extra .traineddata files here)
+    static let tesseractTessdataDirectory: URL = {
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = supportDir
+            .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
+            .appendingPathComponent("tessdata", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    // MARK: - Analytics Settings
+    static let analyticsEnabledMetricsKey = "analyticsEnabledMetrics"
+    static let analyticsVMAFModelKey = "analyticsVMAFModel"
+    static let analyticsExportFormatKey = "analyticsExportFormat"
+    static let analyticsAutoRunKey = "analyticsAutoRunAfterConversion"
+    static let defaultAnalyticsEnabledMetrics: [String] = ["vmaf"]
+    static let defaultAnalyticsVMAFModel = "vmaf_v0.6.1"
+    static let defaultAnalyticsExportFormat = "json"
 }
