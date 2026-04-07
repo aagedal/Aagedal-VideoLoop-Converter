@@ -74,7 +74,9 @@ struct ShortcutsSettingsView: View {
                 .fontWeight(.bold)
 
             ShortcutSection(title: "File Operations", shortcuts: [
+                ShortcutItem(keys: "Cmd + N", description: "New encoding group"),
                 ShortcutItem(keys: "Cmd + I", description: "Open import dialogue"),
+                ShortcutItem(keys: "Cmd + Shift + I", description: "Import camera card"),
                 ShortcutItem(keys: "Cmd + D", description: "Show URL input overlay (for downloading)"),
                 ShortcutItem(keys: "Cmd + P", description: "Open preset quick-select overlay"),
                 ShortcutItem(keys: "Option + F", description: "Select output folder"),
@@ -247,7 +249,8 @@ struct ShortcutsSettingsView: View {
                 ShortcutItem(keys: "Ctrl + 7", description: "Downloads"),
                 ShortcutItem(keys: "Ctrl + 8", description: "Upload"),
                 ShortcutItem(keys: "Ctrl + 9", description: "Transcription"),
-                ShortcutItem(keys: "Ctrl + 0", description: "Updates"),
+                ShortcutItem(keys: "Ctrl + 0", description: "Analytics"),
+                ShortcutItem(keys: "Ctrl + A", description: "Updates"),
                 ShortcutItem(keys: "Ctrl + K", description: "Shortcuts (also works from main window)"),
             ])
 
@@ -323,7 +326,9 @@ struct ShortcutsSettingsView: View {
 
     private static let allGroups: [ShortcutGroup] = [
         ShortcutGroup(title: "File Operations", shortcuts: [
+            ShortcutItem(keys: "Cmd + N", description: "New encoding group"),
             ShortcutItem(keys: "Cmd + I", description: "Open import dialogue"),
+            ShortcutItem(keys: "Cmd + Shift + I", description: "Import camera card"),
             ShortcutItem(keys: "Cmd + D", description: "Show URL input overlay (for downloading)"),
             ShortcutItem(keys: "Cmd + P", description: "Open preset quick-select overlay"),
             ShortcutItem(keys: "Option + F", description: "Select output folder"),
@@ -451,7 +456,8 @@ struct ShortcutsSettingsView: View {
             ShortcutItem(keys: "Ctrl + 7", description: "Downloads"),
             ShortcutItem(keys: "Ctrl + 8", description: "Upload"),
             ShortcutItem(keys: "Ctrl + 9", description: "Transcription"),
-            ShortcutItem(keys: "Ctrl + 0", description: "Updates"),
+            ShortcutItem(keys: "Ctrl + 0", description: "Analytics"),
+            ShortcutItem(keys: "Ctrl + A", description: "Updates"),
             ShortcutItem(keys: "Ctrl + K", description: "Shortcuts (also works from main window)"),
         ]),
         ShortcutGroup(title: "Any Overlay View", shortcuts: [
