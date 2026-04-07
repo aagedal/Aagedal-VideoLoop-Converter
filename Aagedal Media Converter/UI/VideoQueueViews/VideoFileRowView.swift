@@ -519,13 +519,14 @@ struct VideoFileRowView: View {
                                 Button {
                                     if isOptionKeyPressed() {
                                         // Option+click: generate SRT only (no encoding)
-                                        if !file.subtitleEnabled && file.metadata == nil {
+                                        // Always show pickers regardless of subtitleEnabled state
+                                        if file.metadata == nil {
                                             metadataPendingIsTranscribeOnly = true
                                             showMetadataPendingAlert = true
-                                        } else if !file.subtitleEnabled && hasBitmapSubtitles {
+                                        } else if hasBitmapSubtitles {
                                             pendingTranscribeOnly = true
                                             showSubtitleMethodPicker = true
-                                        } else if !file.subtitleEnabled && audioStreams.count > 1 {
+                                        } else if audioStreams.count > 1 {
                                             pendingTranscribeOnly = true
                                             file.subtitleEnabled = true
                                             file.subtitleMethod = .whisper

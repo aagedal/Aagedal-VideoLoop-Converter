@@ -790,7 +790,8 @@ struct VideoFileListView: View {
                 audioStreamIndex: audioStreamIndex
             ) { whisperProgress in
                 Task { @MainActor in
-                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }),
+                       self.droppedFiles[idx].subtitleStatus.isInProgress {
                         switch whisperProgress.stage {
                         case .extractingAudio:
                             self.droppedFiles[idx].subtitleStatus = .extractingAudio
@@ -817,6 +818,12 @@ struct VideoFileListView: View {
             }
             Self.logger.info("Transcribe-only completed: \(srtURL.lastPathComponent, privacy: .public)")
 
+        } catch WhisperServiceError.cancelled {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .notQueued
+                }
+            }
         } catch {
             await MainActor.run {
                 if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
@@ -876,7 +883,8 @@ struct VideoFileListView: View {
                 language: language
             ) { ocrProgress in
                 Task { @MainActor in
-                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }),
+                       self.droppedFiles[idx].subtitleStatus.isInProgress {
                         switch ocrProgress.stage {
                         case .extractingTrack, .parsingFrames:
                             self.droppedFiles[idx].subtitleStatus = .extractingAudio
@@ -903,6 +911,12 @@ struct VideoFileListView: View {
             }
             Self.logger.info("OCR-only completed: \(srtURL.lastPathComponent, privacy: .public)")
 
+        } catch TesseractServiceError.cancelled {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .notQueued
+                }
+            }
         } catch {
             await MainActor.run {
                 if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
