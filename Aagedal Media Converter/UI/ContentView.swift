@@ -209,6 +209,10 @@ struct ContentView: View {
                         encodingGroups[gi].items[ii].status = .waiting
                         encodingGroups[gi].items[ii].progress = 0.0
                         encodingGroups[gi].items[ii].eta = nil
+                        encodingGroups[gi].items[ii].analyticsResults = nil
+                        encodingGroups[gi].items[ii].analyticsStatus = .notQueued
+                        encodingGroups[gi].items[ii].analyticsProgress = 0.0
+                        encodingGroups[gi].items[ii].analyticsEnabled = false
                     }
                 }
             },
@@ -246,6 +250,10 @@ struct ContentView: View {
             droppedFiles[index].eta = nil
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
             droppedFiles[index].outputFileSizeBytes = nil
+            droppedFiles[index].analyticsResults = nil
+            droppedFiles[index].analyticsStatus = .notQueued
+            droppedFiles[index].analyticsProgress = 0.0
+            droppedFiles[index].analyticsEnabled = false
 
             // Determine whether to clear settings based on preference and Option key
             let resetClearsSettings = UserDefaults.standard.bool(forKey: AppConstants.resetClearsSettingsKey)
@@ -1371,6 +1379,10 @@ struct ContentView: View {
             droppedFiles[index].eta = nil
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
             droppedFiles[index].outputFileSizeBytes = nil
+            droppedFiles[index].analyticsResults = nil
+            droppedFiles[index].analyticsStatus = .notQueued
+            droppedFiles[index].analyticsProgress = 0.0
+            droppedFiles[index].analyticsEnabled = false
 
             if shouldClearSettings {
                 droppedFiles[index].audioRoutingConfig = nil
@@ -1392,6 +1404,10 @@ struct ContentView: View {
                 encodingGroups[gi].items[ii].status = .waiting
                 encodingGroups[gi].items[ii].progress = 0.0
                 encodingGroups[gi].items[ii].eta = nil
+                encodingGroups[gi].items[ii].analyticsResults = nil
+                encodingGroups[gi].items[ii].analyticsStatus = .notQueued
+                encodingGroups[gi].items[ii].analyticsProgress = 0.0
+                encodingGroups[gi].items[ii].analyticsEnabled = false
                 didReset = true
             }
         }

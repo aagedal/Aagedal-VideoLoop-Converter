@@ -793,9 +793,15 @@ struct VideoItem: Identifiable, Equatable, Sendable {
         uploadSourceFile ? url : outputURL
     }
 
-    /// Whether this item is ready for quality analytics (conversion done, both source and output exist)
+    /// Whether this item is ready for quality analytics (output file exists on disk)
     var isReadyForAnalytics: Bool {
-        status == .done && outputURL != nil && hasVideoStream
+        guard hasVideoStream, let url = outputURL else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    /// Whether analytics can potentially run (has video, but output may need locating)
+    var canRunAnalyticsWithFilePicker: Bool {
+        hasVideoStream && (outputURL == nil || !FileManager.default.fileExists(atPath: outputURL!.path))
     }
 
     /// Whether this item is scheduled for future download

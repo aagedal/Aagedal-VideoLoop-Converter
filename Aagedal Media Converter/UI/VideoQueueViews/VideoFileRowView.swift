@@ -112,13 +112,18 @@ struct VideoFileRowView: View {
         }
     }
 
-    // Subtitle button computed properties
+    // Subtitle (Whisper) button computed properties
     private var subtitleIconName: String {
-        file.subtitleEnabled ? "captions.bubble.fill" : "captions.bubble"
+        (file.subtitleEnabled && file.subtitleMethod == .whisper) ? "captions.bubble.fill" : "captions.bubble"
     }
 
     private var subtitleIconColor: Color {
-        file.subtitleEnabled ? .green : .secondary
+        (file.subtitleEnabled && file.subtitleMethod == .whisper) ? .green : .secondary
+    }
+
+    // OCR button computed properties
+    private var ocrIconColor: Color {
+        (file.subtitleEnabled && file.subtitleMethod == .ocr) ? .green : .secondary
     }
 
     private static let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
@@ -136,13 +141,18 @@ struct VideoFileRowView: View {
     }
 
     private var subtitleHelpText: String {
-        if file.subtitleEnabled {
-            let method = file.subtitleMethod == .ocr ? "OCR (Tesseract)" : "Transcription (Whisper)"
-            return "Subtitle generation enabled (\(method)). SRT will be created after encoding. Option+click to generate SRT only (no encoding)."
-        } else if hasBitmapSubtitles {
-            return "Enable subtitle generation. File has embedded picture subtitles — choose OCR or Whisper."
+        if file.subtitleEnabled && file.subtitleMethod == .whisper {
+            return "Transcription (Whisper) enabled. SRT will be created after encoding. Option+click to generate SRT only (no encoding)."
         } else {
-            return "Enable subtitle generation after encoding. Option+click to generate SRT only (no encoding)."
+            return "Enable Whisper transcription for subtitle generation. Option+click to generate SRT only (no encoding)."
+        }
+    }
+
+    private var ocrHelpText: String {
+        if file.subtitleEnabled && file.subtitleMethod == .ocr {
+            return "OCR (Tesseract) enabled. SRT will be created from embedded bitmap subtitles. Option+click to generate SRT only (no encoding)."
+        } else {
+            return "Enable OCR to extract text from embedded bitmap subtitles (PGS/VOBSUB). Option+click to generate SRT only (no encoding)."
         }
     }
 
@@ -175,6 +185,8 @@ struct VideoFileRowView: View {
             return file.analyticsStatus.displayText
         } else if file.isReadyForAnalytics {
             return "Run quality analytics now (VMAF/PSNR/SSIMULACRA2)."
+        } else if file.canRunAnalyticsWithFilePicker {
+            return "Run quality analytics — click to select the encoded file to compare against."
         } else if file.analyticsEnabled {
             return "Quality analytics will run after encoding."
         } else {
@@ -224,7 +236,7 @@ struct VideoFileRowView: View {
     @State private var showBackgroundImagePicker = false
     @State private var showAudioFilePicker = false
     @State private var showAnalyticsResults = false
-    @State private var showSubtitleMethodPicker = false
+    @State private var showAnalyticsFilePicker = false
     @State private var showSubtitleTrackSheet = false
     @State private var showAudioTrackSheet = false
     @State private var pendingTranscribeOnly = false
@@ -516,39 +528,35 @@ struct VideoFileRowView: View {
                                 .disabled(!UploadManager.shared.isConfigured)
                                 .help(uploadHelpText)
 
-                                // Subtitle toggle button (Option+click for transcribe-only)
+                                // Whisper transcription button (Option+click for transcribe-only)
                                 Button {
                                     if isOptionKeyPressed() {
                                         // Option+click: generate SRT only (no encoding)
-                                        // Always show pickers regardless of subtitleEnabled state
                                         if file.metadata == nil {
                                             metadataPendingIsTranscribeOnly = true
                                             showMetadataPendingAlert = true
-                                        } else if hasBitmapSubtitles {
-                                            pendingTranscribeOnly = true
-                                            showSubtitleMethodPicker = true
                                         } else if audioStreams.count > 1 {
                                             pendingTranscribeOnly = true
                                             file.subtitleEnabled = true
                                             file.subtitleMethod = .whisper
                                             showAudioTrackSheet = true
                                         } else {
-                                            onTranscribeOnly?(file.subtitleMethod)
+                                            onTranscribeOnly?(.whisper)
                                         }
                                     } else if !file.subtitleEnabled && file.metadata == nil {
-                                        // Metadata not yet loaded: warn before silently enabling Whisper
                                         metadataPendingIsTranscribeOnly = false
                                         showMetadataPendingAlert = true
-                                    } else if !file.subtitleEnabled && hasBitmapSubtitles {
-                                        // First enable on a file with bitmap subs: ask which method
-                                        showSubtitleMethodPicker = true
-                                    } else if !file.subtitleEnabled && audioStreams.count > 1 {
-                                        // Non-bitmap file, Whisper only: pick audio track
+                                    } else if file.subtitleEnabled && file.subtitleMethod == .whisper {
+                                        // Already enabled as Whisper — toggle off
+                                        file.subtitleEnabled = false
+                                    } else if audioStreams.count > 1 {
+                                        // Pick audio track before enabling
                                         file.subtitleEnabled = true
                                         file.subtitleMethod = .whisper
                                         showAudioTrackSheet = true
                                     } else {
-                                        file.subtitleEnabled.toggle()
+                                        file.subtitleEnabled = true
+                                        file.subtitleMethod = .whisper
                                     }
                                 } label: {
                                     Image(systemName: subtitleIconName)
@@ -557,28 +565,68 @@ struct VideoFileRowView: View {
                                 .foregroundColor(subtitleIconColor)
                                 .help(subtitleHelpText)
 
-                                // Analytics toggle button (click to view results when available, Option+click to rerun)
-                                Button {
-                                    if file.analyticsResults != nil {
-                                        if isOptionKeyPressed() && file.isReadyForAnalytics {
-                                            file.analyticsResults = nil
-                                            file.analyticsStatus = .notQueued
-                                            onAnalyzeOnly?()
+                                // OCR button (Option+click for OCR-only, visible when file has bitmap subtitles)
+                                if hasBitmapSubtitles {
+                                    Button {
+                                        if isOptionKeyPressed() {
+                                            // Option+click: generate SRT only via OCR (no encoding)
+                                            if bitmapSubtitleStreams.count > 1 {
+                                                pendingTranscribeOnly = true
+                                                file.subtitleMethod = .ocr
+                                                file.subtitleEnabled = true
+                                                showSubtitleTrackSheet = true
+                                            } else {
+                                                file.selectedBitmapSubtitleStreamIndex = bitmapSubtitleStreams.first?.index
+                                                onTranscribeOnly?(.ocr)
+                                            }
+                                        } else if file.subtitleEnabled && file.subtitleMethod == .ocr {
+                                            // Already enabled as OCR — toggle off
+                                            file.subtitleEnabled = false
+                                        } else if bitmapSubtitleStreams.count > 1 {
+                                            // Pick subtitle track before enabling
+                                            file.subtitleMethod = .ocr
+                                            file.subtitleEnabled = true
+                                            showSubtitleTrackSheet = true
                                         } else {
-                                            showAnalyticsResults = true
+                                            file.subtitleMethod = .ocr
+                                            file.subtitleEnabled = true
+                                            file.selectedBitmapSubtitleStreamIndex = bitmapSubtitleStreams.first?.index
                                         }
-                                    } else if file.isReadyForAnalytics {
-                                        onAnalyzeOnly?()
-                                    } else {
-                                        file.analyticsEnabled.toggle()
+                                    } label: {
+                                        Image(systemName: "text.viewfinder")
                                     }
-                                } label: {
-                                    Image(systemName: analyticsIconName)
+                                    .buttonStyle(.borderless)
+                                    .foregroundColor(ocrIconColor)
+                                    .help(ocrHelpText)
                                 }
-                                .buttonStyle(.borderless)
-                                .foregroundColor(analyticsIconColor)
-                                .disabled(!file.hasVideoStream)
-                                .help(analyticsHelpText)
+
+                                // Analytics toggle button (click to view results when available, Option+click to rerun)
+                                if file.hasVideoStream {
+                                    Button {
+                                        if file.analyticsResults != nil {
+                                            if isOptionKeyPressed() && file.isReadyForAnalytics {
+                                                file.analyticsResults = nil
+                                                file.analyticsStatus = .notQueued
+                                                onAnalyzeOnly?()
+                                            } else if isOptionKeyPressed() && file.canRunAnalyticsWithFilePicker {
+                                                showAnalyticsFilePicker = true
+                                            } else {
+                                                showAnalyticsResults = true
+                                            }
+                                        } else if file.isReadyForAnalytics {
+                                            onAnalyzeOnly?()
+                                        } else if file.canRunAnalyticsWithFilePicker {
+                                            showAnalyticsFilePicker = true
+                                        } else {
+                                            file.analyticsEnabled.toggle()
+                                        }
+                                    } label: {
+                                        Image(systemName: analyticsIconName)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundColor(analyticsIconColor)
+                                    .help(analyticsHelpText)
+                                }
 
                                 // Action buttons container with fixed width
                                 HStack(spacing: 4) {
@@ -832,56 +880,17 @@ struct VideoFileRowView: View {
                 AnalyticsResultsView(results: results)
             }
         }
-        .confirmationDialog(
-            "Choose Subtitle Method",
-            isPresented: $showSubtitleMethodPicker,
-            titleVisibility: .visible
-        ) {
-            Button("OCR (Tesseract)") {
-                file.subtitleMethod = .ocr
-                file.subtitleEnabled = true
-                if bitmapSubtitleStreams.count > 1 {
-                    showSubtitleTrackSheet = true
-                } else {
-                    file.selectedBitmapSubtitleStreamIndex = bitmapSubtitleStreams.first?.index
-                    if pendingTranscribeOnly {
-                        pendingTranscribeOnly = false
-                        onTranscribeOnly?(.ocr)
-                    }
-                }
+        .fileImporter(
+            isPresented: $showAnalyticsFilePicker,
+            allowedContentTypes: [.movie, .video, .mpeg4Movie, .quickTimeMovie, .avi],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                file.outputURL = url
+                file.analyticsResults = nil
+                file.analyticsStatus = .notQueued
+                onAnalyzeOnly?()
             }
-            Button("Transcription (Whisper)") {
-                file.subtitleMethod = .whisper
-                file.subtitleEnabled = true
-                if audioStreams.count > 1 {
-                    showAudioTrackSheet = true
-                } else {
-                    file.selectedAudioStreamIndex = audioStreams.first?.index
-                    if pendingTranscribeOnly {
-                        pendingTranscribeOnly = false
-                        onTranscribeOnly?(.whisper)
-                    }
-                }
-            }
-            Button("Cancel", role: .cancel) {
-                pendingTranscribeOnly = false
-            }
-        } message: {
-            Text("""
-                This file contains embedded picture-based subtitles (PGS/VOBSUB).
-
-                OCR (Tesseract)
-                + Fast — reads embedded subtitle images directly
-                + Preserves exact original timing
-                + Works offline without touching the audio
-                - Accuracy depends on image quality; may struggle with stylised or non-Latin text
-
-                Transcription (Whisper)
-                + Creates subtitles from speech — useful if audio differs from on-screen text
-                + Handles any language the selected Whisper model supports
-                - Slower — must process the full audio track
-                - Timings come from speech detection, not the original subtitle cues
-                """)
         }
         .confirmationDialog(
             "Metadata Still Loading",
@@ -1490,35 +1499,32 @@ struct VideoFileRowView: View {
             .disabled(!UploadManager.shared.isConfigured)
             .help(uploadHelpText)
 
-            // Subtitle toggle button (compact, Option+click for transcribe-only)
+            // Whisper transcription button (compact, Option+click for transcribe-only)
             Button {
                 if isOptionKeyPressed() {
-                    // Option+click: generate SRT only (no encoding)
-                    if !file.subtitleEnabled && file.metadata == nil {
+                    if file.metadata == nil {
                         metadataPendingIsTranscribeOnly = true
                         showMetadataPendingAlert = true
-                    } else if !file.subtitleEnabled && hasBitmapSubtitles {
-                        pendingTranscribeOnly = true
-                        showSubtitleMethodPicker = true
-                    } else if !file.subtitleEnabled && audioStreams.count > 1 {
+                    } else if audioStreams.count > 1 {
                         pendingTranscribeOnly = true
                         file.subtitleEnabled = true
                         file.subtitleMethod = .whisper
                         showAudioTrackSheet = true
                     } else {
-                        onTranscribeOnly?(file.subtitleMethod)
+                        onTranscribeOnly?(.whisper)
                     }
                 } else if !file.subtitleEnabled && file.metadata == nil {
                     metadataPendingIsTranscribeOnly = false
                     showMetadataPendingAlert = true
-                } else if !file.subtitleEnabled && hasBitmapSubtitles {
-                    showSubtitleMethodPicker = true
-                } else if !file.subtitleEnabled && audioStreams.count > 1 {
+                } else if file.subtitleEnabled && file.subtitleMethod == .whisper {
+                    file.subtitleEnabled = false
+                } else if audioStreams.count > 1 {
                     file.subtitleEnabled = true
                     file.subtitleMethod = .whisper
                     showAudioTrackSheet = true
                 } else {
-                    file.subtitleEnabled.toggle()
+                    file.subtitleEnabled = true
+                    file.subtitleMethod = .whisper
                 }
             } label: {
                 Image(systemName: subtitleIconName)
@@ -1529,30 +1535,69 @@ struct VideoFileRowView: View {
             .foregroundColor(subtitleIconColor)
             .help(subtitleHelpText)
 
-            // Analytics toggle button (compact, Option+click to rerun)
-            Button {
-                if file.analyticsResults != nil {
-                    if isOptionKeyPressed() && file.isReadyForAnalytics {
-                        file.analyticsResults = nil
-                        file.analyticsStatus = .notQueued
-                        onAnalyzeOnly?()
+            // OCR button (compact, visible when file has bitmap subtitles)
+            if hasBitmapSubtitles {
+                Button {
+                    if isOptionKeyPressed() {
+                        if bitmapSubtitleStreams.count > 1 {
+                            pendingTranscribeOnly = true
+                            file.subtitleMethod = .ocr
+                            file.subtitleEnabled = true
+                            showSubtitleTrackSheet = true
+                        } else {
+                            file.selectedBitmapSubtitleStreamIndex = bitmapSubtitleStreams.first?.index
+                            onTranscribeOnly?(.ocr)
+                        }
+                    } else if file.subtitleEnabled && file.subtitleMethod == .ocr {
+                        file.subtitleEnabled = false
+                    } else if bitmapSubtitleStreams.count > 1 {
+                        file.subtitleMethod = .ocr
+                        file.subtitleEnabled = true
+                        showSubtitleTrackSheet = true
                     } else {
-                        showAnalyticsResults = true
+                        file.subtitleMethod = .ocr
+                        file.subtitleEnabled = true
+                        file.selectedBitmapSubtitleStreamIndex = bitmapSubtitleStreams.first?.index
                     }
-                } else if file.isReadyForAnalytics {
-                    onAnalyzeOnly?()
-                } else {
-                    file.analyticsEnabled.toggle()
+                } label: {
+                    Image(systemName: "text.viewfinder")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 20, height: 20)
                 }
-            } label: {
-                Image(systemName: analyticsIconName)
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 20, height: 20)
+                .buttonStyle(.borderless)
+                .foregroundColor(ocrIconColor)
+                .help(ocrHelpText)
             }
-            .buttonStyle(.borderless)
-            .foregroundColor(analyticsIconColor)
-            .disabled(!file.hasVideoStream)
-            .help(analyticsHelpText)
+
+            // Analytics toggle button (compact, Option+click to rerun)
+            if file.hasVideoStream {
+                Button {
+                    if file.analyticsResults != nil {
+                        if isOptionKeyPressed() && file.isReadyForAnalytics {
+                            file.analyticsResults = nil
+                            file.analyticsStatus = .notQueued
+                            onAnalyzeOnly?()
+                        } else if isOptionKeyPressed() && file.canRunAnalyticsWithFilePicker {
+                            showAnalyticsFilePicker = true
+                        } else {
+                            showAnalyticsResults = true
+                        }
+                    } else if file.isReadyForAnalytics {
+                        onAnalyzeOnly?()
+                    } else if file.canRunAnalyticsWithFilePicker {
+                        showAnalyticsFilePicker = true
+                    } else {
+                        file.analyticsEnabled.toggle()
+                    }
+                } label: {
+                    Image(systemName: analyticsIconName)
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.borderless)
+                .foregroundColor(analyticsIconColor)
+                .help(analyticsHelpText)
+            }
         }
     }
 
