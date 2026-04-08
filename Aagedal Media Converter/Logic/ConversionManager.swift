@@ -155,12 +155,12 @@ actor ConversionManager: Sendable {
         }
 
         let mergeBaseName: String
-        if let override = firstItem.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty {
-            mergeBaseName = FileNameProcessor.processFileName((override as NSString).deletingPathExtension)
-        } else if let name = groupName?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let name = groupName?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !name.isEmpty {
             mergeBaseName = FileNameProcessor.processFileName(name)
+        } else if let override = firstItem.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            mergeBaseName = FileNameProcessor.processFileName((override as NSString).deletingPathExtension)
         } else {
             let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
             mergeBaseName = FileNameProcessor.processFileName(firstItem.url.deletingPathExtension().lastPathComponent)
