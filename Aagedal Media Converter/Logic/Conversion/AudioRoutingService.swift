@@ -226,14 +226,12 @@ enum AudioRoutingService {
         }
 
         // Check for preset-specific audio handling
-        switch preset {
-        case .audioStereoAAC:
-            if config.outputTrackIndices.count > 1 {
-                messages.append("Note: AAC format supports only one audio track. Multiple tracks will be converted to stereo and merged.")
+        if preset == .audioOnly {
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyFormatKey) ?? AppConstants.defaultAudioOnlyFormat
+            let format = AudioOnlyFormat(rawValue: formatRaw) ?? .wav
+            if format.supportsSingleStreamOnly && config.outputTrackIndices.count > 1 {
+                messages.append("Note: \(format.rawValue) format supports only one audio stream. Multiple tracks will be merged.")
             }
-
-        default:
-            break
         }
 
         // Warn if all tracks are removed

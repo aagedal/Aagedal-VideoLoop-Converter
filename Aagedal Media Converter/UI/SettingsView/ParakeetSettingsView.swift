@@ -17,8 +17,6 @@ struct ParakeetSettingsView: View {
 
     @AppStorage(AppConstants.parakeetModelKey) private var selectedModelId = AppConstants.defaultParakeetModel
     @AppStorage(AppConstants.parakeetCustomPathKey) private var customPath = ""
-    @AppStorage(AppConstants.parakeetLanguageKey) private var selectedLanguage = AppConstants.defaultParakeetLanguage
-
     var body: some View {
         Section(header: Text("parakeet-mlx (NeMo ASR on Apple Silicon)")) {
             statusSection
@@ -306,7 +304,7 @@ struct ParakeetSettingsView: View {
 
             if let model = ParakeetModel.model(for: selectedModelId) {
                 Text(model.isMultilingual
-                    ? "This model supports 25 European languages with automatic detection."
+                    ? "This model supports multiple languages with automatic detection."
                     : "This model supports English only.")
                     .font(.caption)
                     .foregroundColor(.secondary)

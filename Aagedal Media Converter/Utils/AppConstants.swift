@@ -441,9 +441,22 @@ enum AppConstants {
     static let proresVisibleKey = "proresVisible"
     static let proxyVisibleKey = "proxyVisible"
     static let streamCopyVisibleKey = "streamCopyVisible"
-    static let audioWAVVisibleKey = "audioWAVVisible"
-    static let audioAACVisibleKey = "audioAACVisible"
-    static let audioMP4VisibleKey = "audioMP4Visible"
+    static let audioWAVVisibleKey = "audioWAVVisible"       // Legacy — kept for migration
+    static let audioAACVisibleKey = "audioAACVisible"       // Legacy — kept for migration
+    static let audioMP4VisibleKey = "audioMP4Visible"       // Legacy — kept for migration
+    static let audioOnlyVisibleKey = "audioOnlyVisible"
+
+    // Audio Only preset settings
+    static let audioOnlyFormatKey = "audioOnlyFormat"
+    static let defaultAudioOnlyFormat = "WAV"
+    static let audioOnlyBitDepthKey = "audioOnlyBitDepth"
+    static let defaultAudioOnlyBitDepth = "24-bit"
+    static let audioOnlyAACBitrateKey = "audioOnlyAACBitrate"
+    static let defaultAudioOnlyAACBitrate = "192 kbps"
+    static let audioOnlyMP4CodecKey = "audioOnlyMP4Codec"
+    static let defaultAudioOnlyMP4Codec = "AAC"
+    static let audioOnlyMP4BitrateKey = "audioOnlyMP4Bitrate"
+    static let defaultAudioOnlyMP4Bitrate = "192 kbps"
     static let imageSequenceVisibleKey = "imageSequenceVisible"
     static let dcpVisibleKey = "dcpVisible"
 
