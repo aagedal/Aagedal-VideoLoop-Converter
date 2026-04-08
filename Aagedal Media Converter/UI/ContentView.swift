@@ -906,6 +906,7 @@ struct ContentView: View {
             let concatEnabled = group.concatEnabled
             let transcriptionEnabled = group.transcriptionEnabled
             let uploadEnabled = group.uploadEnabled
+            let analyticsEnabled = group.analyticsEnabled
 
             await ConversionManager.shared.convertGroup(
                 items: $encodingGroups[groupIndex].items,
@@ -913,7 +914,8 @@ struct ContentView: View {
                 preset: groupPreset,
                 concatEnabled: concatEnabled,
                 transcriptionEnabled: transcriptionEnabled,
-                uploadEnabled: uploadEnabled
+                uploadEnabled: uploadEnabled,
+                analyticsEnabled: analyticsEnabled
             )
         }
 

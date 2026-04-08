@@ -119,7 +119,7 @@ struct EncodingGroupHeaderView: View {
                     .help("Delete group")
                 }
 
-                // Bottom row: preset picker, toggles
+                // Bottom row: preset picker, feature icons
                 HStack(spacing: 12) {
                     Picker("Preset", selection: presetBinding) {
                         Text("Global (\(presetManager.displayName(for: globalPreset)))")
@@ -134,14 +134,56 @@ struct EncodingGroupHeaderView: View {
 
                     Spacer()
 
-                    Toggle("Concat", isOn: $group.concatEnabled)
-                        .toggleStyle(.checkbox)
+                    HStack(spacing: 4) {
+                        // Concat toggle
+                        Button {
+                            group.concatEnabled.toggle()
+                        } label: {
+                            Image(systemName: group.concatEnabled ? "arrow.triangle.merge" : "arrow.triangle.merge")
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundColor(group.concatEnabled ? .blue : .secondary)
+                        .help(group.concatEnabled ? "Concat enabled — clips will be merged into one file" : "Enable concat to merge clips into one file")
 
-                    Toggle("Upload", isOn: $group.uploadEnabled)
-                        .toggleStyle(.checkbox)
+                        // Upload toggle
+                        Button {
+                            group.uploadEnabled.toggle()
+                        } label: {
+                            Image(systemName: group.uploadEnabled ? "icloud.and.arrow.up.fill" : "icloud.and.arrow.up")
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundColor(group.uploadEnabled ? .blue : .secondary)
+                        .disabled(!UploadManager.shared.isConfigured)
+                        .help(group.uploadEnabled ? "Upload enabled — files will upload after encoding" : "Enable upload after encoding")
 
-                    Toggle("Transcribe", isOn: $group.transcriptionEnabled)
-                        .toggleStyle(.checkbox)
+                        // Transcription toggle
+                        Button {
+                            group.transcriptionEnabled.toggle()
+                        } label: {
+                            Image(systemName: group.transcriptionEnabled ? "captions.bubble.fill" : "captions.bubble")
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundColor(group.transcriptionEnabled ? .green : .secondary)
+                        .help(group.transcriptionEnabled ? "Transcription enabled — SRT will be created after encoding" : "Enable transcription for subtitle generation")
+
+                        // Analytics toggle
+                        Button {
+                            group.analyticsEnabled.toggle()
+                        } label: {
+                            Image(systemName: group.analyticsEnabled ? "chart.bar.xaxis.ascending" : "chart.bar.xaxis")
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundColor(group.analyticsEnabled ? .cyan : .secondary)
+                        .help(group.analyticsEnabled ? "Quality analytics enabled — will run after encoding" : "Enable quality analytics after encoding")
+                    }
                 }
                 .font(.callout)
 
@@ -149,6 +191,22 @@ struct EncodingGroupHeaderView: View {
                 if group.status == .converting {
                     ProgressView(value: group.progress)
                         .progressViewStyle(.linear)
+                }
+
+                // Upload progress when any item is uploading
+                if uploadSummary.visible {
+                    HStack(spacing: 6) {
+                        Image(systemName: uploadSummary.icon)
+                            .font(.system(size: 10))
+                            .foregroundStyle(uploadSummary.color)
+                        Text(uploadSummary.text)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if uploadSummary.showProgress {
+                            ProgressView(value: uploadSummary.progress)
+                                .progressViewStyle(.linear)
+                        }
+                    }
                 }
             }
             .padding(12)
@@ -195,6 +253,67 @@ struct EncodingGroupHeaderView: View {
             .buttonStyle(.borderless)
             .help("Output file already exists and will be overwritten. Click to show in Finder.")
         }
+    }
+
+    private struct UploadSummary {
+        var visible: Bool
+        var icon: String
+        var color: Color
+        var text: String
+        var progress: Double
+        var showProgress: Bool
+    }
+
+    private var uploadSummary: UploadSummary {
+        let items = group.items
+        let uploadItems = items.filter { $0.uploadEnabled }
+        guard !uploadItems.isEmpty else {
+            return UploadSummary(visible: false, icon: "", color: .clear, text: "", progress: 0, showProgress: false)
+        }
+
+        let uploaded = uploadItems.filter { $0.uploadStatus.isComplete }.count
+        let failed = uploadItems.filter { $0.uploadStatus.hasFailed }.count
+        let uploading = uploadItems.filter { $0.uploadStatus == .uploading }
+        let pending = uploadItems.filter { $0.uploadStatus == .pending }.count
+        let total = uploadItems.count
+
+        // All done
+        if uploaded == total {
+            return UploadSummary(
+                visible: true, icon: "checkmark.icloud.fill", color: .green,
+                text: "Uploaded \(uploaded)/\(total)", progress: 1, showProgress: false
+            )
+        }
+
+        // Some failed
+        if failed > 0 && uploading.isEmpty && pending == 0 {
+            return UploadSummary(
+                visible: true, icon: "exclamationmark.icloud.fill", color: .red,
+                text: "Upload failed \(failed)/\(total)", progress: 0, showProgress: false
+            )
+        }
+
+        // Actively uploading
+        if let current = uploading.first {
+            let completedProgress = Double(uploaded)
+            let currentProgress = current.uploadProgress
+            let overallProgress = (completedProgress + currentProgress) / Double(total)
+            let speedText = current.uploadSpeed.map { " · \($0)" } ?? ""
+            return UploadSummary(
+                visible: true, icon: "icloud.and.arrow.up", color: .orange,
+                text: "Uploading \(uploaded + 1)/\(total)\(speedText)", progress: overallProgress, showProgress: true
+            )
+        }
+
+        // Pending
+        if pending > 0 {
+            return UploadSummary(
+                visible: true, icon: "clock.arrow.circlepath", color: .orange,
+                text: "Upload pending \(uploaded)/\(total)", progress: Double(uploaded) / Double(total), showProgress: true
+            )
+        }
+
+        return UploadSummary(visible: false, icon: "", color: .clear, text: "", progress: 0, showProgress: false)
     }
 
     private var presetBinding: Binding<ExportPreset?> {

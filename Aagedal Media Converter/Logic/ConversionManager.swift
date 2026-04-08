@@ -362,7 +362,7 @@ actor ConversionManager: Sendable {
             arguments.append(contentsOf: ["-t", FFMPEGCommandBuilder.ffmpegTimeString(from: duration)])
         }
 
-        arguments.append(contentsOf: ["-c", "copy", tempURL.path])
+        arguments.append(contentsOf: ["-c", "copy", "-avoid_negative_ts", "make_zero", tempURL.path])
 
         let success = await runFFmpeg(at: ffmpegPath, arguments: arguments, context: "trim \(item.name)")
         if success {
@@ -572,6 +572,31 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[index].outputURL = success ? finalURL : nil
                     droppedFiles.wrappedValue[index].outputFileSizeBytes = outputFileSizeBytes
                 }
+            }
+        }
+
+        // Trigger upload for merged output (upload once since all items share the same file)
+        if success,
+           let firstUploadIdx = indices.first(where: { droppedFiles.wrappedValue[$0].uploadEnabled }) {
+            let itemID = droppedFiles.wrappedValue[firstUploadIdx].id
+            Task {
+                await UploadManager.shared.startUpload(itemID: itemID)
+            }
+        }
+
+        // Trigger analytics for merged output (once since all items share the same file)
+        if success,
+           let firstAnalyticsIdx = indices.first(where: { droppedFiles.wrappedValue[$0].analyticsEnabled }),
+           let outputURL = droppedFiles.wrappedValue[firstAnalyticsIdx].outputURL {
+            let itemID = droppedFiles.wrappedValue[firstAnalyticsIdx].id
+            let sourceURL = droppedFiles.wrappedValue[firstAnalyticsIdx].url
+            Task {
+                await self.runAnalytics(
+                    for: itemID,
+                    sourceURL: sourceURL,
+                    encodedURL: outputURL,
+                    droppedFiles: droppedFiles
+                )
             }
         }
 
@@ -962,15 +987,27 @@ actor ConversionManager: Sendable {
         preset: ExportPreset,
         concatEnabled: Bool,
         transcriptionEnabled: Bool,
-        uploadEnabled: Bool
+        uploadEnabled: Bool,
+        analyticsEnabled: Bool
     ) async {
         self.isConverting = true
 
-        // Apply group-level transcription setting to individual items
-        if transcriptionEnabled {
+        // Apply group-level settings to individual items
+        if transcriptionEnabled || uploadEnabled || analyticsEnabled {
             await MainActor.run {
                 for i in items.wrappedValue.indices {
-                    items.wrappedValue[i].subtitleEnabled = true
+                    if transcriptionEnabled {
+                        items.wrappedValue[i].subtitleEnabled = true
+                    }
+                    if uploadEnabled {
+                        items.wrappedValue[i].uploadEnabled = true
+                    }
+                    if analyticsEnabled {
+                        items.wrappedValue[i].analyticsEnabled = true
+                    }
+                }
+                if uploadEnabled {
+                    UploadManager.shared.videoItems = items
                 }
             }
         }
@@ -992,17 +1029,6 @@ actor ConversionManager: Sendable {
             preset: preset
         )
 
-        // Queue uploads for group items if enabled
-        if uploadEnabled {
-            await MainActor.run {
-                UploadManager.shared.videoItems = items
-            }
-            for item in items.wrappedValue where item.status == .done {
-                Task {
-                    await UploadManager.shared.queueUpload(itemID: item.id)
-                }
-            }
-        }
     }
 
     func startConversion(

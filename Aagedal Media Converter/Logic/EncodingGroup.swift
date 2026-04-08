@@ -22,6 +22,7 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
     var concatEnabled: Bool
     var uploadEnabled: Bool
     var transcriptionEnabled: Bool
+    var analyticsEnabled: Bool
 
     init(
         id: UUID = UUID(),
@@ -31,7 +32,8 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
         preset: ExportPreset? = nil,
         concatEnabled: Bool = true,
         uploadEnabled: Bool = false,
-        transcriptionEnabled: Bool = false
+        transcriptionEnabled: Bool = false,
+        analyticsEnabled: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -41,6 +43,7 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
         self.concatEnabled = concatEnabled
         self.uploadEnabled = uploadEnabled
         self.transcriptionEnabled = transcriptionEnabled
+        self.analyticsEnabled = analyticsEnabled
     }
 
     var clipCount: Int { items.count }
