@@ -101,9 +101,7 @@ actor ParakeetService {
         args += ["--output-dir", outputDirectory.path]
         args += ["--model", model.id]
 
-        if let lang = language, lang != "auto", model.isMultilingual {
-            args += ["--language", lang]
-        }
+        // Note: parakeet-mlx auto-detects language; no --language flag exists
 
         let chunkDuration = UserDefaults.standard.integer(forKey: AppConstants.parakeetChunkDurationKey)
         if chunkDuration > 0 && chunkDuration != AppConstants.defaultParakeetChunkDuration {
@@ -150,6 +148,13 @@ actor ParakeetService {
         }
         let state = ProgressState()
 
+        stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let line = String(data: data, encoding: .utf8),
+                  !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            self.logger.debug("parakeet stdout: \(line, privacy: .public)")
+        }
+
         stderrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
@@ -157,7 +162,7 @@ actor ParakeetService {
             if let line = String(data: data, encoding: .utf8) {
                 // Log parakeet output for debugging
                 if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    self.logger.debug("parakeet: \(line, privacy: .public)")
+                    self.logger.debug("parakeet stderr: \(line, privacy: .public)")
                 }
 
                 // Try to parse progress from stderr
@@ -202,6 +207,8 @@ actor ParakeetService {
             }
         }
 
+        logger.info("Launching: \(process.executableURL?.path ?? "nil") \(process.arguments?.joined(separator: " ") ?? "", privacy: .public)")
+
         do {
             try process.run()
             process.waitUntilExit()
@@ -209,6 +216,10 @@ actor ParakeetService {
             throw ParakeetServiceError.transcriptionFailed(error.localizedDescription)
         }
 
+        let exitCode = process.terminationStatus
+        logger.info("parakeet-mlx exited with code \(exitCode)")
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = nil
         stderrPipe.fileHandleForReading.readabilityHandler = nil
         currentProcess = nil
 
@@ -216,14 +227,15 @@ actor ParakeetService {
             throw ParakeetServiceError.cancelled
         }
 
-        guard process.terminationStatus == 0 else {
+        guard exitCode == 0 else {
             // Read stderr for error details
             let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
             let lastLine = errorOutput.components(separatedBy: .newlines)
                 .last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+            logger.error("parakeet-mlx stderr: \(errorOutput, privacy: .public)")
             throw ParakeetServiceError.transcriptionFailed(
-                "parakeet-mlx exited with code \(process.terminationStatus)" +
+                "parakeet-mlx exited with code \(exitCode)" +
                 (lastLine.isEmpty ? "" : ": \(lastLine)")
             )
         }

@@ -70,28 +70,11 @@ struct ParakeetSettingsView: View {
 
             if !installationStatus.isAvailable && !isCheckingStatus {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Install parakeet-mlx to enable Parakeet transcription:")
+                    Text("parakeet-mlx is a Python package that runs speech recognition locally on Apple Silicon. Install it to enable Parakeet transcription:")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("pip:")
-                                .font(.caption).bold()
-                            Text("pip install -U parakeet-mlx")
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                        }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("uv:")
-                                .font(.caption).bold()
-                            Text("uv tool install parakeet-mlx")
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                        }
-                    }
-                    .foregroundColor(.secondary)
+                    CopyableCommandRow(command: "pip install -U parakeet-mlx")
                 }
             }
 
@@ -321,27 +304,10 @@ struct ParakeetSettingsView: View {
                 .frame(width: 300)
             }
 
-            // Show language picker only for multilingual models
-            if let model = ParakeetModel.model(for: selectedModelId), model.isMultilingual {
-                HStack {
-                    Text("Default language:")
-                        .frame(width: 120, alignment: .trailing)
-
-                    Picker("", selection: $selectedLanguage) {
-                        ForEach(ParakeetLanguage.allCases, id: \.self) { language in
-                            Text(language.displayName)
-                                .tag(language.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 200)
-                }
-
-                Text("Specifying a language can improve accuracy. Use 'Auto-detect' for mixed-language content.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else {
-                Text("The selected model supports English only.")
+            if let model = ParakeetModel.model(for: selectedModelId) {
+                Text(model.isMultilingual
+                    ? "This model supports 25 European languages with automatic detection."
+                    : "This model supports English only.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -387,6 +353,11 @@ struct ParakeetSettingsView: View {
             downloadedModels = models
             versionString = version
             isCheckingStatus = false
+
+            // Reset to default if stored model ID no longer exists in the model list
+            if ParakeetModel.model(for: selectedModelId) == nil {
+                selectedModelId = AppConstants.defaultParakeetModel
+            }
         }
     }
 

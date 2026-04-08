@@ -47,22 +47,6 @@ struct ParakeetModel: Hashable, Codable, Sendable, Identifiable {
             fileSizeBytes: 4_300_000_000,
             isMultilingual: false
         ),
-        ParakeetModel(
-            id: "animaslabs/parakeet-tdt-0.6b-v3-mlx-4bit",
-            displayName: "Parakeet TDT 0.6B v3 4-bit (Multilingual)",
-            description: "Quantized multilingual model. Much smaller download, slightly reduced accuracy.",
-            fileSize: "~636 MB",
-            fileSizeBytes: 636_000_000,
-            isMultilingual: true
-        ),
-        ParakeetModel(
-            id: "animaslabs/parakeet-tdt-0.6b-v3-mlx-8bit",
-            displayName: "Parakeet TDT 0.6B v3 8-bit (Multilingual)",
-            description: "Quantized multilingual model. Smaller download with minimal accuracy loss.",
-            fileSize: "~908 MB",
-            fileSizeBytes: 908_000_000,
-            isMultilingual: true
-        ),
     ]
 
     /// Find a model by its HuggingFace ID
