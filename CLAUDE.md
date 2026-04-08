@@ -250,9 +250,9 @@ See `AppConstants.supportedVideoExtensions` for the full list. Key formats:
 ## Known Issues & Workarounds
 
 1. **Lagging scrolling with many queued items** - Performance optimization needed
-2. **VLC fallback for non-native codecs** - Working as designed, but can be slow
-3. **Audio track selection for APV files** - Fixed in recent commits
-4. **Waveform incompatible with splitToMono** - By design (needs separate outputs)
+2. **Audio track selection for APV files** - Fixed in recent commits
+3. **Waveform incompatible with splitToMono** - By design (needs separate outputs)
+4. **MPV Metal crash on crop toggle during seek** - Rare crash when toggling crop mode (C key) while actively dragging the playhead in the trim view. Metal validation asserts `renderTargetWidth must be <= minimum attachment width` because MoltenVK's Vulkan swapchain extent and the CAMetalLayer drawableSize go out of sync during the resize. Mitigated by deferred drawableSize updates in `MPVMetalLayer.deferResizes`, but the race window cannot be fully closed without synchronization with MPV's render thread. Only affects MPV-rendered files (non-native codecs like MXF). Reproducible with Metal validation enabled; may manifest as a brief black border in the bottom-right without validation.
 
 ## Testing Approach
 

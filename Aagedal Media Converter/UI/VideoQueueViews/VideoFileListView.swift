@@ -262,13 +262,14 @@ struct VideoFileListView: View {
     @MainActor
     private func importProviders(_ providers: [NSItemProvider]) async {
         let supportedExtensions = AppConstants.supportedVideoExtensions
+        let logger = Self.logger
 
         for provider in providers {
             // Use the proper API to load file URLs
             if provider.canLoadObject(ofClass: URL.self) {
                 _ = provider.loadObject(ofClass: URL.self) { url, error in
                     if let error = error {
-                        VideoFileListView.logger.error("Error loading URL: \(error.localizedDescription, privacy: .public)")
+                        logger.error("Error loading URL: \(error.localizedDescription, privacy: .public)")
                         return
                     }
                     if let url = url {
@@ -459,8 +460,12 @@ struct VideoFileListView: View {
               let selectedID = selection.first else {
             return nil
         }
-        // Verify the ID exists in droppedFiles
-        guard droppedFiles.contains(where: { $0.id == selectedID }) else {
+        // Verify the ID exists in droppedFiles or in an encoding group
+        let inDroppedFiles = droppedFiles.contains(where: { $0.id == selectedID })
+        let inEncodingGroup = encodingGroups.contains(where: { group in
+            group.items.contains(where: { $0.id == selectedID })
+        })
+        guard inDroppedFiles || inEncodingGroup else {
             return nil
         }
         return selectedID
@@ -498,7 +503,11 @@ struct VideoFileListView: View {
     private func handleMetadataShortcut() {
         // Support both single and multiple selection for metadata comparison
         let selectedIDs = selection.filter { selectedID in
-            droppedFiles.contains(where: { $0.id == selectedID })
+            let inDroppedFiles = droppedFiles.contains(where: { $0.id == selectedID })
+            let inEncodingGroup = encodingGroups.contains(where: { group in
+                group.items.contains(where: { $0.id == selectedID })
+            })
+            return inDroppedFiles || inEncodingGroup
         }
         guard !selectedIDs.isEmpty else { return }
         onOpenMetadata?(Array(selectedIDs))

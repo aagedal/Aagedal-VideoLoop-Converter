@@ -57,10 +57,12 @@ struct CameraCardImportView: View {
 
             Divider()
 
-            LabeledContent("Master name") {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Card name")
+                    .font(.body)
                 TextField("e.g. Interview_Day1", text: $masterName)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 220)
+                    .frame(width: 460)
             }
 
             if !masterName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -122,7 +124,7 @@ struct CameraCardImportView: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 520)
         .onAppear { loadServers() }
     }
 
