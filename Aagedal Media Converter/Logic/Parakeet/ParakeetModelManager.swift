@@ -100,211 +100,230 @@ actor ParakeetModelManager {
         return total
     }
 
-    // MARK: - Python Resolution
-
-    /// Resolves the Python interpreter from a pip/uv/Homebrew-installed script's shebang.
-    /// This finds the virtualenv Python that has access to the script's dependencies (like huggingface_hub).
-    private nonisolated func resolveVenvPython(for scriptPath: String) throws -> String {
-        // If it's a standalone binary (e.g. PyInstaller), we can't extract a Python interpreter
-        if HomebrewPythonExecutor.isStandaloneBinary(at: scriptPath) {
-            // Fall back to system Python (may not have huggingface_hub)
-            let systemCandidates = [
-                "/opt/homebrew/bin/python3",
-                "/usr/local/bin/python3",
-                "/usr/bin/python3"
-            ]
-            if let path = systemCandidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-                return path
-            }
-            throw ParakeetModelDownloadError.pythonNotFound
-        }
-
-        // Read the shebang line from the script
-        let resolvedPath = (scriptPath as NSString).resolvingSymlinksInPath
-        guard let data = FileManager.default.contents(atPath: resolvedPath),
-              let content = String(data: data, encoding: .utf8) else {
-            throw ParakeetModelDownloadError.pythonNotFound
-        }
-
-        let firstLine = content.components(separatedBy: .newlines).first ?? ""
-        guard firstLine.hasPrefix("#!") else {
-            throw ParakeetModelDownloadError.pythonNotFound
-        }
-
-        let shebangPath = String(firstLine.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-
-        // The shebang Python is the virtualenv interpreter — it has access to all installed packages
-        // e.g. #!/Users/user/.local/share/uv/tools/parakeet-mlx/bin/python
-        // e.g. #!/opt/homebrew/Cellar/parakeet-mlx/1.0/libexec/bin/python
-        if FileManager.default.isExecutableFile(atPath: shebangPath) {
-            return shebangPath
-        }
-
-        // Try Homebrew detection as fallback
-        if let info = HomebrewPythonExecutor.executionInfo(for: scriptPath) {
-            let candidates = [info.mainPythonPath, info.pythonPath]
-            if let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-                return path
-            }
-        }
-
-        throw ParakeetModelDownloadError.pythonNotFound
-    }
-
     // MARK: - Model Download
 
-    private var downloadProcess: Process?
+    private var activeDownloadSession: URLSession?
 
-    /// Downloads a model using the huggingface_hub Python package (available because parakeet-mlx depends on it).
-    /// Since parakeet-mlx is a Python package, huggingface_hub is guaranteed to be in the same environment.
+    /// Downloads a model directly from HuggingFace using native URLSession.
+    /// Files are stored in the standard HuggingFace Hub cache format for compatibility with huggingface_hub.
     func downloadModel(
         _ model: ParakeetModel,
-        progress: @escaping @Sendable (Double) -> Void
+        progress: @escaping @Sendable (ModelDownloadProgress) -> Void
     ) async throws {
-        guard let parakeetPath = BinaryPathResolver.parakeetMlxPath else {
+        guard let _ = BinaryPathResolver.parakeetMlxPath else {
             throw ParakeetModelDownloadError.parakeetNotInstalled
         }
 
         guard !isModelDownloaded(model) else {
             logger.info("Model \(model.id) is already downloaded")
-            progress(1.0)
+            progress(ModelDownloadProgress.completed)
             return
         }
 
         logger.info("Starting download of Parakeet model: \(model.displayName)")
-        progress(0.0)
 
-        // Use a Python script that reports download progress on stdout as "PROGRESS:<0-100>" lines.
-        // huggingface_hub's tqdm uses \r carriage returns on stderr which are hard to parse from pipes.
-        // Instead, we use the low-level hf_hub_download per-file and track bytes ourselves.
-        let pythonScript = """
-        import sys, os
-        from huggingface_hub import HfApi, hf_hub_download
-        from huggingface_hub.utils import tqdm as hf_tqdm
-
-        repo_id = "\(model.id)"
-        api = HfApi()
-
-        # Get list of files and their sizes
-        files = api.list_repo_files(repo_id)
-        model_info = api.repo_info(repo_id)
-        siblings = model_info.siblings or []
-        file_sizes = {s.rfilename: (s.size or 0) for s in siblings}
-        total_bytes = sum(file_sizes.values())
-        downloaded_bytes = 0
-
-        print(f"TOTAL_FILES:{len(files)}", flush=True)
-        print(f"TOTAL_BYTES:{total_bytes}", flush=True)
-
-        for i, filename in enumerate(files):
-            fsize = file_sizes.get(filename, 0)
-            print(f"FILE:{i+1}/{len(files)}:{filename}:{fsize}", flush=True)
-            hf_hub_download(repo_id, filename)
-            downloaded_bytes += fsize
-            if total_bytes > 0:
-                pct = min(int(downloaded_bytes * 100 / total_bytes), 99)
-                print(f"PROGRESS:{pct}", flush=True)
-
-        print("PROGRESS:100", flush=True)
-        print("DOWNLOAD_COMPLETE", flush=True)
-        """
-
-        let process = Process()
-        let stderrPipe = Pipe()
-        let stdoutPipe = Pipe()
-
-        // Resolve Python from parakeet-mlx's environment.
-        let pythonPath = try resolveVenvPython(for: parakeetPath)
-        process.executableURL = URL(fileURLWithPath: pythonPath)
-        process.arguments = ["-u", "-c", pythonScript]
-        var env = ProcessInfo.processInfo.environment
-        env["PYTHONUNBUFFERED"] = "1"
-        // Disable tqdm progress bars on stderr to avoid noise
-        env["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
-        process.environment = env
-
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        process.standardInput = FileHandle.nullDevice
-
-        downloadProcess = process
-
-        // Buffer for partial line reads
-        final class OutputBuffer: @unchecked Sendable {
-            var buffer = ""
-        }
-        let stdoutBuffer = OutputBuffer()
-
-        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
-
-            stdoutBuffer.buffer += chunk
-            // Process complete lines
-            while let newlineRange = stdoutBuffer.buffer.range(of: "\n") {
-                let line = String(stdoutBuffer.buffer[stdoutBuffer.buffer.startIndex..<newlineRange.lowerBound])
-                stdoutBuffer.buffer = String(stdoutBuffer.buffer[newlineRange.upperBound...])
-
-                self?.logger.info("parakeet-download: \(line, privacy: .public)")
-
-                if line.hasPrefix("PROGRESS:") {
-                    let numStr = String(line.dropFirst("PROGRESS:".count))
-                    if let pct = Double(numStr) {
-                        Task { @MainActor in progress(min(pct / 100.0, 0.99)) }
-                    }
-                } else if line.hasPrefix("FILE:") {
-                    // Log file being downloaded: FILE:1/5:config.json:1234
-                    self?.logger.info("Downloading: \(line, privacy: .public)")
-                }
-            }
+        // 1. Fetch model metadata from HuggingFace API
+        let apiURLString = "https://huggingface.co/api/models/\(model.id)"
+        guard let apiURL = URL(string: apiURLString) else {
+            throw ParakeetModelDownloadError.downloadFailed("Invalid model ID: \(model.id)")
         }
 
-        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                self?.logger.warning("parakeet-download stderr: \(trimmed, privacy: .public)")
-            }
-        }
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            downloadProcess = nil
-            throw ParakeetModelDownloadError.downloadFailed(error.localizedDescription)
-        }
-
-        stdoutPipe.fileHandleForReading.readabilityHandler = nil
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-        downloadProcess = nil
-
-        guard process.terminationStatus == 0 else {
-            let errorData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
-            let lastLine = errorOutput.components(separatedBy: .newlines)
-                .last(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+        let (apiData, apiResponse) = try await URLSession.shared.data(from: apiURL)
+        guard let httpAPIResponse = apiResponse as? HTTPURLResponse,
+              httpAPIResponse.statusCode == 200 else {
             throw ParakeetModelDownloadError.downloadFailed(
-                "Exit code \(process.terminationStatus)" + (lastLine.isEmpty ? "" : ": \(lastLine)")
+                "Failed to fetch model info from HuggingFace"
             )
         }
 
-        // Verify the model is now cached
-        guard isModelDownloaded(model) else {
-            throw ParakeetModelDownloadError.downloadFailed("Model not found in cache after download")
+        let modelInfo = try JSONDecoder().decode(HFModelAPIResponse.self, from: apiData)
+        let commitHash = modelInfo.sha
+
+        // 2. Prepare cache directory structure (matches huggingface_hub format)
+        let cacheDir = modelCachePath(for: model)
+        let blobsDir = cacheDir.appendingPathComponent("blobs")
+        let snapshotsDir = cacheDir.appendingPathComponent("snapshots")
+            .appendingPathComponent(commitHash)
+        let refsDir = cacheDir.appendingPathComponent("refs")
+
+        let fm = FileManager.default
+        try fm.createDirectory(at: blobsDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: snapshotsDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: refsDir, withIntermediateDirectories: true)
+
+        // 3. Calculate total download size from API metadata
+        let files = modelInfo.siblings
+        let totalBytes = files.reduce(Int64(0)) { $0 + ($1.size ?? 0) }
+        var completedBytes: Int64 = 0
+        let downloadStartTime = Date()
+
+        // 4. Download each file with progress tracking
+        for (index, file) in files.enumerated() {
+            try Task.checkCancellation()
+
+            let encodedFilename = file.rfilename
+                .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+                ?? file.rfilename
+            guard let fileURL = URL(string:
+                "https://huggingface.co/\(model.id)/resolve/main/\(encodedFilename)"
+            ) else {
+                logger.warning("Skipping file with invalid URL: \(file.rfilename)")
+                continue
+            }
+
+            logger.info("Downloading file \(index + 1)/\(files.count): \(file.rfilename)")
+
+            let fileCompletedBytes = completedBytes
+            let fileCount = files.count
+            let fileName = file.rfilename
+
+            let (tempURL, downloadResponse) = try await downloadFileWithProgress(
+                from: fileURL
+            ) { bytesWritten, totalExpected in
+                let overallFraction: Double
+                if totalBytes > 0 {
+                    overallFraction = min(
+                        Double(fileCompletedBytes + bytesWritten) / Double(totalBytes), 0.99
+                    )
+                } else {
+                    let filePct = totalExpected > 0
+                        ? Double(bytesWritten) / Double(totalExpected) : 0
+                    overallFraction = min(
+                        (Double(index) + filePct) / Double(fileCount), 0.99
+                    )
+                }
+
+                let fileFraction = totalExpected > 0
+                    ? min(Double(bytesWritten) / Double(totalExpected), 1.0) : 0
+
+                let elapsed = Date().timeIntervalSince(downloadStartTime)
+                let totalDownloaded = fileCompletedBytes + bytesWritten
+                let bytesPerSecond = elapsed > 0.5 ? Double(totalDownloaded) / elapsed : 0
+
+                let update = ModelDownloadProgress(
+                    overallFraction: overallFraction,
+                    currentFileName: fileName,
+                    currentFileIndex: index + 1,
+                    totalFileCount: fileCount,
+                    currentFileFraction: fileFraction,
+                    bytesPerSecond: bytesPerSecond
+                )
+                Task { @MainActor in progress(update) }
+            }
+
+            // Determine blob name for huggingface_hub cache compatibility:
+            // - LFS files: use the sha256 from the API (matches X-Linked-ETag)
+            // - Non-LFS files: use the ETag from the HTTP response
+            let httpResp = downloadResponse as? HTTPURLResponse
+            let blobName: String
+            if let lfsSha = file.lfs?.sha256 {
+                blobName = lfsSha
+            } else {
+                let rawETag = httpResp?.value(forHTTPHeaderField: "ETag") ?? ""
+                blobName = rawETag.isEmpty
+                    ? UUID().uuidString
+                    : Self.normalizeETag(rawETag)
+            }
+
+            // Store file as blob
+            let blobPath = blobsDir.appendingPathComponent(blobName)
+            if fm.fileExists(atPath: blobPath.path) {
+                try fm.removeItem(at: blobPath)
+            }
+            try fm.moveItem(at: tempURL, to: blobPath)
+
+            // Create symlink in snapshots directory (matches huggingface_hub layout)
+            let snapshotFilePath = snapshotsDir.appendingPathComponent(file.rfilename)
+            let snapshotFileDir = snapshotFilePath.deletingLastPathComponent()
+            if !fm.fileExists(atPath: snapshotFileDir.path) {
+                try fm.createDirectory(at: snapshotFileDir, withIntermediateDirectories: true)
+            }
+            if fm.fileExists(atPath: snapshotFilePath.path) {
+                try fm.removeItem(at: snapshotFilePath)
+            }
+
+            // Relative symlink: snapshots/{commit}/{file} -> ../../blobs/{etag}
+            // Add extra ../ for each subdirectory level in the filename
+            let subdirDepth = file.rfilename.components(separatedBy: "/").count - 1
+            let relativePrefix = String(repeating: "../", count: 2 + subdirDepth)
+            try fm.createSymbolicLink(
+                atPath: snapshotFilePath.path,
+                withDestinationPath: relativePrefix + "blobs/" + blobName
+            )
+
+            // Track completed bytes (use actual Content-Length if API didn't provide size)
+            let actualFileSize = file.size
+                ?? Int64(httpResp?.expectedContentLength ?? 0)
+            completedBytes += max(actualFileSize, 0)
         }
 
-        progress(1.0)
+        // 5. Write refs/main with commit hash
+        let refsMainPath = refsDir.appendingPathComponent("main")
+        try commitHash.write(to: refsMainPath, atomically: true, encoding: .utf8)
+
+        activeDownloadSession = nil
+
+        // 6. Verify the model is now in cache
+        guard isModelDownloaded(model) else {
+            throw ParakeetModelDownloadError.downloadFailed(
+                "Model not found in cache after download"
+            )
+        }
+
+        progress(.completed)
         logger.info("Successfully downloaded Parakeet model: \(model.displayName)")
     }
 
     /// Cancels an ongoing model download
     func cancelDownload() {
-        if let process = downloadProcess, process.isRunning {
-            process.terminate()
-            downloadProcess = nil
+        if let session = activeDownloadSession {
+            session.invalidateAndCancel()
+            activeDownloadSession = nil
             logger.info("Cancelled Parakeet model download")
+        }
+    }
+
+    // MARK: - Download Helpers
+
+    /// HuggingFace API response for model metadata
+    private struct HFModelAPIResponse: Decodable {
+        let sha: String
+        let siblings: [HFSibling]
+
+        struct HFSibling: Decodable {
+            let rfilename: String
+            let size: Int64?
+            let lfs: LFSInfo?
+
+            struct LFSInfo: Decodable {
+                let sha256: String
+            }
+        }
+    }
+
+    /// Normalizes an HTTP ETag to match huggingface_hub's blob naming convention
+    private static func normalizeETag(_ etag: String) -> String {
+        var result = etag
+        if result.hasPrefix("W/") {
+            result = String(result.dropFirst(2))
+        }
+        return result.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
+
+    /// Downloads a file using URLSession with real-time byte-level progress reporting
+    private func downloadFileWithProgress(
+        from url: URL,
+        onProgress: @escaping @Sendable (Int64, Int64) -> Void
+    ) async throws -> (URL, URLResponse) {
+        let delegate = DownloadProgressDelegate(onProgress: onProgress)
+        let session = URLSession(
+            configuration: .default, delegate: delegate, delegateQueue: nil
+        )
+        activeDownloadSession = session
+
+        return try await withCheckedThrowingContinuation { continuation in
+            delegate.setContinuation(continuation)
+            session.downloadTask(with: url).resume()
         }
     }
 
@@ -342,21 +361,118 @@ actor ParakeetModelManager {
     }
 }
 
+// MARK: - URLSession Download Delegate
+
+/// Handles URLSession download callbacks, reporting byte-level progress and delivering
+/// the downloaded file via a checked continuation.
+private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate,
+    @unchecked Sendable
+{
+    private let onProgress: @Sendable (Int64, Int64) -> Void
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    private var downloadedFileURL: URL?
+
+    init(onProgress: @escaping @Sendable (Int64, Int64) -> Void) {
+        self.onProgress = onProgress
+    }
+
+    func setContinuation(_ continuation: CheckedContinuation<(URL, URLResponse), Error>) {
+        self.continuation = continuation
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        onProgress(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        // Move to a persistent temp location before URLSession deletes the original
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        do {
+            try FileManager.default.moveItem(at: location, to: tempURL)
+            downloadedFileURL = tempURL
+        } catch {
+            continuation?.resume(throwing: error)
+            continuation = nil
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        defer { continuation = nil }
+
+        if let error = error {
+            if let tempURL = downloadedFileURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
+            continuation?.resume(throwing: error)
+        } else if let fileURL = downloadedFileURL, let response = task.response {
+            continuation?.resume(returning: (fileURL, response))
+        } else {
+            continuation?.resume(throwing: URLError(.badServerResponse))
+        }
+    }
+}
+
 // MARK: - Error Types
 
 enum ParakeetModelDownloadError: Error, LocalizedError {
     case parakeetNotInstalled
-    case pythonNotFound
     case downloadFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .parakeetNotInstalled:
             return "parakeet-mlx is not installed. Install with: pip install -U parakeet-mlx"
-        case .pythonNotFound:
-            return "Could not find a Python interpreter to download models"
         case .downloadFailed(let message):
             return "Model download failed: \(message)"
+        }
+    }
+}
+
+// MARK: - Download Progress
+
+/// Progress information for model downloads, supporting both overall and per-file tracking
+struct ModelDownloadProgress: Sendable {
+    var overallFraction: Double
+    var currentFileName: String
+    var currentFileIndex: Int
+    var totalFileCount: Int
+    var currentFileFraction: Double
+    var bytesPerSecond: Double
+
+    /// Terminal state indicating download completed
+    static let completed = ModelDownloadProgress(
+        overallFraction: 1.0,
+        currentFileName: "",
+        currentFileIndex: 0,
+        totalFileCount: 0,
+        currentFileFraction: 1.0,
+        bytesPerSecond: 0
+    )
+
+    /// Formats the download speed for display (e.g. "12.5 MB/s" or "450 KB/s")
+    var formattedSpeed: String {
+        if bytesPerSecond <= 0 { return "" }
+        let mbps = bytesPerSecond / 1_000_000
+        if mbps >= 1.0 {
+            return String(format: "%.1f MB/s", mbps)
+        } else {
+            let kbps = bytesPerSecond / 1_000
+            return String(format: "%.0f KB/s", kbps)
         }
     }
 }
