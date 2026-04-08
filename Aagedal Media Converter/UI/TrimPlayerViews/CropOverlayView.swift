@@ -848,12 +848,45 @@ private struct CursorTrackingView: NSViewRepresentable {
         private func cursorForLocation(_ location: CGPoint) -> NSCursor {
             let hitSize: CGFloat = 20
 
-            // Helper to create cursor from SF Symbol or fall back to system cursor
+            // Helper to create cursor from SF Symbol with white outline for visibility on dark backgrounds
             func diagonalCursor(systemName: String, fallback: NSCursor) -> NSCursor {
                 if let image = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) {
-                    let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+                    let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .bold)
                     let configuredImage = image.withSymbolConfiguration(config) ?? image
-                    return NSCursor(image: configuredImage, hotSpot: NSPoint(x: 8, y: 8))
+                    let cursorSize = NSSize(width: 20, height: 20)
+                    let finalImage = NSImage(size: cursorSize, flipped: false) { rect in
+                        // Draw white outline by rendering the symbol offset in all directions
+                        let tinted = configuredImage.copy() as! NSImage
+                        tinted.lockFocus()
+                        NSColor.white.set()
+                        NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
+                        tinted.unlockFocus()
+
+                        let drawRect = NSRect(
+                            x: (rect.width - configuredImage.size.width) / 2,
+                            y: (rect.height - configuredImage.size.height) / 2,
+                            width: configuredImage.size.width,
+                            height: configuredImage.size.height
+                        )
+                        // Draw white copies offset in 8 directions for outline
+                        for dx in stride(from: -1.0, through: 1.0, by: 1.0) {
+                            for dy in stride(from: -1.0, through: 1.0, by: 1.0) {
+                                if dx == 0 && dy == 0 { continue }
+                                tinted.draw(in: drawRect.offsetBy(dx: dx, dy: dy),
+                                            from: .zero, operation: .sourceOver, fraction: 1.0)
+                            }
+                        }
+                        // Draw black symbol on top
+                        let blackSymbol = configuredImage.copy() as! NSImage
+                        blackSymbol.lockFocus()
+                        NSColor.black.set()
+                        NSRect(origin: .zero, size: blackSymbol.size).fill(using: .sourceAtop)
+                        blackSymbol.unlockFocus()
+                        blackSymbol.draw(in: drawRect,
+                                         from: .zero, operation: .sourceOver, fraction: 1.0)
+                        return true
+                    }
+                    return NSCursor(image: finalImage, hotSpot: NSPoint(x: 10, y: 10))
                 }
                 return fallback
             }
