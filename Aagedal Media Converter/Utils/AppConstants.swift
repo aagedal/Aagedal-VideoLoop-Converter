@@ -64,6 +64,12 @@ enum AppConstants {
     static let defaultCaptureDynamicRange = "sdr"
     static let defaultCaptureIncludeMicrophone = false
     static let defaultCaptureMicrophoneDeviceID = ""
+    static let captureRegionModeKey = "captureRegionMode"
+    static let captureRegionXKey = "captureRegionX"
+    static let captureRegionYKey = "captureRegionY"
+    static let captureRegionWidthKey = "captureRegionWidth"
+    static let captureRegionHeightKey = "captureRegionHeight"
+    static let defaultCaptureRegionMode = false
     
     // Directory for cached preview assets (thumbnails, waveforms, etc.)
     static let previewCacheDirectory: URL = {

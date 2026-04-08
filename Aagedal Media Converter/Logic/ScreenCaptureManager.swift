@@ -282,7 +282,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         microphoneDeviceID: String?,
         hideCursor: Bool,
         excludeCurrentApp: Bool,
-        excludedAppBundleIDs: Set<String> = []
+        excludedAppBundleIDs: Set<String> = [],
+        regionRect: CGRect? = nil
     ) async {
         guard !isRecording else { return }
 
@@ -301,8 +302,15 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 throw CaptureError.unavailableDisplay
             }
 
-            let resolution = displayPixelResolution(for: display)
-            let sourceRect = displaySourceRect(for: display)
+            let resolution: CGSize
+            let sourceRect: CGRect
+            if let regionRect {
+                sourceRect = regionRect
+                resolution = regionPixelResolution(for: display, region: regionRect)
+            } else {
+                resolution = displayPixelResolution(for: display)
+                sourceRect = displaySourceRect(for: display)
+            }
             let destinationRect = CGRect(origin: .zero, size: resolution)
             let frameRate = resolvedFrameRate(option: frameRate, display: display, fallback: preset.targetFrameRate)
             let effectiveDynamicRange = normalizedDynamicRange(dynamicRange)
@@ -482,7 +490,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         hideCursor: Bool,
         excludeCurrentApp: Bool,
         excludedAppBundleIDs: Set<String> = [],
-        cachedContent: SCShareableContent? = nil
+        cachedContent: SCShareableContent? = nil,
+        regionRect: CGRect? = nil
     ) async {
         guard !isPreviewing, !isRecording else { return }
 
@@ -501,9 +510,16 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 throw CaptureError.unavailableDisplay
             }
 
-            let pixelResolution = displayPixelResolution(for: display)
+            let pixelResolution: CGSize
+            let sourceRect: CGRect
+            if let regionRect {
+                sourceRect = regionRect
+                pixelResolution = regionPixelResolution(for: display, region: regionRect)
+            } else {
+                pixelResolution = displayPixelResolution(for: display)
+                sourceRect = displaySourceRect(for: display)
+            }
             let previewResolution = scaledPreviewResolution(from: pixelResolution, maxWidth: 1280)
-            let sourceRect = displaySourceRect(for: display)
             let destinationRect = CGRect(origin: .zero, size: previewResolution)
 
             let previewFrameRate = min(resolvedFrameRate(option: frameRate, display: display, fallback: 30), 60)
@@ -837,6 +853,16 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         let width = (pixelResolution.width * scale).rounded()
         let height = (pixelResolution.height * scale).rounded()
         return CGSize(width: width, height: height)
+    }
+
+    private func regionPixelResolution(for display: SCDisplay, region: CGRect) -> CGSize {
+        let fullPointSize = displaySourceRect(for: display).size
+        let fullPixelSize = displayPixelResolution(for: display)
+        let scaleX = fullPixelSize.width / fullPointSize.width
+        let scaleY = fullPixelSize.height / fullPointSize.height
+        let w = Int(region.width * scaleX)
+        let h = Int(region.height * scaleY)
+        return CGSize(width: CGFloat((w / 2) * 2), height: CGFloat((h / 2) * 2))
     }
 
     private func startAccessing(outputDirectory: URL) -> SecurityAccess {
