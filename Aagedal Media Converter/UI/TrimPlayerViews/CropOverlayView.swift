@@ -188,30 +188,65 @@ struct CropOverlayView: View {
     }
 
     private func resizeHandles(rect: CGRect) -> some View {
-        let handleSize: CGFloat = 16
-
         return Group {
-            // Corner handles
-            handleView(at: CGPoint(x: rect.minX, y: rect.minY), size: handleSize)
-            handleView(at: CGPoint(x: rect.maxX, y: rect.minY), size: handleSize)
-            handleView(at: CGPoint(x: rect.minX, y: rect.maxY), size: handleSize)
-            handleView(at: CGPoint(x: rect.maxX, y: rect.maxY), size: handleSize)
+            // Corner brackets (L-shaped)
+            cornerBracket(at: CGPoint(x: rect.minX, y: rect.minY), hDir: -1, vDir: -1, in: rect)
+            cornerBracket(at: CGPoint(x: rect.maxX, y: rect.minY), hDir: 1, vDir: -1, in: rect)
+            cornerBracket(at: CGPoint(x: rect.minX, y: rect.maxY), hDir: -1, vDir: 1, in: rect)
+            cornerBracket(at: CGPoint(x: rect.maxX, y: rect.maxY), hDir: 1, vDir: 1, in: rect)
 
-            // Edge handles
-            handleView(at: CGPoint(x: rect.midX, y: rect.minY), size: handleSize)
-            handleView(at: CGPoint(x: rect.midX, y: rect.maxY), size: handleSize)
-            handleView(at: CGPoint(x: rect.minX, y: rect.midY), size: handleSize)
-            handleView(at: CGPoint(x: rect.maxX, y: rect.midY), size: handleSize)
+            // Edge handles (small rectangles)
+            edgeHandle(at: CGPoint(x: rect.midX, y: rect.minY), isVertical: false)
+            edgeHandle(at: CGPoint(x: rect.midX, y: rect.maxY), isVertical: false)
+            edgeHandle(at: CGPoint(x: rect.minX, y: rect.midY), isVertical: true)
+            edgeHandle(at: CGPoint(x: rect.maxX, y: rect.midY), isVertical: true)
         }
     }
 
-    private func handleView(at point: CGPoint, size: CGFloat) -> some View {
-        Circle()
-            .fill(Color.white)
-            .frame(width: size, height: size)
-            .overlay(Circle().stroke(Color.black.opacity(0.3), lineWidth: 1))
-            .shadow(color: .black.opacity(0.3), radius: 2)
-            .position(point)
+    private func cornerBracket(at corner: CGPoint, hDir: Double, vDir: Double, in rect: CGRect) -> some View {
+        let armLength = min(16.0, min(rect.width, rect.height) * 0.15)
+
+        // Arm endpoints extending inward from the corner
+        let hPoint = CGPoint(x: corner.x - hDir * armLength, y: corner.y)
+        let vPoint = CGPoint(x: corner.x, y: corner.y - vDir * armLength)
+
+        return ZStack {
+            Path { path in
+                path.move(to: hPoint)
+                path.addLine(to: corner)
+                path.addLine(to: vPoint)
+            }
+            .stroke(Color.white, style: StrokeStyle(lineWidth: 3.5, lineCap: .square))
+
+            // Invisible hit area
+            Circle()
+                .fill(Color.clear)
+                .frame(width: 28, height: 28)
+                .contentShape(Circle())
+                .position(corner)
+        }
+    }
+
+    private func edgeHandle(at point: CGPoint, isVertical: Bool) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(.white)
+                .frame(
+                    width: isVertical ? 4 : 24,
+                    height: isVertical ? 24 : 4
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 2)
+                        .stroke(Color.black.opacity(0.5), lineWidth: 0.5)
+                )
+
+            // Invisible expanded hit area
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .position(point)
     }
 
     // MARK: - Gesture Handling
