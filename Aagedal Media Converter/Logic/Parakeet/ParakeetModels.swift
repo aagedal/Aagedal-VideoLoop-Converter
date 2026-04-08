@@ -26,7 +26,7 @@ struct ParakeetModel: Hashable, Codable, Sendable, Identifiable {
         ParakeetModel(
             id: "mlx-community/parakeet-tdt-0.6b-v3",
             displayName: "Parakeet TDT 0.6B v3 (Multilingual)",
-            description: "25 European languages including Norwegian and Swedish. Recommended.",
+            description: "Multilingual model supporting multiple European languages. Recommended.",
             fileSize: "~2.5 GB",
             fileSizeBytes: 2_500_000_000,
             isMultilingual: true
@@ -84,67 +84,6 @@ enum ParakeetModelStatus: Sendable, Equatable {
     var isDownloaded: Bool {
         if case .downloaded = self { return true }
         return false
-    }
-}
-
-/// Supported languages for multilingual Parakeet models (v3)
-enum ParakeetLanguage: String, CaseIterable, Sendable {
-    case auto = "auto"
-    case english = "en"
-    case german = "de"
-    case spanish = "es"
-    case french = "fr"
-    case italian = "it"
-    case polish = "pl"
-    case portuguese = "pt"
-    case dutch = "nl"
-    case catalan = "ca"
-    case czech = "cs"
-    case danish = "da"
-    case finnish = "fi"
-    case galician = "gl"
-    case hungarian = "hu"
-    case latvian = "lv"
-    case lithuanian = "lt"
-    case norwegian = "no"
-    case romanian = "ro"
-    case slovak = "sk"
-    case slovenian = "sl"
-    case swedish = "sv"
-    case turkish = "tr"
-    case ukrainian = "uk"
-    case estonian = "et"
-    case croatian = "hr"
-
-    var displayName: String {
-        switch self {
-        case .auto: return "Auto-detect"
-        case .english: return "English"
-        case .german: return "German"
-        case .spanish: return "Spanish"
-        case .french: return "French"
-        case .italian: return "Italian"
-        case .polish: return "Polish"
-        case .portuguese: return "Portuguese"
-        case .dutch: return "Dutch"
-        case .catalan: return "Catalan"
-        case .czech: return "Czech"
-        case .danish: return "Danish"
-        case .finnish: return "Finnish"
-        case .galician: return "Galician"
-        case .hungarian: return "Hungarian"
-        case .latvian: return "Latvian"
-        case .lithuanian: return "Lithuanian"
-        case .norwegian: return "Norwegian"
-        case .romanian: return "Romanian"
-        case .slovak: return "Slovak"
-        case .slovenian: return "Slovenian"
-        case .swedish: return "Swedish"
-        case .turkish: return "Turkish"
-        case .ukrainian: return "Ukrainian"
-        case .estonian: return "Estonian"
-        case .croatian: return "Croatian"
-        }
     }
 }
 

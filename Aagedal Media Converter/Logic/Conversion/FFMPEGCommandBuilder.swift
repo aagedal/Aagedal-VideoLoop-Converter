@@ -1023,7 +1023,10 @@ extension FFMPEGCommandBuilder {
             return
         }
 
-        guard preset == .audioUncompressedWAV else { return }
+        guard preset == .audioOnly else { return }
+        let formatRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyFormatKey) ?? AppConstants.defaultAudioOnlyFormat
+        let format = AudioOnlyFormat(rawValue: formatRaw) ?? .wav
+        guard format.supportsSingleStreamOnly else { return }
         guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
               audioStreams.count > 1 else {
             return

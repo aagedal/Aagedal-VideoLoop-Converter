@@ -163,9 +163,14 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.proresVisibleKey) private var proresVisible = true
     @AppStorage(AppConstants.proxyVisibleKey) private var proxyVisible = true
     @AppStorage(AppConstants.streamCopyVisibleKey) private var streamCopyVisible = true
-    @AppStorage(AppConstants.audioWAVVisibleKey) private var audioWAVVisible = true
-    @AppStorage(AppConstants.audioAACVisibleKey) private var audioAACVisible = true
-    @AppStorage(AppConstants.audioMP4VisibleKey) private var audioMP4Visible = true
+    @AppStorage(AppConstants.audioOnlyVisibleKey) private var audioOnlyVisible = true
+
+    // Audio Only preset settings
+    @AppStorage(AppConstants.audioOnlyFormatKey) private var audioOnlyFormat = AppConstants.defaultAudioOnlyFormat
+    @AppStorage(AppConstants.audioOnlyBitDepthKey) private var audioOnlyBitDepth = AppConstants.defaultAudioOnlyBitDepth
+    @AppStorage(AppConstants.audioOnlyAACBitrateKey) private var audioOnlyAACBitrate = AppConstants.defaultAudioOnlyAACBitrate
+    @AppStorage(AppConstants.audioOnlyMP4CodecKey) private var audioOnlyMP4Codec = AppConstants.defaultAudioOnlyMP4Codec
+    @AppStorage(AppConstants.audioOnlyMP4BitrateKey) private var audioOnlyMP4Bitrate = AppConstants.defaultAudioOnlyMP4Bitrate
     @AppStorage(AppConstants.imageSequenceVisibleKey) private var imageSequenceVisible = true
     @AppStorage(AppConstants.dcpVisibleKey) private var dcpVisible = true
 
@@ -502,6 +507,93 @@ struct PresetsSettingsView: View {
                     Text("JPEG 2000 video in MXF with 24-bit PCM audio. XYZ color space (DCI P3).")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                }
+            }
+        }
+
+        if selectedPreset == .audioOnly {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Format")
+                        Spacer()
+                        Picker("", selection: $audioOnlyFormat) {
+                            ForEach(AudioOnlyFormat.allCases) { format in
+                                Text(format.rawValue).tag(format.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Select the audio output format. WAV and FLAC support a single audio stream; MP4 and M4A support multiple tracks.")
+                    }
+
+                    // WAV: bit depth picker
+                    if audioOnlyFormat == AudioOnlyFormat.wav.rawValue {
+                        HStack {
+                            Text("Bit Depth")
+                            Spacer()
+                            Picker("", selection: $audioOnlyBitDepth) {
+                                ForEach(AudioOnlyBitDepth.allCases) { depth in
+                                    Text(depth.rawValue).tag(depth.rawValue)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("PCM bit depth. 24-bit is standard for professional audio.")
+                        }
+                    }
+
+                    // AAC (M4A): bitrate picker
+                    if audioOnlyFormat == AudioOnlyFormat.aac.rawValue {
+                        HStack {
+                            Text("Bitrate")
+                            Spacer()
+                            Picker("", selection: $audioOnlyAACBitrate) {
+                                ForEach(AudioBitrate.allCases) { br in
+                                    Text(br.rawValue).tag(br.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Higher bitrate = better audio quality and larger files.")
+                        }
+                    }
+
+                    // MP4: codec picker + conditional bitrate
+                    if audioOnlyFormat == AudioOnlyFormat.mp4.rawValue {
+                        HStack {
+                            Text("Audio Codec")
+                            Spacer()
+                            Picker("", selection: $audioOnlyMP4Codec) {
+                                ForEach(AudioOnlyMP4Codec.allCases) { codec in
+                                    Text(codec.rawValue).tag(codec.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("AAC is widely compatible. PCM is uncompressed lossless.")
+                        }
+
+                        if AudioOnlyMP4Codec(rawValue: audioOnlyMP4Codec)?.requiresBitrate == true {
+                            HStack {
+                                Text("Bitrate")
+                                Spacer()
+                                Picker("", selection: $audioOnlyMP4Bitrate) {
+                                    ForEach(AudioBitrate.allCases) { br in
+                                        Text(br.rawValue).tag(br.rawValue)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .fixedSize()
+                                .labelsHidden()
+                                .help("Higher bitrate = better audio quality and larger files.")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1421,12 +1513,8 @@ struct PresetsSettingsView: View {
             return $proxyVisible
         case .streamCopy:
             return $streamCopyVisible
-        case .audioUncompressedWAV:
-            return $audioWAVVisible
-        case .audioStereoAAC:
-            return $audioAACVisible
-        case .audioAllTracksMP4:
-            return $audioMP4Visible
+        case .audioOnly:
+            return $audioOnlyVisible
         case .imageSequence:
             return $imageSequenceVisible
         case .dcp:

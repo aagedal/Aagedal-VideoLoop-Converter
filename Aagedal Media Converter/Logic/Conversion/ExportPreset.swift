@@ -500,6 +500,73 @@ enum AudioBitrate: String, CaseIterable, Identifiable {
     }
 }
 
+/// Output format options for the Audio Only preset
+enum AudioOnlyFormat: String, CaseIterable, Identifiable {
+    case wav = "WAV"
+    case aac = "AAC (M4A)"
+    case mp4 = "MP4"
+    case flac = "FLAC"
+
+    var id: String { rawValue }
+
+    var fileExtension: String {
+        switch self {
+        case .wav: return "wav"
+        case .aac: return "m4a"
+        case .mp4: return "mp4"
+        case .flac: return "flac"
+        }
+    }
+
+    /// WAV and FLAC containers support only a single audio stream
+    var supportsSingleStreamOnly: Bool {
+        switch self {
+        case .wav, .flac: return true
+        case .aac, .mp4: return false
+        }
+    }
+}
+
+/// PCM bit depth options for WAV output
+enum AudioOnlyBitDepth: String, CaseIterable, Identifiable {
+    case pcm16 = "16-bit"
+    case pcm24 = "24-bit"
+    case pcm32 = "32-bit"
+
+    var id: String { rawValue }
+
+    var ffmpegCodec: String {
+        switch self {
+        case .pcm16: return "pcm_s16le"
+        case .pcm24: return "pcm_s24le"
+        case .pcm32: return "pcm_s32le"
+        }
+    }
+}
+
+/// Audio codec options for MP4 audio-only output
+enum AudioOnlyMP4Codec: String, CaseIterable, Identifiable {
+    case aac = "AAC"
+    case pcm16 = "PCM 16-bit"
+    case pcm24 = "PCM 24-bit"
+    case pcm32 = "PCM 32-bit"
+
+    var id: String { rawValue }
+
+    var requiresBitrate: Bool {
+        self == .aac
+    }
+
+    var ffmpegCodec: String {
+        switch self {
+        case .aac: return "aac"
+        case .pcm16: return "pcm_s16le"
+        case .pcm24: return "pcm_s24le"
+        case .pcm32: return "pcm_s32le"
+        }
+    }
+}
+
 enum ExportPreset: String, CaseIterable, Identifiable {
     case videoLoop = "VideoLoop"
     case videoLoopWithSound = "VideoLoop with sound"
@@ -512,9 +579,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     case prores = "ProRes"
     case proxy = "Proxy"
     case streamCopy = "Stream Copy"
-    case audioUncompressedWAV = "Audio only WAV (all channels)"
-    case audioStereoAAC = "Audio only AAC (stereo downmix)"
-    case audioAllTracksMP4 = "Audio only MP4 (all tracks)"
+    case audioOnly = "Audio Only"
     case imageSequence = "Image Sequence"
     case dcp = "DCP (Digital Cinema Package)"
     case custom1 = "Custom"
@@ -557,12 +622,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.animatedStillFormatKey) ?? AppConstants.defaultAnimatedStillFormat
             let format = AnimatedStillFormat(rawValue: formatRaw) ?? .avif
             return format.fileExtension
-        case .audioUncompressedWAV:
-            return "wav"
-        case .audioStereoAAC:
-            return "m4a"
-        case .audioAllTracksMP4:
-            return "mp4"
+        case .audioOnly:
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyFormatKey) ?? AppConstants.defaultAudioOnlyFormat
+            let format = AudioOnlyFormat(rawValue: formatRaw) ?? .wav
+            return format.fileExtension
         case .imageSequence:
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
@@ -610,6 +673,11 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
             return "Image Sequence (\(format.rawValue))"
         }
+        if self == .audioOnly {
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyFormatKey) ?? AppConstants.defaultAudioOnlyFormat
+            let format = AudioOnlyFormat(rawValue: formatRaw) ?? .wav
+            return "Audio Only (\(format.rawValue))"
+        }
         return rawValue
     }
     
@@ -637,12 +705,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_STREAM_COPY_DESCRIPTION", comment: "Description for Stream Copy preset")
         case .animatedStill:
             return NSLocalizedString("PRESET_ANIMATED_STILL_DESCRIPTION", comment: "Description for Animated Still preset")
-        case .audioUncompressedWAV:
-            return NSLocalizedString("PRESET_AUDIO_WAV_DESCRIPTION", comment: "Description for Audio WAV preset")
-        case .audioStereoAAC:
-            return NSLocalizedString("PRESET_AUDIO_AAC_STEREO_DESCRIPTION", comment: "Description for Audio AAC Stereo preset")
-        case .audioAllTracksMP4:
-            return NSLocalizedString("PRESET_AUDIO_MP4_ALL_TRACKS_DESCRIPTION", comment: "Description for Audio MP4 all tracks preset")
+        case .audioOnly:
+            return NSLocalizedString("PRESET_AUDIO_ONLY_DESCRIPTION", comment: "Description for Audio Only preset")
         case .imageSequence:
             return NSLocalizedString("PRESET_IMAGE_SEQUENCE_DESCRIPTION", comment: "Description for Image Sequence preset")
         case .dcp:
@@ -678,12 +742,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.animatedStillFormatKey) ?? AppConstants.defaultAnimatedStillFormat
             let format = AnimatedStillFormat(rawValue: formatRaw) ?? .avif
             return "_\(format.fileExtension)"
-        case .audioUncompressedWAV:
-            return "_audio_wav"
-        case .audioStereoAAC:
-            return "_audio_aac"
-        case .audioAllTracksMP4:
-            return "_audio_mp4"
+        case .audioOnly:
+            return "_audio"
         case .imageSequence:
             return "_seq"
         case .dcp:
@@ -1205,33 +1265,38 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
-        case .audioUncompressedWAV:
-            var args = commonArgs + [
-                "-vn",
-                "-map", "0:a",
-                "-rf64", "auto",
-                "-c:a", "pcm_s24le"
-            ]
-            Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
-            return args
-        case .audioStereoAAC:
-            var args = commonArgs + [
-                "-vn",
-                "-map", "0:a",
-                "-ac", "2",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-movflags", "+faststart"
-            ]
-            ExportPreset.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
-            return args
-        case .audioAllTracksMP4:
-            var args = commonArgs + [
-                "-vn",
-                "-map", "0:a",
-                "-c:a", "pcm_s24le",
-                "-movflags", "+faststart"
-            ]
+        case .audioOnly:
+            let formatRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyFormatKey) ?? AppConstants.defaultAudioOnlyFormat
+            let format = AudioOnlyFormat(rawValue: formatRaw) ?? .wav
+
+            var args = commonArgs + ["-vn", "-map", "0:a"]
+
+            switch format {
+            case .wav:
+                let bitDepthRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyBitDepthKey) ?? AppConstants.defaultAudioOnlyBitDepth
+                let bitDepth = AudioOnlyBitDepth(rawValue: bitDepthRaw) ?? .pcm24
+                args += ["-rf64", "auto", "-c:a", bitDepth.ffmpegCodec]
+
+            case .aac:
+                let bitrateRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyAACBitrateKey) ?? AppConstants.defaultAudioOnlyAACBitrate
+                let bitrate = AudioBitrate(rawValue: bitrateRaw) ?? .k192
+                args += ["-c:a", "aac", "-b:a", bitrate.ffmpegValue, "-movflags", "+faststart"]
+
+            case .mp4:
+                let codecRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyMP4CodecKey) ?? AppConstants.defaultAudioOnlyMP4Codec
+                let codec = AudioOnlyMP4Codec(rawValue: codecRaw) ?? .aac
+                args += ["-c:a", codec.ffmpegCodec]
+                if codec.requiresBitrate {
+                    let bitrateRaw = UserDefaults.standard.string(forKey: AppConstants.audioOnlyMP4BitrateKey) ?? AppConstants.defaultAudioOnlyMP4Bitrate
+                    let bitrate = AudioBitrate(rawValue: bitrateRaw) ?? .k192
+                    args += ["-b:a", bitrate.ffmpegValue]
+                }
+                args += ["-movflags", "+faststart"]
+
+            case .flac:
+                args += ["-c:a", "flac"]
+            }
+
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
         case .imageSequence:
@@ -1413,9 +1478,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .prores: key = AppConstants.proresVisibleKey
         case .proxy: key = AppConstants.proxyVisibleKey
         case .streamCopy: key = AppConstants.streamCopyVisibleKey
-        case .audioUncompressedWAV: key = AppConstants.audioWAVVisibleKey
-        case .audioStereoAAC: key = AppConstants.audioAACVisibleKey
-        case .audioAllTracksMP4: key = AppConstants.audioMP4VisibleKey
+        case .audioOnly: key = AppConstants.audioOnlyVisibleKey
         case .imageSequence: key = AppConstants.imageSequenceVisibleKey
         case .dcp: key = AppConstants.dcpVisibleKey
         default: return true
@@ -1433,7 +1496,7 @@ extension ExportPreset {
     /// Indicates whether this preset is expected to output a video track even if the source lacks one.
     var outputsVideoTrack: Bool {
         switch self {
-        case .audioUncompressedWAV, .audioStereoAAC, .audioAllTracksMP4:
+        case .audioOnly:
             return false
         case .imageSequence:
             return false // Output is individual image files, not a video container
@@ -1455,7 +1518,7 @@ extension ExportPreset {
             return false // DCP audio is in a separate MXF file
         case .videoLoopWithSound:
             return true
-        case .audioUncompressedWAV, .audioStereoAAC, .audioAllTracksMP4:
+        case .audioOnly:
             return true
         case .streamCopy:
             return true

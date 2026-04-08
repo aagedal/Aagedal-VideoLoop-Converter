@@ -48,8 +48,41 @@ struct Aagedal_Media_Converter_App: App {
             AppConstants.autoDeleteOldEncodesDaysKey: AppConstants.defaultAutoDeleteOldEncodesDays
         ])
 
+        Self.migrateAudioPresets()
         applyPreviewCacheCleanupPolicy()
         OutputFolderCleanupService.shared.start()
+    }
+
+    /// One-time migration: consolidate 3 audio presets into unified Audio Only preset
+    private static func migrateAudioPresets() {
+        let defaults = UserDefaults.standard
+        let migrationKey = "audioPresetMigrationV1"
+        guard !defaults.bool(forKey: migrationKey) else { return }
+
+        // Migrate default preset selection
+        if let currentDefault = defaults.string(forKey: AppConstants.defaultPresetKey) {
+            switch currentDefault {
+            case "Audio only WAV (all channels)":
+                defaults.set(ExportPreset.audioOnly.rawValue, forKey: AppConstants.defaultPresetKey)
+                defaults.set(AudioOnlyFormat.wav.rawValue, forKey: AppConstants.audioOnlyFormatKey)
+            case "Audio only AAC (stereo downmix)":
+                defaults.set(ExportPreset.audioOnly.rawValue, forKey: AppConstants.defaultPresetKey)
+                defaults.set(AudioOnlyFormat.aac.rawValue, forKey: AppConstants.audioOnlyFormatKey)
+            case "Audio only MP4 (all tracks)":
+                defaults.set(ExportPreset.audioOnly.rawValue, forKey: AppConstants.defaultPresetKey)
+                defaults.set(AudioOnlyFormat.mp4.rawValue, forKey: AppConstants.audioOnlyFormatKey)
+            default:
+                break
+            }
+        }
+
+        // Migrate visibility: visible if any of the three old presets was visible
+        let wavVisible = defaults.object(forKey: AppConstants.audioWAVVisibleKey) as? Bool ?? true
+        let aacVisible = defaults.object(forKey: AppConstants.audioAACVisibleKey) as? Bool ?? true
+        let mp4Visible = defaults.object(forKey: AppConstants.audioMP4VisibleKey) as? Bool ?? true
+        defaults.set(wavVisible || aacVisible || mp4Visible, forKey: AppConstants.audioOnlyVisibleKey)
+
+        defaults.set(true, forKey: migrationKey)
     }
 
     var body: some Scene {

@@ -47,9 +47,7 @@ final class PresetManager {
     private var proresVisible: Bool
     private var proxyVisible: Bool
     private var streamCopyVisible: Bool
-    private var audioWAVVisible: Bool
-    private var audioAACVisible: Bool
-    private var audioMP4Visible: Bool
+    private var audioOnlyVisible: Bool
     private var imageSequenceVisible: Bool
     private var dcpVisible: Bool
 
@@ -95,9 +93,7 @@ final class PresetManager {
         proresVisible = defaults.object(forKey: AppConstants.proresVisibleKey) as? Bool ?? true
         proxyVisible = defaults.object(forKey: AppConstants.proxyVisibleKey) as? Bool ?? true
         streamCopyVisible = defaults.object(forKey: AppConstants.streamCopyVisibleKey) as? Bool ?? true
-        audioWAVVisible = defaults.object(forKey: AppConstants.audioWAVVisibleKey) as? Bool ?? true
-        audioAACVisible = defaults.object(forKey: AppConstants.audioAACVisibleKey) as? Bool ?? true
-        audioMP4Visible = defaults.object(forKey: AppConstants.audioMP4VisibleKey) as? Bool ?? true
+        audioOnlyVisible = defaults.object(forKey: AppConstants.audioOnlyVisibleKey) as? Bool ?? true
         imageSequenceVisible = defaults.object(forKey: AppConstants.imageSequenceVisibleKey) as? Bool ?? true
         dcpVisible = defaults.object(forKey: AppConstants.dcpVisibleKey) as? Bool ?? true
 
@@ -134,9 +130,7 @@ final class PresetManager {
             case .prores: return proresVisible
             case .proxy: return proxyVisible
             case .streamCopy: return streamCopyVisible
-            case .audioUncompressedWAV: return audioWAVVisible
-            case .audioStereoAAC: return audioAACVisible
-            case .audioAllTracksMP4: return audioMP4Visible
+            case .audioOnly: return audioOnlyVisible
             case .imageSequence: return imageSequenceVisible
             case .dcp: return dcpVisible
             case .custom1: return customPreset1Active
@@ -228,9 +222,7 @@ final class PresetManager {
         proresVisible = defaults.object(forKey: AppConstants.proresVisibleKey) as? Bool ?? true
         proxyVisible = defaults.object(forKey: AppConstants.proxyVisibleKey) as? Bool ?? true
         streamCopyVisible = defaults.object(forKey: AppConstants.streamCopyVisibleKey) as? Bool ?? true
-        audioWAVVisible = defaults.object(forKey: AppConstants.audioWAVVisibleKey) as? Bool ?? true
-        audioAACVisible = defaults.object(forKey: AppConstants.audioAACVisibleKey) as? Bool ?? true
-        audioMP4Visible = defaults.object(forKey: AppConstants.audioMP4VisibleKey) as? Bool ?? true
+        audioOnlyVisible = defaults.object(forKey: AppConstants.audioOnlyVisibleKey) as? Bool ?? true
         imageSequenceVisible = defaults.object(forKey: AppConstants.imageSequenceVisibleKey) as? Bool ?? true
         dcpVisible = defaults.object(forKey: AppConstants.dcpVisibleKey) as? Bool ?? true
 
