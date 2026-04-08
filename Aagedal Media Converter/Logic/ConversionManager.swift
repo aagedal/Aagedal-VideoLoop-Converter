@@ -1297,27 +1297,42 @@ actor ConversionManager: Sendable {
                     // Trigger subtitle generation if enabled for this item
                     if success && droppedFiles.wrappedValue[idx].subtitleEnabled {
                         let method = droppedFiles.wrappedValue[idx].subtitleMethod
-                        if method == .ocr, let outputURL = droppedFiles.wrappedValue[idx].outputURL {
-                            // OCR reads from the original source file (PGS lives in the MKV, not the re-encode)
-                            // but saves the SRT alongside the encoded output
-                            let sourceURL = droppedFiles.wrappedValue[idx].url
-                            let metadata  = droppedFiles.wrappedValue[idx].metadata
-                            Task {
-                                await self.generateOCRSubtitles(
-                                    for: fileId,
-                                    sourceURL: sourceURL,
-                                    outputURL: outputURL,
-                                    metadata: metadata,
-                                    droppedFiles: droppedFiles
-                                )
+                        switch method {
+                        case .ocr:
+                            if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
+                                // OCR reads from the original source file (PGS lives in the MKV, not the re-encode)
+                                // but saves the SRT alongside the encoded output
+                                let sourceURL = droppedFiles.wrappedValue[idx].url
+                                let metadata  = droppedFiles.wrappedValue[idx].metadata
+                                Task {
+                                    await self.generateOCRSubtitles(
+                                        for: fileId,
+                                        sourceURL: sourceURL,
+                                        outputURL: outputURL,
+                                        metadata: metadata,
+                                        droppedFiles: droppedFiles
+                                    )
+                                }
                             }
-                        } else if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
-                            Task {
-                                await self.generateSubtitles(
-                                    for: fileId,
-                                    inputURL: outputURL,
-                                    droppedFiles: droppedFiles
-                                )
+                        case .whisper:
+                            if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
+                                Task {
+                                    await self.generateSubtitles(
+                                        for: fileId,
+                                        inputURL: outputURL,
+                                        droppedFiles: droppedFiles
+                                    )
+                                }
+                            }
+                        case .parakeet:
+                            if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
+                                Task {
+                                    await self.generateParakeetSubtitles(
+                                        for: fileId,
+                                        inputURL: outputURL,
+                                        droppedFiles: droppedFiles
+                                    )
+                                }
                             }
                         }
                     }
@@ -1580,6 +1595,86 @@ actor ConversionManager: Sendable {
                 }
             }
             logger.error("Subtitle generation failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Parakeet Subtitle Generation
+
+    /// Generates subtitles for a completed conversion using parakeet-mlx
+    private func generateParakeetSubtitles(
+        for itemID: UUID,
+        inputURL: URL,
+        droppedFiles: Binding<[VideoItem]>
+    ) async {
+        // Get selected model and language from settings
+        let modelId = UserDefaults.standard.string(forKey: AppConstants.parakeetModelKey) ?? AppConstants.defaultParakeetModel
+        let model = ParakeetModel.model(for: modelId) ?? ParakeetModel.allModels[0]
+        let language = UserDefaults.standard.string(forKey: AppConstants.parakeetLanguageKey) ?? AppConstants.defaultParakeetLanguage
+
+        // Update status to pending
+        await MainActor.run {
+            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles.wrappedValue[idx].subtitleStatus = .pending
+            }
+        }
+
+        do {
+            let outputDir = inputURL.deletingLastPathComponent()
+
+            let audioStreamIndex = droppedFiles.wrappedValue.first(where: { $0.id == itemID })?.selectedAudioStreamIndex
+            let srtURL = try await ParakeetService.shared.generateSubtitles(
+                inputFile: inputURL,
+                outputDirectory: outputDir,
+                model: model,
+                language: language,
+                audioStreamIndex: audioStreamIndex
+            ) { [weak self] parakeetProgress in
+                Task { @MainActor in
+                    guard let _ = self else { return }
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        switch parakeetProgress.stage {
+                        case .extractingAudio:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .extractingAudio
+                        case .transcribing:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .generating(progress: parakeetProgress.percentage)
+                        case .complete:
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                        case .failed(let error):
+                            droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error)
+                        }
+                        droppedFiles.wrappedValue[idx].subtitleProgress = parakeetProgress.percentage
+                    }
+                }
+            }
+
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                    droppedFiles.wrappedValue[idx].subtitleFilePath = srtURL
+                    droppedFiles.wrappedValue[idx].subtitleProgress = 1.0
+                }
+            }
+
+            logger.info("Parakeet subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
+
+            // Embed SRT into the output file if enabled
+            let shouldEmbed = UserDefaults.standard.bool(forKey: AppConstants.embedSubtitlesKey)
+            if shouldEmbed {
+                await embedSubtitles(
+                    srtURL: srtURL,
+                    into: inputURL,
+                    itemID: itemID,
+                    droppedFiles: droppedFiles
+                )
+            }
+
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+            logger.error("Parakeet subtitle generation failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

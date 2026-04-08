@@ -10,4 +10,6 @@ enum SubtitleConversionMethod: String, Sendable, Equatable {
     case whisper
     /// Optical character recognition via Tesseract (bitmap images → text)
     case ocr
+    /// AI audio transcription via parakeet-mlx (NeMo ASR on Apple Silicon)
+    case parakeet
 }

@@ -235,6 +235,7 @@ struct ContentView: View {
             if item.subtitleStatus.isInProgress {
                 Task { await TesseractService.shared.cancelGeneration() }
                 Task { await WhisperService.shared.cancelGeneration() }
+                Task { await ParakeetService.shared.cancelGeneration() }
             }
         }
 

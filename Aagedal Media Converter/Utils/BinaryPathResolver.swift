@@ -392,6 +392,56 @@ enum BinaryPathResolver {
     private static func resolveBundledSSIMULACRA2Path() -> String? {
         Bundle.main.path(forResource: "ssimulacra2_rs", ofType: nil)
     }
+
+    // MARK: - Parakeet-MLX
+
+    /// Resolves the path to the parakeet-mlx binary.
+    /// Priority: custom path > common pip/uv/Homebrew locations
+    static var parakeetMlxPath: String? {
+        // 1. Custom path from settings
+        if let customPath = UserDefaults.standard.string(forKey: AppConstants.parakeetCustomPathKey),
+           !customPath.isEmpty,
+           FileManager.default.isExecutableFile(atPath: customPath) {
+            return customPath
+        }
+
+        // 2. Common pip/uv/Homebrew install locations
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "\(homeDir)/.local/bin/parakeet-mlx",
+            "/opt/homebrew/bin/parakeet-mlx",
+            "/usr/local/bin/parakeet-mlx",
+            "\(homeDir)/.cargo/bin/parakeet-mlx",
+            "\(homeDir)/Library/Python/3.14/bin/parakeet-mlx",
+            "\(homeDir)/Library/Python/3.13/bin/parakeet-mlx",
+            "\(homeDir)/Library/Python/3.12/bin/parakeet-mlx",
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Returns whether a custom parakeet-mlx path is configured
+    static var isUsingCustomParakeetMlx: Bool {
+        guard let customPath = UserDefaults.standard.string(forKey: AppConstants.parakeetCustomPathKey),
+              !customPath.isEmpty else {
+            return false
+        }
+        return FileManager.default.isExecutableFile(atPath: customPath)
+    }
+
+    /// Saves a custom parakeet-mlx path
+    static func saveCustomParakeetMlxPath(_ path: String?) {
+        if let path = path, !path.isEmpty {
+            UserDefaults.standard.set(path, forKey: AppConstants.parakeetCustomPathKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: AppConstants.parakeetCustomPathKey)
+        }
+    }
+
+    /// Gets parakeet-mlx version string
+    static func getParakeetMlxVersion() async -> String? {
+        guard let path = parakeetMlxPath else { return nil }
+        return await getVersion(at: path)
+    }
 }
 
 // MARK: - Homebrew Python Script Executor
@@ -590,6 +640,104 @@ enum HomebrewPythonExecutor {
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
             // Enable unbuffered output for Python scripts
+            env["PYTHONUNBUFFERED"] = "1"
+            process.environment = env
+        }
+    }
+
+    /// Reads the shebang from a script and returns the Python interpreter path if it exists.
+    /// Works for uv, pip --user, and other virtualenv-based installations.
+    static func resolveShebangPython(for scriptPath: String) -> String? {
+        let resolvedPath = (scriptPath as NSString).resolvingSymlinksInPath
+        guard let data = FileManager.default.contents(atPath: resolvedPath),
+              let content = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        let firstLine = content.components(separatedBy: .newlines).first ?? ""
+        guard firstLine.hasPrefix("#!") else { return nil }
+
+        let shebangPath = String(firstLine.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+
+        if FileManager.default.isExecutableFile(atPath: shebangPath) {
+            logger.debug("Resolved shebang Python: \(shebangPath, privacy: .public)")
+            return shebangPath
+        }
+
+        return nil
+    }
+
+    /// Configures a Process to execute a generic Python CLI tool installed via pip/uv/Homebrew.
+    /// Unlike the yt-dlp-specific variant, this runs the script file directly rather than using -m module.
+    /// - Parameters:
+    ///   - process: The Process to configure
+    ///   - scriptPath: Path to the Python script/binary
+    ///   - arguments: Arguments to pass to the script
+    ///   - extraPathEntries: Additional PATH entries (e.g. bundled ffmpeg directory)
+    static func configurePythonToolProcess(
+        _ process: Process,
+        scriptPath: String,
+        arguments: [String],
+        extraPathEntries: [String] = []
+    ) {
+        // Check if it's a standalone binary (e.g. PyInstaller-frozen)
+        if isStandaloneBinary(at: scriptPath) {
+            logger.debug("Using standalone binary: \(scriptPath, privacy: .public)")
+            process.executableURL = URL(fileURLWithPath: scriptPath)
+            process.arguments = arguments
+            var env = ProcessInfo.processInfo.environment
+            var pathEntries = extraPathEntries + commonPathEntries
+            let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
+            env["PATH"] = mergedPath(from: pathEntries)
+            env["PYTHONUNBUFFERED"] = "1"
+            process.environment = env
+            return
+        }
+
+        // It's a Python script - try Homebrew detection with PYTHONPATH
+        if let info = executionInfo(for: scriptPath) {
+            let pythonCandidates = [
+                info.mainPythonPath,
+                info.pythonPath,
+                "/usr/bin/python3"
+            ]
+            let pythonPath = pythonCandidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+                ?? info.mainPythonPath
+
+            logger.debug("Using \(pythonPath, privacy: .public) to run \(scriptPath, privacy: .public)")
+            process.executableURL = URL(fileURLWithPath: pythonPath)
+            process.arguments = ["-u", scriptPath] + arguments
+            var env = ProcessInfo.processInfo.environment
+            env["PYTHONPATH"] = info.sitePackages
+            env["PYTHONUNBUFFERED"] = "1"
+            var pathEntries = extraPathEntries + commonPathEntries
+            let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
+            env["PATH"] = mergedPath(from: pathEntries)
+            process.environment = env
+        } else if let shebangPython = resolveShebangPython(for: scriptPath) {
+            // Use the Python interpreter from the script's shebang (works for uv, pip --user, etc.)
+            logger.debug("Using shebang Python \(shebangPython, privacy: .public) to run \(scriptPath, privacy: .public)")
+            process.executableURL = URL(fileURLWithPath: shebangPython)
+            process.arguments = ["-u", scriptPath] + arguments
+            var env = ProcessInfo.processInfo.environment
+            env["PYTHONUNBUFFERED"] = "1"
+            var pathEntries = extraPathEntries + commonPathEntries
+            let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
+            env["PATH"] = mergedPath(from: pathEntries)
+            process.environment = env
+        } else {
+            // Last resort - try executing directly
+            logger.warning("Executing directly as last resort: \(scriptPath, privacy: .public)")
+            process.executableURL = URL(fileURLWithPath: scriptPath)
+            process.arguments = arguments
+            var env = ProcessInfo.processInfo.environment
+            var pathEntries = extraPathEntries + commonPathEntries
+            let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
+            env["PATH"] = mergedPath(from: pathEntries)
             env["PYTHONUNBUFFERED"] = "1"
             process.environment = env
         }
