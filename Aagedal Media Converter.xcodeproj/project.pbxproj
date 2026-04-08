@@ -81,6 +81,8 @@
 		8EA25FE72F82A75C0087B1F1 /* VOBSUBParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA25FE22F82A75C0087B1F1 /* VOBSUBParser.swift */; };
 		8EA25FE92F82A7BA0087B1F1 /* TesseractSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA25FE82F82A7BA0087B1F1 /* TesseractSettingsView.swift */; };
 		8EA25FEB2F82D6730087B1F1 /* tesseract in Resources */ = {isa = PBXBuildFile; fileRef = 8EA25FEA2F82D6730087B1F1 /* tesseract */; };
+		8EA260042F865E430087B1F1 /* ParakeetSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA260022F865E430087B1F1 /* ParakeetSettingsView.swift */; };
+		8EA260052F865E430087B1F1 /* TranscriptionSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA260032F865E430087B1F1 /* TranscriptionSettingsView.swift */; };
 		8EA817D42F71840E00F9F10C /* asdcp-wrap in Resources */ = {isa = PBXBuildFile; fileRef = 8EA817D32F71840E00F9F10C /* asdcp-wrap */; };
 		8EA817D62F7184AA00F9F10C /* asdcplib-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8EA817D52F7184AA00F9F10C /* asdcplib-LICENSE.txt */; };
 		8EBD10212EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */; };
@@ -88,7 +90,6 @@
 		8EBD10242EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */; };
 		8EC017D3E3FDF66B8DE02E57 /* BMXService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED542D049B53B34DBA25323 /* BMXService.swift */; };
 		8EC3DCDD2EF57F0600CD75BC /* RandomTips.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */; };
-		AA1D4C3E2F10B56789000002 /* TrackPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */; };
 		8EC9A6F12EC146C00082C67F /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EFBDA932EA58975005ADDCF /* AboutView.swift */; };
 		8EC9A6F72EC149010082C67F /* PreviewTrimControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A6F62EC149010082C67F /* PreviewTrimControls.swift */; };
 		8EC9A6F82EC149010082C67F /* PreviewPlayerFooter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A6F52EC149010082C67F /* PreviewPlayerFooter.swift */; };
@@ -129,6 +130,7 @@
 		A14336D5FE72B1741AE6C2E2 /* RcloneService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B40739097F270F27C5045E /* RcloneService.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* CaptureModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* CaptureModeView.swift */; };
 		A7FDCC612BAD184830F774E4 /* WhisperSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */; };
+		AA1D4C3E2F10B56789000002 /* TrackPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */; };
 		ANALYTICSEXP00000002 /* AnalyticsExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANALYTICSEXP00000001 /* AnalyticsExporter.swift */; };
 		ANALYTICSMOD00000002 /* AnalyticsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANALYTICSMOD00000001 /* AnalyticsModels.swift */; };
 		ANALYTICSRESV0000002 /* AnalyticsResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANALYTICSRESV0000001 /* AnalyticsResultsView.swift */; };
@@ -282,13 +284,14 @@
 		8EA25FE22F82A75C0087B1F1 /* VOBSUBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VOBSUBParser.swift; sourceTree = "<group>"; };
 		8EA25FE82F82A7BA0087B1F1 /* TesseractSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TesseractSettingsView.swift; sourceTree = "<group>"; };
 		8EA25FEA2F82D6730087B1F1 /* tesseract */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = tesseract; sourceTree = "<group>"; };
+		8EA260022F865E430087B1F1 /* ParakeetSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParakeetSettingsView.swift; sourceTree = "<group>"; };
+		8EA260032F865E430087B1F1 /* TranscriptionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionSettingsView.swift; sourceTree = "<group>"; };
 		8EA817D32F71840E00F9F10C /* asdcp-wrap */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = "asdcp-wrap"; sourceTree = "<group>"; };
 		8EA817D52F7184AA00F9F10C /* asdcplib-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "asdcplib-LICENSE.txt"; sourceTree = "<group>"; };
 		8EBD101F2EBE8B3C00377649 /* Aagedal_Media_Converter_UITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_UITests.swift; sourceTree = "<group>"; };
 		8EBD10202EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_UITestsLaunchTests.swift; sourceTree = "<group>"; };
 		8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Aagedal_Media_Converter_Tests.swift; sourceTree = "<group>"; };
 		8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RandomTips.swift; sourceTree = "<group>"; };
-		AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPickerSheet.swift; sourceTree = "<group>"; };
 		8EC9A6F52EC149010082C67F /* PreviewPlayerFooter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerFooter.swift; sourceTree = "<group>"; };
 		8EC9A6F62EC149010082C67F /* PreviewTrimControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewTrimControls.swift; sourceTree = "<group>"; };
 		8EC9A6FC2EC149140082C67F /* PreviewPlayerController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPlayerController.swift; sourceTree = "<group>"; };
@@ -334,6 +337,7 @@
 		9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWaveformVideoRenderer.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5D /* CaptureModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureModeView.swift; sourceTree = "<group>"; };
 		A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelManager.swift; sourceTree = "<group>"; };
+		AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPickerSheet.swift; sourceTree = "<group>"; };
 		ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = URLInputOverlay.swift; sourceTree = "<group>"; };
 		AEDBAB6B2E312097DF4737F8 /* FrequencyVisualizerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrequencyVisualizerView.swift; sourceTree = "<group>"; };
 		ANALYTICSEXP00000001 /* AnalyticsExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsExporter.swift; sourceTree = "<group>"; };
@@ -375,6 +379,7 @@
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8EA25FED2F82D6B00087B1F1 /* tessdata */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = tessdata; sourceTree = "<group>"; };
+		8EA25FFE2F865E1F0087B1F1 /* Parakeet */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Parakeet; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -526,6 +531,7 @@
 				ANALYTICSGRP00000001 /* Analytics */,
 				2E8ED3F06E74CC10398BD3EB /* Metadata */,
 				8EA25FE32F82A75C0087B1F1 /* Subtitles */,
+				8EA25FFE2F865E1F0087B1F1 /* Parakeet */,
 			);
 			path = Logic;
 			sourceTree = "<group>";
@@ -774,6 +780,8 @@
 				6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */,
 				8EA25DC12F7AC9A80087B1F1 /* UploadSettingsView.swift */,
 				ANALYTICSSETV0000001 /* AnalyticsSettingsView.swift */,
+				8EA260022F865E430087B1F1 /* ParakeetSettingsView.swift */,
+				8EA260032F865E430087B1F1 /* TranscriptionSettingsView.swift */,
 			);
 			path = SettingsView;
 			sourceTree = "<group>";
@@ -900,6 +908,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				8EA25FED2F82D6B00087B1F1 /* tessdata */,
+				8EA25FFE2F865E1F0087B1F1 /* Parakeet */,
 			);
 			name = "Aagedal Media Converter";
 			productName = "Aagedal VideoLoop Converter";
@@ -1034,6 +1043,8 @@
 				8ABB9EA264C8772C2537FED2 /* MetadataWindowState.swift in Sources */,
 				C7166A0F2716B52C985E6275 /* MetadataWindowController.swift in Sources */,
 				15A41FC10346A7F73664E9A1 /* ComparisonMetadataView.swift in Sources */,
+				8EA260042F865E430087B1F1 /* ParakeetSettingsView.swift in Sources */,
+				8EA260052F865E430087B1F1 /* TranscriptionSettingsView.swift in Sources */,
 				66640AFCC00F8F761237556B /* MetadataWindowContent.swift in Sources */,
 				8EC9A6F12EC146C00082C67F /* AboutView.swift in Sources */,
 				8E9B52552ED65156006E6A10 /* AudioRoutingModels.swift in Sources */,

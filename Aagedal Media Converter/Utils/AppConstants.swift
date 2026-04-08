@@ -630,6 +630,33 @@ enum AppConstants {
     static let embedSubtitlesKey = "embedSubtitles"
     static let defaultEmbedSubtitles = false
 
+    // Default transcription engine (shared)
+    static let defaultTranscriptionEngineKey = "defaultTranscriptionEngine"
+    static let defaultTranscriptionEngine = "whisper" // "whisper" or "parakeet"
+
+    // MARK: - Parakeet Settings
+
+    // Parakeet binary management
+    static let parakeetCustomPathKey = "parakeetCustomPath"
+
+    // Parakeet model management
+    static let parakeetModelKey = "parakeetSelectedModel"
+    static let defaultParakeetModel = "mlx-community/parakeet-tdt-0.6b-v3"
+
+    // Parakeet generation settings
+    static let parakeetLanguageKey = "parakeetLanguage"
+    static let defaultParakeetLanguage = "en"
+    static let parakeetChunkDurationKey = "parakeetChunkDuration"
+    static let defaultParakeetChunkDuration = 300 // seconds
+    static let parakeetOverlapDurationKey = "parakeetOverlapDuration"
+    static let defaultParakeetOverlapDuration = 15 // seconds
+
+    // HuggingFace Hub cache directory (used by parakeet-mlx for model storage)
+    static var huggingFaceCacheDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/huggingface/hub", isDirectory: true)
+    }
+
     // MARK: - Tesseract Settings
 
     // Tesseract binary management

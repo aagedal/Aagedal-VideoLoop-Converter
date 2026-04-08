@@ -76,7 +76,7 @@ struct SettingsView: View {
         case .watchFolder: WatchFolderSettingsView()
         case .ytdlp: YTDLPSettingsView()
         case .upload: UploadSettingsView()
-        case .whisper: WhisperSettingsView()
+        case .whisper: TranscriptionSettingsView()
         case .ocr: TesseractSettingsView()
         case .analytics: AnalyticsSettingsView()
         case .updates: UpdateSettingsView()

@@ -122,6 +122,23 @@ struct VideoFileRowView: View {
         (file.subtitleEnabled && file.subtitleMethod == .whisper) ? .green : .secondary
     }
 
+    // Parakeet transcription button computed properties
+    private var parakeetIconName: String {
+        (file.subtitleEnabled && file.subtitleMethod == .parakeet) ? "waveform.badge.mic" : "waveform"
+    }
+
+    private var parakeetIconColor: Color {
+        (file.subtitleEnabled && file.subtitleMethod == .parakeet) ? .green : .secondary
+    }
+
+    private var parakeetHelpText: String {
+        if file.subtitleEnabled && file.subtitleMethod == .parakeet {
+            return "Transcription (Parakeet) enabled. SRT will be created after encoding. Option+click to generate SRT only (no encoding)."
+        } else {
+            return "Enable Parakeet transcription for subtitle generation. Option+click to generate SRT only (no encoding)."
+        }
+    }
+
     // OCR button computed properties
     private var ocrIconColor: Color {
         (file.subtitleEnabled && file.subtitleMethod == .ocr) ? .green : .secondary
@@ -578,6 +595,43 @@ struct VideoFileRowView: View {
                                 .buttonStyle(.borderless)
                                 .foregroundColor(subtitleIconColor)
                                 .help(subtitleHelpText)
+
+                                // Parakeet transcription button (Option+click for transcribe-only)
+                                Button {
+                                    if isOptionKeyPressed() {
+                                        // Option+click: generate SRT only (no encoding)
+                                        if file.metadata == nil {
+                                            metadataPendingIsTranscribeOnly = true
+                                            showMetadataPendingAlert = true
+                                        } else if audioStreams.count > 1 {
+                                            pendingTranscribeOnly = true
+                                            file.subtitleEnabled = true
+                                            file.subtitleMethod = .parakeet
+                                            showAudioTrackSheet = true
+                                        } else {
+                                            onTranscribeOnly?(.parakeet)
+                                        }
+                                    } else if !file.subtitleEnabled && file.metadata == nil {
+                                        metadataPendingIsTranscribeOnly = false
+                                        showMetadataPendingAlert = true
+                                    } else if file.subtitleEnabled && file.subtitleMethod == .parakeet {
+                                        // Already enabled as Parakeet — toggle off
+                                        file.subtitleEnabled = false
+                                    } else if audioStreams.count > 1 {
+                                        // Pick audio track before enabling
+                                        file.subtitleEnabled = true
+                                        file.subtitleMethod = .parakeet
+                                        showAudioTrackSheet = true
+                                    } else {
+                                        file.subtitleEnabled = true
+                                        file.subtitleMethod = .parakeet
+                                    }
+                                } label: {
+                                    Image(systemName: parakeetIconName)
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundColor(parakeetIconColor)
+                                .help(parakeetHelpText)
 
                                 // OCR button (Option+click for OCR-only, visible when file has bitmap subtitles)
                                 if hasBitmapSubtitles {
@@ -1565,6 +1619,42 @@ struct VideoFileRowView: View {
             .buttonStyle(.borderless)
             .foregroundColor(subtitleIconColor)
             .help(subtitleHelpText)
+
+            // Parakeet transcription button (compact, Option+click for transcribe-only)
+            Button {
+                if isOptionKeyPressed() {
+                    if file.metadata == nil {
+                        metadataPendingIsTranscribeOnly = true
+                        showMetadataPendingAlert = true
+                    } else if audioStreams.count > 1 {
+                        pendingTranscribeOnly = true
+                        file.subtitleEnabled = true
+                        file.subtitleMethod = .parakeet
+                        showAudioTrackSheet = true
+                    } else {
+                        onTranscribeOnly?(.parakeet)
+                    }
+                } else if !file.subtitleEnabled && file.metadata == nil {
+                    metadataPendingIsTranscribeOnly = false
+                    showMetadataPendingAlert = true
+                } else if file.subtitleEnabled && file.subtitleMethod == .parakeet {
+                    file.subtitleEnabled = false
+                } else if audioStreams.count > 1 {
+                    file.subtitleEnabled = true
+                    file.subtitleMethod = .parakeet
+                    showAudioTrackSheet = true
+                } else {
+                    file.subtitleEnabled = true
+                    file.subtitleMethod = .parakeet
+                }
+            } label: {
+                Image(systemName: parakeetIconName)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.borderless)
+            .foregroundColor(parakeetIconColor)
+            .help(parakeetHelpText)
 
             // OCR button (compact, visible when file has bitmap subtitles)
             if hasBitmapSubtitles {

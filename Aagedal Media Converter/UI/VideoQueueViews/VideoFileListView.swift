@@ -745,10 +745,13 @@ struct VideoFileListView: View {
 
     /// Generates subtitles directly from source file without encoding
     private func transcribeOnly(itemID: UUID, method: SubtitleConversionMethod) async {
-        if method == .ocr {
+        switch method {
+        case .ocr:
             await transcribeOnlyOCR(itemID: itemID)
-        } else {
+        case .whisper:
             await transcribeOnlyWhisper(itemID: itemID)
+        case .parakeet:
+            await transcribeOnlyParakeet(itemID: itemID)
         }
     }
 
@@ -834,6 +837,76 @@ struct VideoFileListView: View {
                 }
             }
             Self.logger.error("Transcribe-only failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func transcribeOnlyParakeet(itemID: UUID) async {
+        guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+
+        let inputURL = droppedFiles[index].url
+        let audioStreamIndex = droppedFiles[index].selectedAudioStreamIndex
+
+        // Get model from settings
+        let modelId = UserDefaults.standard.string(forKey: AppConstants.parakeetModelKey) ?? AppConstants.defaultParakeetModel
+        let model = ParakeetModel.model(for: modelId) ?? ParakeetModel.allModels[0]
+
+        // Get language from settings
+        let language = UserDefaults.standard.string(forKey: AppConstants.parakeetLanguageKey) ?? AppConstants.defaultParakeetLanguage
+
+        // Update status to pending
+        await MainActor.run {
+            if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].subtitleStatus = .pending
+            }
+        }
+
+        do {
+            let srtURL = try await ParakeetService.shared.generateSubtitlesOnly(
+                inputFile: inputURL,
+                model: model,
+                language: language,
+                audioStreamIndex: audioStreamIndex
+            ) { parakeetProgress in
+                Task { @MainActor in
+                    if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }),
+                       self.droppedFiles[idx].subtitleStatus.isInProgress {
+                        switch parakeetProgress.stage {
+                        case .extractingAudio:
+                            self.droppedFiles[idx].subtitleStatus = .extractingAudio
+                        case .transcribing:
+                            self.droppedFiles[idx].subtitleStatus = .generating(progress: parakeetProgress.percentage)
+                        case .complete:
+                            self.droppedFiles[idx].subtitleStatus = .completed
+                        case .failed(let error):
+                            self.droppedFiles[idx].subtitleStatus = .failed(error)
+                        }
+                        self.droppedFiles[idx].subtitleProgress = parakeetProgress.percentage
+                    }
+                }
+            }
+
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .completed
+                    droppedFiles[idx].subtitleFilePath = srtURL
+                    droppedFiles[idx].subtitleProgress = 1.0
+                }
+            }
+            Self.logger.info("Parakeet transcribe-only completed: \(srtURL.lastPathComponent, privacy: .public)")
+
+        } catch ParakeetServiceError.cancelled {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .notQueued
+                }
+            }
+        } catch {
+            await MainActor.run {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    droppedFiles[idx].subtitleStatus = .failed(error.localizedDescription)
+                }
+            }
+            Self.logger.error("Parakeet transcribe-only failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

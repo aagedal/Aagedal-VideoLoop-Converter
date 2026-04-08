@@ -597,6 +597,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                                 if item.subtitleStatus.isInProgress {
                                     Task { await TesseractService.shared.cancelGeneration() }
                                     Task { await WhisperService.shared.cancelGeneration() }
+                                    Task { await ParakeetService.shared.cancelGeneration() }
                                 }
                             }
                             self.parent.encodingGroups[gIdx].items.removeAll { $0.id == itemID }
@@ -650,6 +651,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                     // Cancel whichever subtitle service is running
                     Task { await TesseractService.shared.cancelGeneration() }
                     Task { await WhisperService.shared.cancelGeneration() }
+                    Task { await ParakeetService.shared.cancelGeneration() }
                     // Reset subtitle status so the row returns to idle
                     switch source {
                     case .ungrouped:
