@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CC01A1C0PY00010000000002 /* CopyableCommandRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */; };
 		00B3F16A9264F886CA667DAC /* NativeWaveformVideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */; };
 		15A41FC10346A7F73664E9A1 /* ComparisonMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F82CC3B9944D3DAF6B3F9C93 /* ComparisonMetadataView.swift */; };
 		17B524B2559B24713433EF64 /* RcloneUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 727051829930996EE4E50306 /* RcloneUpdateService.swift */; };
@@ -41,6 +42,7 @@
 		8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */; };
 		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
 		8E1477472ECF453900C805AA /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477462ECF453900C805AA /* UpdateChecker.swift */; };
+		OUTCLEAN0BF00000001 /* OutputFolderCleanupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */; };
 		8E1477492ECF4DAB00C805AA /* UpdateNotificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */; };
 		8E14774B2ECF6BDE00C805AA /* UpdateSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */; };
 		8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */; };
@@ -206,6 +208,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyableCommandRow.swift; sourceTree = "<group>"; };
 		07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = YTDLPSettingsView.swift; sourceTree = "<group>"; };
 		0A661B3187048E83E24FB0AB /* WhisperModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModels.swift; sourceTree = "<group>"; };
 		0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BinaryPathResolver.swift; sourceTree = "<group>"; };
@@ -247,6 +250,7 @@
 		8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsingUtils.swift; sourceTree = "<group>"; };
 		8E13CD4050F24D1788FD6C8C /* ShortcutsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsView.swift; sourceTree = "<group>"; };
 		8E1477462ECF453900C805AA /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
+		OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputFolderCleanupService.swift; sourceTree = "<group>"; };
 		8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateNotificationView.swift; sourceTree = "<group>"; };
 		8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSettingsView.swift; sourceTree = "<group>"; };
 		8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
@@ -522,6 +526,7 @@
 				IMPORT0GRP00000001 /* Import */,
 				8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */,
 				8E1477462ECF453900C805AA /* UpdateChecker.swift */,
+				OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */,
 				8E9B52542ED65156006E6A10 /* AudioRoutingModels.swift */,
 				IMGSEQMOD00000001 /* ImageSequenceModels.swift */,
 				8ECEBC152ED766B500F1F67C /* CropModels.swift */,
@@ -608,6 +613,7 @@
 				8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */,
 				AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */,
 				ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */,
+				CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -1039,6 +1045,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CC01A1C0PY00010000000002 /* CopyableCommandRow.swift in Sources */,
 				D44F5A230D40961161251EB6 /* PresetQuickSelectOverlay.swift in Sources */,
 				8ABB9EA264C8772C2537FED2 /* MetadataWindowState.swift in Sources */,
 				C7166A0F2716B52C985E6275 /* MetadataWindowController.swift in Sources */,
@@ -1055,6 +1062,7 @@
 				A1B2C3D4E5F60718293A4B5C /* CaptureModeView.swift in Sources */,
 				8E4DF2732ECBBE38007B6277 /* WatchFolderSettingsView.swift in Sources */,
 				8E1477472ECF453900C805AA /* UpdateChecker.swift in Sources */,
+				OUTCLEAN0BF00000001 /* OutputFolderCleanupService.swift in Sources */,
 				8E04BE1B2ED38DD5005AD3D8 /* UniversalAudioMeterService.swift in Sources */,
 				8E9B52572ED6516C006E6A10 /* AudioRoutingView.swift in Sources */,
 				8EE0BB9C2E0892B70096171D /* SettingsView.swift in Sources */,

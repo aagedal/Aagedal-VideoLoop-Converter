@@ -21,6 +21,8 @@ struct GeneralSettingsView: View {
     @AppStorage(AppConstants.screenshot10BitFormatKey) private var screenshot10BitFormat = AppConstants.defaultScreenshotFormat
     @AppStorage(AppConstants.screenshotHighBitFormatKey) private var screenshotHighBitFormat = AppConstants.defaultScreenshotFormat
     @AppStorage(AppConstants.screenshotAlphaHandlingKey) private var screenshotAlphaHandling = AppConstants.defaultScreenshotAlphaHandling
+    @AppStorage(AppConstants.autoDeleteOldEncodesKey) private var autoDeleteOldEncodes = AppConstants.defaultAutoDeleteOldEncodes
+    @AppStorage(AppConstants.autoDeleteOldEncodesDaysKey) private var autoDeleteOldEncodesDays = AppConstants.defaultAutoDeleteOldEncodesDays
     @AppStorage(AppConstants.resetClearsSettingsKey) private var resetClearsSettings = AppConstants.defaultResetClearsSettings
     @AppStorage(AppConstants.queueViewModeKey) private var queueViewMode = AppConstants.defaultQueueViewMode
     @AppStorage(AppConstants.playSoundOnSuccessKey) private var playSoundOnSuccess = AppConstants.defaultPlaySoundOnSuccess
@@ -147,6 +149,33 @@ struct GeneralSettingsView: View {
                             .buttonStyle(BorderlessButtonStyle())
                             .help("Change default output folder")
                         }
+                    }
+
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Automatically delete old encodes", isOn: $autoDeleteOldEncodes)
+                            .toggleStyle(SwitchToggleStyle())
+
+                        if autoDeleteOldEncodes {
+                            HStack {
+                                Text("Delete files older than:")
+                                Picker("", selection: $autoDeleteOldEncodesDays) {
+                                    ForEach(AppConstants.autoDeleteOldEncodesDaysOptions, id: \.self) { days in
+                                        Text(days == 1 ? "1 day" : "\(days) days").tag(days)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: 120)
+                            }
+                            .padding(.leading, 16)
+                        }
+
+                        Text("Only applies to the default output folder. Files in other locations are never deleted.")
+                            .font(Font.caption.italic())
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
