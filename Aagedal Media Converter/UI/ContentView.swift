@@ -913,6 +913,7 @@ struct ContentView: View {
                 outputFolder: currentOutputFolder.path,
                 preset: groupPreset,
                 concatEnabled: concatEnabled,
+                groupName: group.name,
                 transcriptionEnabled: transcriptionEnabled,
                 uploadEnabled: uploadEnabled,
                 analyticsEnabled: analyticsEnabled

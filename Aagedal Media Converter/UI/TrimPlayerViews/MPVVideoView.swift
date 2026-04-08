@@ -39,6 +39,10 @@ final class MPVViewController: NSViewController {
 
         // Initialize MPV with the layer - this is where the demo calls setupMpv()
         player.attachDrawable(metalLayer)
+
+        // After MPV's Vulkan pipeline is up, defer all future drawableSize changes
+        // to avoid racing with MoltenVK's in-flight render passes during resize.
+        metalLayer.deferResizes = true
     }
 
     override func viewDidLayout() {
@@ -49,22 +53,28 @@ final class MPVViewController: NSViewController {
 
         let scale = window.screen?.backingScaleFactor ?? 2.0
         let layerSize = view.bounds.size
-        let newDrawableSize = CGSize(width: layerSize.width * scale, height: layerSize.height * scale)
 
-        // Update layer frame
+        // Floor to even pixel dimensions. A drawable slightly smaller than the
+        // layer's frame gets imperceptibly stretched to fill, which eliminates
+        // the black sub-pixel border that appears when MPV's aspect-ratio
+        // enforcement leaves 1-2px of the drawable unfilled.
+        let newDrawableSize = CGSize(
+            width: floor(layerSize.width * scale / 2) * 2,
+            height: floor(layerSize.height * scale / 2) * 2
+        )
+
+        // Update layer frame and contentsScale immediately for correct positioning.
+        // The frame change may trigger CAMetalLayer's auto-resize of drawableSize,
+        // but MPVMetalLayer.deferResizes coalesces and defers all size changes to
+        // the next run loop iteration, preventing MoltenVK render-pass races.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.contentsScale = scale
         metalLayer.frame = CGRect(x: 0, y: 0, width: layerSize.width, height: layerSize.height)
+        CATransaction.commit()
 
-        // Only update drawable size if it actually changed
-        // The 1-pixel threshold avoids unnecessary updates from floating point imprecision
-        let currentSize = metalLayer.drawableSize
-        let sizeChanged = abs(currentSize.width - newDrawableSize.width) > 1 ||
-                         abs(currentSize.height - newDrawableSize.height) > 1
-
-        if sizeChanged && newDrawableSize.width > 1 && newDrawableSize.height > 1 {
-            metalLayer.drawableSize = newDrawableSize
-            // Force the layer to use the new size immediately
-            metalLayer.setNeedsDisplay()
-        }
+        // Set our floor-to-even size (coalesced with any auto-resize; deferred by MPVMetalLayer)
+        metalLayer.drawableSize = newDrawableSize
     }
 }
 

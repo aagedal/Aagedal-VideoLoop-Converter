@@ -321,8 +321,8 @@ actor AnalyticsService {
             throw AnalyticsError.ssimulacra2NotFound
         }
 
-        let duration = try await getVideoDuration(for: encodedFile)
-        let resolution = try await getVideoResolution(for: sourceFile)
+        let duration = try getVideoDuration(for: encodedFile)
+        let resolution = try getVideoResolution(for: sourceFile)
 
         let maxFrames = UserDefaults.standard.integer(forKey: AppConstants.ssimulacra2MaxFramesKey)
         let frameCount = max(1, maxFrames > 0 ? maxFrames : AppConstants.defaultSSIMULACRA2MaxFrames)

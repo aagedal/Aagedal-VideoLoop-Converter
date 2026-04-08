@@ -115,7 +115,8 @@ actor ConversionManager: Sendable {
     private func buildMergePlan(
         from items: [VideoItem],
         preset: ExportPreset,
-        outputFolder: String
+        outputFolder: String,
+        groupName: String? = nil
     ) async -> MergePlan? {
         guard case .compatible = await evaluateMergeCompatibility(for: items, preset: preset) else {
             return nil
@@ -153,13 +154,21 @@ actor ConversionManager: Sendable {
             return nil
         }
 
-        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
-        let baseOutputURL = URL(fileURLWithPath: resolvedOutputFolder)
-            .appendingPathComponent(
-                FileNameProcessor.processFileName(firstItem.url.deletingPathExtension().lastPathComponent)
+        let mergeBaseName: String
+        if let override = firstItem.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            mergeBaseName = FileNameProcessor.processFileName((override as NSString).deletingPathExtension)
+        } else if let name = groupName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty {
+            mergeBaseName = FileNameProcessor.processFileName(name)
+        } else {
+            let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+            mergeBaseName = FileNameProcessor.processFileName(firstItem.url.deletingPathExtension().lastPathComponent)
                 + suffixPart
                 + "_merge"
-            )
+        }
+        let baseOutputURL = URL(fileURLWithPath: resolvedOutputFolder)
+            .appendingPathComponent(mergeBaseName)
 
         let waveformPreferences = AudioWaveformPreferences.loadConfig()
         let resolvedWaveformResolution = preset.resolvedWaveformResolution(defaultResolution: waveformPreferences.resolution)
@@ -986,6 +995,7 @@ actor ConversionManager: Sendable {
         outputFolder: String,
         preset: ExportPreset,
         concatEnabled: Bool,
+        groupName: String? = nil,
         transcriptionEnabled: Bool,
         uploadEnabled: Bool,
         analyticsEnabled: Bool
@@ -1013,7 +1023,7 @@ actor ConversionManager: Sendable {
         }
 
         if concatEnabled && items.wrappedValue.filter({ $0.status == .waiting }).count >= 2 {
-            self.mergePlan = await buildMergePlan(from: items.wrappedValue, preset: preset, outputFolder: outputFolder)
+            self.mergePlan = await buildMergePlan(from: items.wrappedValue, preset: preset, outputFolder: outputFolder, groupName: groupName)
         } else {
             self.mergePlan = nil
         }

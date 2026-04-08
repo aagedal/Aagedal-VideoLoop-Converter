@@ -9,6 +9,16 @@ import AppKit
 // https://github.com/mpv-player/mpv/pull/13651
 class MPVMetalLayer: CAMetalLayer {
 
+    /// When true, drawableSize changes are coalesced and deferred to the next
+    /// run loop iteration. This prevents a race condition during resize where
+    /// MoltenVK's in-flight render pass references the new renderTarget
+    /// dimensions while still holding a drawable allocated at the old size.
+    /// Set to true after MPV's Vulkan pipeline is initialized.
+    var deferResizes = false
+
+    private var pendingSize: CGSize = .zero
+    private var hasPendingResize = false
+
     override init() {
         super.init()
         configureForHDR()
@@ -35,14 +45,45 @@ class MPVMetalLayer: CAMetalLayer {
         // The target-colorspace-hint=yes option in MPVPlayer handles HDR passthrough.
     }
 
-    // Workaround for a MoltenVK that sets the drawableSize to 1x1 to forcefully complete
-    // the presentation, this causes flicker and the drawableSize possibly staying at 1x1
+    /// Apply the drawable size directly to the superclass, bypassing deferral.
+    private func applyDrawableSize(_ size: CGSize) {
+        super.drawableSize = size
+    }
+
     override var drawableSize: CGSize {
         get { return super.drawableSize }
         set {
-            if Int(newValue.width) > 1 && Int(newValue.height) > 1 {
+            // Workaround for MoltenVK setting drawableSize to 1x1 to forcefully
+            // complete presentation, which causes flicker
+            guard Int(newValue.width) > 1 && Int(newValue.height) > 1 else { return }
+
+            guard deferResizes else {
                 super.drawableSize = newValue
+                return
+            }
+
+            // Skip if the size hasn't meaningfully changed
+            let current = super.drawableSize
+            guard abs(current.width - newValue.width) > 1 ||
+                  abs(current.height - newValue.height) > 1 else { return }
+
+            // Store the latest requested size. Multiple calls (from auto-resize
+            // and explicit sets) are coalesced — only the last value is applied.
+            pendingSize = newValue
+
+            if !hasPendingResize {
+                hasPendingResize = true
+                // Schedule on the next run loop iteration via NSObject.perform.
+                // This avoids Sendable capture issues with DispatchQueue closures
+                // and ensures the current MoltenVK render pass completes first.
+                perform(#selector(applyPendingResize), with: nil, afterDelay: 0)
             }
         }
+    }
+
+    @objc private func applyPendingResize() {
+        hasPendingResize = false
+        applyDrawableSize(pendingSize)
+        setNeedsDisplay()
     }
 }
