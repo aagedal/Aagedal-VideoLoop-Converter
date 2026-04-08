@@ -716,11 +716,13 @@ enum HomebrewPythonExecutor {
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
             process.environment = env
-        } else if let shebangPython = resolveShebangPython(for: scriptPath) {
-            // Use the Python interpreter from the script's shebang (works for uv, pip --user, etc.)
-            logger.debug("Using shebang Python \(shebangPython, privacy: .public) to run \(scriptPath, privacy: .public)")
-            process.executableURL = URL(fileURLWithPath: shebangPython)
-            process.arguments = ["-u", scriptPath] + arguments
+        } else if resolveShebangPython(for: scriptPath) != nil {
+            // Script has a valid Python shebang (uv, pip --user, virtualenv, etc.)
+            // Execute the script directly so the OS invokes the shebang interpreter,
+            // preserving venv isolation (Process resolves symlinks which breaks venv detection).
+            logger.debug("Executing via shebang: \(scriptPath, privacy: .public)")
+            process.executableURL = URL(fileURLWithPath: scriptPath)
+            process.arguments = arguments
             var env = ProcessInfo.processInfo.environment
             env["PYTHONUNBUFFERED"] = "1"
             var pathEntries = extraPathEntries + commonPathEntries
