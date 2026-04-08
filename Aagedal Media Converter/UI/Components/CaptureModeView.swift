@@ -19,6 +19,11 @@ struct CaptureModeView: View {
     @AppStorage(AppConstants.captureExcludeCurrentAppKey) private var captureExcludeCurrentApp = AppConstants.defaultCaptureExcludeCurrentApp
     @AppStorage(AppConstants.captureIncludeMicrophoneKey) private var captureIncludeMicrophone = AppConstants.defaultCaptureIncludeMicrophone
     @AppStorage(AppConstants.captureMicrophoneDeviceIDKey) private var captureMicrophoneDeviceID = AppConstants.defaultCaptureMicrophoneDeviceID
+    @AppStorage(AppConstants.captureRegionModeKey) private var captureRegionMode = AppConstants.defaultCaptureRegionMode
+    @AppStorage(AppConstants.captureRegionXKey) private var captureRegionX: Double = 0
+    @AppStorage(AppConstants.captureRegionYKey) private var captureRegionY: Double = 0
+    @AppStorage(AppConstants.captureRegionWidthKey) private var captureRegionWidth: Double = 0
+    @AppStorage(AppConstants.captureRegionHeightKey) private var captureRegionHeight: Double = 0
     @StateObject private var captureManager = ScreenCaptureManager.shared
     @State private var availableDisplays: [CaptureDisplay] = []
     @State private var isViewActive = false
@@ -56,6 +61,11 @@ struct CaptureModeView: View {
 
     private var selectedMicrophoneDeviceID: String? {
         captureMicrophoneDeviceID.isEmpty ? nil : captureMicrophoneDeviceID
+    }
+
+    private var selectedRegionRect: CGRect? {
+        guard captureRegionMode, captureRegionWidth > 0, captureRegionHeight > 0 else { return nil }
+        return CGRect(x: captureRegionX, y: captureRegionY, width: captureRegionWidth, height: captureRegionHeight)
     }
 
     private var microphoneSelectionSupported: Bool {
@@ -126,6 +136,16 @@ struct CaptureModeView: View {
             }
         }
         .onChange(of: captureDisplayID) { _, _ in
+            // Region is display-specific; clear it when display changes
+            if captureRegionMode {
+                captureRegionWidth = 0
+                captureRegionHeight = 0
+            }
+            Task {
+                await refreshPreview()
+            }
+        }
+        .onChange(of: captureRegionMode) { _, _ in
             Task {
                 await refreshPreview()
             }
@@ -296,7 +316,33 @@ struct CaptureModeView: View {
                 Spacer()
             }
 
-            
+            HStack(spacing: 8) {
+                Picker("Mode", selection: $captureRegionMode) {
+                    Text("Full Screen").tag(false)
+                    Text("Region").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+                .disabled(captureManager.isRecording || captureManager.isProcessing)
+
+                if captureRegionMode {
+                    Button {
+                        openRegionSelector()
+                    } label: {
+                        Label("Select Region\u{2026}", systemImage: "rectangle.dashed")
+                    }
+                    .disabled(captureManager.isRecording || captureManager.isProcessing || RegionSelectionWindowController.shared.isShowing)
+
+                    if captureRegionWidth > 0, captureRegionHeight > 0 {
+                        Text("\(Int(captureRegionWidth)) \u{00D7} \(Int(captureRegionHeight)) pts")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Spacer()
+            }
+
             HStack {
                 if captureManager.isRecording {
                     Label("Recording", systemImage: "record.circle.fill")
@@ -647,7 +693,8 @@ struct CaptureModeView: View {
                     microphoneDeviceID: selectedMicrophoneDeviceID,
                     hideCursor: captureHideCursor,
                     excludeCurrentApp: captureExcludeCurrentApp,
-                    excludedAppBundleIDs: excludedAppBundleIDs
+                    excludedAppBundleIDs: excludedAppBundleIDs,
+                    regionRect: selectedRegionRect
                 )
             }
         }
@@ -705,8 +752,34 @@ struct CaptureModeView: View {
             hideCursor: captureHideCursor,
             excludeCurrentApp: captureExcludeCurrentApp,
             excludedAppBundleIDs: excludedAppBundleIDs,
-            cachedContent: cachedContent
+            cachedContent: cachedContent,
+            regionRect: selectedRegionRect
         )
+    }
+
+    private func openRegionSelector() {
+        let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
+        let screen: NSScreen
+        if let displayID, let s = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
+        }) {
+            screen = s
+        } else {
+            screen = NSScreen.main ?? NSScreen.screens[0]
+        }
+
+        let initialRegion = selectedRegionRect
+        RegionSelectionWindowController.shared.showOverlay(on: screen, initialRegion: initialRegion) { rect in
+            if let rect {
+                captureRegionX = rect.origin.x
+                captureRegionY = rect.origin.y
+                captureRegionWidth = rect.size.width
+                captureRegionHeight = rect.size.height
+            }
+            Task {
+                await refreshPreview()
+            }
+        }
     }
 }
 

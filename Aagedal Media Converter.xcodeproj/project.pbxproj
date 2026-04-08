@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		CC01A1C0PY00010000000002 /* CopyableCommandRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */; };
 		00B3F16A9264F886CA667DAC /* NativeWaveformVideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */; };
 		15A41FC10346A7F73664E9A1 /* ComparisonMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F82CC3B9944D3DAF6B3F9C93 /* ComparisonMetadataView.swift */; };
 		17B524B2559B24713433EF64 /* RcloneUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 727051829930996EE4E50306 /* RcloneUpdateService.swift */; };
@@ -42,7 +41,6 @@
 		8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */; };
 		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
 		8E1477472ECF453900C805AA /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477462ECF453900C805AA /* UpdateChecker.swift */; };
-		OUTCLEAN0BF00000001 /* OutputFolderCleanupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */; };
 		8E1477492ECF4DAB00C805AA /* UpdateNotificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */; };
 		8E14774B2ECF6BDE00C805AA /* UpdateSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */; };
 		8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */; };
@@ -145,6 +143,7 @@
 		C7166A0F2716B52C985E6275 /* MetadataWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */; };
 		CAMCARDSCAN0000001 /* CameraCardScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMCARDSCAN0000002 /* CameraCardScanner.swift */; };
 		CAMCARDVIEW0000001 /* CameraCardImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMCARDVIEW0000002 /* CameraCardImportView.swift */; };
+		CC01A1C0PY00010000000002 /* CopyableCommandRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */; };
 		CCF14EFA815D8DCCB62749E1 /* YTDLPUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */; };
 		D44F5A230D40961161251EB6 /* PresetQuickSelectOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A8FB8DB2F86F528514D26E /* PresetQuickSelectOverlay.swift */; };
 		DC0001A1DCP0000100000001 /* DCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000002 /* DCPModels.swift */; };
@@ -163,7 +162,10 @@
 		FILEIMPMGR00000001 /* FileImportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPMGR00000002 /* FileImportManager.swift */; };
 		IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGSEQDET00000001 /* ImageSequenceDetector.swift */; };
 		IMGSEQMOD00000002 /* ImageSequenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGSEQMOD00000001 /* ImageSequenceModels.swift */; };
+		OUTCLEAN0BF00000001 /* OutputFolderCleanupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */; };
 		PRESET01MGR000000001 /* PresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PRESET01MGR000000002 /* PresetManager.swift */; };
+		RSEL000000000001000BUILD /* RegionSelectionOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RSEL000000000001000FREF1 /* RegionSelectionOverlayView.swift */; };
+		RSEL000000000002000BUILD /* RegionSelectionWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */; };
 		SCHEDDL01SERV00000001 /* ScheduledDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */; };
 		VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = VIDITEMIDX00000002 /* VideoItemIndex.swift */; };
 /* End PBXBuildFile section */
@@ -208,7 +210,6 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyableCommandRow.swift; sourceTree = "<group>"; };
 		07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = YTDLPSettingsView.swift; sourceTree = "<group>"; };
 		0A661B3187048E83E24FB0AB /* WhisperModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModels.swift; sourceTree = "<group>"; };
 		0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BinaryPathResolver.swift; sourceTree = "<group>"; };
@@ -250,7 +251,6 @@
 		8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsingUtils.swift; sourceTree = "<group>"; };
 		8E13CD4050F24D1788FD6C8C /* ShortcutsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsView.swift; sourceTree = "<group>"; };
 		8E1477462ECF453900C805AA /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
-		OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputFolderCleanupService.swift; sourceTree = "<group>"; };
 		8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateNotificationView.swift; sourceTree = "<group>"; };
 		8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSettingsView.swift; sourceTree = "<group>"; };
 		8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
@@ -356,6 +356,7 @@
 		C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureManager.swift; sourceTree = "<group>"; };
 		CAMCARDSCAN0000002 /* CameraCardScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCardScanner.swift; sourceTree = "<group>"; };
 		CAMCARDVIEW0000002 /* CameraCardImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCardImportView.swift; sourceTree = "<group>"; };
+		CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyableCommandRow.swift; sourceTree = "<group>"; };
 		D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KeychainCredentialManager.swift; path = "Aagedal Media Converter/Utils/KeychainCredentialManager.swift"; sourceTree = "<group>"; };
 		D8EBD41EE1711E209C16F57C /* mxf2raw */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = mxf2raw; sourceTree = "<group>"; };
 		DC0001A1DCP0000100000002 /* DCPModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DCPModels.swift; sourceTree = "<group>"; };
@@ -376,7 +377,10 @@
 		FILEIMPMGR00000002 /* FileImportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportManager.swift; sourceTree = "<group>"; };
 		IMGSEQDET00000001 /* ImageSequenceDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceDetector.swift; sourceTree = "<group>"; };
 		IMGSEQMOD00000001 /* ImageSequenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceModels.swift; sourceTree = "<group>"; };
+		OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputFolderCleanupService.swift; sourceTree = "<group>"; };
 		PRESET01MGR000000002 /* PresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManager.swift; sourceTree = "<group>"; };
+		RSEL000000000001000FREF1 /* RegionSelectionOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionOverlayView.swift; sourceTree = "<group>"; };
+		RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionWindowController.swift; sourceTree = "<group>"; };
 		SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScheduledDownloadService.swift; path = YTDLP/ScheduledDownloadService.swift; sourceTree = "<group>"; };
 		VIDITEMIDX00000002 /* VideoItemIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoItemIndex.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -614,6 +618,8 @@
 				AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */,
 				ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */,
 				CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */,
+				RSEL000000000001000FREF1 /* RegionSelectionOverlayView.swift */,
+				RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -1046,6 +1052,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				CC01A1C0PY00010000000002 /* CopyableCommandRow.swift in Sources */,
+				RSEL000000000001000BUILD /* RegionSelectionOverlayView.swift in Sources */,
+				RSEL000000000002000BUILD /* RegionSelectionWindowController.swift in Sources */,
 				D44F5A230D40961161251EB6 /* PresetQuickSelectOverlay.swift in Sources */,
 				8ABB9EA264C8772C2537FED2 /* MetadataWindowState.swift in Sources */,
 				C7166A0F2716B52C985E6275 /* MetadataWindowController.swift in Sources */,
@@ -1393,7 +1401,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 340;
+				CURRENT_PROJECT_VERSION = 268;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2054,7 +2062,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 340;
+				CURRENT_PROJECT_VERSION = 268;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
