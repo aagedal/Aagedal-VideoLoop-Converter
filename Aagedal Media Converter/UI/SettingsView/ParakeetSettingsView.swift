@@ -11,7 +11,7 @@ struct ParakeetSettingsView: View {
     @State private var versionString: String?
 
     @State private var downloadedModels: [ParakeetModel] = []
-    @State private var modelDownloadProgress: [String: Double] = [:]
+    @State private var modelDownloadProgress: [String: ModelDownloadProgress] = [:]
     @State private var modelDownloading: Set<String> = []
     @State private var deleteError: String?
 
@@ -225,13 +225,53 @@ struct ParakeetSettingsView: View {
             Spacer()
 
             if modelDownloading.contains(model.id) {
-                VStack(alignment: .trailing, spacing: 4) {
-                    ProgressView(value: modelDownloadProgress[model.id] ?? 0)
-                        .progressViewStyle(.linear)
-                        .frame(width: 100)
-                    Text("\(Int((modelDownloadProgress[model.id] ?? 0) * 100))%")
+                let dp = modelDownloadProgress[model.id]
+                HStack(spacing: 8) {
+                    VStack(alignment: .trailing, spacing: 3) {
+                        // Overall progress
+                        ProgressView(value: dp?.overallFraction ?? 0)
+                            .progressViewStyle(.linear)
+                            .frame(width: 140)
+
+                        // Current file progress
+                        ProgressView(value: dp?.currentFileFraction ?? 0)
+                            .progressViewStyle(.linear)
+                            .frame(width: 140)
+                            .tint(.secondary)
+
+                        // File info + speed
+                        HStack(spacing: 0) {
+                            if let dp {
+                                Text("\(dp.currentFileIndex)/\(dp.totalFileCount)")
+                                if !dp.currentFileName.isEmpty {
+                                    Text(": \(dp.currentFileName)")
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
+                        }
                         .font(.caption2)
                         .foregroundColor(.secondary)
+
+                        HStack(spacing: 4) {
+                            Text("\(Int((dp?.overallFraction ?? 0) * 100))%")
+                            if let speed = dp?.formattedSpeed, !speed.isEmpty {
+                                Text("·")
+                                Text(speed)
+                            }
+                        }
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    }
+
+                    Button {
+                        cancelDownload(model)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cancel download")
                 }
             } else if downloadedModels.contains(where: { $0.id == model.id }) {
                 HStack(spacing: 8) {
@@ -352,7 +392,7 @@ struct ParakeetSettingsView: View {
 
     private func downloadModel(_ model: ParakeetModel) {
         modelDownloading.insert(model.id)
-        modelDownloadProgress[model.id] = 0
+        modelDownloadProgress[model.id] = nil
         deleteError = nil
 
         Task {
@@ -376,8 +416,20 @@ struct ParakeetSettingsView: View {
                 await MainActor.run {
                     modelDownloading.remove(model.id)
                     modelDownloadProgress.removeValue(forKey: model.id)
-                    deleteError = "Failed to download \(model.displayName): \(error.localizedDescription)"
+                    if !Task.isCancelled {
+                        deleteError = "Failed to download \(model.displayName): \(error.localizedDescription)"
+                    }
                 }
+            }
+        }
+    }
+
+    private func cancelDownload(_ model: ParakeetModel) {
+        Task {
+            await ParakeetModelManager.shared.cancelDownload()
+            await MainActor.run {
+                modelDownloading.remove(model.id)
+                modelDownloadProgress.removeValue(forKey: model.id)
             }
         }
     }

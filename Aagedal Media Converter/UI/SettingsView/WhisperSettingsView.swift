@@ -177,13 +177,24 @@ struct WhisperSettingsView: View {
             Spacer()
 
             if modelDownloading.contains(model) {
-                VStack(alignment: .trailing, spacing: 4) {
-                    ProgressView(value: modelDownloadProgress[model] ?? 0)
-                        .progressViewStyle(.linear)
-                        .frame(width: 100)
-                    Text("\(Int((modelDownloadProgress[model] ?? 0) * 100))%")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                HStack(spacing: 8) {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        ProgressView(value: modelDownloadProgress[model] ?? 0)
+                            .progressViewStyle(.linear)
+                            .frame(width: 100)
+                        Text("\(Int((modelDownloadProgress[model] ?? 0) * 100))%")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button {
+                        cancelDownload(model)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cancel download")
                 }
             } else if downloadedModels.contains(model) {
                 HStack(spacing: 8) {
@@ -368,6 +379,16 @@ struct WhisperSettingsView: View {
                     modelDownloadProgress.removeValue(forKey: model)
                     downloadError = "Failed to download \(model.displayName): \(error.localizedDescription)"
                 }
+            }
+        }
+    }
+
+    private func cancelDownload(_ model: WhisperModel) {
+        Task {
+            await WhisperModelManager.shared.cancelDownload(for: model)
+            await MainActor.run {
+                modelDownloading.remove(model)
+                modelDownloadProgress.removeValue(forKey: model)
             }
         }
     }
