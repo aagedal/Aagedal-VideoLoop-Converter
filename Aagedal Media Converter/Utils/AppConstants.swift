@@ -590,6 +590,13 @@ enum AppConstants {
     static let uploadS3EndpointKey = "uploadS3Endpoint"
     static let uploadS3AccessKeyKey = "uploadS3AccessKey"
 
+    // Auto-delete old encodes from default output folder
+    static let autoDeleteOldEncodesKey = "autoDeleteOldEncodes"
+    static let autoDeleteOldEncodesDaysKey = "autoDeleteOldEncodesDays"
+    static let defaultAutoDeleteOldEncodes = false
+    static let defaultAutoDeleteOldEncodesDays = 7
+    static let autoDeleteOldEncodesDaysOptions = [1, 3, 7, 14, 31]
+
     // Output location settings
     static let saveNextToOriginalKey = "saveNextToOriginal"
     static let saveNextToOriginalSubfolderKey = "saveNextToOriginalSubfolder"

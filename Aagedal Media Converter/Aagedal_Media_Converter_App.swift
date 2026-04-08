@@ -43,10 +43,13 @@ struct Aagedal_Media_Converter_App: App {
             AppConstants.captureFrameRateKey: AppConstants.defaultCaptureFrameRate,
             AppConstants.captureDynamicRangeKey: AppConstants.defaultCaptureDynamicRange,
             AppConstants.captureIncludeMicrophoneKey: AppConstants.defaultCaptureIncludeMicrophone,
-            AppConstants.captureMicrophoneDeviceIDKey: AppConstants.defaultCaptureMicrophoneDeviceID
+            AppConstants.captureMicrophoneDeviceIDKey: AppConstants.defaultCaptureMicrophoneDeviceID,
+            AppConstants.autoDeleteOldEncodesKey: AppConstants.defaultAutoDeleteOldEncodes,
+            AppConstants.autoDeleteOldEncodesDaysKey: AppConstants.defaultAutoDeleteOldEncodesDays
         ])
 
         applyPreviewCacheCleanupPolicy()
+        OutputFolderCleanupService.shared.start()
     }
 
     var body: some Scene {
