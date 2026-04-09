@@ -37,8 +37,6 @@ struct FullscreenPlayerView: View {
     @State private var isHoveringRightEdge = false
     @State private var overlayHideTask: Task<Void, Never>?
     @State private var isDraggingTimeline = false
-    @State private var waveformSamples: [CGFloat] = []
-
     // Timecode display state
     @State private var timecodeDisplayMode: TimecodeDisplayMode
     @State private var isEditingTimecode = false
@@ -52,8 +50,6 @@ struct FullscreenPlayerView: View {
     @State private var autoPlayPending = false
 
     private let rightEdgeWidth: CGFloat = 60
-    private let maxWaveformSamples = AudioVisualizer.maxSampleCount
-
     init(
         item: VideoItem,
         initialOverlayHidden: Bool = false,
@@ -287,11 +283,6 @@ struct FullscreenPlayerView: View {
         .onReceive(controller.playbackTimePublisher) { time in
             handleAutoAdvanceProximity(time)
         }
-        .onReceive(controller.$audioLevels) { levels in
-            guard !itemState.hasVideoStream else { return }
-            guard let levels else { return }
-            appendWaveformSample(from: levels)
-        }
         .onChange(of: controller.isReady) { _, isReady in
             guard isReady, autoPlayPending else { return }
             if !isPlaybackActive {
@@ -300,7 +291,6 @@ struct FullscreenPlayerView: View {
             autoPlayPending = false
         }
         .onAppear {
-            updateAudioMeterState(for: itemState.hasVideoStream)
             autoAdvanceTriggered = false
             controller.playbackDidFinish = onPlaybackDidFinish
             // Schedule overlay hide if it's currently visible
@@ -329,9 +319,6 @@ struct FullscreenPlayerView: View {
                     }
                 }
             }
-        }
-        .onChange(of: itemState.hasVideoStream) { _, hasVideo in
-            updateAudioMeterState(for: hasVideo)
         }
         .onDisappear {
             controller.playbackDidFinish = nil
@@ -384,42 +371,13 @@ struct FullscreenPlayerView: View {
         return 0
     }
 
-    private func appendWaveformSample(from levels: UniversalAudioMeterService.AudioLevels) {
-        let dB = max(levels.leftChannel, levels.rightChannel, levels.peak)
-        let normalized = AudioVisualizer.normalizedLevel(from: dB)
-        waveformSamples.append(normalized)
-        if waveformSamples.count > maxWaveformSamples {
-            waveformSamples.removeFirst(waveformSamples.count - maxWaveformSamples)
-        }
-    }
-
-    private func updateAudioMeterState(for hasVideoStream: Bool) {
-        let shouldEnable = !hasVideoStream
-        if controller.isAudioMeterEnabled != shouldEnable {
-            controller.isAudioMeterEnabled = shouldEnable
-        }
-        if hasVideoStream && !waveformSamples.isEmpty {
-            waveformSamples = []
-        }
-    }
-
     // MARK: - Video Content
 
     @ViewBuilder
     private var videoContent: some View {
         ZStack {
             if !itemState.hasVideoStream {
-                if let bands = controller.frequencyBands, !bands.isEmpty {
-                    let config = AudioWaveformPreferences.loadConfig()
-                    FrequencyVisualizerView(
-                        bandMagnitudes: bands,
-                        style: config.swiftStyle,
-                        foregroundColor: config.foregroundColor,
-                        backgroundColor: config.backgroundColor
-                    )
-                } else {
-                    AudioVisualizerView(samples: waveformSamples)
-                }
+                Color.black
             }
 
             if let player = controller.player {
