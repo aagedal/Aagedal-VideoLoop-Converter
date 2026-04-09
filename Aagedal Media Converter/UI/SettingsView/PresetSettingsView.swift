@@ -339,7 +339,7 @@ struct PresetsSettingsView: View {
                     .pickerStyle(.segmented)
                     .fixedSize()
                     .labelsHidden()
-                    .help("Select the ProRes profile for the output file.")
+                    .help("Proxy and LT are lightweight for offline editing. Standard 422 is the most common for post-production. HQ offers higher quality at roughly 50% larger files. 4444 and 4444 XQ add alpha channel support and are suited for compositing and VFX.")
                 }
             }
         }
@@ -357,7 +357,7 @@ struct PresetsSettingsView: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                     .labelsHidden()
-                    .help("Select the animated image format.")
+                    .help("AVIF offers the best compression and quality for animated images. GIF is universally compatible but limited to 256 colors. APNG supports full-color transparency and is widely supported in web browsers.")
                 }
             }
         }
@@ -376,7 +376,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Select the image format for exported frames.")
+                        .help("PNG is lossless and widely compatible. TIFF and EXR are preferred for VFX pipelines. DPX is standard for film scanning. JPEG and JPEG XL are lossy but produce smaller files. JPEG 2000 is used in DCP workflows.")
                     }
 
                     if imageSequenceExportFormat == ImageSequenceFormat.jpeg.rawValue {
@@ -879,7 +879,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Lower CRF values = higher quality and larger files. 30 is the SVT-AV1 default.")
+                        .help("CRF (Constant Rate Factor) controls the quality-to-size tradeoff. Lower values produce higher quality and larger files. 30 is the SVT-AV1 default and works well for most content. Use 23 or lower for high-quality archival, or 35+ for smaller files where some quality loss is acceptable.")
                     }
 
                     HStack {
@@ -893,7 +893,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("0 = slowest/best quality, 13 = fastest. 6 is a balanced default.")
+                        .help("Controls the time spent optimizing each frame. Lower values (slower) produce better quality and smaller files at the same CRF, but take significantly longer to encode. Preset 6 offers a good balance. Presets 0\u{2013}4 are best reserved for final encodes where encoding time is not a concern.")
                     }
 
                     HStack {
@@ -907,7 +907,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("VQ optimizes for visual quality (default). Subjective Quality uses PSY perceptual tuning for best perceived quality — it overrides Sharpness and Variance Boost with its own values. SSIM optimizes for structural similarity. PSNR optimizes for objective metrics.")
+                        .help("Optimizes the encoder for a specific quality goal. Default (VQ) targets general visual quality and works well for most content. Subjective Quality applies perceptual tuning to maximize perceived quality \u{2014} it automatically sets its own Sharpness and Variance Boost values. SSIM and PSNR optimize for their respective objective quality metrics, useful when targeting specific benchmark scores.")
                     }
 
                     HStack {
@@ -921,12 +921,12 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Denoise the source and synthesize grain at decode time for better compression. Match the value to your source grain intensity.")
+                        .help("Removes film grain from the source before encoding, then embeds instructions for the decoder to recreate similar grain during playback. This dramatically improves compression of grainy footage since the encoder no longer wastes bits on random noise. Choose a level that matches your source material\u{2019}s grain intensity.")
                     }
 
                     if AV1FilmGrainLevel(rawValue: av1FilmGrain)?.value ?? 0 > 0 {
                         Toggle("Film Grain Denoise", isOn: $av1FilmGrainDenoise)
-                            .help("Denoise the source before encoding and recreate grain at playback (recommended). When off, grain is preserved in the encoded video and synthesis data is added on top.")
+                            .help("When enabled (recommended), the encoder removes existing grain before compressing and recreates it during playback \u{2014} producing smaller files with no visible quality loss. When disabled, the original grain is kept in the encoded bitstream and additional synthesized grain is layered on top, which can look heavier than the original.")
                     }
 
                     HStack {
@@ -940,7 +940,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Adaptive sharpening (SVT-AV1-PSY). Higher values increase perceived detail and sharpness.")
+                        .help("Applies adaptive sharpening to counteract the softening that can occur during compression. Higher values increase edge definition and perceived detail. Start with 1\u{2013}2 for subtle enhancement. Avoid high values on already-sharp or noisy content, as it may introduce ringing artifacts.")
                     }
 
                     HStack {
@@ -954,7 +954,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Boost quality in high-detail areas (SVT-AV1-PSY). Preserves texture and fine detail at the cost of slightly larger files.")
+                        .help("Allocates more bits to areas with high detail and texture (like foliage, fabric, or skin), preserving fine detail that would otherwise be smoothed out. Improves visual quality in complex scenes at the cost of slightly larger files. Recommended for detailed or textured content.")
                     }
 
                     if AV1VarianceBoost(rawValue: av1VarianceBoost)?.value ?? 0 > 0 {
@@ -969,12 +969,12 @@ struct PresetsSettingsView: View {
                             .pickerStyle(.menu)
                             .fixedSize()
                             .labelsHidden()
-                            .help("Controls how aggressively quality scales with detail complexity. Linear applies even boost, Aggressive concentrates boost on the most complex areas.")
+                            .help("Controls how the extra bits from Variance Boost are distributed. Linear applies a uniform boost proportional to detail complexity. Moderate concentrates more of the boost on medium-to-high complexity areas. Aggressive focuses the boost heavily on the most complex areas, which is effective for highly detailed content.")
                         }
                     }
 
                     Toggle("Fast Decode", isOn: $av1FastDecode)
-                        .help("Produce output optimized for playback on weaker devices. Can be combined with any tune mode.")
+                        .help("Limits encoding tools to produce output that is easier for decoders to process. Improves playback compatibility on older or less powerful devices (like set-top boxes and mobile phones) at the cost of slightly reduced compression efficiency. Recommended for content targeting a wide range of playback devices.")
 
                     HStack {
                         Text("Container")
@@ -987,7 +987,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.segmented)
                         .fixedSize()
                         .labelsHidden()
-                        .help("MP4 is most compatible. MKV supports all AV1 features.")
+                        .help("MP4 is the most widely compatible container for web and device playback. MOV is native to Apple workflows. MKV supports all AV1 features and codec combinations including Opus audio, but has more limited playback support.")
                         .onChange(of: av1Container) { _, newValue in
                             // Reset audio format to AAC if Opus is selected but container doesn't support it
                             if av1AudioFormat == CodecAudioFormat.opus.rawValue && newValue != CodecContainer.mkv.rawValue {
@@ -1092,7 +1092,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Select the AVC-Intra bitrate class. Higher classes provide better quality.")
+                        .help("AVC-Intra 50 uses the least bandwidth and is suited for SD/720p. AVC-Intra 100 is the standard for 1080i/1080p broadcast delivery. AVC-Intra 200 provides the highest quality with full 10-bit 4:2:2 at higher bitrates.")
                     }
                     HStack {
                         Text("Audio Channels")
