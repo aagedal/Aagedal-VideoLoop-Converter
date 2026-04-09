@@ -963,6 +963,14 @@ struct ContentView: View {
                 // Encoding group entry
                 let group = encodingGroups[groupIndex]
                 if group.items.contains(where: { $0.status == .waiting }) {
+                    // Apply sequential naming if enabled
+                    if group.sequentialNamingEnabled {
+                        let processedName = FileNameProcessor.processFileName(group.name)
+                        for itemIndex in encodingGroups[groupIndex].items.indices {
+                            let sequenceName = String(format: "%@_%03d", processedName, itemIndex + 1)
+                            encodingGroups[groupIndex].items[itemIndex].outputFileNameOverride = sequenceName
+                        }
+                    }
                     let groupPreset = group.preset ?? selectedPreset
                     await ConversionManager.shared.convertGroup(
                         items: $encodingGroups[groupIndex].items,
@@ -996,6 +1004,7 @@ struct ContentView: View {
         }
 
         isConverting = false
+        SoundManager.shared.playSuccess()
         watchFolderCoordinator.startConversion()
     }
 
