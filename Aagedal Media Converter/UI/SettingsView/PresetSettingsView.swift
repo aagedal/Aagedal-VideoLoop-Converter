@@ -860,7 +860,7 @@ struct PresetsSettingsView: View {
                     HStack {
                         Image(systemName: "info.circle")
                             .foregroundColor(.blue)
-                        Text("AV1 encoding uses SVT-AV1-PSY (software). No hardware acceleration available.")
+                        Text("AV1 encoding uses SVT-AV1 (software). No hardware acceleration available.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -907,7 +907,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Optimizes the encoder for a specific quality goal. Default (VQ) targets general visual quality and works well for most content. Subjective Quality applies perceptual tuning to maximize perceived quality \u{2014} it automatically sets its own Sharpness and Variance Boost values. SSIM and PSNR optimize for their respective objective quality metrics, useful when targeting specific benchmark scores.")
+                        .help("Optimizes the encoder for a specific quality goal. Default (VQ) uses the encoder\u{2019}s standard visual quality heuristics and works well for most content. Subjective Quality goes further by applying psychovisual optimizations that prioritize how the video looks to the human eye \u{2014} it may produce slightly lower objective scores but often looks better in practice, and it overrides Sharpness and Variance Boost with its own tuned values. SSIM and PSNR optimize purely for their respective objective metrics.")
                     }
 
                     HStack {
@@ -940,7 +940,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Applies adaptive sharpening to counteract the softening that can occur during compression. Higher values increase edge definition and perceived detail. Start with 1\u{2013}2 for subtle enhancement. Avoid high values on already-sharp or noisy content, as it may introduce ringing artifacts.")
+                        .help("Applies adaptive sharpening to counteract the softening that can occur during compression. Higher values increase edge definition and perceived detail. Start with 1\u{2013}2 for subtle enhancement. Avoid high values on already-sharp or noisy content, as it may introduce ringing artifacts. Note: Subjective Quality tune mode overrides this with its own value.")
                     }
 
                     HStack {
@@ -954,7 +954,7 @@ struct PresetsSettingsView: View {
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Allocates more bits to areas with high detail and texture (like foliage, fabric, or skin), preserving fine detail that would otherwise be smoothed out. Improves visual quality in complex scenes at the cost of slightly larger files. Recommended for detailed or textured content.")
+                        .help("Allocates more bits to areas with high detail and texture (like foliage, fabric, or skin), preserving fine detail that would otherwise be smoothed out. Improves visual quality in complex scenes at the cost of slightly larger files. Recommended for detailed or textured content. Note: Subjective Quality tune mode overrides this with its own value.")
                     }
 
                     if AV1VarianceBoost(rawValue: av1VarianceBoost)?.value ?? 0 > 0 {
