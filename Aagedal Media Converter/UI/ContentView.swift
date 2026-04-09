@@ -81,6 +81,7 @@ struct ContentView: View {
     @StateObject private var mergeCompatibilityScheduler = MergeCompatibilityScheduler()
     
     @State private var encodingGroups: [EncodingGroup] = []
+    @State private var queueOrder: [UUID] = []
 
     @StateObject private var updateChecker = UpdateChecker.shared
     @State private var showUpdateNotification = false
@@ -119,6 +120,51 @@ struct ContentView: View {
     private var hasResettableItems: Bool {
         droppedFiles.contains { $0.status != .waiting }
         || encodingGroups.contains { $0.items.contains { $0.status != .waiting } }
+    }
+
+    private var allConversionItems: [VideoItem] {
+        droppedFiles + encodingGroups.flatMap { $0.items }
+    }
+
+    private var currentConvertingItem: VideoItem? {
+        allConversionItems.first { $0.status == .converting }
+    }
+
+    private var completedFileCount: Int {
+        allConversionItems.filter { $0.status == .done }.count
+    }
+
+    private var totalActiveFileCount: Int {
+        allConversionItems.filter { $0.status != .cancelled && $0.status != .failed }.count
+    }
+
+    private var computedOverallProgress: Double {
+        let activeItems = allConversionItems.filter { $0.status != .cancelled && $0.status != .failed }
+        guard !activeItems.isEmpty else { return 0.0 }
+        let totalDuration = activeItems.reduce(0.0) { $0 + $1.trimmedDuration }
+        guard totalDuration > 0 else { return 0.0 }
+        let completedDuration = activeItems.reduce(0.0) { sum, file in
+            switch file.status {
+            case .done: return sum + file.trimmedDuration
+            case .converting: return sum + file.trimmedDuration * file.progress
+            default: return sum
+            }
+        }
+        return min(max(completedDuration / totalDuration, 0.0), 1.0)
+    }
+
+    /// Ensures queueOrder is in sync with droppedFiles and encodingGroups.
+    /// Removes stale IDs and appends any missing ones.
+    private func sanitizeQueueOrder() {
+        let validIDs = Set(droppedFiles.map(\.id)).union(encodingGroups.map(\.id))
+        queueOrder.removeAll { !validIDs.contains($0) }
+        let ordered = Set(queueOrder)
+        for item in droppedFiles where !ordered.contains(item.id) {
+            queueOrder.append(item.id)
+        }
+        for group in encodingGroups where !ordered.contains(group.id) {
+            queueOrder.append(group.id)
+        }
     }
 
     /// Presets that are currently visible in the picker
@@ -198,6 +244,7 @@ struct ContentView: View {
             },
             onDeleteGroup: { groupID in
                 encodingGroups.removeAll { $0.id == groupID }
+                queueOrder.removeAll { $0 == groupID }
             },
             onAddFilesToGroup: { groupID in
                 Task { await addFilesToGroup(groupID: groupID) }
@@ -216,6 +263,15 @@ struct ContentView: View {
                     }
                 }
             },
+            queueOrder: queueOrder,
+            onReorder: { movedIDs, destIndex in
+                // Remove moved IDs from current position
+                queueOrder.removeAll { movedIDs.contains($0) }
+                // Insert at destination (clamped)
+                let insertAt = max(0, min(destIndex, queueOrder.count))
+                queueOrder.insert(contentsOf: movedIDs, at: insertAt)
+            },
+            onQueueSync: { sanitizeQueueOrder() },
             disableKeyboardNavigation: showPresetQuickSelect || showURLInputOverlay || CaptureOverlayWindowController.shared.isShowing || trimSheetItemID != nil || trimWithCropSheetItemID != nil || timecodeSheetItemID != nil || audioConfigSheetItemID != nil
         )
     }
@@ -241,6 +297,8 @@ struct ContentView: View {
 
         // Note: Cache cleanup is handled by the user's cleanup policy (on app launch or manually)
         // We don't delete cache immediately when files are removed, allowing re-import to reuse cached assets
+        let removedIDs = Set(itemsToRemove.map(\.id))
+        queueOrder.removeAll { removedIDs.contains($0) }
         droppedFiles.remove(atOffsets: indexSet)
     }
 
@@ -334,6 +392,7 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .createEncodingGroup)) { _ in
                 let group = EncodingGroup(name: "New Group")
                 encodingGroups.append(group)
+                queueOrder.append(group.id)
             }
             .sheet(item: $cameraCardImportState) { state in
                 CameraCardImportView(
@@ -353,6 +412,7 @@ struct ContentView: View {
             }
             .modifier(ContentViewNotificationHandlers(
                 droppedFiles: $droppedFiles,
+                queueOrder: $queueOrder,
                 currentOutputFolder: $currentOutputFolder,
                 outputFolder: $outputFolder,
                 selectedPreset: selectedPreset,
@@ -384,7 +444,13 @@ struct ContentView: View {
                 }
 
             if isConverting {
-                OverallProgressView(progress: overallProgress)
+                OverallProgressView(
+                    progress: computedOverallProgress,
+                    currentFileName: currentConvertingItem?.name,
+                    completedCount: completedFileCount,
+                    totalCount: totalActiveFileCount,
+                    currentFileETA: currentConvertingItem?.eta
+                )
             }
         }
         .overlay {
@@ -711,6 +777,7 @@ struct ContentView: View {
         )
 
         encodingGroups.append(group)
+        queueOrder.append(group.id)
 
         // Load details (thumbnails, duration, metadata) in background
         let itemIDs = groupItems.map { $0.id }
@@ -802,6 +869,7 @@ struct ContentView: View {
                             preset: selectedPreset
                         )
                         droppedFiles.append(item)
+                        queueOrder.append(item.id)
                     }
                     continue
                 }
@@ -820,6 +888,7 @@ struct ContentView: View {
                             preset: selectedPreset
                         )
                         droppedFiles.append(item)
+                        queueOrder.append(item.id)
                         continue
                     }
                     url.stopAccessingSecurityScopedResource()
@@ -836,6 +905,7 @@ struct ContentView: View {
                 }
 
                 droppedFiles.append(placeholder)
+                queueOrder.append(placeholder.id)
                 // Auto-mute if VideoLoop preset is selected and setting is enabled
                 if selectedPreset == .videoLoop && videoLoopDefaultMuted {
                     droppedFiles[droppedFiles.count - 1].isMuted = true
@@ -871,10 +941,6 @@ struct ContentView: View {
                 await MainActor.run {
                     overallProgress = progress
                     dockProgressUpdater.updateProgress(progress)
-                    // Automatically reset converting state when done
-                    if progress >= 1.0 {
-                        isConverting = false
-                    }
                 }
             }
         }
@@ -885,39 +951,48 @@ struct ContentView: View {
         isConverting = true
         // Initialize dock progress with 0% to show it immediately
         dockProgressUpdater.updateProgress(0.0)
+        sanitizeQueueOrder()
 
-        // Convert ungrouped files first
-        if droppedFiles.contains(where: { $0.status == .waiting }) {
-            await ConversionManager.shared.startConversion(
-                droppedFiles: $droppedFiles,
-                outputFolder: currentOutputFolder.path,
-                preset: selectedPreset,
-                mergeClipsEnabled: mergeClipsEnabled
-            )
-        }
+        // Convert in queue order: batch consecutive ungrouped items, then groups
+        var i = 0
+        while i < queueOrder.count {
+            guard isConverting else { break }
+            let id = queueOrder[i]
 
-        // Then convert each encoding group with its own settings
-        for groupIndex in encodingGroups.indices {
-            let group = encodingGroups[groupIndex]
-            guard group.items.contains(where: { $0.status == .waiting }) else { continue }
-
-            // Read group settings on main actor before calling the actor method
-            let groupPreset = group.preset ?? selectedPreset
-            let concatEnabled = group.concatEnabled
-            let transcriptionEnabled = group.transcriptionEnabled
-            let uploadEnabled = group.uploadEnabled
-            let analyticsEnabled = group.analyticsEnabled
-
-            await ConversionManager.shared.convertGroup(
-                items: $encodingGroups[groupIndex].items,
-                outputFolder: currentOutputFolder.path,
-                preset: groupPreset,
-                concatEnabled: concatEnabled,
-                groupName: group.name,
-                transcriptionEnabled: transcriptionEnabled,
-                uploadEnabled: uploadEnabled,
-                analyticsEnabled: analyticsEnabled
-            )
+            if let groupIndex = encodingGroups.firstIndex(where: { $0.id == id }) {
+                // Encoding group entry
+                let group = encodingGroups[groupIndex]
+                if group.items.contains(where: { $0.status == .waiting }) {
+                    let groupPreset = group.preset ?? selectedPreset
+                    await ConversionManager.shared.convertGroup(
+                        items: $encodingGroups[groupIndex].items,
+                        outputFolder: currentOutputFolder.path,
+                        preset: groupPreset,
+                        concatEnabled: group.concatEnabled,
+                        groupName: group.name,
+                        transcriptionEnabled: group.transcriptionEnabled,
+                        uploadEnabled: group.uploadEnabled,
+                        analyticsEnabled: group.analyticsEnabled
+                    )
+                }
+                i += 1
+            } else {
+                // Consecutive ungrouped items — collect IDs for this batch
+                var batchIDs = Set<UUID>()
+                while i < queueOrder.count && !encodingGroups.contains(where: { $0.id == queueOrder[i] }) {
+                    batchIDs.insert(queueOrder[i])
+                    i += 1
+                }
+                if droppedFiles.contains(where: { $0.status == .waiting && batchIDs.contains($0.id) }) {
+                    await ConversionManager.shared.startConversion(
+                        droppedFiles: $droppedFiles,
+                        outputFolder: currentOutputFolder.path,
+                        preset: selectedPreset,
+                        mergeClipsEnabled: mergeClipsEnabled,
+                        limitToIDs: batchIDs
+                    )
+                }
+            }
         }
 
         isConverting = false
@@ -1081,6 +1156,7 @@ struct ContentView: View {
             }
 
             droppedFiles.append(placeholder)
+            queueOrder.append(placeholder.id)
             // Auto-mute if VideoLoop preset is selected and setting is enabled
             if selectedPreset == .videoLoop && videoLoopDefaultMuted {
                 droppedFiles[droppedFiles.count - 1].isMuted = true
@@ -1168,10 +1244,7 @@ struct ContentView: View {
 
     private func handleConversionToggle(_ optionKeyPressed: Bool) {
         Task { @MainActor in
-            let currentlyConverting = await ConversionManager.shared.isConvertingStatus()
-            isConverting = currentlyConverting
-
-            if currentlyConverting {
+            if isConverting {
                 await cancelConversion()
                 return
             }
@@ -1365,6 +1438,7 @@ struct ContentView: View {
         // We don't delete cache immediately when files are removed, allowing re-import to reuse cached assets
         droppedFiles.removeAll()
         encodingGroups.removeAll()
+        queueOrder.removeAll()
         overallProgress = 0.0
         dockProgressUpdater.reset()
     }
@@ -1746,7 +1820,9 @@ private struct ContentViewLifecycle: ViewModifier {
                     refreshExpectedOutputURLs(selectedPreset)
                 }
                 Task {
-                    isConverting = await ConversionManager.shared.isConvertingStatus()
+                    if !isConverting {
+                        isConverting = await ConversionManager.shared.isConvertingStatus()
+                    }
                 }
                 scheduleMergeCompatibilityEvaluation()
                 updateChecker.checkForUpdatesIfNeeded()
@@ -1835,6 +1911,7 @@ private struct ContentViewNotificationHandlers: ViewModifier {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ContentViewNotificationHandlers")
 
     @Binding var droppedFiles: [VideoItem]
+    @Binding var queueOrder: [UUID]
     @Binding var currentOutputFolder: URL
     @Binding var outputFolder: String
     let selectedPreset: ExportPreset
@@ -1874,6 +1951,7 @@ private struct ContentViewNotificationHandlers: ViewModifier {
             }
 
             droppedFiles.append(placeholder)
+            queueOrder.append(placeholder.id)
             if selectedPreset == .videoLoop && videoLoopDefaultMuted {
                 droppedFiles[droppedFiles.count - 1].isMuted = true
             }
@@ -1952,6 +2030,7 @@ private struct ContentViewNotificationHandlers: ViewModifier {
                                 videoItem.isMuted = true
                             }
                             droppedFiles.append(videoItem)
+                            queueOrder.append(videoItem.id)
                         }
                     }
                 }

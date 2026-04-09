@@ -63,6 +63,9 @@ struct VideoFileListView: View {
     var onDeleteGroup: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
+    var queueOrder: [UUID]
+    var onReorder: ((_ movedIDs: [UUID], _ destinationQueueIndex: Int) -> Void)?
+    var onQueueSync: (() -> Void)?
     var disableKeyboardNavigation: Bool = false
 
     @State private var isTargeted = false
@@ -161,7 +164,10 @@ struct VideoFileListView: View {
                     },
                     onDeleteGroup: onDeleteGroup,
                     onAddFilesToGroup: onAddFilesToGroup,
-                    onResetGroup: onResetGroup
+                    onResetGroup: onResetGroup,
+                    queueOrder: queueOrder,
+                    onReorder: onReorder,
+                    onQueueSync: onQueueSync
                 )
                 .onChange(of: selection) { _, newSelection in
                     // Sync selection to metadata window state
@@ -1230,7 +1236,8 @@ struct VideoFileListView_Previews: PreviewProvider {
             onReset: { _, _ in },
             preset: .videoLoop,
             mergeClipsEnabled: true,
-            mergeClipsAvailable: true
+            mergeClipsAvailable: true,
+            queueOrder: []
         )
     }
 }

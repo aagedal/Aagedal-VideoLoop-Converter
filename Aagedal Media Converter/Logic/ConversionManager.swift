@@ -33,7 +33,8 @@ actor ConversionManager: Sendable {
     private var currentDroppedFiles: Binding<[VideoItem]>?
     private var currentOutputFolder: String?
     private var currentPreset: ExportPreset = .videoLoop
-    
+    private var allowedItemIDs: Set<UUID>? = nil
+
     // Progress tracking with Swift Concurrency
     private var progressContinuation: AsyncStream<Double>.Continuation?
     private var progressStream: AsyncStream<Double>?
@@ -1042,10 +1043,12 @@ actor ConversionManager: Sendable {
         droppedFiles: Binding<[VideoItem]>,
         outputFolder: String,
         preset: ExportPreset = .videoLoop,
-        mergeClipsEnabled: Bool = false
+        mergeClipsEnabled: Bool = false,
+        limitToIDs: Set<UUID>? = nil
     ) async {
         guard !self.isConverting else { return }
         self.isConverting = true
+        self.allowedItemIDs = limitToIDs
         self.currentDroppedFiles = droppedFiles
         self.currentOutputFolder = outputFolder
         self.currentPreset = preset
@@ -1078,8 +1081,11 @@ actor ConversionManager: Sendable {
             return
         }
 
-        guard let nextFile = droppedFiles.wrappedValue.first(where: { $0.status == .waiting }) else {
+        guard let nextFile = droppedFiles.wrappedValue.first(where: {
+            $0.status == .waiting && (allowedItemIDs == nil || allowedItemIDs!.contains($0.id))
+        }) else {
             self.isConverting = false
+            self.allowedItemIDs = nil
             progressContinuation?.yield(1.0)
             stopProgressTimer()
             releaseAllSecurityScopedAccess()
