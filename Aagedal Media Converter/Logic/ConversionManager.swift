@@ -34,6 +34,7 @@ actor ConversionManager: Sendable {
     private var currentOutputFolder: String?
     private var currentPreset: ExportPreset = .videoLoop
     private var allowedItemIDs: Set<UUID>? = nil
+    private var batchCompletionContinuation: CheckedContinuation<Void, Never>?
 
     // Progress tracking with Swift Concurrency
     private var progressContinuation: AsyncStream<Double>.Continuation?
@@ -1036,7 +1037,10 @@ actor ConversionManager: Sendable {
             outputFolder: outputFolder,
             preset: preset
         )
-
+        // Wait for the batch to fully complete before returning to the caller.
+        await withCheckedContinuation { continuation in
+            self.batchCompletionContinuation = continuation
+        }
     }
 
     func startConversion(
@@ -1065,6 +1069,11 @@ actor ConversionManager: Sendable {
             outputFolder: outputFolder,
             preset: preset
         )
+        // convertNextFile returns after starting the first file (completion is callback-based).
+        // Wait for the batch to fully complete before returning to the caller.
+        await withCheckedContinuation { continuation in
+            self.batchCompletionContinuation = continuation
+        }
     }
 
     private func convertNextFile(
@@ -1089,6 +1098,11 @@ actor ConversionManager: Sendable {
             progressContinuation?.yield(1.0)
             stopProgressTimer()
             releaseAllSecurityScopedAccess()
+            // Signal batch completion so startConversion/convertGroup can return
+            if let continuation = batchCompletionContinuation {
+                batchCompletionContinuation = nil
+                continuation.resume()
+            }
             return
         }
         
@@ -1404,8 +1418,6 @@ actor ConversionManager: Sendable {
                 Task { @MainActor in
                     if !success {
                         SoundManager.shared.playError()
-                    } else if !(await self.isConverting) {
-                        SoundManager.shared.playSuccess()
                     }
                 }
             }
@@ -1432,8 +1444,13 @@ actor ConversionManager: Sendable {
         }
         stopProgressTimer()
         releaseAllSecurityScopedAccess()
+        // Signal batch completion so the caller's await returns
+        if let continuation = batchCompletionContinuation {
+            batchCompletionContinuation = nil
+            continuation.resume()
+        }
     }
-    
+
     /// Cancels a single video item without aborting the entire queue
     func cancelItem(with id: UUID) async {
         guard let droppedFiles = currentDroppedFiles else { return }

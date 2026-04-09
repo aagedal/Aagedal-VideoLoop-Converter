@@ -135,6 +135,19 @@ struct EncodingGroupHeaderView: View {
                     Spacer()
 
                     HStack(spacing: 4) {
+                        // Sequential naming toggle
+                        Button {
+                            group.sequentialNamingEnabled.toggle()
+                            applySequentialNaming()
+                        } label: {
+                            Image(systemName: group.sequentialNamingEnabled ? "number.circle.fill" : "number.circle")
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundColor(group.sequentialNamingEnabled ? .blue : .secondary)
+                        .help(group.sequentialNamingEnabled ? "Sequential naming enabled — files will be named \(group.name)_001, \(group.name)_002, ..." : "Enable sequential naming using group name")
+
                         // Concat toggle
                         Button {
                             group.concatEnabled.toggle()
@@ -217,6 +230,29 @@ struct EncodingGroupHeaderView: View {
                 .stroke(isSelected ? Color.accentColor : Color.blue.opacity(0.3), lineWidth: isSelected ? 2 : 0.8)
         )
         .padding(.horizontal, 4)
+        .onChange(of: group.name) { _, _ in
+            if group.sequentialNamingEnabled {
+                applySequentialNaming()
+            }
+        }
+        .onChange(of: group.items.count) { _, _ in
+            if group.sequentialNamingEnabled {
+                applySequentialNaming()
+            }
+        }
+    }
+
+    private func applySequentialNaming() {
+        if group.sequentialNamingEnabled {
+            let processedName = FileNameProcessor.processFileName(group.name)
+            for i in group.items.indices {
+                group.items[i].outputFileNameOverride = String(format: "%@_%03d", processedName, i + 1)
+            }
+        } else {
+            for i in group.items.indices {
+                group.items[i].outputFileNameOverride = nil
+            }
+        }
     }
 
     @ViewBuilder
