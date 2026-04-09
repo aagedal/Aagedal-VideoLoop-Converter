@@ -428,6 +428,16 @@ enum AppConstants {
     static let defaultAV1AudioBitrate = "192 kbps"
     static let av1TuneKey = "av1Tune"
     static let defaultAV1Tune = "Default"
+    static let av1FilmGrainKey = "av1FilmGrain"
+    static let defaultAV1FilmGrain = "Off"
+    static let av1FilmGrainDenoiseKey = "av1FilmGrainDenoise"
+    static let av1SharpnessKey = "av1Sharpness"
+    static let defaultAV1Sharpness = "Off"
+    static let av1FastDecodeKey = "av1FastDecode"
+    static let av1VarianceBoostKey = "av1VarianceBoost"
+    static let defaultAV1VarianceBoost = "Off"
+    static let av1VarianceBoostCurveKey = "av1VarianceBoostCurve"
+    static let defaultAV1VarianceBoostCurve = "Linear (0)"
 
     // Subtitle preservation
     static let keepSubtitlesKey = "keepSubtitles"

@@ -149,6 +149,12 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.av1AudioFormatKey) private var av1AudioFormat = AppConstants.defaultAV1AudioFormat
     @AppStorage(AppConstants.av1AudioBitrateKey) private var av1AudioBitrate = AppConstants.defaultAV1AudioBitrate
     @AppStorage(AppConstants.av1TuneKey) private var av1Tune = AppConstants.defaultAV1Tune
+    @AppStorage(AppConstants.av1FilmGrainKey) private var av1FilmGrain = AppConstants.defaultAV1FilmGrain
+    @AppStorage(AppConstants.av1FilmGrainDenoiseKey) private var av1FilmGrainDenoise = true
+    @AppStorage(AppConstants.av1SharpnessKey) private var av1Sharpness = AppConstants.defaultAV1Sharpness
+    @AppStorage(AppConstants.av1FastDecodeKey) private var av1FastDecode = false
+    @AppStorage(AppConstants.av1VarianceBoostKey) private var av1VarianceBoost = AppConstants.defaultAV1VarianceBoost
+    @AppStorage(AppConstants.av1VarianceBoostCurveKey) private var av1VarianceBoostCurve = AppConstants.defaultAV1VarianceBoostCurve
     @AppStorage(AppConstants.keepSubtitlesKey) private var keepSubtitles = AppConstants.defaultKeepSubtitles
 
     // Built-in preset visibility (default to true)
@@ -854,7 +860,7 @@ struct PresetsSettingsView: View {
                     HStack {
                         Image(systemName: "info.circle")
                             .foregroundColor(.blue)
-                        Text("AV1 encoding uses SVT-AV1 (software). No hardware acceleration available.")
+                        Text("AV1 encoding uses SVT-AV1-PSY (software). No hardware acceleration available.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -895,14 +901,80 @@ struct PresetsSettingsView: View {
                         Spacer()
                         Picker("", selection: $av1Tune) {
                             ForEach(AV1TuneMode.allCases) { tune in
-                                Text(tune.rawValue).tag(tune.rawValue)
+                                Text(tune.displayName).tag(tune.rawValue)
                             }
                         }
                         .pickerStyle(.menu)
                         .fixedSize()
                         .labelsHidden()
-                        .help("Default optimizes for visual quality. PSNR optimizes for objective metrics. Fast Decode produces output optimized for playback on weaker devices.")
+                        .help("VQ optimizes for visual quality (default). Subjective Quality uses PSY perceptual tuning for best perceived quality — it overrides Sharpness and Variance Boost with its own values. SSIM optimizes for structural similarity. PSNR optimizes for objective metrics.")
                     }
+
+                    HStack {
+                        Text("Film Grain Synthesis")
+                        Spacer()
+                        Picker("", selection: $av1FilmGrain) {
+                            ForEach(AV1FilmGrainLevel.allCases) { level in
+                                Text(level.rawValue).tag(level.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Denoise the source and synthesize grain at decode time for better compression. Match the value to your source grain intensity.")
+                    }
+
+                    if AV1FilmGrainLevel(rawValue: av1FilmGrain)?.value ?? 0 > 0 {
+                        Toggle("Film Grain Denoise", isOn: $av1FilmGrainDenoise)
+                            .help("Denoise the source before encoding and recreate grain at playback (recommended). When off, grain is preserved in the encoded video and synthesis data is added on top.")
+                    }
+
+                    HStack {
+                        Text("Sharpness")
+                        Spacer()
+                        Picker("", selection: $av1Sharpness) {
+                            ForEach(AV1Sharpness.allCases) { level in
+                                Text(level.rawValue).tag(level.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Adaptive sharpening (SVT-AV1-PSY). Higher values increase perceived detail and sharpness.")
+                    }
+
+                    HStack {
+                        Text("Variance Boost")
+                        Spacer()
+                        Picker("", selection: $av1VarianceBoost) {
+                            ForEach(AV1VarianceBoost.allCases) { level in
+                                Text(level.rawValue).tag(level.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Boost quality in high-detail areas (SVT-AV1-PSY). Preserves texture and fine detail at the cost of slightly larger files.")
+                    }
+
+                    if AV1VarianceBoost(rawValue: av1VarianceBoost)?.value ?? 0 > 0 {
+                        HStack {
+                            Text("Variance Boost Curve")
+                            Spacer()
+                            Picker("", selection: $av1VarianceBoostCurve) {
+                                ForEach(AV1VarianceBoostCurve.allCases) { curve in
+                                    Text(curve.rawValue).tag(curve.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            .help("Controls how aggressively quality scales with detail complexity. Linear applies even boost, Aggressive concentrates boost on the most complex areas.")
+                        }
+                    }
+
+                    Toggle("Fast Decode", isOn: $av1FastDecode)
+                        .help("Produce output optimized for playback on weaker devices. Can be combined with any tune mode.")
 
                     HStack {
                         Text("Container")
