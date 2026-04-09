@@ -183,9 +183,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let visibleWindows = NSApp.windows.filter { $0.isVisible && $0.canBecomeKey }
-        if visibleWindows.isEmpty {
-            Task { @MainActor in
+        // Don't create a main window while the capture overlay is active
+        Task { @MainActor in
+            guard !CaptureOverlayWindowController.shared.isShowing else { return }
+            let visibleWindows = NSApp.windows.filter { $0.isVisible && $0.canBecomeKey }
+            if visibleWindows.isEmpty {
                 ensureMainWindowIsVisible()
             }
         }

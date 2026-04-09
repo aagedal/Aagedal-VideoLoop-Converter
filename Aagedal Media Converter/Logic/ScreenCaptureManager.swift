@@ -278,6 +278,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         displayID: CGDirectDisplayID?,
         frameRate: CaptureFrameRateOption,
         dynamicRange: CaptureDynamicRangeOption,
+        includeSystemAudio: Bool = true,
         includeMicrophone: Bool,
         microphoneDeviceID: String?,
         hideCursor: Bool,
@@ -381,8 +382,14 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             var lastPreviewSeconds: Double = 0
             var lastAudioSeconds: Double = 0
             var lastMicrophoneSeconds: Double = 0
+            let skipSystemAudio = !includeSystemAudio
             let output = CaptureStreamOutput(queue: outputQueue) { [weak self, weak writer] sampleBuffer, type in
-                writer?.append(sampleBuffer: sampleBuffer, type: type)
+                // Skip writing system audio samples when muted (still capture for metering)
+                if type == .audio && skipSystemAudio {
+                    // Fall through to metering below, but don't write
+                } else {
+                    writer?.append(sampleBuffer: sampleBuffer, type: type)
+                }
 
                 if #available(macOS 15, *), type == .microphone {
                     if let levels = ScreenCaptureManager.audioLevels(
