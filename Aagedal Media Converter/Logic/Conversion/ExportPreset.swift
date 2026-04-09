@@ -332,20 +332,115 @@ enum AV1EncodingSpeed: Int, CaseIterable, Identifiable {
     }
 }
 
-/// Tune mode for AV1 (SVT-AV1)
+/// Tune mode for AV1 (SVT-AV1-PSY)
 enum AV1TuneMode: String, CaseIterable, Identifiable {
-    case none = "Default"
+    case vq = "Default"
+    case subjective = "Subjective Quality"
+    case ssim = "SSIM"
     case psnr = "PSNR"
-    case fastDecode = "Fast Decode"
 
     var id: String { rawValue }
 
-    /// Returns the FFmpeg arguments for this tune mode, or empty if default.
-    var ffmpegArgs: [String] {
+    var displayName: String {
         switch self {
-        case .none: return []
-        case .psnr: return ["-tune", "1"]
-        case .fastDecode: return ["-svtav1-params", "fast-decode=1"]
+        case .vq: return "Default (VQ)"
+        case .subjective: return "Subjective Quality"
+        case .ssim: return "SSIM"
+        case .psnr: return "PSNR"
+        }
+    }
+
+    /// SVT-AV1 tune parameter value, nil for default (VQ, tune=0)
+    var svtav1Value: Int? {
+        switch self {
+        case .vq: return nil
+        case .psnr: return 1
+        case .ssim: return 2
+        case .subjective: return 3
+        }
+    }
+}
+
+/// Film grain synthesis level for AV1 (SVT-AV1)
+enum AV1FilmGrainLevel: String, CaseIterable, Identifiable {
+    case off = "Off"
+    case veryLight = "Very Light (4)"
+    case light = "Light (8)"
+    case medium = "Medium (16)"
+    case strong = "Strong (24)"
+    case heavy = "Heavy (32)"
+    case veryHeavy = "Very Heavy (50)"
+
+    var id: String { rawValue }
+
+    var value: Int {
+        switch self {
+        case .off: return 0
+        case .veryLight: return 4
+        case .light: return 8
+        case .medium: return 16
+        case .strong: return 24
+        case .heavy: return 32
+        case .veryHeavy: return 50
+        }
+    }
+}
+
+/// Sharpness level for AV1 (SVT-AV1-PSY)
+enum AV1Sharpness: String, CaseIterable, Identifiable {
+    case off = "Off"
+    case s1 = "1 (Subtle)"
+    case s2 = "2 (Light)"
+    case s3 = "3 (Medium)"
+    case s4 = "4 (Strong)"
+
+    var id: String { rawValue }
+
+    var value: Int {
+        switch self {
+        case .off: return 0
+        case .s1: return 1
+        case .s2: return 2
+        case .s3: return 3
+        case .s4: return 4
+        }
+    }
+}
+
+/// Variance boost strength for AV1 (SVT-AV1-PSY)
+enum AV1VarianceBoost: String, CaseIterable, Identifiable {
+    case off = "Off"
+    case light = "Light (1)"
+    case medium = "Medium (2)"
+    case strong = "Strong (3)"
+    case veryStrong = "Very Strong (4)"
+
+    var id: String { rawValue }
+
+    var value: Int {
+        switch self {
+        case .off: return 0
+        case .light: return 1
+        case .medium: return 2
+        case .strong: return 3
+        case .veryStrong: return 4
+        }
+    }
+}
+
+/// Variance boost curve for AV1 (SVT-AV1-PSY)
+enum AV1VarianceBoostCurve: String, CaseIterable, Identifiable {
+    case linear = "Linear (0)"
+    case moderate = "Moderate (1)"
+    case aggressive = "Aggressive (2)"
+
+    var id: String { rawValue }
+
+    var value: Int {
+        switch self {
+        case .linear: return 0
+        case .moderate: return 1
+        case .aggressive: return 2
         }
     }
 }
@@ -960,7 +1055,26 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
             // Get tune setting
             let tuneRaw = UserDefaults.standard.string(forKey: AppConstants.av1TuneKey) ?? AppConstants.defaultAV1Tune
-            let tune = AV1TuneMode(rawValue: tuneRaw) ?? .none
+            let tune = AV1TuneMode(rawValue: tuneRaw) ?? .vq
+
+            // Get film grain settings
+            let filmGrainRaw = UserDefaults.standard.string(forKey: AppConstants.av1FilmGrainKey) ?? AppConstants.defaultAV1FilmGrain
+            let filmGrain = AV1FilmGrainLevel(rawValue: filmGrainRaw) ?? .off
+            let filmGrainDenoise = UserDefaults.standard.object(forKey: AppConstants.av1FilmGrainDenoiseKey) == nil
+                ? true : UserDefaults.standard.bool(forKey: AppConstants.av1FilmGrainDenoiseKey)
+
+            // Get sharpness setting (PSY)
+            let sharpnessRaw = UserDefaults.standard.string(forKey: AppConstants.av1SharpnessKey) ?? AppConstants.defaultAV1Sharpness
+            let sharpness = AV1Sharpness(rawValue: sharpnessRaw) ?? .off
+
+            // Get fast decode setting
+            let fastDecode = UserDefaults.standard.bool(forKey: AppConstants.av1FastDecodeKey)
+
+            // Get variance boost settings (PSY)
+            let varianceBoostRaw = UserDefaults.standard.string(forKey: AppConstants.av1VarianceBoostKey) ?? AppConstants.defaultAV1VarianceBoost
+            let varianceBoost = AV1VarianceBoost(rawValue: varianceBoostRaw) ?? .off
+            let varianceBoostCurveRaw = UserDefaults.standard.string(forKey: AppConstants.av1VarianceBoostCurveKey) ?? AppConstants.defaultAV1VarianceBoostCurve
+            let varianceBoostCurve = AV1VarianceBoostCurve(rawValue: varianceBoostCurveRaw) ?? .linear
 
             // Get resolution limit
             let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.av1ResolutionLimitKey) ?? AppConstants.defaultAV1ResolutionLimit
@@ -992,7 +1106,32 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-vf", scaleFilter,
                 "-map", "0:v:0"
             ]
-            args += tune.ffmpegArgs
+
+            // Build consolidated SVT-AV1 params
+            var svtParams: [String] = []
+            if let tuneValue = tune.svtav1Value {
+                svtParams.append("tune=\(tuneValue)")
+            }
+            if filmGrain.value > 0 {
+                svtParams.append("film-grain=\(filmGrain.value)")
+                svtParams.append("film-grain-denoise=\(filmGrainDenoise ? 1 : 0)")
+            }
+            if sharpness.value > 0 {
+                svtParams.append("sharpness=\(sharpness.value)")
+            }
+            if fastDecode {
+                svtParams.append("fast-decode=1")
+            }
+            if varianceBoost.value > 0 {
+                svtParams.append("enable-variance-boost=1")
+                svtParams.append("variance-boost-strength=\(varianceBoost.value)")
+                svtParams.append("variance-octile=6")
+                svtParams.append("variance-boost-curve=\(varianceBoostCurve.value)")
+            }
+            if !svtParams.isEmpty {
+                args += ["-svtav1-params", svtParams.joined(separator: ":")]
+            }
+
             args += audioFormat.ffmpegArgs(bitrate: audioBitrate.ffmpegValue)
             args += ["-map", "0:a?"]
 
