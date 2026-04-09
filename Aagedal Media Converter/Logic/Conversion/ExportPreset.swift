@@ -332,7 +332,7 @@ enum AV1EncodingSpeed: Int, CaseIterable, Identifiable {
     }
 }
 
-/// Tune mode for AV1 (SVT-AV1-PSY)
+/// Tune mode for AV1 (SVT-AV1)
 enum AV1TuneMode: String, CaseIterable, Identifiable {
     case vq = "Default"
     case subjective = "Subjective Quality"
@@ -386,7 +386,7 @@ enum AV1FilmGrainLevel: String, CaseIterable, Identifiable {
     }
 }
 
-/// Sharpness level for AV1 (SVT-AV1-PSY)
+/// Sharpness level for AV1 (SVT-AV1)
 enum AV1Sharpness: String, CaseIterable, Identifiable {
     case off = "Off"
     case s1 = "1 (Subtle)"
@@ -407,7 +407,7 @@ enum AV1Sharpness: String, CaseIterable, Identifiable {
     }
 }
 
-/// Variance boost strength for AV1 (SVT-AV1-PSY)
+/// Variance boost strength for AV1 (SVT-AV1)
 enum AV1VarianceBoost: String, CaseIterable, Identifiable {
     case off = "Off"
     case light = "Light (1)"
@@ -428,7 +428,7 @@ enum AV1VarianceBoost: String, CaseIterable, Identifiable {
     }
 }
 
-/// Variance boost curve for AV1 (SVT-AV1-PSY)
+/// Variance boost curve for AV1 (SVT-AV1)
 enum AV1VarianceBoostCurve: String, CaseIterable, Identifiable {
     case linear = "Linear (0)"
     case moderate = "Moderate (1)"
