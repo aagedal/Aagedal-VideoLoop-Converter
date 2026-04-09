@@ -8,46 +8,60 @@ import SwiftUI
 struct AudioMeterView: View {
     let levels: UniversalAudioMeterService.AudioLevels
     let meterHeight: CGFloat
-    
+    let chrome: Bool
+
     private let meterWidth: CGFloat = 12
-    
+
     init(
         levels: UniversalAudioMeterService.AudioLevels,
         meterHeight: CGFloat = 180,
-        showLabels: Bool = true
+        showLabels: Bool = true,
+        chrome: Bool = true
     ) {
         self.levels = levels
         self.meterHeight = meterHeight
+        self.chrome = chrome
     }
-    
+
     var body: some View {
-        HStack(spacing: 4) {
-            // Labels are now always shown, so no `if showLabels`
-            levelScale
-            
+        HStack(spacing: chrome ? 4 : 1) {
+            if chrome {
+                levelScale
+            }
+
             meterBar(level: levels.leftChannel, label: "L", height: meterHeight)
             meterBar(level: levels.rightChannel, label: "R", height: meterHeight)
         }
-        .padding(8)
+        .padding(chrome ? 8 : 0)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.black.opacity(0.75))
+            Group {
+                if chrome {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.black.opacity(0.75))
+                }
+            }
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            Group {
+                if chrome {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                }
+            }
         )
     }
     
     @ViewBuilder
     private func meterBar(level: Float, label: String, height: CGFloat) -> some View {
         VStack(spacing: 0) {
-            Text(label)
-                .font(.system(size: 8, weight: .medium))
-                .foregroundColor(.white.opacity(0.6))
-            
+            if chrome {
+                Text(label)
+                    .font(.system(size: 8, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+
             LevelBar(level: level, range: -50...0, height: height)
-                .frame(width: meterWidth)
+                .frame(width: chrome ? meterWidth : 4)
         }
     }
     
@@ -131,7 +145,7 @@ private struct LevelBar: View {
                     peakMarker(at: 0.8) // -40 dB
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+            .clipShape(Rectangle())
         }
         .frame(height: height)
     }

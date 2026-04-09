@@ -88,7 +88,7 @@ struct ContentView: View {
     @State private var showURLInputOverlay = false
     @State private var showPresetQuickSelect = false
     @State private var showYTDLPNotConfiguredAlert = false
-    @State private var showCaptureSheet = false
+    // showCaptureSheet removed — capture mode now uses CaptureOverlayWindowController
 
     // Keyboard shortcut sheet states - using optional UUID directly for item-based sheet presentation
     // When non-nil, the corresponding sheet is presented. Set to nil to dismiss.
@@ -216,7 +216,7 @@ struct ContentView: View {
                     }
                 }
             },
-            disableKeyboardNavigation: showPresetQuickSelect || showURLInputOverlay || showCaptureSheet || trimSheetItemID != nil || trimWithCropSheetItemID != nil || timecodeSheetItemID != nil || audioConfigSheetItemID != nil
+            disableKeyboardNavigation: showPresetQuickSelect || showURLInputOverlay || CaptureOverlayWindowController.shared.isShowing || trimSheetItemID != nil || trimWithCropSheetItemID != nil || timecodeSheetItemID != nil || audioConfigSheetItemID != nil
         )
     }
 
@@ -288,7 +288,7 @@ struct ContentView: View {
                 timecodeSheetItemID: $timecodeSheetItemID,
                 audioConfigSheetItemID: $audioConfigSheetItemID,
                 selectedPreset: selectedPreset,
-                showCaptureSheet: $showCaptureSheet
+                showCaptureSheet: .constant(false)
             ))
             .background(keyboardShortcutHandler)
             .modifier(ContentViewLifecycle(
@@ -530,7 +530,7 @@ struct ContentView: View {
                 showURLInputOverlay = true
             },
             onShowCapture: {
-                showCaptureSheet = true
+                CaptureOverlayWindowController.shared.showCaptureOverlay()
             },
             onShowPresetQuickSelect: {
                 showPresetQuickSelect = true
@@ -541,7 +541,7 @@ struct ContentView: View {
                     trimWithCropSheetItemID != nil ||
                     timecodeSheetItemID != nil ||
                     audioConfigSheetItemID != nil ||
-                    showCaptureSheet ||
+                    CaptureOverlayWindowController.shared.isShowing ||
                     showURLInputOverlay ||
                     showPresetQuickSelect
                 guard !anySheetOpen else { return false }
@@ -1054,7 +1054,7 @@ struct ContentView: View {
             onToggleConversion: handleConversionToggle,
             onImport: { isFileImporterPresented = true },
             onShowDownload: { showURLInputOverlay = true },
-            onShowCapture: { showCaptureSheet = true },
+            onShowCapture: { CaptureOverlayWindowController.shared.showCaptureOverlay() },
             onResetAll: resetAllFiles,
             hasResettableItems: hasResettableItems,
             onClear: clearAllFiles
@@ -1671,9 +1671,7 @@ private struct ContentViewSheets: ViewModifier {
             .sheet(isPresented: sheetBinding(for: $audioConfigSheetItemID)) {
                 audioConfigSheetContent
             }
-            .sheet(isPresented: $showCaptureSheet) {
-                CaptureModeView()
-            }
+            // Capture mode now uses CaptureOverlayWindowController instead of a sheet
     }
 
     @ViewBuilder
