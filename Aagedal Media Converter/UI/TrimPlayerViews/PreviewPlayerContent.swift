@@ -16,8 +16,6 @@ struct PreviewPlayerContent: View {
     let keyHandler: (String, NSEvent.ModifierFlags, NSEvent.SpecialKey?) -> Bool
     @Binding var currentPlaybackTime: Double
     @State private var showPreviewUnavailable = false
-    @State private var waveformSamples: [CGFloat] = []
-    private var maxWaveformSamples: Int { AudioVisualizer.maxSampleCount }
 
     private struct PreviewAvailabilityKey: Equatable {
         let isPreviewAvailable: Bool
@@ -47,7 +45,7 @@ struct PreviewPlayerContent: View {
         if item.hasVideoStream {
             CheckerboardBackground()
         } else {
-            AudioVisualizerView(samples: waveformSamples)
+            Color.black
         }
     }
 
@@ -60,23 +58,6 @@ struct PreviewPlayerContent: View {
         .padding()
     }
 
-    private func appendWaveformSample(from levels: UniversalAudioMeterService.AudioLevels) {
-        let dB = max(levels.leftChannel, levels.rightChannel, levels.peak)
-        let normalized = AudioVisualizer.normalizedLevel(from: dB)
-        waveformSamples.append(normalized)
-        if waveformSamples.count > maxWaveformSamples {
-            waveformSamples.removeFirst(waveformSamples.count - maxWaveformSamples)
-        }
-    }
-
-    private func updateAudioMeterState(for hasVideoStream: Bool) {
-        if !hasVideoStream, !controller.isAudioMeterEnabled {
-            controller.isAudioMeterEnabled = true
-        }
-        if hasVideoStream {
-            waveformSamples = []
-        }
-    }
 
     var body: some View {
         Group {
@@ -189,17 +170,6 @@ struct PreviewPlayerContent: View {
             } else {
                 loadingView
             }
-        }
-        .onAppear {
-            updateAudioMeterState(for: item.hasVideoStream)
-        }
-        .onChange(of: item.hasVideoStream) { _, hasVideo in
-            updateAudioMeterState(for: hasVideo)
-        }
-        .onReceive(controller.$audioLevels) { levels in
-            guard !item.hasVideoStream else { return }
-            guard let levels else { return }
-            appendWaveformSample(from: levels)
         }
         .task(id: previewAvailabilityKey) { @MainActor in
             showPreviewUnavailable = false
