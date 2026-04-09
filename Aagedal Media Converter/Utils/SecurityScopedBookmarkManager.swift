@@ -10,6 +10,13 @@
 import Foundation
 import OSLog
 
+/// Tracks which security-scoped access method succeeded for correct cleanup.
+enum SecurityScopedAccess {
+    case none
+    case direct(URL)
+    case bookmark(URL)
+}
+
 final class SecurityScopedBookmarkManager: @unchecked Sendable {
     static let shared = SecurityScopedBookmarkManager()
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "BookmarkManager")
@@ -92,5 +99,25 @@ final class SecurityScopedBookmarkManager: @unchecked Sendable {
     func stopAccessingSecurityScopedResource(for url: URL) {
         guard let resolvedURL = resolveBookmark(for: url) else { return }
         resolvedURL.stopAccessingSecurityScopedResource()
+    }
+
+    /// Try direct access first, then bookmark. Returns which method succeeded.
+    func startAccessing(url: URL) -> SecurityScopedAccess {
+        if url.startAccessingSecurityScopedResource() {
+            return .direct(url)
+        }
+        if startAccessingSecurityScopedResource(for: url) {
+            return .bookmark(url)
+        }
+        return .none
+    }
+
+    /// Release access acquired via startAccessing(url:).
+    func stopAccessing(_ access: SecurityScopedAccess) {
+        switch access {
+        case .direct(let url): url.stopAccessingSecurityScopedResource()
+        case .bookmark(let url): stopAccessingSecurityScopedResource(for: url)
+        case .none: break
+        }
     }
 }

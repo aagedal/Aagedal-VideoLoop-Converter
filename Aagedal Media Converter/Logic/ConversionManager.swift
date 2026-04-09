@@ -561,14 +561,11 @@ actor ConversionManager: Sendable {
         var outputFileSizeBytes: Int64?
         if success {
             let outputFolderURL = finalURL.deletingLastPathComponent()
-            let hasAccess = outputFolderURL.startAccessingSecurityScopedResource() ||
-                SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: outputFolderURL)
+            let access = SecurityScopedBookmarkManager.shared.startAccessing(url: outputFolderURL)
+            defer { SecurityScopedBookmarkManager.shared.stopAccessing(access) }
             if let attrs = try? FileManager.default.attributesOfItem(atPath: finalURL.path),
                let fileSize = attrs[.size] as? Int64 {
                 outputFileSizeBytes = fileSize
-            }
-            if hasAccess {
-                outputFolderURL.stopAccessingSecurityScopedResource()
             }
         }
 

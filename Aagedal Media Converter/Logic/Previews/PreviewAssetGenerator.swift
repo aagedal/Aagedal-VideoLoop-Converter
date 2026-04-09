@@ -484,8 +484,8 @@ actor PreviewAssetGenerator {
 
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else { return nil }
 
-        let accessGranted = startAccessingSecurityScope(for: url)
-        defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
+        let access = startAccessingSecurityScope(for: url)
+        defer { SecurityScopedBookmarkManager.shared.stopAccessing(access) }
 
         let width = max(800, min(12000, Int(duration * 8.0)))
         let height = 160
@@ -520,8 +520,8 @@ actor PreviewAssetGenerator {
 
     /// Internal implementation of asset generation, called only once per URL
     private func performAssetGeneration(for url: URL) async throws -> PreviewAssets {
-        let accessGranted = startAccessingSecurityScope(for: url)
-        defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
+        let access = startAccessingSecurityScope(for: url)
+        defer { SecurityScopedBookmarkManager.shared.stopAccessing(access) }
 
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             logger.error("FFmpeg binary not found")
@@ -813,8 +813,8 @@ actor PreviewAssetGenerator {
     /// Returns the thumbnail data if successful
     func generateRowThumbnail(for url: URL) async throws -> Data? {
         logger.info("Generating row thumbnail on-demand for \(url.lastPathComponent, privacy: .public)")
-        let accessGranted = startAccessingSecurityScope(for: url)
-        defer { if accessGranted { url.stopAccessingSecurityScopedResource() } }
+        let access = startAccessingSecurityScope(for: url)
+        defer { SecurityScopedBookmarkManager.shared.stopAccessing(access) }
 
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             logger.error("FFmpeg binary not found")
@@ -1545,10 +1545,8 @@ actor PreviewAssetGenerator {
         }
     }
 
-    @discardableResult
-    private func startAccessingSecurityScope(for url: URL) -> Bool {
-        return url.startAccessingSecurityScopedResource() ||
-            SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url)
+    private func startAccessingSecurityScope(for url: URL) -> SecurityScopedAccess {
+        return SecurityScopedBookmarkManager.shared.startAccessing(url: url)
     }
 
     private func hasVideoStream(for url: URL) async -> Bool {
