@@ -84,21 +84,44 @@ struct VideoQueueTableView: NSViewRepresentable {
     var onDeleteGroup: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
+    var queueOrder: [UUID]
+    var onReorder: ((_ movedIDs: [UUID], _ destinationQueueIndex: Int) -> Void)?
+    var onQueueSync: (() -> Void)?
 
     // MARK: - Display Rows
 
-    /// Computes a flat list of display rows from ungrouped files + encoding groups.
+    /// Computes a flat list of display rows ordered by queueOrder.
     func computeDisplayRows() -> [FlatQueueRow] {
-        var rows: [FlatQueueRow] = droppedFiles.map { .single($0) }
-        for group in encodingGroups {
-            rows.append(.groupHeader(group))
-            if group.isExpanded {
-                for item in group.items {
-                    rows.append(.groupItem(item, groupID: group.id))
+        var rows: [FlatQueueRow] = []
+        for id in queueOrder {
+            if let item = droppedFiles.first(where: { $0.id == id }) {
+                rows.append(.single(item))
+            } else if let group = encodingGroups.first(where: { $0.id == id }) {
+                rows.append(.groupHeader(group))
+                if group.isExpanded {
+                    for item in group.items {
+                        rows.append(.groupItem(item, groupID: group.id))
+                    }
                 }
             }
         }
         return rows
+    }
+
+    /// Maps a flat display row index to the corresponding queueOrder index.
+    /// Singles and group headers map directly; group items map to their parent group.
+    func queueOrderIndex(forDisplayRow row: Int, in displayRows: [FlatQueueRow]) -> Int {
+        guard row < displayRows.count else { return queueOrder.count }
+        let targetID: UUID
+        switch displayRows[row] {
+        case .single(let item): targetID = item.id
+        case .groupHeader(let group): targetID = group.id
+        case .groupItem(_, let groupID): targetID = groupID
+        }
+        if let idx = queueOrder.firstIndex(of: targetID) {
+            return idx
+        }
+        return queueOrder.count
     }
 
     // MARK: - makeNSView
@@ -288,12 +311,10 @@ struct VideoQueueTableView: NSViewRepresentable {
             let displayRows = cachedDisplayRows
             guard row < displayRows.count else { return nil }
             switch displayRows[row] {
-            case .single, .groupItem:
+            case .single, .groupItem, .groupHeader:
                 let item = NSPasteboardItem()
                 item.setString(String(row), forType: .videoQueueItem)
                 return item
-            case .groupHeader:
-                return nil
             }
         }
 
@@ -310,16 +331,10 @@ struct VideoQueueTableView: NSViewRepresentable {
                 return []
             }
 
-            // Dropping ABOVE within the ungrouped section → reorder or move from group
+            // Dropping ABOVE at any position → reorder in queue
             if dropOperation == .above {
-                let ungroupedCount = parent.droppedFiles.count
-                if row <= ungroupedCount {
-                    return .move
-                }
+                return .move
             }
-
-            // Also allow dropping above at the very end (after last ungrouped, before groups)
-            // to support moving group items out
 
             return []
         }
@@ -371,54 +386,46 @@ struct VideoQueueTableView: NSViewRepresentable {
                 }
 
                 parent.selection = Set(itemsToMove.map(\.id))
+                parent.onQueueSync?()
                 return true
             }
 
-            // Dropping ABOVE in ungrouped section → reorder or move from group to ungrouped
-            _ = parent.droppedFiles.count
+            // Dropping ABOVE → reorder in the unified queue
+            let destQueueIndex = parent.queueOrderIndex(forDisplayRow: row, in: displayRows)
 
-            // Collect items from sources (may be ungrouped or group items)
-            var itemsToInsert: [VideoItem] = []
-            var ungroupedIndicesToRemove: [Int] = []
+            // Collect the top-level IDs being moved (singles → item ID, group headers → group ID, group items → move out of group first)
+            var movedTopLevelIDs: [UUID] = []
+            var itemsToMoveToUngrouped: [VideoItem] = []
 
             for sourceRow in sourceRows.reversed() {
                 guard sourceRow < displayRows.count else { continue }
                 switch displayRows[sourceRow] {
                 case .single(let item):
-                    if let idx = parent.droppedFiles.firstIndex(where: { $0.id == item.id }) {
-                        ungroupedIndicesToRemove.append(idx)
-                        itemsToInsert.insert(item, at: 0)
-                    }
+                    movedTopLevelIDs.insert(item.id, at: 0)
+                case .groupHeader(let group):
+                    movedTopLevelIDs.insert(group.id, at: 0)
                 case .groupItem(let item, let srcGroupID):
-                    // Move out of group → ungrouped
+                    // Move out of group → becomes ungrouped single
                     if let gIdx = parent.encodingGroups.firstIndex(where: { $0.id == srcGroupID }),
                        let iIdx = parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == item.id }) {
-                        itemsToInsert.insert(parent.encodingGroups[gIdx].items.remove(at: iIdx), at: 0)
+                        let removed = parent.encodingGroups[gIdx].items.remove(at: iIdx)
+                        itemsToMoveToUngrouped.insert(removed, at: 0)
+                        movedTopLevelIDs.insert(removed.id, at: 0)
                     }
-                case .groupHeader:
-                    continue
                 }
             }
 
-            guard !itemsToInsert.isEmpty else { return false }
-
-            // Remove ungrouped sources (reverse order to preserve indices)
-            for idx in ungroupedIndicesToRemove.sorted().reversed() {
-                parent.droppedFiles.remove(at: idx)
+            // Add items that left a group into droppedFiles
+            if !itemsToMoveToUngrouped.isEmpty {
+                parent.droppedFiles.append(contentsOf: itemsToMoveToUngrouped)
             }
 
-            // Calculate adjusted destination
-            var adjustedDest = min(row, parent.droppedFiles.count)
-            for idx in ungroupedIndicesToRemove.sorted() where idx < row {
-                adjustedDest -= 1
-            }
-            adjustedDest = max(0, min(adjustedDest, parent.droppedFiles.count))
+            guard !movedTopLevelIDs.isEmpty else { return false }
 
-            parent.droppedFiles.insert(contentsOf: itemsToInsert, at: adjustedDest)
+            // Report reorder to ContentView which manages queueOrder
+            parent.onReorder?(movedTopLevelIDs, destQueueIndex)
 
-            let movedIDs = Set(itemsToInsert.map(\.id))
-            parent.selection = movedIDs
-
+            parent.selection = Set(movedTopLevelIDs)
             return true
         }
 

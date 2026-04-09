@@ -18,15 +18,44 @@ import SwiftUI
 
 struct OverallProgressView: View {
     let progress: Double
+    let currentFileName: String?
+    let completedCount: Int
+    let totalCount: Int
+    let currentFileETA: String?
 
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Overall Progress: \(Int(progress * 100))%")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                if let name = currentFileName {
+                    Text(name)
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer()
+                if totalCount > 0 {
+                    Text("\(completedCount) of \(totalCount)")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             ProgressView(value: progress, total: 1.0)
                 .progressViewStyle(LinearProgressViewStyle())
                 .frame(height: 6)
+
+            HStack {
+                Text("Overall: \(Int(progress * 100))%")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                if let eta = currentFileETA {
+                    Text("ETA: \(eta)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
         }
         .padding()
     }
