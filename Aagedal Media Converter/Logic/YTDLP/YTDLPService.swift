@@ -272,6 +272,7 @@ actor YTDLPService {
         args.append(contentsOf: [
             "-f", "bestvideo+bestaudio/best",
             "--no-playlist",
+            "--trim-filenames", "200",
             "--newline",
             "--progress",
             "--verbose",  // Enable verbose output to ensure we get stderr
