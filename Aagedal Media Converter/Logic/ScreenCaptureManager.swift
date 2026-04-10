@@ -250,6 +250,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     @Published private(set) var audioLevels: UniversalAudioMeterService.AudioLevels = .silence
     @Published private(set) var microphoneLevels: UniversalAudioMeterService.AudioLevels = .silence
     @Published private(set) var microphoneCaptureStatus: MicrophoneCaptureStatus = .disabled
+    @Published private(set) var autoStopDate: Date?
 
     enum MicrophoneCaptureStatus {
         case disabled
@@ -262,6 +263,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     private var streamOutput: CaptureStreamOutput?
     private var captureWriter: AnyCaptureOutputWriter?
     private var timerTask: Task<Void, Never>?
+    private var autoStopTask: Task<Void, Never>?
     private var outputAccess: SecurityAccess = .none
     private var recordingURL: URL?
     private var recordingStartDate: Date?
@@ -458,6 +460,9 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         timerTask?.cancel()
         timerTask = nil
         elapsedTime = 0
+        autoStopTask?.cancel()
+        autoStopTask = nil
+        autoStopDate = nil
 
         if let stream {
             try? await stream.stopCapture()
@@ -487,6 +492,27 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         }
 
         releaseAccess()
+    }
+
+    func setAutoStop(after duration: TimeInterval) {
+        autoStopTask?.cancel()
+        guard duration > 0 else {
+            autoStopDate = nil
+            autoStopTask = nil
+            return
+        }
+        autoStopDate = Date().addingTimeInterval(duration)
+        autoStopTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(duration))
+            guard !Task.isCancelled, self.isRecording else { return }
+            await self.stopRecording()
+        }
+    }
+
+    func cancelAutoStop() {
+        autoStopTask?.cancel()
+        autoStopTask = nil
+        autoStopDate = nil
     }
 
     func startPreview(
@@ -643,6 +669,9 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         previewImage = nil
         audioLevels = .silence
         microphoneLevels = .silence
+        autoStopTask?.cancel()
+        autoStopTask = nil
+        autoStopDate = nil
 
         if clearOutputs {
             recordingURL = nil

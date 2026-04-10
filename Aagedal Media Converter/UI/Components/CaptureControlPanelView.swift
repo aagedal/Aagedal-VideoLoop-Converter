@@ -40,6 +40,16 @@ struct CaptureControlPanelView: View {
     @State private var availableApps: [SCRunningApplication] = []
     @State private var excludedAppBundleIDs: Set<String> = []
 
+    // Schedule state
+    @State private var showSchedulePopover = false
+    @State private var scheduleStartDate = Date().addingTimeInterval(300)
+    @State private var scheduleUseDuration = false
+    @State private var scheduleDurationHours = 0
+    @State private var scheduleDurationMinutes = 5
+    @State private var scheduledStart: Date?
+    @State private var scheduledDuration: TimeInterval?
+    @State private var scheduleCountdown: TimeInterval = 0
+
     private var presetBinding: Binding<CapturePreset> {
         Binding(
             get: {
@@ -85,7 +95,22 @@ struct CaptureControlPanelView: View {
     var body: some View {
         panelContent
             .onAppear { handleOnAppear() }
-            .onDisappear { isViewActive = false }
+            .onDisappear {
+                isViewActive = false
+                cancelSchedule()
+            }
+            .task(id: scheduledStart) {
+                guard let start = scheduledStart else { return }
+                while !Task.isCancelled {
+                    let remaining = start.timeIntervalSinceNow
+                    if remaining <= 0 {
+                        fireScheduledRecording()
+                        return
+                    }
+                    scheduleCountdown = remaining
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
             .modifier(DisplayAndModeModifier(
                 captureDisplayID: $captureDisplayID,
                 captureRegionMode: $captureRegionMode,
@@ -294,19 +319,52 @@ struct CaptureControlPanelView: View {
 
     private var bottomBar: some View {
         HStack {
-            Button(action: onCancel) {
-                Text("Cancel")
-            }
-            .keyboardShortcut(.cancelAction)
+            if scheduledStart != nil {
+                Button(action: cancelSchedule) {
+                    Text("Cancel Schedule")
+                }
+                .keyboardShortcut(.cancelAction)
 
-            Spacer()
+                Spacer()
 
-            Button(action: handleRecord) {
-                Label("Record", systemImage: "record.circle")
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.fill")
+                        .foregroundColor(.orange)
+                    Text("Starts in \(scheduleCountdownText)")
+                        .font(.system(.callout, design: .monospaced))
+                        .monospacedDigit()
+                }
+            } else {
+                Button(action: onCancel) {
+                    Text("Cancel")
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button {
+                    scheduleStartDate = roundedScheduleDate(minutesFromNow: 5)
+                    scheduleUseDuration = false
+                    scheduleDurationHours = 0
+                    scheduleDurationMinutes = 5
+                    showSchedulePopover = true
+                } label: {
+                    Image(systemName: "clock")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .help("Schedule recording")
+                .popover(isPresented: $showSchedulePopover, arrowEdge: .top) {
+                    schedulePopoverContent
+                }
+
+                Button(action: handleRecord) {
+                    Label("Record", systemImage: "record.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .controlSize(.regular)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.green)
-            .controlSize(.regular)
         }
     }
 
@@ -354,6 +412,10 @@ struct CaptureControlPanelView: View {
                     Label("Finalizing", systemImage: "hourglass")
                         .foregroundColor(.orange)
                         .font(.callout)
+                } else if let totalText = autoStopTotalText {
+                    Text("\(elapsedText) / \(totalText)")
+                        .font(.system(.title3, design: .monospaced))
+                        .monospacedDigit()
                 } else {
                     Text(elapsedText)
                         .font(.system(.title3, design: .monospaced))
@@ -594,6 +656,129 @@ struct CaptureControlPanelView: View {
         }
         .padding(12)
         .frame(width: 220)
+    }
+
+    // MARK: - Schedule
+
+    private var schedulePopoverContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Schedule Recording")
+                .font(.headline)
+
+            DatePicker("Start at", selection: $scheduleStartDate, in: Date()...,
+                       displayedComponents: [.date, .hourAndMinute])
+
+            Toggle("Auto-stop after", isOn: $scheduleUseDuration)
+
+            if scheduleUseDuration {
+                HStack(spacing: 4) {
+                    Stepper(value: $scheduleDurationHours, in: 0...23) {
+                        Text("\(scheduleDurationHours) hr")
+                            .monospacedDigit()
+                            .frame(width: 36, alignment: .trailing)
+                    }
+                    .frame(width: 110)
+
+                    Stepper(value: $scheduleDurationMinutes, in: 0...59) {
+                        Text("\(scheduleDurationMinutes) min")
+                            .monospacedDigit()
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                    .frame(width: 120)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Button("Cancel") {
+                    showSchedulePopover = false
+                }
+                Spacer()
+                Button("Schedule") {
+                    activateSchedule()
+                    showSchedulePopover = false
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(scheduleStartDate <= Date() || (scheduleUseDuration && scheduleDurationHours == 0 && scheduleDurationMinutes == 0))
+            }
+        }
+        .padding(12)
+        .frame(width: 280)
+    }
+
+    private var scheduleCountdownText: String {
+        let total = Int(scheduleCountdown)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private var autoStopTotalText: String? {
+        guard let stopDate = captureManager.autoStopDate else { return nil }
+        let remaining = max(0, stopDate.timeIntervalSinceNow)
+        let total = captureManager.elapsedTime + remaining
+        return Self.durationFormatter.string(from: total)
+    }
+
+    private func roundedScheduleDate(minutesFromNow: Int) -> Date {
+        let calendar = Calendar.current
+        let future = calendar.date(byAdding: .minute, value: minutesFromNow, to: Date()) ?? Date()
+        // Round up to the next whole minute
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: future)
+        components.second = 0
+        return calendar.date(from: components) ?? future
+    }
+
+    private func activateSchedule() {
+        scheduledStart = scheduleStartDate
+        if scheduleUseDuration {
+            let seconds = TimeInterval(scheduleDurationHours * 3600 + scheduleDurationMinutes * 60)
+            scheduledDuration = seconds > 0 ? seconds : nil
+        } else {
+            scheduledDuration = nil
+        }
+        scheduleCountdown = scheduleStartDate.timeIntervalSinceNow
+    }
+
+    private func cancelSchedule() {
+        scheduledStart = nil
+        scheduledDuration = nil
+        scheduleCountdown = 0
+    }
+
+    private func fireScheduledRecording() {
+        let duration = scheduledDuration
+        scheduledStart = nil
+        scheduledDuration = nil
+        scheduleCountdown = 0
+
+        Task {
+            let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
+            onStartRecording()
+            await captureManager.startRecording(
+                preset: presetBinding.wrappedValue,
+                outputDirectory: outputDirectoryURL,
+                displayID: displayID,
+                frameRate: frameRateOption,
+                dynamicRange: dynamicRangeOption,
+                includeSystemAudio: captureIncludeSystemAudio,
+                includeMicrophone: captureIncludeMicrophone,
+                microphoneDeviceID: selectedMicrophoneDeviceID,
+                hideCursor: captureHideCursor,
+                excludeCurrentApp: captureExcludeCurrentApp,
+                excludedAppBundleIDs: excludedAppBundleIDs,
+                regionRect: selectedRegionRect
+            )
+
+            if let duration, duration > 0 {
+                captureManager.setAutoStop(after: duration)
+            }
+        }
     }
 
     // MARK: - Helpers
