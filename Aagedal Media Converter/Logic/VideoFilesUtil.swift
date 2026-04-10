@@ -52,7 +52,7 @@ struct VideoFileUtils: Sendable {
         // Initialize timecode config based on user defaults
         let defaultTimecodeConfig = getDefaultTimecodeConfig()
 
-        let placeholder = VideoItem(
+        var placeholder = VideoItem(
             url: url,
             name: name,
             size: size,
@@ -70,6 +70,7 @@ struct VideoFileUtils: Sendable {
             waveformVideoEnabled: waveformEnabledDefault,
             timecodeConfig: defaultTimecodeConfig
         )
+        placeholder.refreshOutputFileCache()
 
         return placeholder
     }
@@ -95,7 +96,7 @@ struct VideoFileUtils: Sendable {
 
         let outputURL = makeOutputURL(for: config.directory, outputFolder: outputFolder, preset: preset)
 
-        return VideoItem(
+        var item = VideoItem(
             url: config.directory,
             name: name,
             size: config.totalSizeBytes,
@@ -112,6 +113,8 @@ struct VideoFileUtils: Sendable {
             timecodeConfig: defaultTimecodeConfig,
             imageSequenceConfig: config
         )
+        item.refreshOutputFileCache()
+        return item
     }
 
     /// Build the URL for the first frame in an image sequence
@@ -676,7 +679,16 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var status: ConversionManager.ConversionStatus
     var progress: Double
     var eta: String?
-    var outputURL: URL?
+    var outputURL: URL? {
+        didSet {
+            if outputURL != oldValue {
+                refreshOutputFileCache()
+            }
+        }
+    }
+    /// Cached result of filesystem check — updated via `outputURL` didSet.
+    var cachedOutputFileExists: Bool = false
+    var cachedOutputFileSize: Int64? = nil
     var comment: String = ""
     var includeDateTag: Bool = true
     var trimStart: Double? = nil
@@ -795,13 +807,13 @@ struct VideoItem: Identifiable, Equatable, Sendable {
 
     /// Whether this item is ready for quality analytics (output file exists on disk)
     var isReadyForAnalytics: Bool {
-        guard hasVideoStream, let url = outputURL else { return false }
-        return FileManager.default.fileExists(atPath: url.path)
+        guard hasVideoStream, outputURL != nil else { return false }
+        return cachedOutputFileExists
     }
 
     /// Whether analytics can potentially run (has video, but output may need locating)
     var canRunAnalyticsWithFilePicker: Bool {
-        hasVideoStream && (outputURL == nil || !FileManager.default.fileExists(atPath: outputURL!.path))
+        hasVideoStream && (outputURL == nil || !cachedOutputFileExists)
     }
 
     /// Whether this item is scheduled for future download
@@ -862,24 +874,31 @@ struct VideoItem: Identifiable, Equatable, Sendable {
         max(effectiveTrimEnd - effectiveTrimStart, 0)
     }
 
-    var outputFileExists: Bool {
-        guard let outputURL = outputURL else { return false }
-        return FileManager.default.fileExists(atPath: outputURL.path)
-    }
+    var outputFileExists: Bool { cachedOutputFileExists }
 
     /// Size of the output file in bytes, or nil if the file doesn't exist
-    var outputFileSize: Int64? {
-        guard let outputURL = outputURL else { return nil }
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: outputURL.path) else {
-            return nil
+    var outputFileSize: Int64? { cachedOutputFileSize }
+
+    /// Refreshes cached filesystem state for the output file.
+    mutating func refreshOutputFileCache() {
+        guard let url = outputURL else {
+            cachedOutputFileExists = false
+            cachedOutputFileSize = nil
+            return
         }
-        return attrs[.size] as? Int64
+        let path = url.path
+        cachedOutputFileExists = FileManager.default.fileExists(atPath: path)
+        if cachedOutputFileExists {
+            cachedOutputFileSize = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int64
+        } else {
+            cachedOutputFileSize = nil
+        }
     }
 
     /// Human-readable output file size string
     var formattedOutputSize: String? {
-        // Prefer stored size (set on conversion complete), fall back to computed
-        guard let bytes = outputFileSizeBytes ?? outputFileSize else { return nil }
+        // Prefer stored size (set on conversion complete), fall back to cached
+        guard let bytes = outputFileSizeBytes ?? cachedOutputFileSize else { return nil }
         let kb = 1024.0
         let mb = kb * 1024
         let gb = mb * 1024

@@ -115,7 +115,7 @@ enum QueueEntry: Identifiable, Equatable, Sendable {
 
 /// Flattened representation for the NSTableView data source.
 /// Groups are expanded into a header row followed by their item rows.
-enum FlatQueueRow: Identifiable {
+enum FlatQueueRow: Identifiable, Equatable {
     case single(VideoItem)
     case groupHeader(EncodingGroup)
     case groupItem(VideoItem, groupID: UUID)

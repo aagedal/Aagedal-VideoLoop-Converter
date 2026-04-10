@@ -92,11 +92,15 @@ struct VideoQueueTableView: NSViewRepresentable {
 
     /// Computes a flat list of display rows ordered by queueOrder.
     func computeDisplayRows() -> [FlatQueueRow] {
+        let filesByID = Dictionary(uniqueKeysWithValues: droppedFiles.map { ($0.id, $0) })
+        let groupsByID = Dictionary(uniqueKeysWithValues: encodingGroups.map { ($0.id, $0) })
+
         var rows: [FlatQueueRow] = []
+        rows.reserveCapacity(queueOrder.count)
         for id in queueOrder {
-            if let item = droppedFiles.first(where: { $0.id == id }) {
+            if let item = filesByID[id] {
                 rows.append(.single(item))
-            } else if let group = encodingGroups.first(where: { $0.id == id }) {
+            } else if let group = groupsByID[id] {
                 rows.append(.groupHeader(group))
                 if group.isExpanded {
                     for item in group.items {
@@ -110,7 +114,7 @@ struct VideoQueueTableView: NSViewRepresentable {
 
     /// Maps a flat display row index to the corresponding queueOrder index.
     /// Singles and group headers map directly; group items map to their parent group.
-    func queueOrderIndex(forDisplayRow row: Int, in displayRows: [FlatQueueRow]) -> Int {
+    func queueOrderIndex(forDisplayRow row: Int, in displayRows: [FlatQueueRow], queueOrderLookup: [UUID: Int]? = nil) -> Int {
         guard row < displayRows.count else { return queueOrder.count }
         let targetID: UUID
         switch displayRows[row] {
@@ -118,10 +122,10 @@ struct VideoQueueTableView: NSViewRepresentable {
         case .groupHeader(let group): targetID = group.id
         case .groupItem(_, let groupID): targetID = groupID
         }
-        if let idx = queueOrder.firstIndex(of: targetID) {
-            return idx
+        if let lookup = queueOrderLookup {
+            return lookup[targetID] ?? queueOrder.count
         }
-        return queueOrder.count
+        return queueOrder.firstIndex(of: targetID) ?? queueOrder.count
     }
 
     // MARK: - makeNSView
@@ -140,7 +144,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         tableView.headerView = nil
         tableView.gridStyleMask = []
         tableView.intercellSpacing = NSSize(width: 0, height: 0)
-        tableView.usesAutomaticRowHeights = true
+        tableView.usesAutomaticRowHeights = false
         tableView.allowsMultipleSelection = true
         tableView.selectionHighlightStyle = .none
         tableView.rowSizeStyle = .custom
@@ -162,6 +166,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         // Store initial snapshot and populate cache
         let initialRows = computeDisplayRows()
         context.coordinator.cachedDisplayRows = initialRows
+        context.coordinator.rebuildLookupCaches()
         context.coordinator.previousIDs = initialRows.map(\.id)
         context.coordinator.previousCompactMode = isCompactMode
 
@@ -184,6 +189,7 @@ struct VideoQueueTableView: NSViewRepresentable {
 
         let displayRows = computeDisplayRows()
         coordinator.cachedDisplayRows = displayRows
+        coordinator.rebuildLookupCaches()
         let newIDs = displayRows.map(\.id)
         let oldIDs = coordinator.previousIDs
 
@@ -213,7 +219,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         // Handle scroll-to-selection
         if shouldScrollToSelection {
             if let firstSelectedID = selection.first,
-               let row = displayRows.firstIndex(where: { $0.id == firstSelectedID }) {
+               let row = coordinator.displayRowIndex[firstSelectedID] {
                 tableView.scrollRowToVisible(row)
             }
             DispatchQueue.main.async {
@@ -227,9 +233,8 @@ struct VideoQueueTableView: NSViewRepresentable {
         coordinator.isUpdatingSelection = true
         defer { coordinator.isUpdatingSelection = false }
 
-        let rows = coordinator.cachedDisplayRows
         let desiredRows = IndexSet(selection.compactMap { id in
-            rows.firstIndex(where: { $0.id == id })
+            coordinator.displayRowIndex[id]
         })
 
         let currentRows = tableView.selectedRowIndexes
@@ -256,10 +261,51 @@ struct VideoQueueTableView: NSViewRepresentable {
         /// Refreshed in updateNSView when SwiftUI pushes new data.
         var cachedDisplayRows: [FlatQueueRow] = []
 
+        // O(1) lookup caches — rebuilt each updateNSView cycle
+        var droppedFilesIndex: [UUID: Int] = [:]
+        var encodingGroupsIndex: [UUID: Int] = [:]
+        var displayRowIndex: [UUID: Int] = [:]
+        var queueOrderLookup: [UUID: Int] = [:]
+
+        /// Previous snapshot for selective cell updates
+        var previousDisplayRows: [FlatQueueRow] = []
+        var previousSelection: Set<UUID> = []
+        var previousPreset: ExportPreset?
+        var previousMergeEnabled = false
+        var previousMergeAvailable = false
+        var previousShowComment = true
+        var previousShowDateTag = true
+
         private static let cellID = NSUserInterfaceItemIdentifier("VideoQueueCell")
+        private static let appkitCellID = NSUserInterfaceItemIdentifier("VideoFileCellView")
+        private static let swiftUICellID = NSUserInterfaceItemIdentifier("SwiftUICell")
 
         init(parent: VideoQueueTableView) {
             self.parent = parent
+            super.init()
+        }
+
+        /// Rebuilds all UUID → index lookup dictionaries from current state.
+        func rebuildLookupCaches() {
+            droppedFilesIndex.removeAll(keepingCapacity: true)
+            for (i, item) in parent.droppedFiles.enumerated() {
+                droppedFilesIndex[item.id] = i
+            }
+
+            encodingGroupsIndex.removeAll(keepingCapacity: true)
+            for (i, group) in parent.encodingGroups.enumerated() {
+                encodingGroupsIndex[group.id] = i
+            }
+
+            displayRowIndex.removeAll(keepingCapacity: true)
+            for (i, row) in cachedDisplayRows.enumerated() {
+                displayRowIndex[row.id] = i
+            }
+
+            queueOrderLookup.removeAll(keepingCapacity: true)
+            for (i, id) in parent.queueOrder.enumerated() {
+                queueOrderLookup[id] = i
+            }
         }
 
         // MARK: NSTableViewDataSource
@@ -274,17 +320,47 @@ struct VideoQueueTableView: NSViewRepresentable {
             let displayRows = cachedDisplayRows
             guard row < displayRows.count else { return nil }
 
-            let cell = tableView.makeView(withIdentifier: Self.cellID, owner: nil) as? VideoQueueTableCellView
-                ?? VideoQueueTableCellView()
-            cell.identifier = Self.cellID
-
-            let rowContent = buildRowView(for: row, displayRows: displayRows)
-            cell.configure(with: AnyView(rowContent))
-            return cell
+            switch displayRows[row] {
+            case .single(let item), .groupItem(let item, _):
+                let cell = tableView.makeView(withIdentifier: Self.appkitCellID, owner: nil) as? VideoFileCellView
+                    ?? VideoFileCellView()
+                cell.identifier = Self.appkitCellID
+                let isGroupItem: Bool
+                if case .groupItem = displayRows[row] { isGroupItem = true } else { isGroupItem = false }
+                let config = buildCellConfiguration(item: item, isGroupItem: isGroupItem)
+                let capturedID = item.id
+                cell.configure(with: config) { [weak self] (action: CellAction) in
+                    guard let self else { return }
+                    self.handleCellAction(action, itemID: capturedID, displayRows: self.cachedDisplayRows, row: row)
+                }
+                return cell
+            case .groupHeader:
+                let cell = tableView.makeView(withIdentifier: Self.swiftUICellID, owner: nil) as? VideoQueueTableCellView
+                    ?? VideoQueueTableCellView()
+                cell.identifier = Self.swiftUICellID
+                let rowContent = buildRowView(for: row, displayRows: displayRows)
+                cell.configure(with: AnyView(rowContent))
+                return cell
+            }
         }
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             TransparentRowView()
+        }
+
+        // MARK: Row Height (fixed, avoids Auto Layout solving)
+
+        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+            let displayRows = cachedDisplayRows
+            guard row < displayRows.count else { return 200 }
+            switch displayRows[row] {
+            case .single:
+                return parent.isCompactMode ? 86 : 142
+            case .groupHeader:
+                return 88
+            case .groupItem:
+                return 99
+            }
         }
 
         // MARK: Selection
@@ -391,7 +467,7 @@ struct VideoQueueTableView: NSViewRepresentable {
             }
 
             // Dropping ABOVE → reorder in the unified queue
-            let destQueueIndex = parent.queueOrderIndex(forDisplayRow: row, in: displayRows)
+            let destQueueIndex = parent.queueOrderIndex(forDisplayRow: row, in: displayRows, queueOrderLookup: queueOrderLookup)
 
             // Collect the top-level IDs being moved (singles → item ID, group headers → group ID, group items → move out of group first)
             var movedTopLevelIDs: [UUID] = []
@@ -454,6 +530,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         /// Updates visible cells in-place by setting hostingView.rootView.
         /// This preserves SwiftUI internal state (focus, hover, text editing)
         /// unlike reloadData(forRowIndexes:) which destroys and recreates cells.
+        /// Only updates cells whose data or selection actually changed.
         func updateVisibleCells() {
             guard let tableView = tableView else { return }
             let displayRows = cachedDisplayRows
@@ -461,14 +538,360 @@ struct VideoQueueTableView: NSViewRepresentable {
             guard visibleRange.length > 0 else { return }
             let start = visibleRange.location
             let end = min(start + visibleRange.length, displayRows.count)
+
+            let newSelection = parent.selection
+
+            // If global view state changed, update all visible cells
+            let globalChanged = parent.preset != previousPreset
+                || parent.mergeClipsEnabled != previousMergeEnabled
+                || parent.mergeClipsAvailable != previousMergeAvailable
+                || parent.showCommentField != previousShowComment
+                || parent.showDateTagButton != previousShowDateTag
+
             for row in start..<end {
-                guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? VideoQueueTableCellView else { continue }
-                let rowContent = buildRowView(for: row, displayRows: displayRows)
-                cell.configure(with: AnyView(rowContent))
+                // Skip cells where row data and selection are unchanged
+                if !globalChanged,
+                   row < previousDisplayRows.count,
+                   displayRows[row] == previousDisplayRows[row],
+                   newSelection.contains(displayRows[row].id) == previousSelection.contains(displayRows[row].id) {
+                    continue
+                }
+                guard let cellView = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) else { continue }
+                if let appkitCell = cellView as? VideoFileCellView {
+                    switch displayRows[row] {
+                    case .single(let item), .groupItem(let item, _):
+                        let isGroupItem: Bool
+                        if case .groupItem = displayRows[row] { isGroupItem = true } else { isGroupItem = false }
+                        let config = buildCellConfiguration(item: item, isGroupItem: isGroupItem)
+                        let capturedID = item.id
+                        appkitCell.configure(with: config) { [weak self] (action: CellAction) in
+                            guard let self else { return }
+                            self.handleCellAction(action, itemID: capturedID, displayRows: self.cachedDisplayRows, row: row)
+                        }
+                    default: break
+                    }
+                } else if let swiftUICell = cellView as? VideoQueueTableCellView {
+                    let rowContent = buildRowView(for: row, displayRows: displayRows)
+                    swiftUICell.configure(with: AnyView(rowContent))
+                }
+            }
+
+            previousDisplayRows = displayRows
+            previousSelection = newSelection
+            previousPreset = parent.preset
+            previousMergeEnabled = parent.mergeClipsEnabled
+            previousMergeAvailable = parent.mergeClipsAvailable
+            previousShowComment = parent.showCommentField
+            previousShowDateTag = parent.showDateTagButton
+        }
+
+        // MARK: - Thumbnail Resolution
+
+        /// Returns a cached thumbnail, decoding from thumbnailData if needed.
+        private static func resolvedThumbnail(for item: VideoItem) -> NSImage? {
+            if let cached = ThumbnailCache.shared[item.id] {
+                return cached
+            }
+            guard let data = item.thumbnailData else { return nil }
+            // Synchronous decode — data is small (a few KB JPEG)
+            guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
+                    kCGImageSourceShouldCache: false,
+                    kCGImageSourceShouldAllowFloat: false,
+                  ] as CFDictionary) else {
+                let image = NSImage(data: data)
+                if let image { ThumbnailCache.shared[item.id] = image }
+                return image
+            }
+            let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            ThumbnailCache.shared[item.id] = image
+            return image
+        }
+
+        // MARK: - AppKit Cell Configuration Builder
+
+        func buildCellConfiguration(item: VideoItem, isGroupItem: Bool) -> VideoFileCellConfiguration {
+            let metadata = item.metadata
+            let audioStreams = metadata?.audioStreams ?? []
+            let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
+            let hasBitmapSubs = metadata?.subtitleStreams.contains { bitmapCodecs.contains($0.codec?.lowercased() ?? "") } ?? false
+            let hasSurround = audioStreams.contains { ($0.channels ?? 0) > 2 }
+            let audioRouting = item.audioRoutingConfig
+            let hasCustomRouting = audioRouting?.isCustomized ?? false
+            let hasDownmix = audioRouting?.outputTracks.contains { $0.downmixToStereo } ?? false
+            let hasOutputSurroundNoDownmix = audioRouting?.hasOutputSurroundWithoutDownmix ?? false
+            let trackCount = audioRouting?.outputTracks.count ?? 0
+
+            var timecodeMode: String? = nil
+            if let tc = item.timecodeConfig {
+                switch tc.mode {
+                case .manual: timecodeMode = "MAN"
+                case .preserveSource:
+                    timecodeMode = (metadata?.timecode != nil) ? "SRC" : "No TC"
+                }
+            }
+
+            let cropPct: Int
+            let hasCrop: Bool
+            if let crop = item.cropConfig, crop.isActive {
+                hasCrop = true
+                cropPct = Int(crop.normalizedRect.width * 100)
+            } else {
+                hasCrop = false
+                cropPct = 0
+            }
+
+            return VideoFileCellConfiguration(
+                itemID: item.id,
+                name: item.name,
+                duration: item.duration,
+                durationSeconds: item.durationSeconds,
+                formattedSize: item.formattedSize,
+                status: item.status,
+                progress: item.progress,
+                eta: item.eta,
+                comment: item.comment,
+                includeDateTag: item.includeDateTag,
+                outputURL: item.outputURL,
+                url: item.url,
+                thumbnailImage: Self.resolvedThumbnail(for: item),
+                hasVideoStream: item.hasVideoStream,
+                isSelected: parent.selection.contains(item.id),
+                isCompactMode: isGroupItem ? true : parent.isCompactMode,
+                showCommentField: isGroupItem ? false : parent.showCommentField,
+                showDateTagButton: isGroupItem ? false : parent.showDateTagButton,
+                isFocusedComment: parent.focusedCommentID == item.id,
+                preset: parent.preset,
+                mergeClipsEnabled: isGroupItem ? false : parent.mergeClipsEnabled,
+                mergeClipsAvailable: isGroupItem ? false : parent.mergeClipsAvailable,
+                outputFileExists: item.outputFileExists,
+                outputFileNameOverride: item.outputFileNameOverride,
+                isDownloading: item.isDownloading,
+                downloadProgress: item.downloadProgress,
+                downloadHasProgress: item.downloadHasProgress,
+                downloadSpeed: item.downloadSpeed,
+                downloadError: item.downloadError,
+                fileAlreadyExistsPath: item.fileAlreadyExistsPath,
+                sourceURL: item.sourceURL,
+                scheduledDownloadTime: item.scheduledDownloadTime,
+                autoEncodeAfterDownload: item.autoEncodeAfterDownload,
+                isLiveStreamRecording: item.isLiveStreamRecording,
+                downloadStopping: item.downloadStopping,
+                uploadEnabled: item.uploadEnabled,
+                uploadSourceFile: item.uploadSourceFile,
+                uploadStatus: item.uploadStatus,
+                uploadProgress: item.uploadProgress,
+                subtitleEnabled: item.subtitleEnabled,
+                subtitleStatus: item.subtitleStatus,
+                subtitleProgress: item.subtitleProgress,
+                subtitleFilePath: item.subtitleFilePath,
+                subtitleMethod: item.subtitleMethod,
+                hasBitmapSubtitles: hasBitmapSubs,
+                audioStreamCount: audioStreams.count,
+                analyticsEnabled: item.analyticsEnabled,
+                analyticsStatus: item.analyticsStatus,
+                analyticsProgress: item.analyticsProgress,
+                hasAnalyticsResults: item.analyticsResults != nil,
+                isReadyForAnalytics: item.isReadyForAnalytics,
+                canRunAnalyticsWithFilePicker: item.canRunAnalyticsWithFilePicker,
+                isMuted: item.isMuted,
+                hasCustomAudioRouting: hasCustomRouting,
+                hasSurroundAudio: hasSurround,
+                hasDownmix: hasDownmix,
+                audioTrackCount: trackCount,
+                hasOutputSurroundWithoutDownmix: hasOutputSurroundNoDownmix,
+                hasTrim: item.trimStart != nil || item.trimEnd != nil,
+                trimmedDuration: item.trimmedDuration,
+                hasCrop: hasCrop,
+                cropPercentage: cropPct,
+                hasTimecodeConfig: item.timecodeConfig != nil,
+                timecodeMode: timecodeMode,
+                loopPlayback: item.loopPlayback,
+                waveformVideoEnabled: item.waveformVideoEnabled,
+                isImageSequence: item.isImageSequence,
+                isDCPPreset: parent.preset == .dcp,
+                dcpMetadataTitle: item.dcpMetadata?.contentTitleText,
+                showDCPAudioWarning: parent.preset == .dcp && !(audioRouting?.isCustomized ?? false) && audioStreams.count > 1 && !audioStreams.allSatisfy { ($0.channels ?? 0) == 1 },
+                formattedOutputSize: item.formattedOutputSize,
+                isTranscriptionAvailable: WhisperUpdateService.shared.getInstallationStatus().isAvailable || ParakeetService.shared.getInstallationStatus().isAvailable,
+                isUploadConfigured: UploadManager.shared.isConfigured
+            )
+        }
+
+        // MARK: - Cell Action Handler
+
+        func handleCellAction(_ action: CellAction, itemID: UUID, displayRows: [FlatQueueRow], row: Int) {
+            switch action {
+            case .delete:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.onDelete(IndexSet(integer: idx))
+                }
+            case .reset(let optionKeyPressed):
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.onReset(idx, optionKeyPressed)
+                }
+            case .cancel:
+                Task { await ConversionManager.shared.cancelItem(with: itemID) }
+            case .cancelDownload:
+                DownloadManager.shared.cancelDownload(itemID: itemID)
+            case .stopLiveRecording:
+                DownloadManager.shared.stopLiveDownload(itemID: itemID)
+            case .retryDownload:
+                Task { await DownloadManager.shared.retryDownload(itemID: itemID) }
+            case .forceRedownload:
+                Task { await DownloadManager.shared.forceRedownload(itemID: itemID) }
+            case .cancelScheduledDownload:
+                ScheduledDownloadService.shared.cancelScheduledItem(itemID: itemID)
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.onDelete(IndexSet(integer: idx))
+                }
+            case .cancelSubtitleGeneration:
+                Task { await TesseractService.shared.cancelGeneration() }
+                Task { await WhisperService.shared.cancelGeneration() }
+                Task { await ParakeetService.shared.cancelGeneration() }
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.droppedFiles[idx].subtitleStatus = .notQueued
+                }
+            case .cancelAnalytics:
+                Task { await AnalyticsService.shared.cancelAnalysis() }
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.droppedFiles[idx].analyticsStatus = .notQueued
+                    parent.droppedFiles[idx].analyticsProgress = 0
+                }
+            case .toggleUpload(let optionPressed):
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    if optionPressed {
+                        parent.droppedFiles[idx].uploadSourceFile.toggle()
+                        if parent.droppedFiles[idx].uploadSourceFile {
+                            parent.droppedFiles[idx].uploadEnabled = true
+                            Task { await UploadManager.shared.startUpload(itemID: itemID) }
+                        }
+                    } else {
+                        parent.droppedFiles[idx].uploadEnabled.toggle()
+                        if !parent.droppedFiles[idx].uploadEnabled {
+                            parent.droppedFiles[idx].uploadSourceFile = false
+                        }
+                    }
+                }
+            case .toggleTranscription(let optionPressed):
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    if optionPressed {
+                        let method: SubtitleConversionMethod = UserDefaults.standard.string(forKey: AppConstants.defaultTranscriptionEngineKey) == "parakeet" ? .parakeet : .whisper
+                        Task { @MainActor in
+                            await parent.transcribeOnly?(itemID, method)
+                        }
+                    } else {
+                        parent.droppedFiles[idx].subtitleEnabled.toggle()
+                        if parent.droppedFiles[idx].subtitleEnabled {
+                            let method: SubtitleConversionMethod = UserDefaults.standard.string(forKey: AppConstants.defaultTranscriptionEngineKey) == "parakeet" ? .parakeet : .whisper
+                            parent.droppedFiles[idx].subtitleMethod = method
+                        }
+                    }
+                }
+            case .toggleOCR(let optionPressed):
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    if optionPressed {
+                        Task { @MainActor in
+                            await parent.transcribeOnly?(itemID, .ocr)
+                        }
+                    } else if parent.droppedFiles[idx].subtitleEnabled && parent.droppedFiles[idx].subtitleMethod == .ocr {
+                        parent.droppedFiles[idx].subtitleEnabled = false
+                    } else {
+                        parent.droppedFiles[idx].subtitleMethod = .ocr
+                        parent.droppedFiles[idx].subtitleEnabled = true
+                    }
+                }
+            case .toggleAnalytics(let optionPressed):
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    if parent.droppedFiles[idx].analyticsResults != nil {
+                        if optionPressed && parent.droppedFiles[idx].isReadyForAnalytics {
+                            parent.droppedFiles[idx].analyticsResults = nil
+                            parent.droppedFiles[idx].analyticsStatus = .notQueued
+                            Task { @MainActor in
+                                await parent.analyzeOnly?(itemID)
+                            }
+                        } else {
+                            // Show results — handled via sheet
+                            parent.onOpenMetadata?([itemID])
+                        }
+                    } else if parent.droppedFiles[idx].isReadyForAnalytics {
+                        Task { @MainActor in
+                            await parent.analyzeOnly?(itemID)
+                        }
+                    } else {
+                        parent.droppedFiles[idx].analyticsEnabled.toggle()
+                    }
+                }
+            case .toggleAutoEncode:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.droppedFiles[idx].autoEncodeAfterDownload.toggle()
+                }
+            case .toggleWaveform:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.droppedFiles[idx].waveformVideoEnabled.toggle()
+                }
+            case .toggleDateTag:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.droppedFiles[idx].includeDateTag.toggle()
+                }
+            case .toggleMute:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.droppedFiles[idx].isMuted.toggle()
+                }
+            case .commentChanged(let text):
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    parent.droppedFiles[idx].comment = text
+                }
+            case .commentFocusChanged(let focused):
+                if focused {
+                    if !parent.selection.contains(itemID) {
+                        parent.selection = [itemID]
+                    }
+                    parent.focusedCommentID = itemID
+                } else if parent.focusedCommentID == itemID {
+                    parent.focusedCommentID = nil
+                }
+            case .beginRename:
+                parent.onRenameOutputFileName?(itemID, nil)
+            case .commitRename(let name):
+                parent.onRenameOutputFileName?(itemID, name)
+            case .showPreview:
+                parent.onOpenTrim?(itemID)
+            case .showMetadata:
+                parent.onOpenMetadata?([itemID])
+            case .showAudioRouting:
+                parent.onOpenAudioConfig?(itemID)
+            case .showTimecode:
+                parent.onOpenTimecode?(itemID)
+            case .playFullscreen:
+                parent.onPlayFullscreen?(itemID)
+            case .showInFinder:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    NSWorkspace.shared.activateFileViewerSelecting([parent.droppedFiles[idx].url])
+                }
+            case .showOutputInFinder:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   let url = parent.droppedFiles[idx].outputURL {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            case .showSubtitleInFinder:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   let url = parent.droppedFiles[idx].subtitleFilePath {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            case .showDownloadedInFinder:
+                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    NSWorkspace.shared.activateFileViewerSelecting([parent.droppedFiles[idx].url])
+                }
+            case .attachSubtitleFile:
+                promptAttachSubtitleFile(itemID: itemID, source: .ungrouped)
+            default:
+                // Group actions and sheet presentations not yet handled for AppKit cells
+                break
             }
         }
 
-        // MARK: Row Builder
+        // MARK: Row Builder (SwiftUI - used for group headers)
 
         @ViewBuilder
         private func buildRowView(for row: Int, displayRows: [FlatQueueRow]) -> some View {
@@ -496,11 +919,25 @@ struct VideoQueueTableView: NSViewRepresentable {
 
             let groupBinding = Binding<EncodingGroup>(
                 get: { [weak self] in
-                    self?.parent.encodingGroups.first(where: { $0.id == groupID }) ?? fallbackGroup
+                    guard let self else { return fallbackGroup }
+                    let groups = self.parent.encodingGroups
+                    if let idx = self.encodingGroupsIndex[groupID],
+                       idx < groups.count,
+                       groups[idx].id == groupID {
+                        return groups[idx]
+                    }
+                    return groups.first(where: { $0.id == groupID }) ?? fallbackGroup
                 },
                 set: { [weak self] newValue in
-                    guard let self,
-                          let idx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }) else { return }
+                    guard let self else { return }
+                    let groups = self.parent.encodingGroups
+                    if let idx = self.encodingGroupsIndex[groupID],
+                       idx < groups.count,
+                       groups[idx].id == groupID {
+                        self.parent.encodingGroups[idx] = newValue
+                        return
+                    }
+                    guard let idx = groups.firstIndex(where: { $0.id == groupID }) else { return }
                     self.parent.encodingGroups[idx] = newValue
                 }
             )
@@ -545,15 +982,28 @@ struct VideoQueueTableView: NSViewRepresentable {
                 isGroupItem = false
                 fileBinding = Binding<VideoItem>(
                     get: { [weak self] in
-                        guard let self,
-                              let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) else {
+                        guard let self else { return placeholderItem }
+                        let files = self.parent.droppedFiles
+                        if let idx = self.droppedFilesIndex[itemID],
+                           idx < files.count,
+                           files[idx].id == itemID {
+                            return files[idx]
+                        }
+                        guard let idx = files.firstIndex(where: { $0.id == itemID }) else {
                             return placeholderItem
                         }
-                        return self.parent.droppedFiles[idx]
+                        return files[idx]
                     },
                     set: { [weak self] newValue in
-                        guard let self,
-                              let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+                        guard let self else { return }
+                        let files = self.parent.droppedFiles
+                        if let idx = self.droppedFilesIndex[itemID],
+                           idx < files.count,
+                           files[idx].id == itemID {
+                            self.parent.droppedFiles[idx] = newValue
+                            return
+                        }
+                        guard let idx = files.firstIndex(where: { $0.id == itemID }) else { return }
                         self.parent.droppedFiles[idx] = newValue
                     }
                 )
@@ -561,16 +1011,34 @@ struct VideoQueueTableView: NSViewRepresentable {
                 isGroupItem = true
                 fileBinding = Binding<VideoItem>(
                     get: { [weak self] in
-                        guard let self,
-                              let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
-                              let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID })
+                        guard let self else { return placeholderItem }
+                        let groups = self.parent.encodingGroups
+                        let gIdx: Int
+                        if let cached = self.encodingGroupsIndex[groupID],
+                           cached < groups.count,
+                           groups[cached].id == groupID {
+                            gIdx = cached
+                        } else {
+                            guard let found = groups.firstIndex(where: { $0.id == groupID }) else { return placeholderItem }
+                            gIdx = found
+                        }
+                        guard let iIdx = groups[gIdx].items.firstIndex(where: { $0.id == itemID })
                         else { return placeholderItem }
-                        return self.parent.encodingGroups[gIdx].items[iIdx]
+                        return groups[gIdx].items[iIdx]
                     },
                     set: { [weak self] newValue in
-                        guard let self,
-                              let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
-                              let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID })
+                        guard let self else { return }
+                        let groups = self.parent.encodingGroups
+                        let gIdx: Int
+                        if let cached = self.encodingGroupsIndex[groupID],
+                           cached < groups.count,
+                           groups[cached].id == groupID {
+                            gIdx = cached
+                        } else {
+                            guard let found = groups.firstIndex(where: { $0.id == groupID }) else { return }
+                            gIdx = found
+                        }
+                        guard let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID })
                         else { return }
                         self.parent.encodingGroups[gIdx].items[iIdx] = newValue
                     }

@@ -19,18 +19,25 @@ class UploadManager {
     /// Reference to video items for updating status
     var videoItems: Binding<[VideoItem]>?
 
-    /// Whether upload is configured and available
-    var isConfigured: Bool {
-        guard let config = loadUploadConfig() else { return false }
-        return config.isConfigured && RcloneUpdateService.shared.getInstallationStatus().isAvailable
-    }
+    /// Cached upload configuration status — call `refreshConfiguredStatus()` when settings change.
+    private(set) var isConfigured: Bool = false
 
     /// Whether rclone is installed
-    var isRcloneInstalled: Bool {
-        RcloneUpdateService.shared.getInstallationStatus().isAvailable
+    private(set) var isRcloneInstalled: Bool = false
+
+    private init() {
+        refreshConfiguredStatus()
     }
 
-    private init() {}
+    /// Recomputes `isConfigured` and `isRcloneInstalled` from current settings.
+    func refreshConfiguredStatus() {
+        isRcloneInstalled = RcloneUpdateService.shared.getInstallationStatus().isAvailable
+        guard let config = loadUploadConfig() else {
+            isConfigured = false
+            return
+        }
+        isConfigured = config.isConfigured && isRcloneInstalled
+    }
 
     // MARK: - Public Methods
 
