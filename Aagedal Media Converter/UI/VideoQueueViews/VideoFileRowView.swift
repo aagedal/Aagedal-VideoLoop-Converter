@@ -283,13 +283,19 @@ struct VideoFileRowView: View {
                         HStack {
                             Text(file.name)
                                 .font(.headline)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(file.name)
+                                .layoutPriority(-1)
                             // Duration warning icon
                             Text("→")
+                                .layoutPriority(1)
                             HStack(spacing: 4) {
                                 if isEditingOutputName {
                                     TextField("Output filename", text: $outputNameDraft)
                                         .font(.headline)
                                         .textFieldStyle(.plain)
+                                        .lineLimit(1)
                                         .focused($isOutputNameFieldFocused)
                                         .onSubmit {
                                             commitOutputNameEdit()
@@ -309,10 +315,14 @@ struct VideoFileRowView: View {
                                 } else {
                                     Text(displayOutputFilename())
                                         .font(.headline)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
                                         .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .primary)
+                                        .help(displayOutputFilename())
                                         .onTapGesture(count: 2) {
                                             beginOutputNameEdit()
                                         }
+                                        .layoutPriority(-1)
                                 }
                                 if shouldShowMergeIndicator {
                                     Image(systemName: "link")
@@ -321,6 +331,7 @@ struct VideoFileRowView: View {
                                         .foregroundColor(mergeIndicatorColor)
                                         .help(mergeIndicatorHelpText)
                                         .accessibilityLabel(mergeClipsEnabled ? "Merge enabled" : "Merge available")
+                                        .layoutPriority(1)
                                 }
                                 
                                 if let outputURL = file.outputURL {
@@ -367,10 +378,12 @@ struct VideoFileRowView: View {
                                     .buttonStyle(BorderlessButtonStyle())
                                 }
                             }
+                            .layoutPriority(1)
                         }
                             }
                             if file.isLiveStreamRecording {
                                 liveRecordingBadge
+                                    .layoutPriority(1)
                             }
                             Spacer()
                         }
