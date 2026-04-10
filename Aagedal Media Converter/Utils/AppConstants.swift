@@ -248,6 +248,37 @@ enum AppConstants {
     // Default activation states: all custom presets inactive by default
     static let defaultCustomPresetActive = [false, false, false, false, false, false, false, false, false, false]
 
+    // MARK: - Dynamic custom preset key generation
+
+    static func customPresetCommandKey(for slot: Int) -> String {
+        // Slot 0 uses legacy unnumbered key
+        slot == 0 ? "customPresetFFmpegCommand" : "customPreset\(slot + 1)FFmpegCommand"
+    }
+
+    static func customPresetSuffixKey(for slot: Int) -> String {
+        slot == 0 ? "customPresetFileSuffix" : "customPreset\(slot + 1)FileSuffix"
+    }
+
+    static func customPresetExtensionKey(for slot: Int) -> String {
+        slot == 0 ? "customPresetFileExtension" : "customPreset\(slot + 1)FileExtension"
+    }
+
+    static func customPresetNameKey(for slot: Int) -> String {
+        "customPreset\(slot + 1)DisplayName"
+    }
+
+    static func customPresetActiveKey(for slot: Int) -> String {
+        "customPreset\(slot + 1)Active"
+    }
+
+    static func customPresetApplyCropKey(for slot: Int) -> String {
+        "customPreset\(slot + 1)ApplyCrop"
+    }
+
+    static func customPresetApplyAudioRoutingKey(for slot: Int) -> String {
+        "customPreset\(slot + 1)ApplyAudioRouting"
+    }
+
     static let screenshotDirectoryKey = "screenshotDirectory"
     static let screenshot8BitFormatKey = "screenshot8BitFormat"
     static let screenshot10BitFormatKey = "screenshot10BitFormat"

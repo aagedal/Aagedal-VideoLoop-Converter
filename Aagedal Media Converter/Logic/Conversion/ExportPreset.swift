@@ -1542,58 +1542,19 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     }
 
     private static func customAppliesCrop(for slot: Int) -> Bool {
-        let defaults = UserDefaults.standard
-        let keys = [
-            AppConstants.customPreset1ApplyCropKey,
-            AppConstants.customPreset2ApplyCropKey,
-            AppConstants.customPreset3ApplyCropKey,
-            AppConstants.customPreset4ApplyCropKey,
-            AppConstants.customPreset5ApplyCropKey,
-            AppConstants.customPreset6ApplyCropKey,
-            AppConstants.customPreset7ApplyCropKey,
-            AppConstants.customPreset8ApplyCropKey,
-            AppConstants.customPreset9ApplyCropKey,
-            AppConstants.customPreset10ApplyCropKey
-        ]
-        let key = slot < keys.count ? keys[slot] : nil
-        return key.map { defaults.bool(forKey: $0) } ?? false
+        guard slot >= 0, slot < 10 else { return false }
+        return UserDefaults.standard.bool(forKey: AppConstants.customPresetApplyCropKey(for: slot))
     }
 
     private static func customAppliesAudioRouting(for slot: Int) -> Bool {
-        let defaults = UserDefaults.standard
-        let keys = [
-            AppConstants.customPreset1ApplyAudioRoutingKey,
-            AppConstants.customPreset2ApplyAudioRoutingKey,
-            AppConstants.customPreset3ApplyAudioRoutingKey,
-            AppConstants.customPreset4ApplyAudioRoutingKey,
-            AppConstants.customPreset5ApplyAudioRoutingKey,
-            AppConstants.customPreset6ApplyAudioRoutingKey,
-            AppConstants.customPreset7ApplyAudioRoutingKey,
-            AppConstants.customPreset8ApplyAudioRoutingKey,
-            AppConstants.customPreset9ApplyAudioRoutingKey,
-            AppConstants.customPreset10ApplyAudioRoutingKey
-        ]
-        let key = slot < keys.count ? keys[slot] : nil
-        return key.map { defaults.bool(forKey: $0) } ?? false
+        guard slot >= 0, slot < 10 else { return false }
+        return UserDefaults.standard.bool(forKey: AppConstants.customPresetApplyAudioRoutingKey(for: slot))
     }
 
     /// Returns whether the custom preset at the given slot is active (visible in preset picker)
     static func isCustomPresetActive(for slot: Int) -> Bool {
-        let defaults = UserDefaults.standard
-        let keys = [
-            AppConstants.customPreset1ActiveKey,
-            AppConstants.customPreset2ActiveKey,
-            AppConstants.customPreset3ActiveKey,
-            AppConstants.customPreset4ActiveKey,
-            AppConstants.customPreset5ActiveKey,
-            AppConstants.customPreset6ActiveKey,
-            AppConstants.customPreset7ActiveKey,
-            AppConstants.customPreset8ActiveKey,
-            AppConstants.customPreset9ActiveKey,
-            AppConstants.customPreset10ActiveKey
-        ]
-        guard slot >= 0, slot < keys.count else { return false }
-        return defaults.bool(forKey: keys[slot])
+        guard slot >= 0, slot < 10 else { return false }
+        return UserDefaults.standard.bool(forKey: AppConstants.customPresetActiveKey(for: slot))
     }
 
     /// Returns whether this preset is visible in the preset picker
@@ -1809,25 +1770,11 @@ extension ExportPreset {
     }
     
     private static func customDisplayName(for slot: Int) -> String {
-        let defaults = UserDefaults.standard
-        let nameKeys = [
-            AppConstants.customPreset1NameKey,
-            AppConstants.customPreset2NameKey,
-            AppConstants.customPreset3NameKey,
-            AppConstants.customPreset4NameKey,
-            AppConstants.customPreset5NameKey,
-            AppConstants.customPreset6NameKey,
-            AppConstants.customPreset7NameKey,
-            AppConstants.customPreset8NameKey,
-            AppConstants.customPreset9NameKey,
-            AppConstants.customPreset10NameKey
-        ]
         let prefixes = AppConstants.customPresetPrefixes
         let fallbackSuffixes = AppConstants.defaultCustomPresetNameSuffixes
         let prefix = slot < prefixes.count ? prefixes[slot] : "C\(slot + 1):"
         let fallbackSuffix = slot < fallbackSuffixes.count ? fallbackSuffixes[slot] : "Custom Preset"
-        let nameKey = slot < nameKeys.count ? nameKeys[slot] : nil
-        let storedSuffix = nameKey.flatMap { defaults.string(forKey: $0) }
+        let storedSuffix = UserDefaults.standard.string(forKey: AppConstants.customPresetNameKey(for: slot))
         let sanitizedSuffix = sanitizeCustomNameSuffix(storedSuffix, fallback: fallbackSuffix)
         return "\(prefix) \(sanitizedSuffix)"
     }
@@ -1853,43 +1800,15 @@ extension ExportPreset {
     }
     
     private static func customFileSuffix(for slot: Int) -> String {
-        let defaults = UserDefaults.standard
-        let keys = [
-            AppConstants.customPreset1SuffixKey,
-            AppConstants.customPreset2SuffixKey,
-            AppConstants.customPreset3SuffixKey,
-            AppConstants.customPreset4SuffixKey,
-            AppConstants.customPreset5SuffixKey,
-            AppConstants.customPreset6SuffixKey,
-            AppConstants.customPreset7SuffixKey,
-            AppConstants.customPreset8SuffixKey,
-            AppConstants.customPreset9SuffixKey,
-            AppConstants.customPreset10SuffixKey
-        ]
         let fallback = slot < AppConstants.defaultCustomPresetSuffixes.count ? AppConstants.defaultCustomPresetSuffixes[slot] : "_c\(slot + 1)"
-        let key = slot < keys.count ? keys[slot] : nil
-        let stored = key.flatMap { defaults.string(forKey: $0) } ?? fallback
+        let stored = UserDefaults.standard.string(forKey: AppConstants.customPresetSuffixKey(for: slot)) ?? fallback
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : (trimmed.hasPrefix("_") ? trimmed : "_" + trimmed)
     }
-    
+
     private static func customFileExtension(for slot: Int) -> String {
-        let defaults = UserDefaults.standard
-        let keys = [
-            AppConstants.customPreset1ExtensionKey,
-            AppConstants.customPreset2ExtensionKey,
-            AppConstants.customPreset3ExtensionKey,
-            AppConstants.customPreset4ExtensionKey,
-            AppConstants.customPreset5ExtensionKey,
-            AppConstants.customPreset6ExtensionKey,
-            AppConstants.customPreset7ExtensionKey,
-            AppConstants.customPreset8ExtensionKey,
-            AppConstants.customPreset9ExtensionKey,
-            AppConstants.customPreset10ExtensionKey
-        ]
         let fallback = slot < AppConstants.defaultCustomPresetExtensions.count ? AppConstants.defaultCustomPresetExtensions[slot] : "mp4"
-        let key = slot < keys.count ? keys[slot] : nil
-        var stored = key.flatMap { defaults.string(forKey: $0) } ?? fallback
+        var stored = UserDefaults.standard.string(forKey: AppConstants.customPresetExtensionKey(for: slot)) ?? fallback
         stored = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         if stored.hasPrefix(".") {
             stored.removeFirst()
@@ -1897,24 +1816,10 @@ extension ExportPreset {
         stored = stored.replacingOccurrences(of: " ", with: "")
         return stored.isEmpty ? fallback : stored.lowercased()
     }
-    
+
     private static func customCommandString(for slot: Int) -> String {
-        let defaults = UserDefaults.standard
-        let keys = [
-            AppConstants.customPreset1CommandKey,
-            AppConstants.customPreset2CommandKey,
-            AppConstants.customPreset3CommandKey,
-            AppConstants.customPreset4CommandKey,
-            AppConstants.customPreset5CommandKey,
-            AppConstants.customPreset6CommandKey,
-            AppConstants.customPreset7CommandKey,
-            AppConstants.customPreset8CommandKey,
-            AppConstants.customPreset9CommandKey,
-            AppConstants.customPreset10CommandKey
-        ]
         let fallback = slot < AppConstants.defaultCustomPresetCommands.count ? AppConstants.defaultCustomPresetCommands[slot] : "-c copy"
-        let key = slot < keys.count ? keys[slot] : nil
-        let stored = key.flatMap { defaults.string(forKey: $0) } ?? fallback
+        let stored = UserDefaults.standard.string(forKey: AppConstants.customPresetCommandKey(for: slot)) ?? fallback
         let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
     }

@@ -3,83 +3,8 @@
 import SwiftUI
 
 struct PresetsSettingsView: View {
-    // Custom preset 1-3 settings
-    @AppStorage(AppConstants.customPreset1CommandKey) private var customPreset1Command = AppConstants.defaultCustomPresetCommands[0]
-    @AppStorage(AppConstants.customPreset1SuffixKey) private var customPreset1Suffix = AppConstants.defaultCustomPresetSuffixes[0]
-    @AppStorage(AppConstants.customPreset1ExtensionKey) private var customPreset1Extension = AppConstants.defaultCustomPresetExtensions[0]
-    @AppStorage(AppConstants.customPreset1NameKey) private var customPreset1Name = AppConstants.defaultCustomPresetNameSuffixes[0]
-    @AppStorage(AppConstants.customPreset2CommandKey) private var customPreset2Command = AppConstants.defaultCustomPresetCommands[1]
-    @AppStorage(AppConstants.customPreset2SuffixKey) private var customPreset2Suffix = AppConstants.defaultCustomPresetSuffixes[1]
-    @AppStorage(AppConstants.customPreset2ExtensionKey) private var customPreset2Extension = AppConstants.defaultCustomPresetExtensions[1]
-    @AppStorage(AppConstants.customPreset2NameKey) private var customPreset2Name = AppConstants.defaultCustomPresetNameSuffixes[1]
-    @AppStorage(AppConstants.customPreset3CommandKey) private var customPreset3Command = AppConstants.defaultCustomPresetCommands[2]
-    @AppStorage(AppConstants.customPreset3SuffixKey) private var customPreset3Suffix = AppConstants.defaultCustomPresetSuffixes[2]
-    @AppStorage(AppConstants.customPreset3ExtensionKey) private var customPreset3Extension = AppConstants.defaultCustomPresetExtensions[2]
-    @AppStorage(AppConstants.customPreset3NameKey) private var customPreset3Name = AppConstants.defaultCustomPresetNameSuffixes[2]
-
-    // Custom preset 4-10 settings
-    @AppStorage(AppConstants.customPreset4CommandKey) private var customPreset4Command = AppConstants.defaultCustomPresetCommands[3]
-    @AppStorage(AppConstants.customPreset4SuffixKey) private var customPreset4Suffix = AppConstants.defaultCustomPresetSuffixes[3]
-    @AppStorage(AppConstants.customPreset4ExtensionKey) private var customPreset4Extension = AppConstants.defaultCustomPresetExtensions[3]
-    @AppStorage(AppConstants.customPreset4NameKey) private var customPreset4Name = AppConstants.defaultCustomPresetNameSuffixes[3]
-    @AppStorage(AppConstants.customPreset5CommandKey) private var customPreset5Command = AppConstants.defaultCustomPresetCommands[4]
-    @AppStorage(AppConstants.customPreset5SuffixKey) private var customPreset5Suffix = AppConstants.defaultCustomPresetSuffixes[4]
-    @AppStorage(AppConstants.customPreset5ExtensionKey) private var customPreset5Extension = AppConstants.defaultCustomPresetExtensions[4]
-    @AppStorage(AppConstants.customPreset5NameKey) private var customPreset5Name = AppConstants.defaultCustomPresetNameSuffixes[4]
-    @AppStorage(AppConstants.customPreset6CommandKey) private var customPreset6Command = AppConstants.defaultCustomPresetCommands[5]
-    @AppStorage(AppConstants.customPreset6SuffixKey) private var customPreset6Suffix = AppConstants.defaultCustomPresetSuffixes[5]
-    @AppStorage(AppConstants.customPreset6ExtensionKey) private var customPreset6Extension = AppConstants.defaultCustomPresetExtensions[5]
-    @AppStorage(AppConstants.customPreset6NameKey) private var customPreset6Name = AppConstants.defaultCustomPresetNameSuffixes[5]
-    @AppStorage(AppConstants.customPreset7CommandKey) private var customPreset7Command = AppConstants.defaultCustomPresetCommands[6]
-    @AppStorage(AppConstants.customPreset7SuffixKey) private var customPreset7Suffix = AppConstants.defaultCustomPresetSuffixes[6]
-    @AppStorage(AppConstants.customPreset7ExtensionKey) private var customPreset7Extension = AppConstants.defaultCustomPresetExtensions[6]
-    @AppStorage(AppConstants.customPreset7NameKey) private var customPreset7Name = AppConstants.defaultCustomPresetNameSuffixes[6]
-    @AppStorage(AppConstants.customPreset8CommandKey) private var customPreset8Command = AppConstants.defaultCustomPresetCommands[7]
-    @AppStorage(AppConstants.customPreset8SuffixKey) private var customPreset8Suffix = AppConstants.defaultCustomPresetSuffixes[7]
-    @AppStorage(AppConstants.customPreset8ExtensionKey) private var customPreset8Extension = AppConstants.defaultCustomPresetExtensions[7]
-    @AppStorage(AppConstants.customPreset8NameKey) private var customPreset8Name = AppConstants.defaultCustomPresetNameSuffixes[7]
-    @AppStorage(AppConstants.customPreset9CommandKey) private var customPreset9Command = AppConstants.defaultCustomPresetCommands[8]
-    @AppStorage(AppConstants.customPreset9SuffixKey) private var customPreset9Suffix = AppConstants.defaultCustomPresetSuffixes[8]
-    @AppStorage(AppConstants.customPreset9ExtensionKey) private var customPreset9Extension = AppConstants.defaultCustomPresetExtensions[8]
-    @AppStorage(AppConstants.customPreset9NameKey) private var customPreset9Name = AppConstants.defaultCustomPresetNameSuffixes[8]
-    @AppStorage(AppConstants.customPreset10CommandKey) private var customPreset10Command = AppConstants.defaultCustomPresetCommands[9]
-    @AppStorage(AppConstants.customPreset10SuffixKey) private var customPreset10Suffix = AppConstants.defaultCustomPresetSuffixes[9]
-    @AppStorage(AppConstants.customPreset10ExtensionKey) private var customPreset10Extension = AppConstants.defaultCustomPresetExtensions[9]
-    @AppStorage(AppConstants.customPreset10NameKey) private var customPreset10Name = AppConstants.defaultCustomPresetNameSuffixes[9]
-
-    // Custom preset feature toggles
-    @AppStorage(AppConstants.customPreset1ApplyCropKey) private var customPreset1ApplyCrop = false
-    @AppStorage(AppConstants.customPreset1ApplyAudioRoutingKey) private var customPreset1ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset2ApplyCropKey) private var customPreset2ApplyCrop = false
-    @AppStorage(AppConstants.customPreset2ApplyAudioRoutingKey) private var customPreset2ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset3ApplyCropKey) private var customPreset3ApplyCrop = false
-    @AppStorage(AppConstants.customPreset3ApplyAudioRoutingKey) private var customPreset3ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset4ApplyCropKey) private var customPreset4ApplyCrop = false
-    @AppStorage(AppConstants.customPreset4ApplyAudioRoutingKey) private var customPreset4ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset5ApplyCropKey) private var customPreset5ApplyCrop = false
-    @AppStorage(AppConstants.customPreset5ApplyAudioRoutingKey) private var customPreset5ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset6ApplyCropKey) private var customPreset6ApplyCrop = false
-    @AppStorage(AppConstants.customPreset6ApplyAudioRoutingKey) private var customPreset6ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset7ApplyCropKey) private var customPreset7ApplyCrop = false
-    @AppStorage(AppConstants.customPreset7ApplyAudioRoutingKey) private var customPreset7ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset8ApplyCropKey) private var customPreset8ApplyCrop = false
-    @AppStorage(AppConstants.customPreset8ApplyAudioRoutingKey) private var customPreset8ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset9ApplyCropKey) private var customPreset9ApplyCrop = false
-    @AppStorage(AppConstants.customPreset9ApplyAudioRoutingKey) private var customPreset9ApplyAudioRouting = false
-    @AppStorage(AppConstants.customPreset10ApplyCropKey) private var customPreset10ApplyCrop = false
-    @AppStorage(AppConstants.customPreset10ApplyAudioRoutingKey) private var customPreset10ApplyAudioRouting = false
-
-    // Custom preset activation toggles
-    @AppStorage(AppConstants.customPreset1ActiveKey) private var customPreset1Active = false
-    @AppStorage(AppConstants.customPreset2ActiveKey) private var customPreset2Active = false
-    @AppStorage(AppConstants.customPreset3ActiveKey) private var customPreset3Active = false
-    @AppStorage(AppConstants.customPreset4ActiveKey) private var customPreset4Active = false
-    @AppStorage(AppConstants.customPreset5ActiveKey) private var customPreset5Active = false
-    @AppStorage(AppConstants.customPreset6ActiveKey) private var customPreset6Active = false
-    @AppStorage(AppConstants.customPreset7ActiveKey) private var customPreset7Active = false
-    @AppStorage(AppConstants.customPreset8ActiveKey) private var customPreset8Active = false
-    @AppStorage(AppConstants.customPreset9ActiveKey) private var customPreset9Active = false
-    @AppStorage(AppConstants.customPreset10ActiveKey) private var customPreset10Active = false
+    // Refresh token to trigger re-reads from UserDefaults after custom preset edits
+    @State private var customPresetRefreshToken = UUID()
 
     // ProRes profile
     @AppStorage(AppConstants.proResProfileKey) private var proResProfileRawValue = ProResProfile.standard.rawValue
@@ -1411,156 +1336,51 @@ struct PresetsSettingsView: View {
     }
 
     private func customCommand(for slot: Int) -> String {
-        switch slot {
-        case 0: return customPreset1Command
-        case 1: return customPreset2Command
-        case 2: return customPreset3Command
-        case 3: return customPreset4Command
-        case 4: return customPreset5Command
-        case 5: return customPreset6Command
-        case 6: return customPreset7Command
-        case 7: return customPreset8Command
-        case 8: return customPreset9Command
-        case 9: return customPreset10Command
-        default:
-            return AppConstants.defaultCustomPresetCommands.indices.contains(slot)
-                ? AppConstants.defaultCustomPresetCommands[slot]
-                : "-c copy"
-        }
+        _ = customPresetRefreshToken
+        return UserDefaults.standard.string(forKey: AppConstants.customPresetCommandKey(for: slot))
+            ?? (AppConstants.defaultCustomPresetCommands.indices.contains(slot) ? AppConstants.defaultCustomPresetCommands[slot] : "-c copy")
     }
 
     private func customSuffix(for slot: Int) -> String {
-        switch slot {
-        case 0: return customPreset1Suffix
-        case 1: return customPreset2Suffix
-        case 2: return customPreset3Suffix
-        case 3: return customPreset4Suffix
-        case 4: return customPreset5Suffix
-        case 5: return customPreset6Suffix
-        case 6: return customPreset7Suffix
-        case 7: return customPreset8Suffix
-        case 8: return customPreset9Suffix
-        case 9: return customPreset10Suffix
-        default:
-            return AppConstants.defaultCustomPresetSuffixes.indices.contains(slot)
-                ? AppConstants.defaultCustomPresetSuffixes[slot]
-                : "_c\(slot + 1)"
-        }
+        _ = customPresetRefreshToken
+        return UserDefaults.standard.string(forKey: AppConstants.customPresetSuffixKey(for: slot))
+            ?? (AppConstants.defaultCustomPresetSuffixes.indices.contains(slot) ? AppConstants.defaultCustomPresetSuffixes[slot] : "_c\(slot + 1)")
     }
 
     private func customExtension(for slot: Int) -> String {
-        switch slot {
-        case 0: return customPreset1Extension
-        case 1: return customPreset2Extension
-        case 2: return customPreset3Extension
-        case 3: return customPreset4Extension
-        case 4: return customPreset5Extension
-        case 5: return customPreset6Extension
-        case 6: return customPreset7Extension
-        case 7: return customPreset8Extension
-        case 8: return customPreset9Extension
-        case 9: return customPreset10Extension
-        default:
-            return AppConstants.defaultCustomPresetExtensions.indices.contains(slot)
-                ? AppConstants.defaultCustomPresetExtensions[slot]
-                : "mp4"
-        }
+        _ = customPresetRefreshToken
+        return UserDefaults.standard.string(forKey: AppConstants.customPresetExtensionKey(for: slot))
+            ?? (AppConstants.defaultCustomPresetExtensions.indices.contains(slot) ? AppConstants.defaultCustomPresetExtensions[slot] : "mp4")
     }
 
     private func applyCrop(for slot: Int) -> Bool {
-        switch slot {
-        case 0: return customPreset1ApplyCrop
-        case 1: return customPreset2ApplyCrop
-        case 2: return customPreset3ApplyCrop
-        case 3: return customPreset4ApplyCrop
-        case 4: return customPreset5ApplyCrop
-        case 5: return customPreset6ApplyCrop
-        case 6: return customPreset7ApplyCrop
-        case 7: return customPreset8ApplyCrop
-        case 8: return customPreset9ApplyCrop
-        case 9: return customPreset10ApplyCrop
-        default: return false
-        }
+        _ = customPresetRefreshToken
+        return UserDefaults.standard.bool(forKey: AppConstants.customPresetApplyCropKey(for: slot))
     }
 
     private func applyAudioRouting(for slot: Int) -> Bool {
-        switch slot {
-        case 0: return customPreset1ApplyAudioRouting
-        case 1: return customPreset2ApplyAudioRouting
-        case 2: return customPreset3ApplyAudioRouting
-        case 3: return customPreset4ApplyAudioRouting
-        case 4: return customPreset5ApplyAudioRouting
-        case 5: return customPreset6ApplyAudioRouting
-        case 6: return customPreset7ApplyAudioRouting
-        case 7: return customPreset8ApplyAudioRouting
-        case 8: return customPreset9ApplyAudioRouting
-        case 9: return customPreset10ApplyAudioRouting
-        default: return false
-        }
+        _ = customPresetRefreshToken
+        return UserDefaults.standard.bool(forKey: AppConstants.customPresetApplyAudioRoutingKey(for: slot))
     }
 
     private func updateApplyCrop(_ value: Bool, slot: Int) {
-        switch slot {
-        case 0: customPreset1ApplyCrop = value
-        case 1: customPreset2ApplyCrop = value
-        case 2: customPreset3ApplyCrop = value
-        case 3: customPreset4ApplyCrop = value
-        case 4: customPreset5ApplyCrop = value
-        case 5: customPreset6ApplyCrop = value
-        case 6: customPreset7ApplyCrop = value
-        case 7: customPreset8ApplyCrop = value
-        case 8: customPreset9ApplyCrop = value
-        case 9: customPreset10ApplyCrop = value
-        default: break
-        }
+        UserDefaults.standard.set(value, forKey: AppConstants.customPresetApplyCropKey(for: slot))
+        customPresetRefreshToken = UUID()
     }
 
     private func updateApplyAudioRouting(_ value: Bool, slot: Int) {
-        switch slot {
-        case 0: customPreset1ApplyAudioRouting = value
-        case 1: customPreset2ApplyAudioRouting = value
-        case 2: customPreset3ApplyAudioRouting = value
-        case 3: customPreset4ApplyAudioRouting = value
-        case 4: customPreset5ApplyAudioRouting = value
-        case 5: customPreset6ApplyAudioRouting = value
-        case 6: customPreset7ApplyAudioRouting = value
-        case 7: customPreset8ApplyAudioRouting = value
-        case 8: customPreset9ApplyAudioRouting = value
-        case 9: customPreset10ApplyAudioRouting = value
-        default: break
-        }
+        UserDefaults.standard.set(value, forKey: AppConstants.customPresetApplyAudioRoutingKey(for: slot))
+        customPresetRefreshToken = UUID()
     }
 
     private func isCustomPresetActiveBinding(for slot: Int) -> Bool {
-        switch slot {
-        case 0: return customPreset1Active
-        case 1: return customPreset2Active
-        case 2: return customPreset3Active
-        case 3: return customPreset4Active
-        case 4: return customPreset5Active
-        case 5: return customPreset6Active
-        case 6: return customPreset7Active
-        case 7: return customPreset8Active
-        case 8: return customPreset9Active
-        case 9: return customPreset10Active
-        default: return false
-        }
+        _ = customPresetRefreshToken
+        return UserDefaults.standard.bool(forKey: AppConstants.customPresetActiveKey(for: slot))
     }
 
     private func setCustomPresetActive(_ value: Bool, slot: Int) {
-        switch slot {
-        case 0: customPreset1Active = value
-        case 1: customPreset2Active = value
-        case 2: customPreset3Active = value
-        case 3: customPreset4Active = value
-        case 4: customPreset5Active = value
-        case 5: customPreset6Active = value
-        case 6: customPreset7Active = value
-        case 7: customPreset8Active = value
-        case 8: customPreset9Active = value
-        case 9: customPreset10Active = value
-        default: break
-        }
+        UserDefaults.standard.set(value, forKey: AppConstants.customPresetActiveKey(for: slot))
+        customPresetRefreshToken = UUID()
     }
 
     private func visibilityBinding(for preset: ExportPreset) -> Binding<Bool> {
@@ -1605,24 +1425,12 @@ struct PresetsSettingsView: View {
     }
 
     private func customNameSuffix(for slot: Int) -> String {
+        _ = customPresetRefreshToken
         let fallback = AppConstants.defaultCustomPresetNameSuffixes.indices.contains(slot)
             ? AppConstants.defaultCustomPresetNameSuffixes[slot]
             : "Custom Preset"
         let prefix = customNamePrefix(for: slot)
-        let stored: String
-        switch slot {
-        case 0: stored = customPreset1Name
-        case 1: stored = customPreset2Name
-        case 2: stored = customPreset3Name
-        case 3: stored = customPreset4Name
-        case 4: stored = customPreset5Name
-        case 5: stored = customPreset6Name
-        case 6: stored = customPreset7Name
-        case 7: stored = customPreset8Name
-        case 8: stored = customPreset9Name
-        case 9: stored = customPreset10Name
-        default: stored = fallback
-        }
+        let stored = UserDefaults.standard.string(forKey: AppConstants.customPresetNameKey(for: slot)) ?? fallback
         let sanitized = sanitizeCustomNameSuffix(stored, prefix: prefix, fallback: fallback)
         if sanitized != stored {
             updateStoredNameSuffix(sanitized, slot: slot)
@@ -1638,57 +1446,24 @@ struct PresetsSettingsView: View {
         let defaults = AppConstants.defaultCustomPresetCommands
         let fallback = defaults.indices.contains(slot) ? defaults[slot] : "-c copy"
         let sanitized = sanitizeCustomCommand(value, fallback: fallback)
-        switch slot {
-        case 0: customPreset1Command = sanitized
-        case 1: customPreset2Command = sanitized
-        case 2: customPreset3Command = sanitized
-        case 3: customPreset4Command = sanitized
-        case 4: customPreset5Command = sanitized
-        case 5: customPreset6Command = sanitized
-        case 6: customPreset7Command = sanitized
-        case 7: customPreset8Command = sanitized
-        case 8: customPreset9Command = sanitized
-        case 9: customPreset10Command = sanitized
-        default: break
-        }
+        UserDefaults.standard.set(sanitized, forKey: AppConstants.customPresetCommandKey(for: slot))
+        customPresetRefreshToken = UUID()
     }
 
     private func updateCustomSuffix(_ value: String, slot: Int) {
         let defaults = AppConstants.defaultCustomPresetSuffixes
         let fallback = defaults.indices.contains(slot) ? defaults[slot] : "_c\(slot + 1)"
         let sanitized = sanitizeCustomSuffix(value, fallback: fallback)
-        switch slot {
-        case 0: customPreset1Suffix = sanitized
-        case 1: customPreset2Suffix = sanitized
-        case 2: customPreset3Suffix = sanitized
-        case 3: customPreset4Suffix = sanitized
-        case 4: customPreset5Suffix = sanitized
-        case 5: customPreset6Suffix = sanitized
-        case 6: customPreset7Suffix = sanitized
-        case 7: customPreset8Suffix = sanitized
-        case 8: customPreset9Suffix = sanitized
-        case 9: customPreset10Suffix = sanitized
-        default: break
-        }
+        UserDefaults.standard.set(sanitized, forKey: AppConstants.customPresetSuffixKey(for: slot))
+        customPresetRefreshToken = UUID()
     }
 
     private func updateCustomExtension(_ value: String, slot: Int) {
         let defaults = AppConstants.defaultCustomPresetExtensions
         let fallback = defaults.indices.contains(slot) ? defaults[slot] : "mp4"
         let sanitized = sanitizeCustomExtension(value, fallback: fallback)
-        switch slot {
-        case 0: customPreset1Extension = sanitized
-        case 1: customPreset2Extension = sanitized
-        case 2: customPreset3Extension = sanitized
-        case 3: customPreset4Extension = sanitized
-        case 4: customPreset5Extension = sanitized
-        case 5: customPreset6Extension = sanitized
-        case 6: customPreset7Extension = sanitized
-        case 7: customPreset8Extension = sanitized
-        case 8: customPreset9Extension = sanitized
-        case 9: customPreset10Extension = sanitized
-        default: break
-        }
+        UserDefaults.standard.set(sanitized, forKey: AppConstants.customPresetExtensionKey(for: slot))
+        customPresetRefreshToken = UUID()
     }
 
     private func updateCustomNameSuffix(_ value: String, slot: Int) {
@@ -1701,19 +1476,8 @@ struct PresetsSettingsView: View {
     }
 
     private func updateStoredNameSuffix(_ value: String, slot: Int) {
-        switch slot {
-        case 0: customPreset1Name = value
-        case 1: customPreset2Name = value
-        case 2: customPreset3Name = value
-        case 3: customPreset4Name = value
-        case 4: customPreset5Name = value
-        case 5: customPreset6Name = value
-        case 6: customPreset7Name = value
-        case 7: customPreset8Name = value
-        case 8: customPreset9Name = value
-        case 9: customPreset10Name = value
-        default: break
-        }
+        UserDefaults.standard.set(value, forKey: AppConstants.customPresetNameKey(for: slot))
+        customPresetRefreshToken = UUID()
     }
 
     @ViewBuilder
