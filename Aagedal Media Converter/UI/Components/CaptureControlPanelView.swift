@@ -214,6 +214,7 @@ struct CaptureControlPanelView: View {
                 AudioMeterView(levels: captureManager.audioLevels, meterHeight: 190, chrome: false)
                     .opacity(captureIncludeSystemAudio ? 1.0 : 0.3)
                     .frame(width: 12)
+                    .help("System audio level")
 
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -240,6 +241,7 @@ struct CaptureControlPanelView: View {
                     .saturation(microphoneButtonActive ? 1.0 : 0.0)
                     .opacity(microphoneButtonActive ? 1.0 : 0.3)
                     .frame(width: 12)
+                    .help("Microphone audio level")
             }
 
             // Speaker toggle | Display picker | Mic toggle
@@ -377,6 +379,7 @@ struct CaptureControlPanelView: View {
                 AudioMeterView(levels: captureManager.audioLevels, meterHeight: 190, chrome: false)
                     .opacity(captureIncludeSystemAudio ? 1.0 : 0.3)
                     .frame(width: 12)
+                    .help("System audio level")
 
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -394,6 +397,7 @@ struct CaptureControlPanelView: View {
                     .saturation(microphoneButtonActive ? 1.0 : 0.0)
                     .opacity(microphoneButtonActive ? 1.0 : 0.3)
                     .frame(width: 12)
+                    .help("Microphone audio level")
             }
             .padding(12)
 
