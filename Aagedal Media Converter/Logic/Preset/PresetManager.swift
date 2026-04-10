@@ -23,16 +23,7 @@ final class PresetManager {
 
     // MARK: - Custom Preset Names (synced with UserDefaults)
 
-    private var customPreset1Name: String
-    private var customPreset2Name: String
-    private var customPreset3Name: String
-    private var customPreset4Name: String
-    private var customPreset5Name: String
-    private var customPreset6Name: String
-    private var customPreset7Name: String
-    private var customPreset8Name: String
-    private var customPreset9Name: String
-    private var customPreset10Name: String
+    private var customPresetNames: [String]
 
     // MARK: - Built-in Preset Visibility
 
@@ -53,33 +44,21 @@ final class PresetManager {
 
     // MARK: - Custom Preset Activation
 
-    private var customPreset1Active: Bool
-    private var customPreset2Active: Bool
-    private var customPreset3Active: Bool
-    private var customPreset4Active: Bool
-    private var customPreset5Active: Bool
-    private var customPreset6Active: Bool
-    private var customPreset7Active: Bool
-    private var customPreset8Active: Bool
-    private var customPreset9Active: Bool
-    private var customPreset10Active: Bool
+    private var customPresetActives: [Bool]
 
     // MARK: - Initialization
 
     private init() {
         let defaults = UserDefaults.standard
 
-        // Load custom preset names
-        customPreset1Name = defaults.string(forKey: AppConstants.customPreset1NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[0]
-        customPreset2Name = defaults.string(forKey: AppConstants.customPreset2NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[1]
-        customPreset3Name = defaults.string(forKey: AppConstants.customPreset3NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[2]
-        customPreset4Name = defaults.string(forKey: AppConstants.customPreset4NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[3]
-        customPreset5Name = defaults.string(forKey: AppConstants.customPreset5NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[4]
-        customPreset6Name = defaults.string(forKey: AppConstants.customPreset6NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[5]
-        customPreset7Name = defaults.string(forKey: AppConstants.customPreset7NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[6]
-        customPreset8Name = defaults.string(forKey: AppConstants.customPreset8NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[7]
-        customPreset9Name = defaults.string(forKey: AppConstants.customPreset9NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[8]
-        customPreset10Name = defaults.string(forKey: AppConstants.customPreset10NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[9]
+        // Load custom preset names and activation states
+        customPresetNames = (0..<10).map { slot in
+            defaults.string(forKey: AppConstants.customPresetNameKey(for: slot))
+                ?? AppConstants.defaultCustomPresetDisplayNames[slot]
+        }
+        customPresetActives = (0..<10).map { slot in
+            defaults.bool(forKey: AppConstants.customPresetActiveKey(for: slot))
+        }
 
         // Load built-in preset visibility (default to true if not set)
         videoLoopVisible = defaults.object(forKey: AppConstants.videoLoopVisibleKey) as? Bool ?? true
@@ -96,18 +75,6 @@ final class PresetManager {
         audioOnlyVisible = defaults.object(forKey: AppConstants.audioOnlyVisibleKey) as? Bool ?? true
         imageSequenceVisible = defaults.object(forKey: AppConstants.imageSequenceVisibleKey) as? Bool ?? true
         dcpVisible = defaults.object(forKey: AppConstants.dcpVisibleKey) as? Bool ?? true
-
-        // Load custom preset activation (default to false)
-        customPreset1Active = defaults.bool(forKey: AppConstants.customPreset1ActiveKey)
-        customPreset2Active = defaults.bool(forKey: AppConstants.customPreset2ActiveKey)
-        customPreset3Active = defaults.bool(forKey: AppConstants.customPreset3ActiveKey)
-        customPreset4Active = defaults.bool(forKey: AppConstants.customPreset4ActiveKey)
-        customPreset5Active = defaults.bool(forKey: AppConstants.customPreset5ActiveKey)
-        customPreset6Active = defaults.bool(forKey: AppConstants.customPreset6ActiveKey)
-        customPreset7Active = defaults.bool(forKey: AppConstants.customPreset7ActiveKey)
-        customPreset8Active = defaults.bool(forKey: AppConstants.customPreset8ActiveKey)
-        customPreset9Active = defaults.bool(forKey: AppConstants.customPreset9ActiveKey)
-        customPreset10Active = defaults.bool(forKey: AppConstants.customPreset10ActiveKey)
 
         // Observe UserDefaults changes for reactive updates
         setupObservers()
@@ -133,16 +100,12 @@ final class PresetManager {
             case .audioOnly: return audioOnlyVisible
             case .imageSequence: return imageSequenceVisible
             case .dcp: return dcpVisible
-            case .custom1: return customPreset1Active
-            case .custom2: return customPreset2Active
-            case .custom3: return customPreset3Active
-            case .custom4: return customPreset4Active
-            case .custom5: return customPreset5Active
-            case .custom6: return customPreset6Active
-            case .custom7: return customPreset7Active
-            case .custom8: return customPreset8Active
-            case .custom9: return customPreset9Active
-            case .custom10: return customPreset10Active
+            case .custom1, .custom2, .custom3, .custom4, .custom5,
+                 .custom6, .custom7, .custom8, .custom9, .custom10:
+                if let slot = preset.customSlotIndex, customPresetActives.indices.contains(slot) {
+                    return customPresetActives[slot]
+                }
+                return false
             }
         }
     }
@@ -156,20 +119,7 @@ final class PresetManager {
         let fallbackSuffixes = AppConstants.defaultCustomPresetNameSuffixes
         let prefix = prefixes.indices.contains(slot) ? prefixes[slot] : "C\(slot + 1):"
         let fallbackSuffix = fallbackSuffixes.indices.contains(slot) ? fallbackSuffixes[slot] : "Custom Preset"
-        let storedSuffix: String
-        switch slot {
-        case 0: storedSuffix = customPreset1Name
-        case 1: storedSuffix = customPreset2Name
-        case 2: storedSuffix = customPreset3Name
-        case 3: storedSuffix = customPreset4Name
-        case 4: storedSuffix = customPreset5Name
-        case 5: storedSuffix = customPreset6Name
-        case 6: storedSuffix = customPreset7Name
-        case 7: storedSuffix = customPreset8Name
-        case 8: storedSuffix = customPreset9Name
-        case 9: storedSuffix = customPreset10Name
-        default: storedSuffix = fallbackSuffix
-        }
+        let storedSuffix = customPresetNames.indices.contains(slot) ? customPresetNames[slot] : fallbackSuffix
         let sanitizedSuffix = sanitizeCustomNameSuffix(storedSuffix, prefix: prefix, fallback: fallbackSuffix)
         return "\(prefix) \(sanitizedSuffix)"
     }
@@ -226,32 +176,18 @@ final class PresetManager {
         imageSequenceVisible = defaults.object(forKey: AppConstants.imageSequenceVisibleKey) as? Bool ?? true
         dcpVisible = defaults.object(forKey: AppConstants.dcpVisibleKey) as? Bool ?? true
 
-        customPreset1Active = defaults.bool(forKey: AppConstants.customPreset1ActiveKey)
-        customPreset2Active = defaults.bool(forKey: AppConstants.customPreset2ActiveKey)
-        customPreset3Active = defaults.bool(forKey: AppConstants.customPreset3ActiveKey)
-        customPreset4Active = defaults.bool(forKey: AppConstants.customPreset4ActiveKey)
-        customPreset5Active = defaults.bool(forKey: AppConstants.customPreset5ActiveKey)
-        customPreset6Active = defaults.bool(forKey: AppConstants.customPreset6ActiveKey)
-        customPreset7Active = defaults.bool(forKey: AppConstants.customPreset7ActiveKey)
-        customPreset8Active = defaults.bool(forKey: AppConstants.customPreset8ActiveKey)
-        customPreset9Active = defaults.bool(forKey: AppConstants.customPreset9ActiveKey)
-        customPreset10Active = defaults.bool(forKey: AppConstants.customPreset10ActiveKey)
+        customPresetActives = (0..<10).map { slot in
+            defaults.bool(forKey: AppConstants.customPresetActiveKey(for: slot))
+        }
     }
 
     /// Reloads custom preset names from UserDefaults
     func reloadCustomPresetNames() {
         let defaults = UserDefaults.standard
-
-        customPreset1Name = defaults.string(forKey: AppConstants.customPreset1NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[0]
-        customPreset2Name = defaults.string(forKey: AppConstants.customPreset2NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[1]
-        customPreset3Name = defaults.string(forKey: AppConstants.customPreset3NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[2]
-        customPreset4Name = defaults.string(forKey: AppConstants.customPreset4NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[3]
-        customPreset5Name = defaults.string(forKey: AppConstants.customPreset5NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[4]
-        customPreset6Name = defaults.string(forKey: AppConstants.customPreset6NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[5]
-        customPreset7Name = defaults.string(forKey: AppConstants.customPreset7NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[6]
-        customPreset8Name = defaults.string(forKey: AppConstants.customPreset8NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[7]
-        customPreset9Name = defaults.string(forKey: AppConstants.customPreset9NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[8]
-        customPreset10Name = defaults.string(forKey: AppConstants.customPreset10NameKey) ?? AppConstants.defaultCustomPresetDisplayNames[9]
+        customPresetNames = (0..<10).map { slot in
+            defaults.string(forKey: AppConstants.customPresetNameKey(for: slot))
+                ?? AppConstants.defaultCustomPresetDisplayNames[slot]
+        }
     }
 
     // MARK: - Private Helpers
