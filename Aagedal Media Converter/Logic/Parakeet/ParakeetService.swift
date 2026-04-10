@@ -305,12 +305,14 @@ actor ParakeetService {
         logger.info("Parakeet subtitle generation cancelled")
     }
 
-    /// Gets the installation status of parakeet-mlx
+    /// Cached availability — checked once at first access, avoids repeated filesystem checks.
+    private static let _cachedIsAvailable: Bool = BinaryPathResolver.parakeetMlxPath != nil
+
+    /// Gets the installation status of parakeet-mlx (uses cached result)
     nonisolated func getInstallationStatus() -> ParakeetInstallationStatus {
-        guard BinaryPathResolver.parakeetMlxPath != nil else {
+        guard Self._cachedIsAvailable else {
             return .notInstalled
         }
-        // Version is fetched asynchronously, so return a generic "installed" for sync checks
         return .installed(version: "parakeet-mlx")
     }
 }

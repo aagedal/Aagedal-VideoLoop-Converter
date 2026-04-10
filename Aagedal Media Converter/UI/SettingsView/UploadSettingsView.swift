@@ -118,6 +118,7 @@ struct UploadSettingsView: View {
             }
         .onChange(of: selectedBackend) { _, newValue in
             handleBackendChange(newValue)
+            UploadManager.shared.refreshConfiguredStatus()
         }
         .onChange(of: profileSelectionToken) { _, _ in
             switch currentBackendType {
@@ -137,6 +138,7 @@ struct UploadSettingsView: View {
             updateSelectedProfileFromFields()
             refreshPasswordState()
             refreshS3SecretState()
+            UploadManager.shared.refreshConfiguredStatus()
         }
     }
 

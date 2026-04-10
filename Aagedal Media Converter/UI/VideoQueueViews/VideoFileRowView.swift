@@ -14,6 +14,29 @@ import ImageIO
 import UniformTypeIdentifiers
 import OSLog
 
+/// Shared cache for decoded thumbnail images, keyed by VideoItem ID.
+/// Eliminates flicker when cells scroll off-screen and back — the decoded
+/// NSImage is available immediately instead of re-decoding from Data.
+final class ThumbnailCache: @unchecked Sendable {
+    static let shared = ThumbnailCache()
+    private let cache = NSCache<NSUUID, NSImage>()
+
+    private init() {
+        cache.countLimit = 300
+    }
+
+    subscript(id: UUID) -> NSImage? {
+        get { cache.object(forKey: id as NSUUID) }
+        set {
+            if let image = newValue {
+                cache.setObject(image, forKey: id as NSUUID)
+            } else {
+                cache.removeObject(forKey: id as NSUUID)
+            }
+        }
+    }
+}
+
 struct VideoFileRowView: View {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "VideoFileRowView")
     @Binding var file: VideoItem
@@ -313,12 +336,13 @@ struct VideoFileRowView: View {
                                             isOutputNameFieldFocused = true
                                         }
                                 } else {
-                                    Text(displayOutputFilename())
+                                    let outputName = displayOutputFilename()
+                                    Text(outputName)
                                         .font(.headline)
                                         .lineLimit(1)
                                         .truncationMode(.middle)
                                         .foregroundColor((file.status == .waiting && file.outputFileExists) ? .orange : .primary)
-                                        .help(displayOutputFilename())
+                                        .help(outputName)
                                         .onTapGesture(count: 2) {
                                             beginOutputNameEdit()
                                         }
@@ -1020,6 +1044,13 @@ struct VideoFileRowView: View {
             )
         }
         .task(id: file.thumbnailData) {
+            // Fast path: reuse previously decoded image from shared cache
+            let itemID = file.id
+            if let cached = ThumbnailCache.shared[itemID] {
+                cachedThumbnail = cached
+                return
+            }
+
             await Task.yield()
             // Decode thumbnail asynchronously off main thread
             guard let data = file.thumbnailData else {
@@ -1041,11 +1072,16 @@ struct VideoFileRowView: View {
             }.value
 
             guard !Task.isCancelled else { return }
-            await MainActor.run { cachedThumbnail = image }
+            await MainActor.run {
+                cachedThumbnail = image
+                if let image { ThumbnailCache.shared[itemID] = image }
+            }
         }
         .onAppear {
-            // Initialize local comment from file
-            localComment = file.comment
+            // Initialize local comment from file (guard to avoid redundant re-render)
+            if localComment != file.comment {
+                localComment = file.comment
+            }
         }
         .onChange(of: file.comment) { _, newComment in
             // Sync local comment when file comment changes externally
@@ -1221,7 +1257,7 @@ struct VideoFileRowView: View {
                     .frame(width: thumbnailWidth, height: thumbnailHeight)
                     .clipped()
                     .cornerRadius(isCompactMode ? 3 : 4)
-            } else if let cachedImage = cachedThumbnail {
+            } else if let cachedImage = cachedThumbnail ?? ThumbnailCache.shared[file.id] {
                 Image(nsImage: cachedImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

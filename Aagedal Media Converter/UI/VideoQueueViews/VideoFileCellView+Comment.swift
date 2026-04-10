@@ -1,0 +1,123 @@
+// Aagedal Media Converter
+// Copyright 2025 Truls Aagedal
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import AppKit
+
+extension VideoFileCellView {
+
+    // MARK: - Comment Section Setup
+
+    func setupCommentSection() {
+        commentSection.orientation = .horizontal
+        commentSection.spacing = 12
+        commentSection.alignment = .centerY
+
+        // Comment info button
+        commentInfoButton.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Preview comment")
+        commentInfoButton.contentTintColor = .secondaryLabelColor
+        commentInfoButton.isBordered = false
+        commentInfoButton.target = self
+        commentInfoButton.action = #selector(commentInfoClicked)
+        commentInfoButton.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Comment text field
+        commentField.font = .systemFont(ofSize: 12)
+        commentField.placeholderString = "Add a comment (single line)..."
+        commentField.isBezeled = true
+        commentField.bezelStyle = .roundedBezel
+        commentField.delegate = self
+        commentField.lineBreakMode = .byTruncatingTail
+        commentField.maximumNumberOfLines = 1
+        commentField.usesSingleLineMode = true
+        commentField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        // Date tag button
+        dateTagButton.image = NSImage(systemSymbolName: "calendar.badge.checkmark", accessibilityDescription: "Date tag")
+        dateTagButton.isBordered = false
+        dateTagButton.target = self
+        dateTagButton.action = #selector(dateTagClicked)
+        dateTagButton.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Waveform button
+        waveformButton.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Waveform video")
+        waveformButton.isBordered = false
+        waveformButton.target = self
+        waveformButton.action = #selector(waveformClicked)
+        waveformButton.setContentHuggingPriority(.required, for: .horizontal)
+        waveformButton.isHidden = true
+
+        // Waveform background image button
+        waveformBgButton.image = NSImage(systemSymbolName: "photo", accessibilityDescription: "Background image")
+        waveformBgButton.isBordered = false
+        waveformBgButton.target = self
+        waveformBgButton.action = #selector(waveformBgClicked)
+        waveformBgButton.setContentHuggingPriority(.required, for: .horizontal)
+        waveformBgButton.isHidden = true
+
+        commentSection.addArrangedSubview(commentInfoButton)
+        commentSection.addArrangedSubview(commentField)
+        commentSection.addArrangedSubview(dateTagButton)
+        commentSection.addArrangedSubview(waveformButton)
+        commentSection.addArrangedSubview(waveformBgButton)
+
+        contentStack.addArrangedSubview(commentSection)
+        contentStack.setCustomSpacing(12, after: statusStack)
+
+        commentSection.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            commentSection.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            commentSection.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            commentField.heightAnchor.constraint(equalToConstant: 28),
+        ])
+    }
+
+    // MARK: - Comment Section Update
+
+    func updateCommentSection(config: VideoFileCellConfiguration) {
+        let showComment = !config.isCompactMode && config.showCommentField
+        let showWaveform = !config.isCompactMode && !config.hasVideoStream
+        let showDateTag = !config.isCompactMode && config.showDateTagButton
+        let showDCP = !config.isCompactMode && config.isDCPPreset
+
+        commentSection.isHidden = !showComment && !showWaveform && !showDateTag && !showDCP
+
+        // Comment field
+        commentInfoButton.isHidden = !showComment || showDCP
+        commentField.isHidden = !showComment || showDCP
+        if showComment && !showDCP {
+            commentField.stringValue = config.comment
+            commentField.isEditable = config.status == .waiting
+            commentField.alphaValue = config.status == .waiting ? 1.0 : 0.6
+
+            // Focus management
+            if config.isFocusedComment {
+                window?.makeFirstResponder(commentField)
+            }
+        }
+
+        // Date tag button
+        dateTagButton.isHidden = !showDateTag || showDCP
+        if showDateTag {
+            let isActive = config.includeDateTag
+            dateTagButton.image = NSImage(systemSymbolName: isActive ? "calendar.badge.checkmark" : "calendar.badge.minus", accessibilityDescription: nil)
+            dateTagButton.contentTintColor = isActive ? .controlAccentColor : .secondaryLabelColor
+        }
+
+        // Waveform controls
+        waveformButton.isHidden = !showWaveform
+        waveformBgButton.isHidden = !showWaveform
+        if showWaveform {
+            let isActive = config.waveformVideoEnabled
+            waveformButton.image = NSImage(systemSymbolName: isActive ? "waveform.circle.fill" : "waveform.circle", accessibilityDescription: nil)
+            waveformButton.contentTintColor = isActive ? .controlAccentColor : .secondaryLabelColor
+        }
+    }
+
+    // MARK: - Comment Button Actions
+
+    @objc private func commentInfoClicked() { actionHandler?(.showMetadata) }
+    @objc private func dateTagClicked() { actionHandler?(.toggleDateTag) }
+    @objc private func waveformClicked() { actionHandler?(.toggleWaveform) }
+    @objc private func waveformBgClicked() { actionHandler?(.showBackgroundImagePicker) }
+}
