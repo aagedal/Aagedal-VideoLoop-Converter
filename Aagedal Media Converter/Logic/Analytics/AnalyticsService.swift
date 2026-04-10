@@ -136,7 +136,7 @@ actor AnalyticsService {
                 sourceFile: sourceFile
             )
         case .ssimulacra2:
-            fatalError("SSIMULACRA2 should be handled by runSSIMULACRA2Metric")
+            throw AnalyticsError.metricFailed(.ssimulacra2, "SSIMULACRA2 uses a dedicated binary and should not reach the FFmpeg path")
         }
 
         currentProcess = process
@@ -248,7 +248,7 @@ actor AnalyticsService {
         case .xpsnr:
             result = try parseXPSNRResults(from: stderrOutput)
         case .ssimulacra2:
-            fatalError("SSIMULACRA2 should be handled by runSSIMULACRA2Metric")
+            throw AnalyticsError.parsingFailed("SSIMULACRA2 uses a dedicated binary and should not reach the FFmpeg parsing path")
         }
 
         progress(1.0)

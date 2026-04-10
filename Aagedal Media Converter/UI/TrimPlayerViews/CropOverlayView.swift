@@ -856,7 +856,7 @@ private struct CursorTrackingView: NSViewRepresentable {
                     let cursorSize = NSSize(width: 20, height: 20)
                     let finalImage = NSImage(size: cursorSize, flipped: false) { rect in
                         // Draw white outline by rendering the symbol offset in all directions
-                        let tinted = configuredImage.copy() as! NSImage
+                        guard let tinted = configuredImage.copy() as? NSImage else { return false }
                         tinted.lockFocus()
                         NSColor.white.set()
                         NSRect(origin: .zero, size: tinted.size).fill(using: .sourceAtop)
@@ -877,7 +877,7 @@ private struct CursorTrackingView: NSViewRepresentable {
                             }
                         }
                         // Draw black symbol on top
-                        let blackSymbol = configuredImage.copy() as! NSImage
+                        guard let blackSymbol = configuredImage.copy() as? NSImage else { return false }
                         blackSymbol.lockFocus()
                         NSColor.black.set()
                         NSRect(origin: .zero, size: blackSymbol.size).fill(using: .sourceAtop)
