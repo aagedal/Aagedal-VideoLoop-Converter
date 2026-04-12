@@ -1115,21 +1115,130 @@ actor PreviewAssetGenerator {
     ) async {
         guard !missingIndices.isEmpty else { return }
 
+        // Try AVFoundation first (batch, in-process, no subprocess spawning)
+        if !useSimplifiedFilter {
+            let remaining = await generateFilmstripWithAVFoundation(
+                url: url,
+                duration: duration,
+                missingIndices: missingIndices,
+                expectedFiles: expectedFiles
+            )
+            if remaining.isEmpty { return }
+
+            // Fall back to ffmpeg only for indices AVFoundation couldn't generate
+            await generateFilmstripWithFFmpeg(
+                url: url,
+                ffmpegPath: ffmpegPath,
+                duration: duration,
+                missingIndices: remaining,
+                expectedFiles: expectedFiles,
+                hdrType: hdrType
+            )
+        } else {
+            await generateFilmstripWithFFmpeg(
+                url: url,
+                ffmpegPath: ffmpegPath,
+                duration: duration,
+                missingIndices: missingIndices,
+                expectedFiles: expectedFiles,
+                hdrType: .none
+            )
+        }
+    }
+
+    /// Generates filmstrip thumbnails using AVFoundation (batch, in-process).
+    /// Returns the indices that could not be generated (for ffmpeg fallback).
+    private func generateFilmstripWithAVFoundation(
+        url: URL,
+        duration: Double,
+        missingIndices: [Int],
+        expectedFiles: [URL]
+    ) async -> [Int] {
+        let ext = url.pathExtension.lowercased()
+        if Self.avFoundationUnsupportedExtensions.contains(ext) {
+            return missingIndices
+        }
+
+        let asset = AVURLAsset(url: url)
+        guard let videoTrack = try? await asset.loadTracks(withMediaType: .video).first else {
+            return missingIndices
+        }
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 320, height: 0)
+        generator.requestedTimeToleranceBefore = CMTime(seconds: 1, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+
+        // Detect ProRes RAW for tonemapping
+        let formatDescriptions = (try? await videoTrack.load(.formatDescriptions)) ?? []
+        let isProResRAW = formatDescriptions.contains { desc in
+            let code = CMFormatDescriptionGetMediaSubType(desc)
+            return code == 0x6170726E || code == 0x61707268
+        }
+
+        let context = CIContext()
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+        var failedIndices: [Int] = []
+
+        for index in missingIndices {
+            let position = positionForThumbnail(at: index, total: thumbnailCount, duration: duration)
+            let seekTime = CMTime(seconds: position, preferredTimescale: 600)
+            let destination = expectedFiles[index]
+
+            do {
+                let (cgImage, _) = try await generator.image(at: seekTime)
+                var ciImage = CIImage(cgImage: cgImage)
+
+                if isProResRAW {
+                    if let tonemap = CIFilter(name: "CIToneMapHeadroom", parameters: [
+                        kCIInputImageKey: ciImage,
+                        "inputSourceHeadroom": 8.0,
+                        "inputTargetHeadroom": 1.0
+                    ]), let tonemapped = tonemap.outputImage {
+                        ciImage = tonemapped
+                    }
+                }
+
+                guard let pngData = context.pngRepresentation(of: ciImage, format: .RGBA8, colorSpace: srgb) else {
+                    failedIndices.append(index)
+                    continue
+                }
+
+                try pngData.write(to: destination)
+                logger.debug("Generated thumbnail #\(index) for \(url.lastPathComponent, privacy: .public) at position \(position, privacy: .public)s")
+            } catch {
+                failedIndices.append(index)
+            }
+        }
+
+        if !failedIndices.isEmpty {
+            logger.debug("AVFoundation filmstrip: \(failedIndices.count) of \(missingIndices.count) failed for \(url.lastPathComponent, privacy: .public)")
+        }
+        return failedIndices
+    }
+
+    /// Generates filmstrip thumbnails using ffmpeg (one subprocess per frame).
+    private func generateFilmstripWithFFmpeg(
+        url: URL,
+        ffmpegPath: String,
+        duration: Double,
+        missingIndices: [Int],
+        expectedFiles: [URL],
+        hdrType: HDRType
+    ) async {
         for index in missingIndices {
             let destination = expectedFiles[index]
             let position = positionForThumbnail(at: index, total: thumbnailCount, duration: duration)
 
             var videoFilter = "scale=iw*sar:ih,scale=320:-1"
 
-            let effectiveHDRType: HDRType = useSimplifiedFilter ? .none : hdrType
-
-            switch effectiveHDRType {
+            switch hdrType {
             case .none:
                 break
             case .proresRAW:
                 videoFilter += ",format=yuv420p"
             case .hdr10Bit:
-                // Previously used zscale and tonemap; remove zscale usage and keep output format compatible
                 videoFilter += ",format=yuv420p"
             }
 
@@ -1154,7 +1263,6 @@ actor PreviewAssetGenerator {
                 logger.debug("Generated thumbnail #\(index) for \(url.lastPathComponent, privacy: .public) at position \(position, privacy: .public)s")
             } catch {
                 logger.error("Thumbnail generation failed for index \(index) of \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                // Remove any partial output to avoid stale corrupted files
                 try? fileManager.removeItem(at: destination)
             }
         }
