@@ -438,11 +438,6 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         setupToggleButton(analyticsButton, symbol: "chart.bar.xaxis", action: #selector(analyticsButtonClicked))
         setupToggleButton(uploadButton, symbol: "icloud.and.arrow.up", action: #selector(uploadButtonClicked))
 
-        // Spacer to push right-side items
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
         // Divider between toggle buttons and right side
         buttonDivider.wantsLayer = true
         buttonDivider.layer?.backgroundColor = NSColor.separatorColor.cgColor
@@ -476,16 +471,11 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         rightSideStack.addArrangedSubview(statusRow)
         rightSideStack.addArrangedSubview(actionButtonStack)
 
-        // Layout: [toggles in pipeline order] [spacer] [divider] [rightSideStack]
-        buttonsRow.addArrangedSubview(encodeButton)
-        buttonsRow.addArrangedSubview(autoEncodeButton)
-        buttonsRow.addArrangedSubview(transcriptionButton)
-        buttonsRow.addArrangedSubview(ocrButton)
-        buttonsRow.addArrangedSubview(analyticsButton)
-        buttonsRow.addArrangedSubview(uploadButton)
-        buttonsRow.addArrangedSubview(spacer)
-        buttonsRow.addArrangedSubview(buttonDivider)
-        buttonsRow.addArrangedSubview(rightSideStack)
+        // Layout: [toggles in pipeline order] ... [divider] [rightSideStack]
+        // Gravity areas pin the right side to the trailing edge, ensuring
+        // action buttons don't shift when status capsule width changes.
+        buttonsRow.setViews([encodeButton, autoEncodeButton, transcriptionButton, ocrButton, analyticsButton, uploadButton], in: .leading)
+        buttonsRow.setViews([buttonDivider, rightSideStack], in: .trailing)
 
         contentStack.addArrangedSubview(buttonsRow)
         buttonsRow.translatesAutoresizingMaskIntoConstraints = false
@@ -578,11 +568,15 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         button.bezelStyle = .inline
         button.target = self
         button.action = action
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 14
+        button.layer?.borderWidth = 1.5
+        button.layer?.borderColor = NSColor.clear.cgColor
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setContentHuggingPriority(.required, for: .horizontal)
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 24),
-            button.heightAnchor.constraint(equalToConstant: 24),
+            button.widthAnchor.constraint(equalToConstant: 28),
+            button.heightAnchor.constraint(equalToConstant: 28),
         ])
     }
 

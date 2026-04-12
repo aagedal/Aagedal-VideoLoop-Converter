@@ -97,16 +97,12 @@ extension VideoFileCellView {
     }
 
     /// Shows or hides a circular ring around a button to indicate active processing.
+    /// The border width and corner radius are always present (set in setupToggleButton)
+    /// so toggling the ring only changes the color, preventing any layout shift.
     private func applyProcessingRing(to button: NSButton, active: Bool, color: NSColor) {
-        button.wantsLayer = true
-        if active {
-            button.layer?.borderWidth = 1.5
-            button.layer?.borderColor = color.withAlphaComponent(0.8).cgColor
-            button.layer?.cornerRadius = 12  // half of 24pt button size
-        } else {
-            button.layer?.borderWidth = 0
-            button.layer?.borderColor = nil
-        }
+        button.layer?.borderColor = active
+            ? color.withAlphaComponent(0.8).cgColor
+            : NSColor.clear.cgColor
     }
 
     // MARK: - Action Buttons Update
