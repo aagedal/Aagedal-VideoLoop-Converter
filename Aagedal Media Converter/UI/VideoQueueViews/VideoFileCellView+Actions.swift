@@ -15,6 +15,7 @@ extension VideoFileCellView {
         encodeButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
         encodeButton.contentTintColor = isEncoding ? .systemGreen : .systemGreen.withAlphaComponent(0.5)
         encodeButton.isEnabled = config.status == .waiting || config.status == .done || config.status == .failed
+        encodeButton.toolTip = isEncoding ? "Encoding in progress" : "Start encoding"
         applyProcessingRing(to: encodeButton, active: isEncoding, color: .systemGreen)
 
         // Auto-encode button (only during download)
@@ -23,6 +24,7 @@ extension VideoFileCellView {
         if showAutoEncode {
             autoEncodeButton.image = NSImage(systemSymbolName: config.autoEncodeAfterDownload ? "play.fill" : "play", accessibilityDescription: nil)
             autoEncodeButton.contentTintColor = config.autoEncodeAfterDownload ? .systemGreen : .secondaryLabelColor
+            autoEncodeButton.toolTip = config.autoEncodeAfterDownload ? "Auto-encode enabled" : "Enable auto-encode after download"
         }
 
         // --- Transcription button (yellow) ---
@@ -32,10 +34,14 @@ extension VideoFileCellView {
         transcriptionButton.image = NSImage(systemSymbolName: isTranscriptionEnabled ? "captions.bubble.fill" : "captions.bubble", accessibilityDescription: nil)
         if !config.isTranscriptionAvailable {
             transcriptionButton.contentTintColor = .systemOrange
+            transcriptionButton.toolTip = "Transcription engine not installed. Configure in Settings → Transcription."
         } else if isTranscriptionEnabled || isTranscribing {
             transcriptionButton.contentTintColor = .systemYellow
+            let engineName = config.subtitleMethod == .parakeet ? "Parakeet" : "Whisper"
+            transcriptionButton.toolTip = "Transcription (\(engineName)) enabled. ⌥-click to generate SRT only."
         } else {
             transcriptionButton.contentTintColor = .secondaryLabelColor
+            transcriptionButton.toolTip = "Enable transcription. ⌥-click to generate SRT only."
         }
         applyProcessingRing(to: transcriptionButton, active: isTranscribing, color: .systemYellow)
 
@@ -45,6 +51,9 @@ extension VideoFileCellView {
         if showOCR {
             let isOCREnabled = config.subtitleEnabled && config.subtitleMethod == .ocr
             ocrButton.contentTintColor = isOCREnabled ? .systemYellow : .secondaryLabelColor
+            ocrButton.toolTip = isOCREnabled
+                ? "OCR enabled. ⌥-click to generate SRT only."
+                : "Enable OCR for bitmap subtitles. ⌥-click to generate SRT only."
         }
 
         // --- Analytics button (cyan) ---
@@ -57,15 +66,19 @@ extension VideoFileCellView {
             if config.hasAnalyticsResults {
                 analyticsIcon = "chart.bar.xaxis.ascending"
                 analyticsColor = .systemGreen
+                analyticsButton.toolTip = "View quality analytics results. ⌥-click to rerun."
             } else if isAnalyzing {
                 analyticsIcon = "chart.bar.xaxis.ascending"
                 analyticsColor = .systemCyan
+                analyticsButton.toolTip = "Analytics in progress"
             } else if config.analyticsEnabled {
                 analyticsIcon = "chart.bar.xaxis.ascending"
                 analyticsColor = .systemCyan
+                analyticsButton.toolTip = "Quality analytics will run after encoding"
             } else {
                 analyticsIcon = "chart.bar.xaxis"
                 analyticsColor = .secondaryLabelColor
+                analyticsButton.toolTip = "Enable quality analytics (VMAF/PSNR/SSIMULACRA2)"
             }
             analyticsButton.image = NSImage(systemSymbolName: analyticsIcon, accessibilityDescription: nil)
             analyticsButton.contentTintColor = analyticsColor
@@ -80,12 +93,17 @@ extension VideoFileCellView {
         if config.uploadSourceFile {
             uploadIcon = "arrow.up.doc.fill"
             uploadColor = .systemOrange
+            uploadButton.toolTip = "Source file will upload. ⌥-click to disable."
         } else if config.uploadEnabled {
             uploadIcon = "icloud.and.arrow.up.fill"
             uploadColor = .systemBlue
+            uploadButton.toolTip = "Upload after encoding. ⌥-click to upload source file."
         } else {
             uploadIcon = "icloud.and.arrow.up"
             uploadColor = .secondaryLabelColor
+            uploadButton.toolTip = config.isUploadConfigured
+                ? "Enable upload after encoding. ⌥-click to upload source file."
+                : "Configure upload in Settings → Upload"
         }
         uploadButton.image = NSImage(systemSymbolName: uploadIcon, accessibilityDescription: nil)
         uploadButton.contentTintColor = uploadColor
@@ -122,23 +140,33 @@ extension VideoFileCellView {
 
         if config.isDownloading {
             stopDownloadButton.isHidden = false
+            stopDownloadButton.toolTip = "Stop download and keep partial file"
             cancelDownloadButton.isHidden = false
+            cancelDownloadButton.toolTip = "Cancel and discard download"
         } else if config.scheduledDownloadTime != nil {
             cancelScheduledButton.isHidden = false
+            cancelScheduledButton.toolTip = "Cancel scheduled download"
         } else if config.fileAlreadyExistsPath != nil {
             redownloadButton.isHidden = false
+            redownloadButton.toolTip = "Redownload (overwrite existing file)"
         } else if config.downloadError != nil {
             retryDownloadButton.isHidden = false
+            retryDownloadButton.toolTip = "Retry download"
         } else if config.status == .converting {
             cancelButton.isHidden = false
+            cancelButton.toolTip = "Cancel conversion"
         } else if config.subtitleStatus.isInProgress {
             cancelSubtitleButton.isHidden = false
+            cancelSubtitleButton.toolTip = "Cancel subtitle generation"
         } else if config.analyticsStatus.isInProgress {
             cancelAnalyticsButton.isHidden = false
+            cancelAnalyticsButton.toolTip = "Cancel analytics"
         } else {
             deleteButton.isHidden = false
+            deleteButton.toolTip = "Remove from list"
             resetButton.isHidden = false
             resetButton.isEnabled = config.status != .converting && config.status != .waiting
+            resetButton.toolTip = "Reset status"
         }
     }
 

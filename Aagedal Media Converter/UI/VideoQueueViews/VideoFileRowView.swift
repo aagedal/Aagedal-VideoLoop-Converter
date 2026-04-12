@@ -522,23 +522,26 @@ struct VideoFileRowView: View {
                             }
                         }
 
-                        // Progress bar (always present to prevent layout shifts on selection)
-                        if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading || file.subtitleStatus.isInProgress || file.analyticsStatus.isInProgress {
-                            if (file.isDownloading && isDownloadPreparing) || isSubtitlePreparing || file.isLiveStreamRecording {
-                                // Indeterminate progress for preparing or live stream recording
-                                ProgressView()
-                                    .progressViewStyle(LinearProgressViewStyle())
-                                    .tint(progressBarColor)
+                        // Progress bar (fixed frame to prevent layout shifts)
+                        Group {
+                            if file.status == .converting || file.isDownloading || file.uploadStatus == .uploading || file.subtitleStatus.isInProgress || file.analyticsStatus.isInProgress {
+                                if (file.isDownloading && isDownloadPreparing) || isSubtitlePreparing || file.isLiveStreamRecording {
+                                    // Indeterminate progress for preparing or live stream recording
+                                    ProgressView()
+                                        .progressViewStyle(LinearProgressViewStyle())
+                                        .tint(progressBarColor)
+                                } else {
+                                    ProgressView(value: progressBarValue)
+                                        .progressViewStyle(LinearProgressViewStyle())
+                                        .tint(progressBarColor)
+                                }
                             } else {
-                                ProgressView(value: progressBarValue)
+                                ProgressView(value: 0)
                                     .progressViewStyle(LinearProgressViewStyle())
-                                    .tint(progressBarColor)
+                                    .opacity(0)
                             }
-                        } else {
-                            ProgressView(value: 0)
-                                .progressViewStyle(LinearProgressViewStyle())
-                                .opacity(0)
                         }
+                        .frame(height: 4)
 
                         // Status/progress text below progress bar (always present to prevent layout shifts)
                         HStack(alignment: .firstTextBaseline, spacing: 6) {

@@ -21,6 +21,9 @@ struct Aagedal_Media_Converter_App: App {
         // Suppress MoltenVK info logs (level 2 = warnings only, no info spam)
         setenv("MVK_CONFIG_LOG_LEVEL", "2", 1)
 
+        // Show tooltips instantly (default is ~1s delay)
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 200])
+
         UserDefaults.standard.register(defaults: [
             AppConstants.watchFolderIgnoreOlderThan24hKey: false,
             AppConstants.watchFolderAutoDeleteOlderThanWeekKey: false,
@@ -299,3 +302,4 @@ private final class RecordingStatusItemController: NSObject {
         }
     }
 }
+
