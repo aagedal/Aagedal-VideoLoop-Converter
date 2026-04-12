@@ -816,11 +816,6 @@ actor PreviewAssetGenerator {
         let access = startAccessingSecurityScope(for: url)
         defer { SecurityScopedBookmarkManager.shared.stopAccessing(access) }
 
-        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
-            logger.error("FFmpeg binary not found")
-            throw PreviewAssetError.ffmpegBinaryMissing
-        }
-
         let assetDirectory = try ensureAssetDirectory(for: url)
         let rowThumbnailURL = assetDirectory.appendingPathComponent("row_thumb.png", isDirectory: false)
 
@@ -837,6 +832,19 @@ actor PreviewAssetGenerator {
         let hasVideoStream = await hasVideoStream(for: url)
 
         if hasVideoStream {
+            // Try AVFoundation first (in-process, fast for Apple-native formats)
+            if let data = await generateRowThumbnailWithAVFoundation(url: url, destination: rowThumbnailURL) {
+                return data
+            }
+
+            // Fall back to FFmpeg for formats AVFoundation can't handle (MKV, MXF, etc.)
+            logger.info("AVFoundation thumbnail failed for \(url.lastPathComponent, privacy: .public); falling back to FFmpeg")
+
+            guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+                logger.error("FFmpeg binary not found")
+                throw PreviewAssetError.ffmpegBinaryMissing
+            }
+
             guard let ffprobePath = BinaryPathResolver.ffprobePath else {
                 logger.error("FFprobe binary not found")
                 throw PreviewAssetError.ffprobeBinaryMissing
@@ -856,6 +864,11 @@ actor PreviewAssetGenerator {
                 hdrType: hdrType
             )
         } else {
+            guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+                logger.error("FFmpeg binary not found")
+                throw PreviewAssetError.ffmpegBinaryMissing
+            }
+
             try await generateAudioRowThumbnail(
                 url: url,
                 ffmpegPath: ffmpegPath,
@@ -869,6 +882,68 @@ actor PreviewAssetGenerator {
         }
 
         return nil
+    }
+
+    /// Extensions where AVFoundation cannot open the container at all — skip to FFmpeg directly.
+    private static let avFoundationUnsupportedExtensions: Set<String> = [
+        "avi", "asf", "dv", "flv", "gxf", "mkv", "mk3d", "mxf",
+        "ogv", "ogm", "ogg", "oga", "rm", "rmvb", "roq", "ts",
+        "mts", "m2ts", "m2t", "trp", "vob", "webm", "wmv", "wtv", "y4m"
+    ]
+
+    /// Generates a row thumbnail using AVFoundation (fast, in-process, no subprocess spawning).
+    /// Returns the PNG data on success, nil if AVFoundation can't handle the format.
+    private func generateRowThumbnailWithAVFoundation(url: URL, destination: URL) async -> Data? {
+        // Skip AVFoundation entirely for containers it can never handle
+        let ext = url.pathExtension.lowercased()
+        if Self.avFoundationUnsupportedExtensions.contains(ext) {
+            logger.debug("Skipping AVFoundation thumbnail for unsupported container: \(ext, privacy: .public)")
+            return nil
+        }
+
+        let asset = AVURLAsset(url: url)
+
+        // Check that AVFoundation can actually read this file's video track
+        guard let videoTrack = try? await asset.loadTracks(withMediaType: .video).first else {
+            logger.debug("AVFoundation found no video track for \(url.lastPathComponent, privacy: .public)")
+            return nil
+        }
+
+        // Get duration to pick a representative frame (10% in, capped at 10s)
+        let cmDuration = try? await asset.load(.duration)
+        let durationSec = CMTimeGetSeconds(cmDuration ?? CMTime.zero)
+        guard durationSec > 0 else {
+            logger.debug("AVFoundation returned 0 duration for \(url.lastPathComponent, privacy: .public)")
+            return nil
+        }
+
+        let seekPosition = min(10, max(durationSec * 0.1, 0.5))
+        let seekTime = CMTime(seconds: seekPosition, preferredTimescale: 600)
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 640, height: 0) // 640px wide, height preserves aspect ratio
+        generator.requestedTimeToleranceBefore = CMTime(seconds: 2, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 2, preferredTimescale: 600)
+
+        do {
+            let (cgImage, _) = try await generator.image(at: seekTime)
+            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+
+            guard let tiffData = nsImage.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiffData),
+                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
+                logger.debug("AVFoundation thumbnail: failed to encode PNG for \(url.lastPathComponent, privacy: .public)")
+                return nil
+            }
+
+            try pngData.write(to: destination)
+            logger.info("AVFoundation thumbnail generated for \(url.lastPathComponent, privacy: .public)")
+            return pngData
+        } catch {
+            logger.debug("AVFoundation thumbnail generation failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     private func generateAudioRowThumbnail(

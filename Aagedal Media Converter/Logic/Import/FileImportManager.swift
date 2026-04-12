@@ -241,61 +241,70 @@ actor FileImportManager {
         preset: ExportPreset,
         continuation: AsyncStream<ImportUpdate>.Continuation
     ) async {
-        // Consolidated: Single FFprobe call via metadata(), then derive essential info from it
-        // This eliminates the duplicate ffprobe calls that were happening before
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        let outputURL = VideoFileUtils.makeOutputURLPublic(for: url, outputFolder: outputFolder, preset: preset)
+
+        // Phase 1: Get duration quickly and yield immediately so the UI feels responsive.
+        // AVFoundation reads the moov atom in-process for Apple-native containers;
+        // for non-Apple containers we use the lightweight ffprobe duration query.
+        let quickDuration = await VideoFileUtils.getQuickDuration(for: url)
+        if quickDuration > 0 {
+            let earlyDetails = VideoFileUtils.VideoItemDetails(
+                size: size,
+                duration: VideoFileUtils.formatDuration(seconds: quickDuration),
+                durationSeconds: quickDuration,
+                thumbnailData: nil,
+                outputURL: outputURL,
+                hasVideoStream: true // optimistic, will be corrected by full metadata
+            )
+            continuation.yield(.itemDetailsLoaded(id: id, details: earlyDetails))
+        }
+
+        // Phase 2: Full metadata probe (heavy — show_format + show_streams)
         do {
-            // Single FFprobe call that gets everything we need
             let metadata = try await VideoMetadataService.shared.metadata(for: url)
 
-            // Derive essential info from the full metadata
-            let duration = metadata.duration ?? 0
+            let duration = metadata.duration ?? quickDuration
             let hasVideoStream = !metadata.videoStreams.isEmpty
 
-            // Build VideoItemDetails from metadata
-            let durationString = VideoFileUtils.formatDuration(seconds: duration)
-            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-            let outputURL = VideoFileUtils.makeOutputURLPublic(for: url, outputFolder: outputFolder, preset: preset)
+            // Yield corrected details if duration or hasVideoStream changed
+            if quickDuration <= 0 || duration != quickDuration || !hasVideoStream {
+                let details = VideoFileUtils.VideoItemDetails(
+                    size: size,
+                    duration: VideoFileUtils.formatDuration(seconds: duration),
+                    durationSeconds: duration,
+                    thumbnailData: nil,
+                    outputURL: outputURL,
+                    hasVideoStream: hasVideoStream
+                )
+                continuation.yield(.itemDetailsLoaded(id: id, details: details))
+            }
 
-            let details = VideoFileUtils.VideoItemDetails(
-                size: size,
-                duration: durationString,
-                durationSeconds: duration,
-                thumbnailData: nil,  // Will be loaded separately
-                outputURL: outputURL,
-                hasVideoStream: hasVideoStream
-            )
-
-            continuation.yield(.itemDetailsLoaded(id: id, details: details))
             continuation.yield(.itemMetadataLoaded(id: id, metadata: metadata))
 
-            if let thumbnailData = await VideoFileUtils.getCachedThumbnail(
-                url: url,
-                generateRowThumbnailIfMissing: true
-            ) {
-                continuation.yield(.itemThumbnailLoaded(id: id, thumbnailData: thumbnailData))
-            }
-
         } catch {
-            logger.error("Failed to load details for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            logger.error("Failed to load metadata for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
 
-            // Fallback to legacy loadDetails if metadata fetch fails
-            let details = await VideoFileUtils.loadDetails(
-                for: url,
-                outputFolder: outputFolder,
-                preset: preset,
-                generateRowThumbnailIfMissing: false
-            )
-            continuation.yield(.itemDetailsLoaded(id: id, details: details))
-
-            // Don't retry metadata fetch - if it failed above, it will fail again
-            continuation.yield(.itemMetadataLoaded(id: id, metadata: nil))
-
-            if let thumbnailData = await VideoFileUtils.getCachedThumbnail(
-                url: url,
-                generateRowThumbnailIfMissing: true
-            ) {
-                continuation.yield(.itemThumbnailLoaded(id: id, thumbnailData: thumbnailData))
+            // If we didn't yield early details (quickDuration was 0), fall back to legacy loadDetails
+            if quickDuration <= 0 {
+                let details = await VideoFileUtils.loadDetails(
+                    for: url,
+                    outputFolder: outputFolder,
+                    preset: preset,
+                    generateRowThumbnailIfMissing: false
+                )
+                continuation.yield(.itemDetailsLoaded(id: id, details: details))
             }
+
+            continuation.yield(.itemMetadataLoaded(id: id, metadata: nil))
+        }
+
+        // Phase 3: Thumbnail (always after duration is visible)
+        if let thumbnailData = await VideoFileUtils.getCachedThumbnail(
+            url: url,
+            generateRowThumbnailIfMissing: true
+        ) {
+            continuation.yield(.itemThumbnailLoaded(id: id, thumbnailData: thumbnailData))
         }
     }
 }

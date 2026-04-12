@@ -201,27 +201,41 @@ struct VideoFileUtils: Sendable {
 
         var durationSec: Double = 0.0
 
-        // First check if duration is already cached (avoids redundant ffprobe calls)
+        // Extensions where AVFoundation cannot parse container metadata — go straight to FFprobe
+        let avFoundationUnsupportedExtensions: Set<String> = [
+            "avi", "asf", "dv", "flv", "gxf", "mkv", "mk3d", "mxf",
+            "ogv", "ogm", "ogg", "oga", "rm", "rmvb", "roq", "ts",
+            "mts", "m2ts", "m2t", "trp", "vob", "webm", "wmv", "wtv", "y4m"
+        ]
+        let ext = url.pathExtension.lowercased()
+        let useAVFoundation = !avFoundationUnsupportedExtensions.contains(ext)
+
+        // First check if duration is already cached
         if let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url), cachedDuration > 0 {
             durationSec = cachedDuration
             logger.debug("Using cached duration: \(durationSec, privacy: .public)s for \(fileName, privacy: .public)")
-        } else if BinaryPathResolver.ffprobePath != nil {
-            // Fall back to FFprobe if not cached
-            logger.info("Attempting to get duration using FFprobe for: \(fileName, privacy: .public)")
-            durationSec = await FFMPEGConverter.getVideoDuration(url: url) ?? 0.0
-
-            if durationSec > 0 {
-                logger.debug("FFprobe duration: \(durationSec, privacy: .public)s for \(fileName, privacy: .public)")
-            } else {
-                logger.debug("FFprobe returned 0 duration for \(fileName, privacy: .public); falling back to AVFoundation")
-            }
-        }
-
-        // Fall back to AVFoundation if still no duration
-        if durationSec <= 0 {
+        } else if useAVFoundation {
+            // Try AVFoundation first (in-process, fast for Apple-native containers)
             let asset = AVURLAsset(url: url)
             let cmDuration = try? await asset.load(.duration)
             durationSec = CMTimeGetSeconds(cmDuration ?? CMTime.zero)
+
+            if durationSec > 0 {
+                logger.debug("AVFoundation duration: \(durationSec, privacy: .public)s for \(fileName, privacy: .public)")
+            } else if BinaryPathResolver.ffprobePath != nil {
+                // Fall back to FFprobe if AVFoundation couldn't parse this file
+                logger.debug("AVFoundation returned 0 duration for \(fileName, privacy: .public); falling back to FFprobe")
+                durationSec = await FFMPEGConverter.getVideoDuration(url: url) ?? 0.0
+                if durationSec > 0 {
+                    logger.debug("FFprobe duration: \(durationSec, privacy: .public)s for \(fileName, privacy: .public)")
+                }
+            }
+        } else if BinaryPathResolver.ffprobePath != nil {
+            // Non-Apple container — use FFprobe directly
+            durationSec = await FFMPEGConverter.getVideoDuration(url: url) ?? 0.0
+            if durationSec > 0 {
+                logger.debug("FFprobe duration: \(durationSec, privacy: .public)s for \(fileName, privacy: .public)")
+            }
         }
 
         let durationString = formatDuration(seconds: durationSec)
@@ -455,6 +469,33 @@ struct VideoFileUtils: Sendable {
         }
     }
     
+    /// Lightweight duration fetch: cache → AVFoundation → lightweight ffprobe.
+    /// Does NOT trigger the heavy full-metadata probe.
+    static func getQuickDuration(for url: URL) async -> Double {
+        // Check cache first
+        if let cached = await VideoMetadataService.shared.cachedDuration(for: url), cached > 0 {
+            return cached
+        }
+
+        let avFoundationUnsupportedExtensions: Set<String> = [
+            "avi", "asf", "dv", "flv", "gxf", "mkv", "mk3d", "mxf",
+            "ogv", "ogm", "ogg", "oga", "rm", "rmvb", "roq", "ts",
+            "mts", "m2ts", "m2t", "trp", "vob", "webm", "wmv", "wtv", "y4m"
+        ]
+        let ext = url.pathExtension.lowercased()
+
+        if !avFoundationUnsupportedExtensions.contains(ext) {
+            let asset = AVURLAsset(url: url)
+            if let cmDuration = try? await asset.load(.duration) {
+                let sec = CMTimeGetSeconds(cmDuration)
+                if sec > 0 { return sec }
+            }
+        }
+
+        // Lightweight ffprobe (duration only, no full stream analysis)
+        return await FFMPEGConverter.getVideoDuration(url: url) ?? 0.0
+    }
+
     @available(macOS 13.0, *)
     private static func getDurationFromAVFoundation(url: URL) async -> Double? {
         do {
