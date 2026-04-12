@@ -27,14 +27,78 @@ extension VideoFileCellView {
                 NSLayoutConstraint(item: badge, attribute: vAttr, relatedBy: .equal, toItem: thumbnailContainer, attribute: vAttr, multiplier: 1, constant: vConst),
             ])
         }
+
+        // Set corner anchors so each badge scales toward its corner
+        audioRoutingBadge.cornerAnchor = CGPoint(x: 0, y: 1)    // top-left
+        timecodeBadge.cornerAnchor = CGPoint(x: 1, y: 1)        // top-right
+        trimBadge.cornerAnchor = CGPoint(x: 0, y: 0)            // bottom-left
+        cropBadge.cornerAnchor = CGPoint(x: 1, y: 0)            // bottom-right
+        uploadBadge.cornerAnchor = CGPoint(x: 1, y: 0.5)        // right-center
+        analyticsBadgeView.cornerAnchor = CGPoint(x: 0, y: 0.5) // left-center
+
+        // Wire up badge click actions
+        audioRoutingBadge.onClick = { [weak self] in self?.actionHandler?(.showAudioRouting) }
+        timecodeBadge.onClick = { [weak self] in self?.actionHandler?(.showTimecode) }
+        trimBadge.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
+        cropBadge.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
+        uploadBadge.onClick = { [weak self] in
+            let opt = NSEvent.modifierFlags.contains(.option)
+            self?.actionHandler?(.toggleUpload(optionPressed: opt))
+        }
+        analyticsBadgeView.onClick = { [weak self] in
+            let opt = NSEvent.modifierFlags.contains(.option)
+            self?.actionHandler?(.toggleAnalytics(optionPressed: opt))
+        }
+    }
+
+    // MARK: - Overlay Action Buttons (shown on hover)
+
+    func setupOverlayButtons() {
+        // These are always-available action buttons, shown only on hover.
+        // Added after badges so they render on top.
+
+        // Play button — center
+        overlayPlayButton.update(icon: "play.fill", text: "")
+        overlayPlayButton.isHidden = true
+        overlayPlayButton.onClick = { [weak self] in self?.actionHandler?(.playFullscreen) }
+        thumbnailContainer.addSubview(overlayPlayButton)
+        NSLayoutConstraint.activate([
+            overlayPlayButton.centerXAnchor.constraint(equalTo: thumbnailContainer.centerXAnchor),
+            overlayPlayButton.centerYAnchor.constraint(equalTo: thumbnailContainer.centerYAnchor),
+        ])
+
+        // Trim button — bottom left
+        overlayTrimButton.update(icon: "scissors", text: "Trim")
+        overlayTrimButton.isHidden = true
+        overlayTrimButton.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
+        thumbnailContainer.addSubview(overlayTrimButton)
+        NSLayoutConstraint.activate([
+            overlayTrimButton.leadingAnchor.constraint(equalTo: thumbnailContainer.leadingAnchor, constant: 4),
+            overlayTrimButton.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -4),
+        ])
+
+        // Metadata button — bottom right
+        overlayMetadataButton.update(icon: "info.circle", text: "Info")
+        overlayMetadataButton.isHidden = true
+        overlayMetadataButton.onClick = { [weak self] in self?.actionHandler?(.showMetadata) }
+        thumbnailContainer.addSubview(overlayMetadataButton)
+        NSLayoutConstraint.activate([
+            overlayMetadataButton.trailingAnchor.constraint(equalTo: thumbnailContainer.trailingAnchor, constant: -4),
+            overlayMetadataButton.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -4),
+        ])
+    }
+
+    private var overlayButtons: [BadgeView] {
+        [overlayPlayButton, overlayTrimButton, overlayMetadataButton]
     }
 
     // MARK: - Hover Overlay
 
     func setupHoverOverlay() {
-        hoverOverlay.wantsLayer = true
-        hoverOverlay.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.5).cgColor
-        hoverOverlay.alphaValue = 0
+        hoverOverlay.material = .hudWindow
+        hoverOverlay.blendingMode = .withinWindow
+        hoverOverlay.state = .active
+        hoverOverlay.isHidden = true
         hoverOverlay.translatesAutoresizingMaskIntoConstraints = false
         thumbnailContainer.addSubview(hoverOverlay)
 
@@ -44,56 +108,7 @@ extension VideoFileCellView {
             hoverOverlay.topAnchor.constraint(equalTo: thumbnailContainer.topAnchor),
             hoverOverlay.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor),
         ])
-
-        // Hover buttons
-        let previewBtn = makeHoverButton(symbol: "eye", tooltip: "Preview / Trim", action: #selector(hoverPreviewClicked), size: 18)
-        let playBtn = makeHoverButton(symbol: "play.fill", tooltip: "Play Fullscreen", action: #selector(hoverPlayClicked), size: 40)
-        let metadataBtn = makeHoverButton(symbol: "info.circle", tooltip: "Metadata", action: #selector(hoverMetadataClicked), size: 18)
-        let audioBtn = makeHoverButton(symbol: "speaker.wave.2", tooltip: "Audio Routing", action: #selector(hoverAudioClicked), size: 16)
-        let timecodeBtn = makeHoverButton(symbol: "timer", tooltip: "Timecode", action: #selector(hoverTimecodeClicked), size: 16)
-
-        // Position buttons manually for precise centering
-        for btn in [previewBtn, playBtn, metadataBtn, audioBtn, timecodeBtn] {
-            hoverOverlay.addSubview(btn)
-        }
-
-        NSLayoutConstraint.activate([
-            // Top row: audio (top-left), timecode (top-right)
-            audioBtn.leadingAnchor.constraint(equalTo: hoverOverlay.leadingAnchor, constant: 8),
-            audioBtn.topAnchor.constraint(equalTo: hoverOverlay.topAnchor, constant: 6),
-            timecodeBtn.trailingAnchor.constraint(equalTo: hoverOverlay.trailingAnchor, constant: -8),
-            timecodeBtn.topAnchor.constraint(equalTo: hoverOverlay.topAnchor, constant: 6),
-
-            // Center: play button
-            playBtn.centerXAnchor.constraint(equalTo: hoverOverlay.centerXAnchor),
-            playBtn.centerYAnchor.constraint(equalTo: hoverOverlay.centerYAnchor),
-
-            // Bottom row: preview (bottom-left), metadata (bottom-right)
-            previewBtn.leadingAnchor.constraint(equalTo: hoverOverlay.leadingAnchor, constant: 8),
-            previewBtn.bottomAnchor.constraint(equalTo: hoverOverlay.bottomAnchor, constant: -6),
-            metadataBtn.trailingAnchor.constraint(equalTo: hoverOverlay.trailingAnchor, constant: -8),
-            metadataBtn.bottomAnchor.constraint(equalTo: hoverOverlay.bottomAnchor, constant: -6),
-        ])
     }
-
-    private func makeHoverButton(symbol: String, tooltip: String, action: Selector, size: CGFloat = 16) -> NSButton {
-        let btn = NSButton()
-        let config = NSImage.SymbolConfiguration(pointSize: size, weight: .medium)
-        btn.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tooltip)?.withSymbolConfiguration(config)
-        btn.contentTintColor = .white
-        btn.isBordered = false
-        btn.target = self
-        btn.action = action
-        btn.toolTip = tooltip
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        return btn
-    }
-
-    @objc private func hoverPreviewClicked() { actionHandler?(.showPreview) }
-    @objc private func hoverPlayClicked() { actionHandler?(.playFullscreen) }
-    @objc private func hoverMetadataClicked() { actionHandler?(.showMetadata) }
-    @objc private func hoverAudioClicked() { actionHandler?(.showAudioRouting) }
-    @objc private func hoverTimecodeClicked() { actionHandler?(.showTimecode) }
 
     // MARK: - Tracking Area (hover detection)
 
@@ -112,17 +127,29 @@ extension VideoFileCellView {
         trackingArea = area
     }
 
+    private var allBadges: [BadgeView] {
+        [audioRoutingBadge, timecodeBadge, trimBadge, cropBadge, uploadBadge, analyticsBadgeView]
+    }
+
     override func mouseEntered(with event: NSEvent) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            hoverOverlay.animator().alphaValue = 1
+        hoverOverlay.isHidden = false
+        for badge in allBadges {
+            badge.showHoverOutline()
+        }
+        for button in overlayButtons {
+            button.isHidden = false
+            button.showHoverOutline()
         }
     }
 
     override func mouseExited(with event: NSEvent) {
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.15
-            hoverOverlay.animator().alphaValue = 0
+        hoverOverlay.isHidden = true
+        for badge in allBadges {
+            badge.hideHoverOutline()
+        }
+        for button in overlayButtons {
+            button.isHidden = true
+            button.hideHoverOutline()
         }
     }
 

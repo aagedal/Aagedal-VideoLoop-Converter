@@ -31,7 +31,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     let thumbnailImageView = NSImageView()
     private let checkerboardLayer = CALayer()
     private let thumbnailBorderLayer = CAShapeLayer()
-    let hoverOverlay = NSView()
+    let hoverOverlay = NSVisualEffectView()
     var trackingArea: NSTrackingArea?
 
     // Content area (right)
@@ -60,12 +60,14 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     let dotSeparator = NSTextField(labelWithString: "•")
     let sizeLabel = NSTextField(labelWithString: "")
 
-    // Toggle buttons (normal mode)
+    // Toggle buttons (normal mode — ordered by processing pipeline)
+    let encodeButton = NSButton()
     let autoEncodeButton = NSButton()
     let uploadButton = NSButton()
     let transcriptionButton = NSButton()
     let ocrButton = NSButton()
     let analyticsButton = NSButton()
+    let commentToggleButton = NSButton()
 
     // Action buttons container
     let actionButtonStack = NSStackView()
@@ -80,11 +82,21 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     let cancelSubtitleButton = NSButton()
     let cancelAnalyticsButton = NSButton()
 
-    // Row 4: Status line
-    let statusStack = NSStackView()
+    // Row 4: Buttons row (action + toggle buttons)
+    let buttonsRow = NSStackView()
+    let buttonDivider = NSView()
+    private let rightSideStack = NSStackView()
+    private let statusRow = NSStackView()
+
+    // Status labels (displayed in info row)
     let overwriteWarningLabel = NSTextField(labelWithString: "")
     let outputSizeLabel = NSTextField(labelWithString: "")
     let statusLabel = NSTextField(labelWithString: "")
+
+    // Status capsule (colored pill label, e.g. "WAITING", "ENCODING", "DONE", "FAILED")
+    let statusCapsule = NSView()
+    let capsuleIcon = NSImageView()
+    let capsuleLabel = NSTextField(labelWithString: "")
 
     // Row 5: Comment section (hidden in compact mode)
     let commentSection = NSStackView()
@@ -104,6 +116,11 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     let cropBadge = BadgeView()
     let uploadBadge = BadgeView()
     let analyticsBadgeView = BadgeView()
+
+    // Overlay action buttons (shown on thumbnail hover)
+    let overlayPlayButton = BadgeView()
+    let overlayTrimButton = BadgeView()
+    let overlayMetadataButton = BadgeView()
 
     // Selection border
     private let selectionBorderLayer = CAShapeLayer()
@@ -134,9 +151,11 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         cardView.wantsLayer = true
         cardView.layer?.cornerRadius = 12
         cardView.layer?.masksToBounds = true
-        cardView.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         cardView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(cardView)
+
+        // Dark cyan/teal card background
+        cardView.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1.0).cgColor
 
         // Shadow on self (outside the clip)
         layer?.shadowColor = NSColor.black.cgColor
@@ -144,16 +163,18 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         layer?.shadowRadius = 4
         layer?.shadowOffset = NSSize(width: 0, height: -2)
 
-        // Selection border
+        // Pink/red border — high zPosition so it draws above all subviews
         selectionBorderLayer.fillColor = nil
-        selectionBorderLayer.lineWidth = 0.8
-        selectionBorderLayer.strokeColor = NSColor.separatorColor.withAlphaComponent(0.3).cgColor
+        selectionBorderLayer.lineWidth = 1.2
+        selectionBorderLayer.strokeColor = NSColor(red: 0.85, green: 0.25, blue: 0.35, alpha: 0.6).cgColor
+        selectionBorderLayer.zPosition = 100
         cardView.layer?.addSublayer(selectionBorderLayer)
 
         // Main horizontal stack: thumbnail | content
         mainHStack.orientation = .horizontal
         mainHStack.spacing = 0
         mainHStack.alignment = .top
+        mainHStack.distribution = .fill
         mainHStack.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(mainHStack)
 
@@ -162,10 +183,10 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
         // Constraints
         NSLayoutConstraint.activate([
-            cardView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            cardView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            cardView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            cardView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            cardView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            cardView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            cardView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            cardView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
 
             mainHStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
             mainHStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
@@ -180,10 +201,10 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         thumbnailContainer.layer?.masksToBounds = true
         // Only round the right corners — left side is flush with card edge
         thumbnailContainer.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
-        thumbnailContainer.layer?.cornerRadius = 0
+        thumbnailContainer.layer?.cornerRadius = 8
 
         // Checkerboard background — spans full row height, pinned to left edge of card
-        let checkSize: CGFloat = 8
+        let checkSize: CGFloat = 16
         let checkImage = NSImage(size: NSSize(width: checkSize * 2, height: checkSize * 2), flipped: true) { rect in
             NSColor(white: 0.2, alpha: 1).setFill()
             rect.fill()
@@ -197,6 +218,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         if let cgImage = checkImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
             checkerView.layer?.backgroundColor = NSColor(patternImage: NSImage(cgImage: cgImage, size: NSSize(width: checkSize * 2, height: checkSize * 2))).cgColor
         }
+        checkerView.layer?.masksToBounds = true
+        checkerView.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        checkerView.layer?.cornerRadius = 8
         checkerView.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(checkerView, positioned: .below, relativeTo: mainHStack)
         NSLayoutConstraint.activate([
@@ -217,11 +241,10 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         thumbnailBorderLayer.lineWidth = 1
         thumbnailContainer.layer?.addSublayer(thumbnailBorderLayer)
 
-        // Badges
-        setupBadges()
-
-        // Hover overlay
+        // Hover overlay first, then badges, then overlay action buttons on top
         setupHoverOverlay()
+        setupBadges()
+        setupOverlayButtons()
 
         mainHStack.addArrangedSubview(thumbnailContainer)
 
@@ -251,7 +274,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         setupFilenameRow()
         setupProgressBar()
         setupInfoRow()
-        setupStatusRow()
+        setupButtonsRow()
         setupCommentSection()
 
         // Wrap content stack in a padded container
@@ -376,40 +399,99 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         configureLabel(dotSeparator, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
         configureLabel(sizeLabel, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
 
-        // Toggle buttons
-        setupToggleButton(uploadButton, symbol: "icloud.and.arrow.up", action: #selector(uploadButtonClicked))
-        setupToggleButton(transcriptionButton, symbol: "captions.bubble", action: #selector(transcriptionButtonClicked))
-        setupToggleButton(ocrButton, symbol: "text.viewfinder", action: #selector(ocrButtonClicked))
-        ocrButton.isHidden = true
-        setupToggleButton(analyticsButton, symbol: "chart.bar.xaxis", action: #selector(analyticsButtonClicked))
-        setupToggleButton(autoEncodeButton, symbol: "play", action: #selector(autoEncodeButtonClicked))
-        autoEncodeButton.isHidden = true
+        // Overwrite warning (inline)
+        configureLabel(overwriteWarningLabel, font: .systemFont(ofSize: 11), color: .systemOrange)
+        overwriteWarningLabel.stringValue = "Existing file will be overwritten"
+        overwriteWarningLabel.isHidden = true
 
-        // Spacer view
-        let spacer = NSView()
-        spacer.translatesAutoresizingMaskIntoConstraints = false
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // Output size (inline)
+        configureLabel(outputSizeLabel, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        outputSizeLabel.isHidden = true
 
         infoStack.addArrangedSubview(durationLabel)
         infoStack.addArrangedSubview(durationWarningIcon)
         infoStack.addArrangedSubview(dotSeparator)
         infoStack.addArrangedSubview(sizeLabel)
-        infoStack.addArrangedSubview(spacer)
-        infoStack.addArrangedSubview(autoEncodeButton)
-        infoStack.addArrangedSubview(uploadButton)
-        infoStack.addArrangedSubview(transcriptionButton)
-        infoStack.addArrangedSubview(ocrButton)
-        infoStack.addArrangedSubview(analyticsButton)
-
-        // Action buttons
-        setupActionButtons()
-        infoStack.addArrangedSubview(actionButtonStack)
+        infoStack.addArrangedSubview(overwriteWarningLabel)
+        infoStack.addArrangedSubview(outputSizeLabel)
 
         contentStack.addArrangedSubview(infoStack)
         infoStack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             infoStack.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             infoStack.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+        ])
+    }
+
+    private func setupButtonsRow() {
+        buttonsRow.orientation = .horizontal
+        buttonsRow.spacing = 6
+        buttonsRow.alignment = .top
+
+        // Toggle buttons (left side — ordered by processing pipeline)
+        setupToggleButton(encodeButton, symbol: "play.fill", action: #selector(encodeButtonClicked))
+        setupToggleButton(autoEncodeButton, symbol: "play", action: #selector(autoEncodeButtonClicked))
+        autoEncodeButton.isHidden = true
+        setupToggleButton(transcriptionButton, symbol: "captions.bubble", action: #selector(transcriptionButtonClicked))
+        setupToggleButton(ocrButton, symbol: "text.viewfinder", action: #selector(ocrButtonClicked))
+        ocrButton.isHidden = true
+        setupToggleButton(analyticsButton, symbol: "chart.bar.xaxis", action: #selector(analyticsButtonClicked))
+        setupToggleButton(uploadButton, symbol: "icloud.and.arrow.up", action: #selector(uploadButtonClicked))
+
+        // Spacer to push right-side items
+        let spacer = NSView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        // Divider between toggle buttons and right side
+        buttonDivider.wantsLayer = true
+        buttonDivider.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        buttonDivider.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            buttonDivider.widthAnchor.constraint(equalToConstant: 1),
+            buttonDivider.heightAnchor.constraint(equalToConstant: 40),
+        ])
+
+        // Right side: capsule + status on top, action buttons below
+        rightSideStack.orientation = .vertical
+        rightSideStack.spacing = 4
+        rightSideStack.alignment = .trailing
+
+        // Top row: capsule + status label
+        statusRow.orientation = .horizontal
+        statusRow.spacing = 6
+        statusRow.alignment = .centerY
+
+        setupStatusCapsule()
+        configureLabel(statusLabel, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        statusLabel.alignment = .right
+        statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        statusRow.addArrangedSubview(statusCapsule)
+        statusRow.addArrangedSubview(statusLabel)
+
+        // Bottom row: action buttons
+        setupActionButtons()
+
+        rightSideStack.addArrangedSubview(statusRow)
+        rightSideStack.addArrangedSubview(actionButtonStack)
+
+        // Layout: [toggles in pipeline order] [spacer] [divider] [rightSideStack]
+        buttonsRow.addArrangedSubview(encodeButton)
+        buttonsRow.addArrangedSubview(autoEncodeButton)
+        buttonsRow.addArrangedSubview(transcriptionButton)
+        buttonsRow.addArrangedSubview(ocrButton)
+        buttonsRow.addArrangedSubview(analyticsButton)
+        buttonsRow.addArrangedSubview(uploadButton)
+        buttonsRow.addArrangedSubview(spacer)
+        buttonsRow.addArrangedSubview(buttonDivider)
+        buttonsRow.addArrangedSubview(rightSideStack)
+
+        contentStack.addArrangedSubview(buttonsRow)
+        buttonsRow.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            buttonsRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            buttonsRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
         ])
     }
 
@@ -440,37 +522,40 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         actionButtonStack.addArrangedSubview(resetButton)
     }
 
-    private func setupStatusRow() {
-        statusStack.orientation = .horizontal
-        statusStack.spacing = 6
-        statusStack.alignment = .firstBaseline
+    private func setupStatusCapsule() {
+        statusCapsule.wantsLayer = true
+        statusCapsule.layer?.cornerRadius = 10
+        statusCapsule.layer?.borderWidth = 1.2
+        statusCapsule.translatesAutoresizingMaskIntoConstraints = false
 
-        configureLabel(overwriteWarningLabel, font: .systemFont(ofSize: 11), color: .systemOrange)
-        overwriteWarningLabel.stringValue = "Existing file will be overwritten"
-        overwriteWarningLabel.isHidden = true
+        capsuleIcon.translatesAutoresizingMaskIntoConstraints = false
+        capsuleIcon.contentTintColor = .secondaryLabelColor
+        statusCapsule.addSubview(capsuleIcon)
 
-        configureLabel(outputSizeLabel, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
-        outputSizeLabel.isHidden = true
+        capsuleLabel.font = .systemFont(ofSize: 9, weight: .bold)
+        capsuleLabel.textColor = .secondaryLabelColor
+        capsuleLabel.isBezeled = false
+        capsuleLabel.isEditable = false
+        capsuleLabel.isSelectable = false
+        capsuleLabel.drawsBackground = false
+        capsuleLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusCapsule.addSubview(capsuleLabel)
 
-        let statusSpacer = NSView()
-        statusSpacer.translatesAutoresizingMaskIntoConstraints = false
-        statusSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        configureLabel(statusLabel, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
-        statusLabel.alignment = .right
-        statusLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        statusStack.addArrangedSubview(overwriteWarningLabel)
-        statusStack.addArrangedSubview(outputSizeLabel)
-        statusStack.addArrangedSubview(statusSpacer)
-        statusStack.addArrangedSubview(statusLabel)
-
-        contentStack.addArrangedSubview(statusStack)
-        statusStack.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            statusStack.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            statusStack.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            capsuleIcon.leadingAnchor.constraint(equalTo: statusCapsule.leadingAnchor, constant: 7),
+            capsuleIcon.centerYAnchor.constraint(equalTo: statusCapsule.centerYAnchor),
+            capsuleIcon.widthAnchor.constraint(equalToConstant: 10),
+            capsuleIcon.heightAnchor.constraint(equalToConstant: 10),
+
+            capsuleLabel.leadingAnchor.constraint(equalTo: capsuleIcon.trailingAnchor, constant: 3),
+            capsuleLabel.trailingAnchor.constraint(equalTo: statusCapsule.trailingAnchor, constant: -8),
+            capsuleLabel.centerYAnchor.constraint(equalTo: statusCapsule.centerYAnchor),
+
+            statusCapsule.heightAnchor.constraint(equalToConstant: 20),
         ])
+
+        statusCapsule.setContentHuggingPriority(.required, for: .horizontal)
+        statusCapsule.setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
     // MARK: - Helpers
@@ -495,6 +580,10 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         button.action = action
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setContentHuggingPriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 24),
+        ])
     }
 
     private func setupActionButton(_ button: NSButton, symbol: String, color: NSColor, action: Selector) {
@@ -507,8 +596,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         button.isHidden = true
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 20),
-            button.heightAnchor.constraint(equalToConstant: 20),
+            button.widthAnchor.constraint(equalToConstant: 24),
+            button.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
 
@@ -590,8 +679,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             updateActionButtons(config: config)
         }
 
-        // Status text
+        // Status text + capsule
         updateStatusRow(config: config)
+        updateStatusCapsule(config: config)
 
         // Comment section — only on relevant changes
         if isFirstConfigure || prev?.comment != config.comment || prev?.isCompactMode != config.isCompactMode || prev?.showCommentField != config.showCommentField || prev?.includeDateTag != config.includeDateTag || prev?.isFocusedComment != config.isFocusedComment || prev?.waveformVideoEnabled != config.waveformVideoEnabled {
@@ -633,8 +723,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
     override func updateLayer() {
         super.updateLayer()
-        // Update colors for appearance changes (dark/light mode)
-        cardView.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        cardView.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1.0).cgColor
     }
 
     private func updateThumbnailSize() {
@@ -647,9 +736,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
     private func updateSelectionBorder(isSelected: Bool) {
         selectionBorderLayer.strokeColor = isSelected
-            ? NSColor.controlAccentColor.cgColor
-            : NSColor.separatorColor.withAlphaComponent(0.3).cgColor
-        selectionBorderLayer.lineWidth = isSelected ? 2 : 0.8
+            ? NSColor(red: 0.95, green: 0.25, blue: 0.40, alpha: 0.9).cgColor
+            : NSColor(red: 0.85, green: 0.25, blue: 0.35, alpha: 0.6).cgColor
+        selectionBorderLayer.lineWidth = isSelected ? 3 : 1.2
     }
 
     private func updateProgressBar(config: VideoFileCellConfiguration) {
@@ -671,9 +760,35 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
                 progressBar.stopAnimation(nil)
                 progressBar.doubleValue = progressBarValue(config: config)
             }
+            // Tint progress bar to match the active process color
+            tintProgressBar(config: config)
         } else {
             progressBar.isHidden = true
             progressBar.stopAnimation(nil)
+            progressBar.contentFilters = []
+        }
+    }
+
+    private func tintProgressBar(config: VideoFileCellConfiguration) {
+        let tintColor: NSColor
+        if config.isDownloading {
+            tintColor = .systemPurple
+        } else if config.status == .converting {
+            tintColor = .systemGreen
+        } else if config.subtitleStatus.isInProgress {
+            tintColor = .systemYellow
+        } else if config.analyticsStatus.isInProgress {
+            tintColor = .systemCyan
+        } else if config.uploadStatus == .uploading {
+            tintColor = .systemBlue
+        } else {
+            progressBar.contentFilters = []
+            return
+        }
+        if let filter = CIFilter(name: "CIFalseColor") {
+            filter.setValue(CIColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1), forKey: "inputColor0")
+            filter.setValue(CIColor(color: tintColor), forKey: "inputColor1")
+            progressBar.contentFilters = [filter]
         }
     }
 
@@ -743,7 +858,15 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         let opt = NSEvent.modifierFlags.contains(.option)
         actionHandler?(.toggleAnalytics(optionPressed: opt))
     }
+    @objc private func encodeButtonClicked() {
+        let opt = NSEvent.modifierFlags.contains(.option)
+        actionHandler?(.encodeNow(optionPressed: opt))
+    }
     @objc private func autoEncodeButtonClicked() { actionHandler?(.toggleAutoEncode) }
+    @objc func commentToggleClicked() {
+        let key = "showCommentField"
+        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: key), forKey: key)
+    }
 
     // MARK: - NSTextFieldDelegate (comment field)
 
@@ -777,23 +900,54 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 // MARK: - Badge View
 
 /// Small overlay badge for thumbnail corners (trim, crop, audio routing, etc.)
+/// Rendered at full size and scaled down for normal display; scales to 1.0 on hover for crisp text.
+/// Clickable — set `onClick` to handle taps.
 final class BadgeView: NSView {
     private let iconView = NSImageView()
     private let textLabel = NSTextField(labelWithString: "")
+    var onClick: (() -> Void)?
+
+    /// Anchor point for scale transforms — set per-badge to match its corner position.
+    var cornerAnchor = CGPoint(x: 0, y: 0) {
+        didSet { needsLayout = true }
+    }
+
+    /// Scale when not hovered
+    static let restScale: CGFloat = 0.7
+
+    private let effectBackground = NSVisualEffectView()
 
     override init(frame: NSRect) {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 4
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.65).cgColor
+        layer?.cornerRadius = 5
+        layer?.masksToBounds = true
         translatesAutoresizingMaskIntoConstraints = false
         isHidden = true
 
+        // Liquid glass background
+        effectBackground.material = .hudWindow
+        effectBackground.blendingMode = .withinWindow
+        effectBackground.state = .active
+        effectBackground.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(effectBackground)
+        NSLayoutConstraint.activate([
+            effectBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
+            effectBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
+            effectBackground.topAnchor.constraint(equalTo: topAnchor),
+            effectBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
+        // Subtle glass edge border
+        layer?.borderWidth = 0.5
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
+
+        // Rendered at full size — icon 14pt, text 12pt, height 24
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentTintColor = .white
         addSubview(iconView)
 
-        textLabel.font = .systemFont(ofSize: 9, weight: .medium)
+        textLabel.font = .systemFont(ofSize: 12, weight: .medium)
         textLabel.textColor = .white
         textLabel.isBezeled = false
         textLabel.isEditable = false
@@ -802,20 +956,37 @@ final class BadgeView: NSView {
         addSubview(textLabel)
 
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 10),
-            iconView.heightAnchor.constraint(equalToConstant: 10),
+            iconView.widthAnchor.constraint(equalToConstant: 14),
+            iconView.heightAnchor.constraint(equalToConstant: 14),
 
-            textLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 2),
-            textLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            textLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 3),
+            textLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
             textLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            heightAnchor.constraint(equalToConstant: 18),
+            heightAnchor.constraint(equalToConstant: 24),
         ])
+
+        let click = NSClickGestureRecognizer(target: self, action: #selector(badgeClicked))
+        addGestureRecognizer(click)
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        // Position the anchor at the badge's corner so it scales toward/away from that corner
+        layer?.anchorPoint = cornerAnchor
+        layer?.position = CGPoint(
+            x: frame.origin.x + bounds.width * cornerAnchor.x,
+            y: frame.origin.y + bounds.height * cornerAnchor.y
+        )
+    }
+
+    @objc private func badgeClicked() {
+        onClick?()
+    }
 
     func update(icon: String, text: String, color: NSColor = .white) {
         iconView.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
@@ -827,5 +998,29 @@ final class BadgeView: NSView {
 
     func hide() {
         isHidden = true
+    }
+
+    func animateScale(to scale: CGFloat, duration: TimeInterval = 0.2) {
+        guard !isHidden else { return }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(duration)
+        layer?.transform = CATransform3DMakeScale(scale, scale, 1)
+        CATransaction.commit()
+    }
+
+    func showHoverOutline() {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.15)
+        layer?.borderWidth = 1.0
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.5).cgColor
+        CATransaction.commit()
+    }
+
+    func hideHoverOutline() {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.15)
+        layer?.borderWidth = 0.5
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
+        CATransaction.commit()
     }
 }

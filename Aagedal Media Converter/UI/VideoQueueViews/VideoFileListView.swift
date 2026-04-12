@@ -60,6 +60,7 @@ struct VideoFileListView: View {
     var onPlayFullscreen: ((UUID) -> Void)?
     var onURLDrop: ((String) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)? = nil
+    var encodeOnly: ((UUID) async -> Void)?
     var onDeleteGroup: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
@@ -82,7 +83,7 @@ struct VideoFileListView: View {
     @State private var sortOverlayDismissTask: DispatchWorkItem?
 
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
-    @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
+    @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = false
     @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
     @AppStorage(AppConstants.queueViewModeKey) private var queueViewMode = AppConstants.defaultQueueViewMode
 
@@ -125,7 +126,6 @@ struct VideoFileListView: View {
 
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.windowBackgroundColor))
                 .onTapGesture(count: 2) {
                     onDoubleClick()
                 }
@@ -153,6 +153,9 @@ struct VideoFileListView: View {
                     onToggleDateTag: onToggleDateTag,
                     onPlayFullscreen: onPlayFullscreen,
                     onRenameOutputFileName: onRenameOutputFileName,
+                    encodeOnly: { itemID in
+                        await encodeOnly?(itemID)
+                    },
                     transcribeOnly: { itemID, method in
                         await transcribeOnly(itemID: itemID, method: method)
                     },

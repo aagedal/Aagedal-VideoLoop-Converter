@@ -242,6 +242,9 @@ struct ContentView: View {
             onRenameOutputFileName: { id, newName in
                 handleOutputFileNameOverride(itemID: id, newName: newName)
             },
+            encodeOnly: { itemID in
+                await encodeOnlyItem(itemID: itemID)
+            },
             onDeleteGroup: { groupID in
                 encodingGroups.removeAll { $0.id == groupID }
                 queueOrder.removeAll { $0 == groupID }
@@ -1006,6 +1009,24 @@ struct ContentView: View {
         isConverting = false
         SoundManager.shared.playSuccess()
         watchFolderCoordinator.startConversion()
+    }
+
+    /// Encodes a single item immediately (Option+click on encode button).
+    @MainActor
+    private func encodeOnlyItem(itemID: UUID) async {
+        guard !isConverting else { return }
+        guard droppedFiles.contains(where: { $0.id == itemID && $0.status == .waiting }) else { return }
+        isConverting = true
+        dockProgressUpdater.updateProgress(0.0)
+        await ConversionManager.shared.startConversion(
+            droppedFiles: $droppedFiles,
+            outputFolder: currentOutputFolder.path,
+            preset: selectedPreset,
+            mergeClipsEnabled: false,
+            limitToIDs: [itemID]
+        )
+        isConverting = false
+        SoundManager.shared.playSuccess()
     }
 
     @MainActor
