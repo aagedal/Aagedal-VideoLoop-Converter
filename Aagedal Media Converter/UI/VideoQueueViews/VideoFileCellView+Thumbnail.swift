@@ -14,8 +14,7 @@ extension VideoFileCellView {
             (timecodeBadge, .trailing, .top),
             (trimBadge, .leading, .bottom),
             (cropBadge, .trailing, .bottom),
-            (uploadBadge, .trailing, .centerY),
-            (analyticsBadgeView, .leading, .centerY),
+
         ]
 
         for (badge, hAttr, vAttr) in badges {
@@ -33,22 +32,11 @@ extension VideoFileCellView {
         timecodeBadge.cornerAnchor = CGPoint(x: 1, y: 1)        // top-right
         trimBadge.cornerAnchor = CGPoint(x: 0, y: 0)            // bottom-left
         cropBadge.cornerAnchor = CGPoint(x: 1, y: 0)            // bottom-right
-        uploadBadge.cornerAnchor = CGPoint(x: 1, y: 0.5)        // right-center
-        analyticsBadgeView.cornerAnchor = CGPoint(x: 0, y: 0.5) // left-center
-
         // Wire up badge click actions
         audioRoutingBadge.onClick = { [weak self] in self?.actionHandler?(.showAudioRouting) }
         timecodeBadge.onClick = { [weak self] in self?.actionHandler?(.showTimecode) }
         trimBadge.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
         cropBadge.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
-        uploadBadge.onClick = { [weak self] in
-            let opt = NSEvent.modifierFlags.contains(.option)
-            self?.actionHandler?(.toggleUpload(optionPressed: opt))
-        }
-        analyticsBadgeView.onClick = { [weak self] in
-            let opt = NSEvent.modifierFlags.contains(.option)
-            self?.actionHandler?(.toggleAnalytics(optionPressed: opt))
-        }
     }
 
     // MARK: - Overlay Action Buttons (shown on hover)
@@ -92,24 +80,6 @@ extension VideoFileCellView {
         [overlayPlayButton, overlayTrimButton, overlayMetadataButton]
     }
 
-    // MARK: - Hover Overlay
-
-    func setupHoverOverlay() {
-        hoverOverlay.material = .hudWindow
-        hoverOverlay.blendingMode = .withinWindow
-        hoverOverlay.state = .active
-        hoverOverlay.isHidden = true
-        hoverOverlay.translatesAutoresizingMaskIntoConstraints = false
-        thumbnailContainer.addSubview(hoverOverlay)
-
-        NSLayoutConstraint.activate([
-            hoverOverlay.leadingAnchor.constraint(equalTo: thumbnailContainer.leadingAnchor),
-            hoverOverlay.trailingAnchor.constraint(equalTo: thumbnailContainer.trailingAnchor),
-            hoverOverlay.topAnchor.constraint(equalTo: thumbnailContainer.topAnchor),
-            hoverOverlay.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor),
-        ])
-    }
-
     // MARK: - Tracking Area (hover detection)
 
     override func updateTrackingAreas() {
@@ -128,11 +98,10 @@ extension VideoFileCellView {
     }
 
     private var allBadges: [BadgeView] {
-        [audioRoutingBadge, timecodeBadge, trimBadge, cropBadge, uploadBadge, analyticsBadgeView]
+        [audioRoutingBadge, timecodeBadge, trimBadge, cropBadge]
     }
 
     override func mouseEntered(with event: NSEvent) {
-        hoverOverlay.isHidden = false
         for badge in allBadges {
             badge.showHoverOutline()
         }
@@ -143,7 +112,6 @@ extension VideoFileCellView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        hoverOverlay.isHidden = true
         for badge in allBadges {
             badge.hideHoverOutline()
         }
@@ -198,33 +166,7 @@ extension VideoFileCellView {
             timecodeBadge.hide()
         }
 
-        // Upload badge
-        switch config.uploadStatus {
-        case .uploading:
-            uploadBadge.update(icon: "arrow.up.circle.fill", text: "\(Int(config.uploadProgress * 100))%", color: .systemBlue)
-        case .uploaded:
-            uploadBadge.update(icon: "checkmark.circle.fill", text: "", color: .systemGreen)
-        case .failed(_):
-            uploadBadge.update(icon: "exclamationmark.circle.fill", text: "", color: .systemRed)
-        case .pending:
-            uploadBadge.update(icon: "clock.fill", text: "", color: .systemCyan)
-        default:
-            if config.uploadEnabled {
-                uploadBadge.update(icon: "icloud.and.arrow.up", text: "", color: .white)
-            } else {
-                uploadBadge.hide()
-            }
-        }
-
-        // Analytics badge
-        if config.hasAnalyticsResults {
-            analyticsBadgeView.update(icon: "chart.bar.xaxis.ascending", text: "", color: .systemGreen)
-        } else if config.analyticsStatus.isInProgress {
-            analyticsBadgeView.update(icon: "chart.bar.xaxis.ascending", text: "\(Int(config.analyticsProgress * 100))%", color: .systemOrange)
-        } else if config.analyticsEnabled {
-            analyticsBadgeView.update(icon: "chart.bar.xaxis", text: "", color: .systemCyan)
-        } else {
-            analyticsBadgeView.hide()
-        }
+        uploadBadge.hide()
+        analyticsBadgeView.hide()
     }
 }

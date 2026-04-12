@@ -31,7 +31,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     let thumbnailImageView = NSImageView()
     private let checkerboardLayer = CALayer()
     private let thumbnailBorderLayer = CAShapeLayer()
-    let hoverOverlay = NSVisualEffectView()
+
     var trackingArea: NSTrackingArea?
 
     // Content area (right)
@@ -241,8 +241,6 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         thumbnailBorderLayer.lineWidth = 1
         thumbnailContainer.layer?.addSublayer(thumbnailBorderLayer)
 
-        // Hover overlay first, then badges, then overlay action buttons on top
-        setupHoverOverlay()
         setupBadges()
         setupOverlayButtons()
 
