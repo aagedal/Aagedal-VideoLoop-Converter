@@ -540,6 +540,27 @@ struct VideoFileRowView: View {
                                 .opacity(0)
                         }
 
+                        // Status/progress text below progress bar (always present to prevent layout shifts)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(progressText)
+                                .font(isCompactMode ? .caption : .subheadline)
+                                .foregroundColor(statusColor)
+                            Spacer()
+                            if !isCompactMode {
+                                if file.status == .waiting && file.outputFileExists {
+                                    Text("Existing file will be overwritten")
+                                        .font(.subheadline)
+                                        .foregroundColor(.orange)
+                                }
+                                if file.status == .done {
+                                    Text("Export: \(file.formattedOutputSize ?? "—")")
+                                        .font(.subheadline)
+                                        .foregroundColor(.gray)
+                                        .help("Exported file size")
+                                }
+                            }
+                        }
+
                         // Standard mode: duration and size line
                         if !isCompactMode {
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -809,31 +830,6 @@ struct VideoFileRowView: View {
                                     }
                                 }
                             }
-                        }
-
-                        // Status line (simplified in compact mode)
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            if !isCompactMode {
-                                if file.status == .waiting && file.outputFileExists {
-                                    Text("Existing file will be overwritten")
-                                        .font(.subheadline)
-                                        .foregroundColor(.orange)
-                                }
-
-                                if file.status == .done {
-                                    Text("Export: \(file.formattedOutputSize ?? "—")")
-                                        .font(.subheadline)
-                                        .foregroundColor(.gray)
-                                        .help("Exported file size")
-                                }
-                            }
-
-                            Spacer()
-
-                            // Status text aligned to the right
-                            Text(progressText)
-                                .font(isCompactMode ? .caption : .subheadline)
-                                .foregroundColor(statusColor)
                         }
 
                         // Comment section (only in standard mode)
@@ -1361,14 +1357,13 @@ struct VideoFileRowView: View {
     @ViewBuilder
     private var analyticsBadge: some View {
         switch file.analyticsStatus {
-        case .running(let metric, _):
-            badgeView(icon: "chart.bar.xaxis", text: metric.displayName, color: .orange)
+        case .running, .pending:
+            // In-progress states shown in status text below progress bar
+            EmptyView()
         case .completed:
             badgeView(icon: "chart.bar.xaxis", text: "", color: .green)
         case .failed:
             badgeView(icon: "chart.bar.xaxis", text: "!", color: .red)
-        case .pending:
-            badgeView(icon: "chart.bar.xaxis", text: "", color: .cyan)
         case .notQueued:
             if file.analyticsEnabled {
                 badgeView(icon: "chart.bar.xaxis", text: "", color: .cyan.opacity(0.7))
