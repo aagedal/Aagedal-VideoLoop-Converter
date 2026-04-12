@@ -12,6 +12,7 @@ import AppKit
 import OSLog
 import CryptoKit
 import AVFoundation
+import CoreImage
 
 /// Represents a single chunk of a waveform image for progressive loading
 struct WaveformChunk: Sendable, Identifiable, Equatable {
@@ -928,11 +929,27 @@ actor PreviewAssetGenerator {
 
         do {
             let (cgImage, _) = try await generator.image(at: seekTime)
-            let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
 
-            guard let tiffData = nsImage.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            var ciImage = CIImage(cgImage: cgImage)
+
+            // Tonemap high-bit-depth content (ProRes RAW, HDR10, HLG) to SDR.
+            // Standard NSImageView doesn't engage EDR, so these look over-exposed
+            // unless properly tonemapped. CIToneMapHeadroom compresses the dynamic
+            // range instead of just clamping values at 1.0.
+            if cgImage.bitsPerComponent > 8 {
+                if let tonemap = CIFilter(name: "CIToneMapHeadroom", parameters: [
+                    kCIInputImageKey: ciImage,
+                    "inputSourceHeadroom": 8.0,
+                    "inputTargetHeadroom": 1.0
+                ]), let tonemapped = tonemap.outputImage {
+                    ciImage = tonemapped
+                    logger.debug("Tonemapped \(cgImage.bitsPerComponent)-bit HDR thumbnail for \(url.lastPathComponent, privacy: .public)")
+                }
+            }
+
+            let context = CIContext()
+            let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+            guard let pngData = context.pngRepresentation(of: ciImage, format: .RGBA8, colorSpace: srgb) else {
                 logger.debug("AVFoundation thumbnail: failed to encode PNG for \(url.lastPathComponent, privacy: .public)")
                 return nil
             }
