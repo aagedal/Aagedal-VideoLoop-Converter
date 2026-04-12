@@ -932,18 +932,25 @@ actor PreviewAssetGenerator {
 
             var ciImage = CIImage(cgImage: cgImage)
 
-            // Tonemap high-bit-depth content (ProRes RAW, HDR10, HLG) to SDR.
-            // Standard NSImageView doesn't engage EDR, so these look over-exposed
-            // unless properly tonemapped. CIToneMapHeadroom compresses the dynamic
-            // range instead of just clamping values at 1.0.
-            if cgImage.bitsPerComponent > 8 {
+            // Tonemap ProRes RAW thumbnails to SDR. ProRes RAW is camera sensor
+            // data in linear light with very high dynamic range that looks
+            // over-exposed in standard NSImageView. Other HDR formats (HDR10, HLG)
+            // render acceptably without tonemapping.
+            let formatDescriptions = (try? await videoTrack.load(.formatDescriptions)) ?? []
+            let isProResRAW = formatDescriptions.contains { desc in
+                let code = CMFormatDescriptionGetMediaSubType(desc)
+                // 'aprn' = ProRes RAW, 'aprh' = ProRes RAW HQ
+                return code == 0x6170726E || code == 0x61707268
+            }
+
+            if isProResRAW {
                 if let tonemap = CIFilter(name: "CIToneMapHeadroom", parameters: [
                     kCIInputImageKey: ciImage,
                     "inputSourceHeadroom": 8.0,
                     "inputTargetHeadroom": 1.0
                 ]), let tonemapped = tonemap.outputImage {
                     ciImage = tonemapped
-                    logger.debug("Tonemapped \(cgImage.bitsPerComponent)-bit HDR thumbnail for \(url.lastPathComponent, privacy: .public)")
+                    logger.debug("Tonemapped ProRes RAW thumbnail for \(url.lastPathComponent, privacy: .public)")
                 }
             }
 
