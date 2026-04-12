@@ -9,6 +9,14 @@ extension VideoFileCellView {
     // MARK: - Toggle Buttons Update
 
     func updateToggleButtons(config: VideoFileCellConfiguration) {
+        // --- Encode button (green play icon) ---
+        encodeButton.isHidden = config.isCompactMode
+        let isEncoding = config.status == .converting
+        encodeButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+        encodeButton.contentTintColor = isEncoding ? .systemGreen : .systemGreen.withAlphaComponent(0.5)
+        encodeButton.isEnabled = config.status == .waiting || config.status == .done || config.status == .failed
+        applyProcessingRing(to: encodeButton, active: isEncoding, color: .systemGreen)
+
         // Auto-encode button (only during download)
         let showAutoEncode = config.isDownloading || config.scheduledDownloadTime != nil
         autoEncodeButton.isHidden = !showAutoEncode || config.isCompactMode
@@ -17,8 +25,56 @@ extension VideoFileCellView {
             autoEncodeButton.contentTintColor = config.autoEncodeAfterDownload ? .systemGreen : .secondaryLabelColor
         }
 
-        // Upload button
+        // --- Transcription button (yellow) ---
+        transcriptionButton.isHidden = config.isCompactMode
+        let isTranscriptionEnabled = config.subtitleEnabled && (config.subtitleMethod == .whisper || config.subtitleMethod == .parakeet)
+        let isTranscribing = config.subtitleStatus.isInProgress
+        transcriptionButton.image = NSImage(systemSymbolName: isTranscriptionEnabled ? "captions.bubble.fill" : "captions.bubble", accessibilityDescription: nil)
+        if !config.isTranscriptionAvailable {
+            transcriptionButton.contentTintColor = .systemOrange
+        } else if isTranscriptionEnabled || isTranscribing {
+            transcriptionButton.contentTintColor = .systemYellow
+        } else {
+            transcriptionButton.contentTintColor = .secondaryLabelColor
+        }
+        applyProcessingRing(to: transcriptionButton, active: isTranscribing, color: .systemYellow)
+
+        // OCR button
+        let showOCR = config.hasBitmapSubtitles && !config.isCompactMode
+        ocrButton.isHidden = !showOCR
+        if showOCR {
+            let isOCREnabled = config.subtitleEnabled && config.subtitleMethod == .ocr
+            ocrButton.contentTintColor = isOCREnabled ? .systemYellow : .secondaryLabelColor
+        }
+
+        // --- Analytics button (cyan) ---
+        let showAnalytics = config.hasVideoStream && !config.isCompactMode
+        analyticsButton.isHidden = !showAnalytics
+        let isAnalyzing = config.analyticsStatus.isInProgress
+        if showAnalytics {
+            let analyticsIcon: String
+            let analyticsColor: NSColor
+            if config.hasAnalyticsResults {
+                analyticsIcon = "chart.bar.xaxis.ascending"
+                analyticsColor = .systemGreen
+            } else if isAnalyzing {
+                analyticsIcon = "chart.bar.xaxis.ascending"
+                analyticsColor = .systemCyan
+            } else if config.analyticsEnabled {
+                analyticsIcon = "chart.bar.xaxis.ascending"
+                analyticsColor = .systemCyan
+            } else {
+                analyticsIcon = "chart.bar.xaxis"
+                analyticsColor = .secondaryLabelColor
+            }
+            analyticsButton.image = NSImage(systemSymbolName: analyticsIcon, accessibilityDescription: nil)
+            analyticsButton.contentTintColor = analyticsColor
+        }
+        applyProcessingRing(to: analyticsButton, active: isAnalyzing, color: .systemCyan)
+
+        // --- Upload button (blue) ---
         uploadButton.isHidden = config.isCompactMode
+        let isUploading = config.uploadStatus == .uploading
         let uploadIcon: String
         let uploadColor: NSColor
         if config.uploadSourceFile {
@@ -34,48 +90,22 @@ extension VideoFileCellView {
         uploadButton.image = NSImage(systemSymbolName: uploadIcon, accessibilityDescription: nil)
         uploadButton.contentTintColor = uploadColor
         uploadButton.isEnabled = config.isUploadConfigured
+        applyProcessingRing(to: uploadButton, active: isUploading, color: .systemBlue)
 
-        // Transcription button
-        transcriptionButton.isHidden = config.isCompactMode
-        let isTranscriptionEnabled = config.subtitleEnabled && (config.subtitleMethod == .whisper || config.subtitleMethod == .parakeet)
-        transcriptionButton.image = NSImage(systemSymbolName: isTranscriptionEnabled ? "captions.bubble.fill" : "captions.bubble", accessibilityDescription: nil)
-        if !config.isTranscriptionAvailable {
-            transcriptionButton.contentTintColor = .systemOrange
-        } else if isTranscriptionEnabled {
-            transcriptionButton.contentTintColor = .systemGreen
+        // Divider visibility (hide when toggle buttons are hidden)
+        buttonDivider.isHidden = config.isCompactMode
+    }
+
+    /// Shows or hides a circular ring around a button to indicate active processing.
+    private func applyProcessingRing(to button: NSButton, active: Bool, color: NSColor) {
+        button.wantsLayer = true
+        if active {
+            button.layer?.borderWidth = 1.5
+            button.layer?.borderColor = color.withAlphaComponent(0.8).cgColor
+            button.layer?.cornerRadius = 12  // half of 24pt button size
         } else {
-            transcriptionButton.contentTintColor = .secondaryLabelColor
-        }
-
-        // OCR button
-        let showOCR = config.hasBitmapSubtitles && !config.isCompactMode
-        ocrButton.isHidden = !showOCR
-        if showOCR {
-            let isOCREnabled = config.subtitleEnabled && config.subtitleMethod == .ocr
-            ocrButton.contentTintColor = isOCREnabled ? .systemGreen : .secondaryLabelColor
-        }
-
-        // Analytics button
-        let showAnalytics = config.hasVideoStream && !config.isCompactMode
-        analyticsButton.isHidden = !showAnalytics
-        if showAnalytics {
-            let analyticsIcon: String
-            let analyticsColor: NSColor
-            if config.hasAnalyticsResults {
-                analyticsIcon = "chart.bar.xaxis.ascending"
-                analyticsColor = .systemGreen
-            } else if config.analyticsStatus.isInProgress {
-                analyticsIcon = "chart.bar.xaxis.ascending"
-                analyticsColor = .systemOrange
-            } else if config.analyticsEnabled {
-                analyticsIcon = "chart.bar.xaxis.ascending"
-                analyticsColor = .systemCyan
-            } else {
-                analyticsIcon = "chart.bar.xaxis"
-                analyticsColor = .secondaryLabelColor
-            }
-            analyticsButton.image = NSImage(systemSymbolName: analyticsIcon, accessibilityDescription: nil)
-            analyticsButton.contentTintColor = analyticsColor
+            button.layer?.borderWidth = 0
+            button.layer?.borderColor = nil
         }
     }
 
@@ -116,6 +146,37 @@ extension VideoFileCellView {
         }
     }
 
+    // MARK: - Status Capsule Update
+
+    func updateStatusCapsule(config: VideoFileCellConfiguration) {
+        let (text, icon, color): (String, String, NSColor) = {
+            if config.downloadError != nil { return ("ERROR", "exclamationmark.circle", .systemRed) }
+            if config.isDownloading {
+                if config.isLiveStreamRecording { return ("LIVE", "bolt.fill", .systemPurple) }
+                return ("DOWNLOADING", "arrow.down.circle", .systemPurple)
+            }
+            if config.uploadStatus == .uploading { return ("UPLOADING", "arrow.up.circle", .systemBlue) }
+            if config.uploadStatus == .uploaded { return ("UPLOADED", "checkmark.circle", .systemGreen) }
+            if case .failed = config.uploadStatus { return ("UPLOAD ERR", "exclamationmark.circle", .systemRed) }
+            if config.subtitleStatus.isInProgress { return ("SUBTITLES", "captions.bubble", .systemOrange) }
+            if config.analyticsStatus.isInProgress { return ("ANALYZING", "chart.bar.xaxis", .systemCyan) }
+
+            switch config.status {
+            case .waiting: return ("WAITING", "clock", .secondaryLabelColor)
+            case .converting: return ("ENCODING", "arrow.trianglehead.2.clockwise", .systemBlue)
+            case .done: return ("DONE", "checkmark.circle", .systemGreen)
+            case .failed: return ("FAILED", "exclamationmark.circle", .systemRed)
+            @unknown default: return ("", "questionmark", .secondaryLabelColor)
+            }
+        }()
+
+        capsuleLabel.stringValue = text
+        capsuleLabel.textColor = color
+        capsuleIcon.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+        capsuleIcon.contentTintColor = color
+        statusCapsule.layer?.borderColor = color.withAlphaComponent(0.6).cgColor
+    }
+
     // MARK: - Status Row Update
 
     func updateStatusRow(config: VideoFileCellConfiguration) {
@@ -138,74 +199,67 @@ extension VideoFileCellView {
     // MARK: - Progress Text
 
     private func progressText(config: VideoFileCellConfiguration) -> String {
-        // Scheduled download
+        // Scheduled download — capsule can't show time detail
         if let scheduledTime = config.scheduledDownloadTime {
             let formatter = DateFormatter()
             formatter.dateStyle = .none
             formatter.timeStyle = .short
-            return "Scheduled for \(formatter.string(from: scheduledTime))"
+            return "Scheduled \(formatter.string(from: scheduledTime))"
         }
 
-        // Downloading
+        // Downloading — show percentage and speed (capsule shows DOWNLOADING)
         if config.isDownloading {
             if config.downloadStopping { return "Stopping..." }
-            if config.isLiveStreamRecording { return "Recording live stream..." }
-            if !config.downloadHasProgress { return "Preparing download..." }
+            if config.isLiveStreamRecording { return "" }
+            if !config.downloadHasProgress { return "Preparing..." }
             let pct = Int(config.downloadProgress * 100)
             if let speed = config.downloadSpeed {
-                return "Downloading: \(pct)% (\(speed))"
+                return "\(pct)% (\(speed))"
             }
-            return "Downloading: \(pct)%"
+            return "\(pct)%"
         }
 
-        // Download error
+        // Download error — show detail
         if let error = config.downloadError {
-            return "Download failed: \(error)"
+            return error
         }
 
-        // File already exists (download skip)
+        // File already exists
         if config.fileAlreadyExistsPath != nil {
             return "File already exists"
         }
 
-        // Upload
+        // Upload — show percentage only (capsule shows UPLOADING/UPLOADED/UPLOAD ERR)
         if config.uploadStatus == .uploading {
-            let pct = Int(config.uploadProgress * 100)
-            return "Uploading: \(pct)%"
+            return "\(Int(config.uploadProgress * 100))%"
         }
-        if config.uploadStatus == .uploaded {
-            return "Upload complete"
-        }
-        if case .failed = config.uploadStatus {
-            return "Upload failed"
-        }
+        if config.uploadStatus == .uploaded { return "" }
+        if case .failed = config.uploadStatus { return "" }
 
         // Subtitle generation
         if config.subtitleStatus.isInProgress {
-            let pct = Int(config.subtitleProgress * 100)
-            return "Generating subtitles: \(pct)%"
+            return "\(Int(config.subtitleProgress * 100))%"
         }
 
         // Analytics
         if config.analyticsStatus.isInProgress {
-            let pct = Int(config.analyticsProgress * 100)
-            return "Analyzing quality: \(pct)%"
+            return "\(Int(config.analyticsProgress * 100))%"
         }
 
-        // Conversion status
+        // Conversion — show percentage and ETA (capsule shows ENCODING/DONE/FAILED/WAITING)
         switch config.status {
         case .waiting:
-            return "Waiting"
+            return ""
         case .converting:
             let pct = Int(config.progress * 100)
             if let eta = config.eta {
-                return "Converting: \(pct)% — ETA \(eta)"
+                return "\(pct)% — ETA \(eta)"
             }
-            return "Converting: \(pct)%"
+            return "\(pct)%"
         case .done:
-            return "Done"
+            return ""
         case .failed:
-            return "Failed"
+            return ""
         @unknown default:
             return ""
         }

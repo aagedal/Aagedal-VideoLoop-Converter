@@ -32,6 +32,13 @@ extension VideoFileCellView {
         commentField.usesSingleLineMode = true
         commentField.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
+        // Comment toggle button
+        commentToggleButton.image = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: "Toggle comment")
+        commentToggleButton.isBordered = false
+        commentToggleButton.target = self
+        commentToggleButton.action = #selector(commentToggleClicked)
+        commentToggleButton.setContentHuggingPriority(.required, for: .horizontal)
+
         // Date tag button
         dateTagButton.image = NSImage(systemSymbolName: "calendar.badge.checkmark", accessibilityDescription: "Date tag")
         dateTagButton.isBordered = false
@@ -57,12 +64,13 @@ extension VideoFileCellView {
 
         commentSection.addArrangedSubview(commentInfoButton)
         commentSection.addArrangedSubview(commentField)
+        commentSection.addArrangedSubview(commentToggleButton)
         commentSection.addArrangedSubview(dateTagButton)
         commentSection.addArrangedSubview(waveformButton)
         commentSection.addArrangedSubview(waveformBgButton)
 
         contentStack.addArrangedSubview(commentSection)
-        contentStack.setCustomSpacing(12, after: statusStack)
+        contentStack.setCustomSpacing(12, after: buttonsRow)
 
         commentSection.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -80,7 +88,14 @@ extension VideoFileCellView {
         let showDateTag = !config.isCompactMode && config.showDateTagButton
         let showDCP = !config.isCompactMode && config.isDCPPreset
 
-        commentSection.isHidden = !showComment && !showWaveform && !showDateTag && !showDCP
+        // Always show in non-compact mode (comment toggle button is always visible)
+        commentSection.isHidden = config.isCompactMode
+
+        // Comment toggle button (always visible, uses cyan to distinguish from green transcription)
+        commentToggleButton.isHidden = config.isCompactMode
+        let commentActive = config.showCommentField
+        commentToggleButton.image = NSImage(systemSymbolName: commentActive ? "text.bubble.fill" : "text.bubble", accessibilityDescription: nil)
+        commentToggleButton.contentTintColor = commentActive ? .systemCyan : .secondaryLabelColor
 
         // Comment field
         commentInfoButton.isHidden = !showComment || showDCP

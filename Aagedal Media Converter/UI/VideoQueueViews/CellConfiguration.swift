@@ -157,6 +157,9 @@ enum CellAction {
     case forceRedownload
     case cancelScheduledDownload
 
+    // Encode
+    case encodeNow(optionPressed: Bool)
+
     // Toggles
     case toggleUpload(optionPressed: Bool)
     case toggleTranscription(optionPressed: Bool)

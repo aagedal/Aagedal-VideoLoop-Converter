@@ -78,6 +78,7 @@ struct VideoQueueTableView: NSViewRepresentable {
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)?
+    var encodeOnly: ((UUID) async -> Void)?
     var transcribeOnly: ((UUID, SubtitleConversionMethod) async -> Void)?
     var analyzeOnly: ((UUID) async -> Void)?
     var analyzeMetrics: ((UUID, [QualityMetric]) async -> Void)?
@@ -193,6 +194,16 @@ struct VideoQueueTableView: NSViewRepresentable {
         let newIDs = displayRows.map(\.id)
         let oldIDs = coordinator.previousIDs
 
+        // Handle compact mode changes - notify table about row height changes
+        // Must happen before updateVisibleCells so cells get reconfigured
+        if isCompactMode != coordinator.previousCompactMode {
+            coordinator.previousCompactMode = isCompactMode
+            if tableView.numberOfRows > 0 {
+                let allRows = IndexSet(integersIn: 0..<tableView.numberOfRows)
+                tableView.noteHeightOfRows(withIndexesChanged: allRows)
+            }
+        }
+
         if newIDs == oldIDs {
             coordinator.updateVisibleCells()
         } else if Set(newIDs) == Set(oldIDs) && newIDs.count == oldIDs.count {
@@ -203,15 +214,6 @@ struct VideoQueueTableView: NSViewRepresentable {
         }
 
         coordinator.previousIDs = newIDs
-
-        // Handle compact mode changes - notify table about row height changes
-        if isCompactMode != coordinator.previousCompactMode {
-            coordinator.previousCompactMode = isCompactMode
-            if tableView.numberOfRows > 0 {
-                let allRows = IndexSet(integersIn: 0..<tableView.numberOfRows)
-                tableView.noteHeightOfRows(withIndexesChanged: allRows)
-            }
-        }
 
         // Sync selection: SwiftUI -> NSTableView
         syncSelectionToTableView(coordinator: coordinator, tableView: tableView)
@@ -355,11 +357,11 @@ struct VideoQueueTableView: NSViewRepresentable {
             guard row < displayRows.count else { return 200 }
             switch displayRows[row] {
             case .single:
-                return parent.isCompactMode ? 86 : 142
+                return parent.isCompactMode ? 103 : 170
             case .groupHeader:
-                return 88
+                return 106
             case .groupItem:
-                return 99
+                return 119
             }
         }
 
@@ -547,6 +549,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 || parent.mergeClipsAvailable != previousMergeAvailable
                 || parent.showCommentField != previousShowComment
                 || parent.showDateTagButton != previousShowDateTag
+                || parent.isCompactMode != previousCompactMode
 
             for row in start..<end {
                 // Skip cells where row data and selection are unchanged
@@ -757,6 +760,14 @@ struct VideoQueueTableView: NSViewRepresentable {
                 if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
                     parent.droppedFiles[idx].analyticsStatus = .notQueued
                     parent.droppedFiles[idx].analyticsProgress = 0
+                }
+            case .encodeNow(let optionPressed):
+                if optionPressed {
+                    // Option+click: encode this single item immediately
+                    let callback = parent.encodeOnly
+                    Task { @MainActor in
+                        await callback?(itemID)
+                    }
                 }
             case .toggleUpload(let optionPressed):
                 if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
