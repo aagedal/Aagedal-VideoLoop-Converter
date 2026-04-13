@@ -45,7 +45,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     private let outputNameField = NSTextField() // editable, hidden by default
     private let mergeIndicator = NSImageView()
     private let finderButton = NSButton()
-    private let dragButton = NSImageView()
+    private let dragButton = DraggableFileImageView()
     private let downloadSourceButton = NSButton()
     private let liveRecordingBadge = NSView()
     private let liveRecordingLabel = NSTextField(labelWithString: "LIVE")
@@ -331,6 +331,12 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         finderButton.isHidden = true
         finderButton.setContentHuggingPriority(.required, for: .horizontal)
 
+        // Drag-to-share button
+        dragButton.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: "Drag to share file")
+        dragButton.translatesAutoresizingMaskIntoConstraints = false
+        dragButton.isHidden = true
+        dragButton.setContentHuggingPriority(.required, for: .horizontal)
+
         // Live recording badge
         liveRecordingBadge.wantsLayer = true
         liveRecordingBadge.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.8).cgColor
@@ -352,6 +358,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         filenameStack.addArrangedSubview(outputNameField)
         filenameStack.addArrangedSubview(mergeIndicator)
         filenameStack.addArrangedSubview(finderButton)
+        filenameStack.addArrangedSubview(dragButton)
         filenameStack.addArrangedSubview(liveRecordingBadge)
 
         contentStack.addArrangedSubview(filenameStack)
@@ -643,6 +650,15 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             let showFinderButton = config.status == .done || (config.status == .waiting && config.outputFileExists)
             finderButton.isHidden = !showFinderButton
             finderButton.contentTintColor = config.status == .done ? .systemBlue : .systemOrange
+
+            // Drag-to-share icon (shown alongside Finder button)
+            dragButton.isHidden = !showFinderButton
+            let dragColor: NSColor = config.status == .done ? .systemBlue : .systemOrange
+            dragButton.contentTintColor = dragColor
+            dragButton.fileURL = config.outputURL
+            dragButton.toolTip = config.status == .done
+                ? "Drag this icon to share the exported file with other apps."
+                : "Output file already exists and will be overwritten during conversion. Drag to share or archive before converting."
         }
 
         // Live recording
@@ -1015,4 +1031,14 @@ final class BadgeView: NSView {
         layer?.borderColor = NSColor.white.withAlphaComponent(0.2).cgColor
         CATransaction.commit()
     }
+}
+
+// MARK: - DraggableFileImageView
+
+/// Marker NSImageView subclass that holds a file URL for drag-to-share.
+/// The actual drag session is initiated by VideoQueueNSTableView, which
+/// detects clicks on this view and starts the file drag from the table level
+/// (bypassing NSTableView's row-reorder machinery).
+final class DraggableFileImageView: NSImageView {
+    var fileURL: URL?
 }
