@@ -19,7 +19,7 @@ private final class VideoQueueNSTableView: NSTableView {
 
     override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         if isFileDrag {
-            return context == .outsideApplication ? .copy : []
+            return .copy
         }
         return super.draggingSession(session, sourceOperationMaskFor: context)
     }
