@@ -32,11 +32,11 @@ actor FFMPEGConverter {
     /// - Parameters:
     ///   - request: All conversion parameters bundled in a ConversionRequest
     ///   - progressUpdate: Callback for progress updates (progress: Double, status: String?)
-    ///   - completion: Callback for completion (success: Bool)
+    ///   - completion: Callback for completion (success: Bool, errorReason: String?)
     func convert(
         request: ConversionRequest,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
-        completion: @escaping @Sendable (Bool) -> Void
+        completion: @escaping @Sendable (Bool, String?) -> Void
     ) async {
         // Destructure frequently-used fields for readability
         let inputURL = request.inputURL
@@ -44,7 +44,7 @@ actor FFMPEGConverter {
         let preset = request.preset
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             Self.logger.error("FFMPEG binary not found")
-            completion(false)
+            completion(false, "FFmpeg binary not found")
             return
         }
 
@@ -55,7 +55,7 @@ actor FFMPEGConverter {
             try fileManager.createDirectory(at: outputDir, withIntermediateDirectories: true)
         } catch {
             Self.logger.error("Failed to create output directory: \(error.localizedDescription, privacy: .public)")
-            completion(false)
+            completion(false, "Failed to create output directory")
             return
         }
 
@@ -81,7 +81,7 @@ actor FFMPEGConverter {
                 try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
             } catch {
                 Self.logger.error("Failed to create DCP working directory: \(error.localizedDescription, privacy: .public)")
-                completion(false)
+                completion(false, "Failed to create DCP directory")
                 return
             }
 
@@ -94,7 +94,7 @@ actor FFMPEGConverter {
                 try fileManager.createDirectory(at: jp2Dir, withIntermediateDirectories: true)
             } catch {
                 Self.logger.error("Failed to create DCP JP2 directory: \(error.localizedDescription, privacy: .public)")
-                completion(false)
+                completion(false, "Failed to create DCP JP2 directory")
                 return
             }
             outputFileURL = jp2Dir.appendingPathComponent("frame_%06d.jp2")
@@ -121,7 +121,7 @@ actor FFMPEGConverter {
                 try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
             } catch {
                 Self.logger.error("Failed to create image sequence output directory: \(error.localizedDescription, privacy: .public)")
-                completion(false)
+                completion(false, "Failed to create image sequence directory")
                 return
             }
 
@@ -321,10 +321,12 @@ actor FFMPEGConverter {
                 } else {
                     Self.logger.error("FFmpeg process terminated with status: \(process.terminationStatus) (success: \(success))")
                 }
+                var errorReason: String? = nil
                 if !success {
                     let collectedStderr = await stderrCollector.snapshot()
                     let stderrString = String(data: collectedStderr, encoding: .utf8) ?? "(unable to decode ffmpeg stderr)"
                     Self.logger.error("FFmpeg exited with code \(process.terminationStatus). Output:\n\(stderrString, privacy: .public)\n-- end of ffmpeg log --")
+                    errorReason = Self.extractErrorReason(from: stderrString, exitCode: process.terminationStatus)
                 }
 
                 // Run bmxtranswrap for AVC-Intra to ensure OP1a compliance
@@ -636,7 +638,7 @@ actor FFMPEGConverter {
                     }
                 }
 
-                completion(success)
+                completion(success, errorReason)
             }
         }
 
@@ -644,8 +646,49 @@ actor FFMPEGConverter {
             try process.run()
         } catch {
             Self.logger.error("Failed to run process: \(error.localizedDescription, privacy: .public)")
-            completion(false)
+            completion(false, "Failed to start FFmpeg: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Extract Error Reason
+
+    /// Extracts a concise, user-facing error reason from FFmpeg stderr output.
+    private static func extractErrorReason(from stderr: String, exitCode: Int32) -> String {
+        let lines = stderr.components(separatedBy: .newlines).reversed()
+        // FFmpeg typically outputs the most relevant error on the last non-empty lines.
+        // Look for lines containing common error patterns.
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            // Match common FFmpeg error patterns
+            if trimmed.contains("No such file or directory") ||
+               trimmed.contains("Permission denied") ||
+               trimmed.contains("No space left on device") ||
+               trimmed.contains("Invalid data found") ||
+               trimmed.contains("Decoder") && trimmed.contains("not found") ||
+               trimmed.contains("Encoder") && trimmed.contains("not found") ||
+               trimmed.contains("Unknown encoder") ||
+               trimmed.contains("Unknown decoder") ||
+               trimmed.contains("Codec") && trimmed.contains("not") ||
+               trimmed.contains("does not support") ||
+               trimmed.contains("Invalid argument") ||
+               trimmed.contains("Error") && !trimmed.hasPrefix("frame=") ||
+               trimmed.contains("Cannot") ||
+               trimmed.contains("Impossible") ||
+               trimmed.contains("not found") ||
+               trimmed.contains("Unrecognized option") ||
+               trimmed.contains("already exists. Overwrite") ||
+               trimmed.contains("Discarded") && trimmed.contains("exceeded") {
+                // Truncate to a reasonable length for UI display
+                let maxLen = 120
+                if trimmed.count > maxLen {
+                    return String(trimmed.prefix(maxLen)) + "…"
+                }
+                return trimmed
+            }
+        }
+        return "FFmpeg exited with code \(exitCode)"
     }
 
     // MARK: - Native Waveform Conversion (Swift Renderer)
@@ -671,7 +714,7 @@ actor FFMPEGConverter {
         outputFileURL: URL,
         waveformBackgroundImageURL: URL? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
-        completion: @escaping @Sendable (Bool) -> Void
+        completion: @escaping @Sendable (Bool, String?) -> Void
     ) async {
         Self.logger.info("Starting native waveform conversion (Swift engine)")
 
@@ -685,7 +728,7 @@ actor FFMPEGConverter {
             effectiveDuration = duration
         } else {
             Self.logger.error("Cannot determine audio duration for native waveform")
-            completion(false)
+            completion(false, "Cannot determine audio duration")
             return
         }
 
@@ -707,7 +750,7 @@ actor FFMPEGConverter {
             )
         } catch {
             Self.logger.error("PCM decode/FFT failed: \(error.localizedDescription)")
-            completion(false)
+            completion(false, "Audio analysis failed: \(error.localizedDescription)")
             return
         }
 
@@ -766,10 +809,12 @@ actor FFMPEGConverter {
                 var success = process.terminationStatus == 0
                 Self.logger.info("Native waveform FFmpeg terminated with status: \(process.terminationStatus)")
 
+                var errorReason: String? = nil
                 if !success {
                     let collectedStderr = await stderrCollector.snapshot()
                     let stderrString = String(data: collectedStderr, encoding: .utf8) ?? "(unable to decode)"
                     Self.logger.error("FFmpeg native waveform stderr:\n\(stderrString, privacy: .public)\n-- end --")
+                    errorReason = Self.extractErrorReason(from: stderrString, exitCode: process.terminationStatus)
                 }
 
                 // BMX rewrap for AVC-Intra if needed
@@ -800,7 +845,7 @@ actor FFMPEGConverter {
                     try? FileManager.default.removeItem(at: tempMXF)
                 }
 
-                completion(success)
+                completion(success, errorReason)
             }
         }
 
@@ -808,7 +853,7 @@ actor FFMPEGConverter {
             try process.run()
         } catch {
             Self.logger.error("Failed to start native waveform FFmpeg: \(error.localizedDescription, privacy: .public)")
-            completion(false)
+            completion(false, "Failed to start FFmpeg: \(error.localizedDescription)")
             return
         }
 

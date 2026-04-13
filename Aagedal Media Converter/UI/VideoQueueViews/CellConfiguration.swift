@@ -21,6 +21,7 @@ struct VideoFileCellConfiguration: Equatable {
     let status: ConversionManager.ConversionStatus
     let progress: Double
     let eta: String?
+    let conversionError: String?
     let comment: String
     let includeDateTag: Bool
     let outputURL: URL?

@@ -511,13 +511,14 @@ actor ConversionManager: Sendable {
                     }
                 }
             },
-            completion: { success in
+            completion: { success, errorReason in
                 Task { [weak self] in
                     guard let self else { return }
                     await self.handleMergeCompletion(
                         plan: plan,
                         indices: indices,
                         success: success,
+                        errorReason: errorReason,
                         droppedFiles: droppedFiles
                     )
                 }
@@ -554,6 +555,7 @@ actor ConversionManager: Sendable {
         plan: MergePlan,
         indices: [Int],
         success: Bool,
+        errorReason: String?,
         droppedFiles: Binding<[VideoItem]>
     ) async {
         let referenceURL = plan.segments.first?.originalURL
@@ -579,6 +581,7 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[index].progress = success ? 1.0 : 0.0
                     droppedFiles.wrappedValue[index].outputURL = success ? finalURL : nil
                     droppedFiles.wrappedValue[index].outputFileSizeBytes = outputFileSizeBytes
+                    droppedFiles.wrappedValue[index].conversionError = success ? nil : errorReason
                 }
             }
         }
@@ -1131,8 +1134,7 @@ actor ConversionManager: Sendable {
             await MainActor.run {
                 droppedFiles.wrappedValue[idx].status = .failed
                 droppedFiles.wrappedValue[idx].progress = 0
-            }
-            await MainActor.run {
+                droppedFiles.wrappedValue[idx].conversionError = "Cannot access input file"
                 SoundManager.shared.playError()
             }
             await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
@@ -1149,8 +1151,7 @@ actor ConversionManager: Sendable {
             await MainActor.run {
                 droppedFiles.wrappedValue[idx].status = .failed
                 droppedFiles.wrappedValue[idx].progress = 0
-            }
-            await MainActor.run {
+                droppedFiles.wrappedValue[idx].conversionError = "Cannot access output directory"
                 SoundManager.shared.playError()
             }
             await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
@@ -1247,7 +1248,7 @@ actor ConversionManager: Sendable {
                     }
                 }
             }
-        ) { success in
+        ) { success, errorReason in
             Task { @MainActor in
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
                     // Capture file size FIRST (before setting status to .done)
@@ -1330,6 +1331,7 @@ actor ConversionManager: Sendable {
                     if updatedItem.status != .cancelled {
                         updatedItem.status = success ? .done : .failed
                         updatedItem.progress = success ? 1.0 : 0
+                        updatedItem.conversionError = success ? nil : errorReason
                     }
 
                     // Replace the entire item to ensure SwiftUI detects the change

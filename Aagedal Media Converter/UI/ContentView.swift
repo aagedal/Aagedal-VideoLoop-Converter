@@ -259,6 +259,7 @@ struct ContentView: View {
                         encodingGroups[gi].items[ii].status = .waiting
                         encodingGroups[gi].items[ii].progress = 0.0
                         encodingGroups[gi].items[ii].eta = nil
+                        encodingGroups[gi].items[ii].conversionError = nil
                         encodingGroups[gi].items[ii].analyticsResults = nil
                         encodingGroups[gi].items[ii].analyticsStatus = .notQueued
                         encodingGroups[gi].items[ii].analyticsProgress = 0.0
@@ -310,6 +311,7 @@ struct ContentView: View {
             droppedFiles[index].status = .waiting
             droppedFiles[index].progress = 0.0
             droppedFiles[index].eta = nil
+            droppedFiles[index].conversionError = nil
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
             droppedFiles[index].outputFileSizeBytes = nil
             droppedFiles[index].analyticsResults = nil
@@ -1485,6 +1487,7 @@ struct ContentView: View {
             droppedFiles[index].status = .waiting
             droppedFiles[index].progress = 0.0
             droppedFiles[index].eta = nil
+            droppedFiles[index].conversionError = nil
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
             droppedFiles[index].outputFileSizeBytes = nil
             droppedFiles[index].analyticsResults = nil
@@ -1512,6 +1515,7 @@ struct ContentView: View {
                 encodingGroups[gi].items[ii].status = .waiting
                 encodingGroups[gi].items[ii].progress = 0.0
                 encodingGroups[gi].items[ii].eta = nil
+                encodingGroups[gi].items[ii].conversionError = nil
                 encodingGroups[gi].items[ii].analyticsResults = nil
                 encodingGroups[gi].items[ii].analyticsStatus = .notQueued
                 encodingGroups[gi].items[ii].analyticsProgress = 0.0
