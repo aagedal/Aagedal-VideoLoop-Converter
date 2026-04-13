@@ -10,6 +10,46 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Custom Table View (initiates file drag instead of row drag when clicking DraggableFileImageView)
+
+private final class VideoQueueNSTableView: NSTableView {
+
+    /// Tracks whether we're in a file-drag so we can override the operation mask.
+    private var isFileDrag = false
+
+    override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        if isFileDrag {
+            return context == .outsideApplication ? .copy : []
+        }
+        return super.draggingSession(session, sourceOperationMaskFor: context)
+    }
+
+    override func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        isFileDrag = false
+        super.draggingSession(session, endedAt: screenPoint, operation: operation)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        if let hitView = hitTest(localPoint) {
+            let dragView = (hitView as? DraggableFileImageView) ?? (hitView.superview as? DraggableFileImageView)
+            if let dragView, let fileURL = dragView.fileURL {
+                // Start a file drag session from the table view, bypassing row-reorder
+                isFileDrag = true
+                let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
+                let iconBounds = dragView.convert(dragView.bounds, to: self)
+                let dragImage = NSImage(systemSymbolName: "doc.fill", accessibilityDescription: nil)
+                    ?? dragView.image
+                    ?? NSImage()
+                draggingItem.setDraggingFrame(iconBounds, contents: dragImage)
+                beginDraggingSession(with: [draggingItem], event: event, source: self)
+                return
+            }
+        }
+        super.mouseDown(with: event)
+    }
+}
+
 // MARK: - Custom Row View (suppresses default selection highlight)
 
 private final class TransparentRowView: NSTableRowView {
@@ -139,7 +179,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
 
-        let tableView = NSTableView()
+        let tableView = VideoQueueNSTableView()
         tableView.style = .plain
         tableView.backgroundColor = .clear
         tableView.headerView = nil
