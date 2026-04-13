@@ -13,6 +13,7 @@ struct ParsingUtils {
     private static let durationRegex = try! NSRegularExpression(pattern: "Duration: (\\d+):(\\d+):(\\d+)\\.(\\d+)", options: .caseInsensitive)
     private static let timeRegex = try! NSRegularExpression(pattern: "time=(\\d+):(\\d+):(\\d+)\\.(\\d+)", options: .caseInsensitive)
     private static let frameRegex = try! NSRegularExpression(pattern: "frame[=\\s]+(\\d+)", options: .caseInsensitive)
+    private static let speedRegex = try! NSRegularExpression(pattern: "speed=\\s*([\\d.]+)x", options: .caseInsensitive)
 
     static func parseDuration(from output: String) -> Double? {
         if let match = durationRegex.firstMatch(in: output, options: [], range: NSRange(location: 0, length: output.utf16.count)) {
@@ -25,6 +26,18 @@ struct ParsingUtils {
                 let seconds = Double(output[secondsRange]) ?? 0
                 let milliseconds = Double(output[millisecondsRange]) ?? 0
                 return hours * 3600 + minutes * 60 + seconds + milliseconds / 100
+            }
+        }
+        return nil
+    }
+
+    /// Parse encoding speed from FFmpeg output (speed=Nx format)
+    static func parseSpeed(from output: String) -> Double? {
+        if let match = speedRegex.firstMatch(in: output, options: [], range: NSRange(location: 0, length: output.utf16.count)) {
+            if let speedRange = Range(match.range(at: 1), in: output) {
+                if let speed = Double(output[speedRange]), speed > 0.01 {
+                    return speed
+                }
             }
         }
         return nil
@@ -53,9 +66,10 @@ struct ParsingUtils {
                 progress = min(max(progress, 0.0), 1.0)
 
                 var etaString: String? = nil
-                if progress > 0 {
-                    let remainingTime = max(totalDuration - currentTime, 0)
-                    let eta = remainingTime / progress
+                let remainingTime = max(totalDuration - currentTime, 0)
+                if let speed = parseSpeed(from: output), remainingTime > 0 {
+                    // ETA = remaining media time / encoding speed
+                    let eta = remainingTime / speed
                     if eta.isFinite && eta < 86400 { // Cap at 24 hours
                         etaString = String(format: "%02d:%02d:%02d", Int(eta) / 3600, (Int(eta) % 3600) / 60, Int(eta) % 60)
                     }
@@ -95,11 +109,11 @@ struct ParsingUtils {
         progress = min(max(progress, 0.0), 1.0)
 
         var etaString: String? = nil
-        if progress > 0 {
-            let elapsedFrames = Double(currentFrame)
-            let remainingFrames = max(expectedFrames - elapsedFrames, 0)
-            // Estimate time based on frame progress
-            let eta = (remainingFrames / frameRate) / progress
+        let remainingFrames = max(expectedFrames - Double(currentFrame), 0)
+        let remainingMediaTime = remainingFrames / frameRate
+        if let speed = parseSpeed(from: output), remainingMediaTime > 0 {
+            // ETA = remaining media time / encoding speed
+            let eta = remainingMediaTime / speed
             if eta.isFinite && eta < 86400 && eta > 0 {
                 etaString = String(format: "%02d:%02d:%02d", Int(eta) / 3600, (Int(eta) % 3600) / 60, Int(eta) % 60)
             }
