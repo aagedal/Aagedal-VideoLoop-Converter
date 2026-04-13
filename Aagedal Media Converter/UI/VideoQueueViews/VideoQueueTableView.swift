@@ -653,6 +653,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 status: item.status,
                 progress: item.progress,
                 eta: item.eta,
+                conversionError: item.conversionError,
                 comment: item.comment,
                 includeDateTag: item.includeDateTag,
                 outputURL: item.outputURL,
@@ -1102,6 +1103,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                            let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
                             self.parent.encodingGroups[gIdx].items[iIdx].status = .waiting
                             self.parent.encodingGroups[gIdx].items[iIdx].progress = 0
+                            self.parent.encodingGroups[gIdx].items[iIdx].conversionError = nil
                         }
                     }
                 },

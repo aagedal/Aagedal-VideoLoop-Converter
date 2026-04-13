@@ -199,6 +199,7 @@ extension VideoFileCellView {
         capsuleIcon.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
         capsuleIcon.contentTintColor = color
         statusCapsule.layer?.borderColor = color.withAlphaComponent(0.6).cgColor
+        statusCapsule.toolTip = config.status == .failed ? config.conversionError : nil
     }
 
     // MARK: - Status Row Update
@@ -283,7 +284,7 @@ extension VideoFileCellView {
         case .done:
             return ""
         case .failed:
-            return ""
+            return config.conversionError ?? ""
         @unknown default:
             return ""
         }
