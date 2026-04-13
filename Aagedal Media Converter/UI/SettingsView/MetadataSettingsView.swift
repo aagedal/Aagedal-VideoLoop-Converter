@@ -15,7 +15,7 @@ struct MetadataSettingsView: View {
     @AppStorage(AppConstants.commentSeparatorKey) private var commentSeparator = AppConstants.defaultCommentSeparator
     @AppStorage(AppConstants.commentDateFormatKey) private var commentDateFormat = AppConstants.defaultCommentDateFormat
     @AppStorage(AppConstants.dateTagPrefixKey) private var dateTagPrefix = AppConstants.defaultDateTagPrefix
-    @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = true
+    @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = false
     @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
     @State private var isValidTimecode: Bool = true
     @State private var showCommentInfoPopover = false

@@ -106,6 +106,7 @@
 		8ECEBC1C2ED766F400F1F67C /* CropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */; };
 		8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */; };
 		8ECEBC202ED8782800F1F67C /* MetadataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */; };
+		8ED369F12F8CEFFC00FB9A33 /* SwiftExif in Frameworks */ = {isa = PBXBuildFile; productRef = 8ED369F02F8CEFFC00FB9A33 /* SwiftExif */; };
 		8EE0BB9C2E0892B70096171D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9B2E0892B70096171D /* SettingsView.swift */; };
 		8EE0BB9E2E089F520096171D /* DockProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9D2E089F520096171D /* DockProgressView.swift */; };
 		8EE6EE9A2C31FC6B007B629D /* Aagedal_Media_Converter_App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE6EE992C31FC6B007B629D /* Aagedal_Media_Converter_App.swift */; };
@@ -398,28 +399,8 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		8EA25FED2F82D6B00087B1F1 /* tessdata */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = tessdata;
-			sourceTree = "<group>";
-		};
-		8EA25FFE2F865E1F0087B1F1 /* Parakeet */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = Parakeet;
-			sourceTree = "<group>";
-		};
+		8EA25FED2F82D6B00087B1F1 /* tessdata */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = tessdata; sourceTree = "<group>"; };
+		8EA25FFE2F865E1F0087B1F1 /* Parakeet */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Parakeet; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -427,6 +408,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8ED369F12F8CEFFC00FB9A33 /* SwiftExif in Frameworks */,
 				8E824ABA2EF8A9E1001A6B95 /* MPVKit-GPL in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1037,6 +1019,7 @@
 			mainGroup = 8EE6EE8D2C31FC6B007B629D;
 			packageReferences = (
 				8E824AE62EF8B66F001A6B95 /* XCLocalSwiftPackageReference "MPVKit" */,
+				8ED369EF2F8CEFFC00FB9A33 /* XCRemoteSwiftPackageReference "SwiftExif" */,
 			);
 			productRefGroup = 8EE6EE972C31FC6B007B629D /* Products */;
 			projectDirPath = "";
@@ -1445,7 +1428,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 397;
+				CURRENT_PROJECT_VERSION = 412;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2080,7 +2063,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.9.0;
+				MARKETING_VERSION = 4.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2106,7 +2089,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 397;
+				CURRENT_PROJECT_VERSION = 412;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2741,7 +2724,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 3.9.0;
+				MARKETING_VERSION = 4.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2875,11 +2858,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		8ED369EF2F8CEFFC00FB9A33 /* XCRemoteSwiftPackageReference "SwiftExif" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/aagedal/SwiftExif.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		8E824AB92EF8A9E1001A6B95 /* MPVKit-GPL */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 8E824AE62EF8B66F001A6B95 /* XCLocalSwiftPackageReference "MPVKit" */;
 			productName = "MPVKit-GPL";
+		};
+		8ED369F02F8CEFFC00FB9A33 /* SwiftExif */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8ED369EF2F8CEFFC00FB9A33 /* XCRemoteSwiftPackageReference "SwiftExif" */;
+			productName = SwiftExif;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

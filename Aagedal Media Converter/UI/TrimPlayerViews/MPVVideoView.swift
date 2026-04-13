@@ -63,14 +63,22 @@ final class MPVViewController: NSViewController {
             height: floor(layerSize.height * scale / 2) * 2
         )
 
-        // Update layer frame and contentsScale immediately for correct positioning.
-        // The frame change may trigger CAMetalLayer's auto-resize of drawableSize,
-        // but MPVMetalLayer.deferResizes coalesces and defers all size changes to
-        // the next run loop iteration, preventing MoltenVK render-pass races.
+        // Constrain the layer frame to match the floored drawable dimensions
+        // in points. Without this, MoltenVK derives the Vulkan swapchain extent
+        // from the layer's full bounds (e.g. 1012.5pt * 2 = 2025px), but the
+        // drawable is only 2024px, causing a Metal validation crash:
+        //   "renderTargetHeight (2025) must be <= minimum attachment height (2024)"
+        // The sub-point difference (at most 1pt) is invisible; the view's black
+        // background fills the gap.
+        let constrainedSize = CGSize(
+            width: newDrawableSize.width / scale,
+            height: newDrawableSize.height / scale
+        )
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         metalLayer.contentsScale = scale
-        metalLayer.frame = CGRect(x: 0, y: 0, width: layerSize.width, height: layerSize.height)
+        metalLayer.frame = CGRect(origin: .zero, size: constrainedSize)
         CATransaction.commit()
 
         // Set our floor-to-even size (coalesced with any auto-resize; deferred by MPVMetalLayer)
