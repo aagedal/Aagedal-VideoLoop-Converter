@@ -752,6 +752,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var cameraMetadata: CameraMetadata? = nil
     /// Error reason when conversion fails (extracted from FFmpeg stderr)
     var conversionError: String? = nil
+    /// Transient status message for multi-phase operations (e.g. "Conforming...", "Merging...")
+    var statusMessage: String? = nil
     /// Whether audio should be muted (removed) in the output
     var isMuted: Bool = false
     /// Image sequence configuration (nil for regular video/audio files)

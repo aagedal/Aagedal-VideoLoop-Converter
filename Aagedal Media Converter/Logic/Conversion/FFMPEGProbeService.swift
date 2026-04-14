@@ -145,6 +145,64 @@ enum FFMPEGProbeService {
     }
 }
 
+// MARK: - Post-Export Verification
+
+extension FFMPEGProbeService {
+    /// Result of verifying output file stream presence.
+    struct StreamVerificationResult: Sendable {
+        let videoStreamCount: Int
+        let audioStreamCount: Int
+    }
+
+    private struct VerificationStreamEntry: Decodable {
+        let codec_type: String?
+    }
+
+    private struct VerificationResponse: Decodable {
+        let streams: [VerificationStreamEntry]?
+    }
+
+    /// Probes the output file to count video and audio streams.
+    /// Used as a safety check after merge/concat to detect silent data loss.
+    static func verifyOutputStreams(for url: URL) async -> StreamVerificationResult? {
+        guard let ffprobePath = ffprobeExecutablePath else { return nil }
+
+        let process = Process()
+        let pipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: ffprobePath)
+        process.arguments = [
+            "-v", "error",
+            "-show_entries", "stream=codec_type",
+            "-of", "json",
+            url.path
+        ]
+        process.standardOutput = pipe
+
+        do {
+            try process.run()
+
+            let outputData = try await readDataWithTimeout(
+                from: pipe.fileHandleForReading,
+                process: process,
+                timeout: 10
+            )
+
+            guard let outputData, !outputData.isEmpty else { return nil }
+
+            let response = try JSONDecoder().decode(VerificationResponse.self, from: outputData)
+            let streams = response.streams ?? []
+            let videoCount = streams.filter { $0.codec_type == "video" }.count
+            let audioCount = streams.filter { $0.codec_type == "audio" }.count
+
+            return StreamVerificationResult(videoStreamCount: videoCount, audioStreamCount: audioCount)
+        } catch {
+            Logger().error("Post-export verification failed for \(url.lastPathComponent): \(error.localizedDescription)")
+            return nil
+        }
+    }
+}
+
 private extension FFMPEGProbeService {
     static var ffprobeExecutablePath: String? {
         BinaryPathResolver.ffprobePath

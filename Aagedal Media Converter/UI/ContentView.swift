@@ -407,13 +407,38 @@ struct ContentView: View {
                     selectedPreset: cameraCardPresetBinding,
                     concatEnabled: $cameraCardConcatEnabled,
                     uploadEnabled: $cameraCardUploadEnabled,
+                    mergeCompatibilityResult: cardMergeCompatibilityResult,
+                    isCheckingCompatibility: isCheckingCardCompatibility,
                     onImport: {
                         Task { await performCameraCardImport() }
                     },
                     onCancel: {
                         cameraCardImportState = nil
+                    },
+                    onAutoSplit: {
+                        Task { await performCameraCardAutoSplit() }
+                    },
+                    onForceMerge: {
+                        showCardConformanceMergeDialog = true
                     }
                 )
+                .onAppear { checkCardMergeCompatibility() }
+                .onChange(of: cameraCardPresetRaw) { _, _ in checkCardMergeCompatibility() }
+                .sheet(isPresented: $showCardConformanceMergeDialog) {
+                    if let state = cameraCardImportState {
+                        ConformanceMergeDialog(
+                            items: cardConformanceItems,
+                            metadata: cardConformanceMetadata,
+                            onConfirm: { referenceID in
+                                showCardConformanceMergeDialog = false
+                                Task { await performCameraCardForceMerge(referenceItemID: referenceID) }
+                            },
+                            onCancel: {
+                                showCardConformanceMergeDialog = false
+                            }
+                        )
+                    }
+                }
             }
             .modifier(ContentViewNotificationHandlers(
                 droppedFiles: $droppedFiles,
@@ -684,6 +709,12 @@ struct ContentView: View {
         )
     }
     @State private var cameraCardImportState: CameraCardImportState?
+    @State private var cardMergeCompatibilityResult: ConversionManager.MergeCompatibilityResult?
+    @State private var isCheckingCardCompatibility = false
+    @State private var cardCompatibilityCheckTask: Task<Void, Never>?
+    @State private var showCardConformanceMergeDialog = false
+    @State private var cardConformanceItems: [VideoItem] = []
+    @State private var cardConformanceMetadata: [UUID: VideoMetadata] = [:]
 
     private struct CameraCardImportState: Identifiable {
         let id = UUID()
@@ -785,6 +816,196 @@ struct ContentView: View {
         queueOrder.append(group.id)
 
         // Load details (thumbnails, duration, metadata) in background
+        let itemIDs = groupItems.map { $0.id }
+        Task {
+            await loadGroupItemDetails(groupID: group.id, itemIDs: itemIDs, preset: cardPreset)
+        }
+    }
+
+    /// Runs merge compatibility check for the card import dialog in background.
+    private func checkCardMergeCompatibility() {
+        cardCompatibilityCheckTask?.cancel()
+        cardMergeCompatibilityResult = nil
+
+        guard let state = cameraCardImportState, state.videoURLs.count >= 2 else {
+            cardMergeCompatibilityResult = .insufficientItems(cameraCardImportState?.videoURLs.count ?? 0)
+            return
+        }
+
+        isCheckingCardCompatibility = true
+        let urls = state.videoURLs
+        let folderURL = state.folderURL
+        let preset = ExportPreset(rawValue: cameraCardPresetRaw) ?? .streamCopy
+
+        cardCompatibilityCheckTask = Task {
+            let hasAccess = folderURL.startAccessingSecurityScopedResource()
+            defer { if hasAccess { folderURL.stopAccessingSecurityScopedResource() } }
+
+            var tempItems: [VideoItem] = []
+            var metadataMap: [UUID: VideoMetadata] = [:]
+
+            for url in urls {
+                if Task.isCancelled { return }
+                if var item = VideoFileUtils.makePlaceholderItem(from: url, outputFolder: outputFolder, preset: preset) {
+                    if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
+                        item.metadata = metadata
+                        metadataMap[item.id] = metadata
+                    }
+                    tempItems.append(item)
+                }
+            }
+
+            guard !Task.isCancelled else { return }
+
+            let result = ConversionManager.checkMergeCompatibility(items: tempItems, metadata: metadataMap)
+            await MainActor.run {
+                cardMergeCompatibilityResult = result
+                isCheckingCardCompatibility = false
+                // Store for conformance merge dialog
+                cardConformanceItems = tempItems
+                cardConformanceMetadata = metadataMap
+            }
+        }
+    }
+
+    @MainActor
+    private func performCameraCardAutoSplit() async {
+        guard let state = cameraCardImportState else { return }
+        cameraCardImportState = nil
+
+        let uploadEnabled = cameraCardUploadEnabled
+        let masterName = cameraCardMasterName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cardPreset = ExportPreset(rawValue: cameraCardPresetRaw) ?? .streamCopy
+
+        let hasAccess = state.folderURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { state.folderURL.stopAccessingSecurityScopedResource() } }
+
+        for url in state.videoURLs {
+            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+        }
+
+        // Build items with metadata
+        var allItems: [VideoItem] = []
+        var metadataMap: [UUID: VideoMetadata] = [:]
+
+        for url in state.videoURLs {
+            if var item = VideoFileUtils.makePlaceholderItem(from: url, outputFolder: outputFolder, preset: cardPreset) {
+                if uploadEnabled { item.uploadEnabled = true }
+                if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
+                    item.metadata = metadata
+                    metadataMap[item.id] = metadata
+                }
+                allItems.append(item)
+            }
+        }
+
+        guard !allItems.isEmpty else { return }
+
+        let compatibleGroups = ConversionManager.groupByCompatibility(items: allItems, metadata: metadataMap)
+        let baseName = masterName.isEmpty ? state.folderURL.lastPathComponent : masterName
+
+        for (_, groupItems) in compatibleGroups.enumerated() {
+            // Build format suffix from the first item's metadata (e.g. "1080p50_4ch")
+            let formatSuffix: String = {
+                guard compatibleGroups.count > 1,
+                      let first = groupItems.first,
+                      let meta = metadataMap[first.id] else { return "" }
+                var parts: [String] = []
+                if let video = meta.primaryVideoStream, let h = video.height {
+                    let scanType = (video.isInterlaced == true) ? "i" : "p"
+                    let fr = video.frameRate?.value.map { String(Int($0.rounded())) } ?? ""
+                    parts.append("\(h)\(scanType)\(fr)")
+                }
+                if let audio = meta.audioStreams.first, let ch = audio.channels {
+                    parts.append("\(ch)ch")
+                }
+                return parts.isEmpty ? "" : "_" + parts.joined(separator: "_")
+            }()
+            let groupName = compatibleGroups.count > 1 ? "\(baseName)\(formatSuffix)" : baseName
+
+            // Apply sequential naming within each group
+            var namedItems = groupItems
+            for i in namedItems.indices {
+                if !masterName.isEmpty {
+                    let processedName = FileNameProcessor.processFileName(groupName)
+                    if namedItems.count > 1 {
+                        // Concat group — only first item gets the name override
+                        if i == 0 {
+                            namedItems[i].outputFileNameOverride = processedName
+                            namedItems[i].outputURL = expectedOutputURL(for: namedItems[i], preset: cardPreset)
+                        }
+                    } else {
+                        namedItems[i].outputFileNameOverride = processedName
+                        namedItems[i].outputURL = expectedOutputURL(for: namedItems[i], preset: cardPreset)
+                    }
+                }
+            }
+
+            let group = EncodingGroup(
+                name: groupName,
+                items: namedItems,
+                preset: cardPreset,
+                concatEnabled: namedItems.count >= 2,
+                uploadEnabled: uploadEnabled
+            )
+
+            encodingGroups.append(group)
+            queueOrder.append(group.id)
+
+            let itemIDs = namedItems.map { $0.id }
+            Task {
+                await loadGroupItemDetails(groupID: group.id, itemIDs: itemIDs, preset: cardPreset)
+            }
+        }
+    }
+
+    @MainActor
+    private func performCameraCardForceMerge(referenceItemID: UUID) async {
+        guard let state = cameraCardImportState else { return }
+        cameraCardImportState = nil
+
+        let uploadEnabled = cameraCardUploadEnabled
+        let masterName = cameraCardMasterName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cardPreset = ExportPreset(rawValue: cameraCardPresetRaw) ?? .streamCopy
+
+        let hasAccess = state.folderURL.startAccessingSecurityScopedResource()
+        defer { if hasAccess { state.folderURL.stopAccessingSecurityScopedResource() } }
+
+        for url in state.videoURLs {
+            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+        }
+
+        // Use the items and metadata from the compatibility check
+        var groupItems = cardConformanceItems
+        for i in groupItems.indices {
+            if uploadEnabled { groupItems[i].uploadEnabled = true }
+            if !masterName.isEmpty {
+                let processedName = FileNameProcessor.processFileName(masterName)
+                if i == 0 {
+                    groupItems[i].outputFileNameOverride = processedName
+                    groupItems[i].outputURL = expectedOutputURL(for: groupItems[i], preset: cardPreset)
+                }
+            }
+        }
+
+        guard !groupItems.isEmpty else { return }
+
+        let groupName = masterName.isEmpty ? state.folderURL.lastPathComponent : masterName
+
+        // Find the reference item ID in our items (it may have a different UUID from the temp items)
+        let group = EncodingGroup(
+            name: groupName,
+            items: groupItems,
+            preset: cardPreset,
+            concatEnabled: true,
+            uploadEnabled: uploadEnabled,
+            conformanceMergeEnabled: true,
+            conformanceReferenceItemID: referenceItemID
+        )
+
+        encodingGroups.append(group)
+        queueOrder.append(group.id)
+
         let itemIDs = groupItems.map { $0.id }
         Task {
             await loadGroupItemDetails(groupID: group.id, itemIDs: itemIDs, preset: cardPreset)
@@ -977,6 +1198,16 @@ struct ContentView: View {
                         }
                     }
                     let groupPreset = group.preset ?? selectedPreset
+                    // Build conformance metadata if needed
+                    var conformanceMeta: [UUID: VideoMetadata]?
+                    if group.conformanceMergeEnabled, group.conformanceReferenceItemID != nil {
+                        var metaMap: [UUID: VideoMetadata] = [:]
+                        for item in encodingGroups[groupIndex].items {
+                            if let m = item.metadata { metaMap[item.id] = m }
+                        }
+                        conformanceMeta = metaMap
+                    }
+
                     await ConversionManager.shared.convertGroup(
                         items: $encodingGroups[groupIndex].items,
                         outputFolder: currentOutputFolder.path,
@@ -985,7 +1216,10 @@ struct ContentView: View {
                         groupName: group.name,
                         transcriptionEnabled: group.transcriptionEnabled,
                         uploadEnabled: group.uploadEnabled,
-                        analyticsEnabled: group.analyticsEnabled
+                        analyticsEnabled: group.analyticsEnabled,
+                        conformanceMergeEnabled: group.conformanceMergeEnabled,
+                        conformanceReferenceItemID: group.conformanceReferenceItemID,
+                        conformanceMetadata: conformanceMeta
                     )
                 }
                 i += 1

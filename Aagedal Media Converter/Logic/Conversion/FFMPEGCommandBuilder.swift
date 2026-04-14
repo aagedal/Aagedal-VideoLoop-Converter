@@ -284,7 +284,10 @@ enum FFMPEGCommandBuilder {
         }
 
         // Apply mute if requested - removes all audio from output
-        if isMuted {
+        // Never apply mute for stream copy — it contradicts verbatim copying of all streams
+        if isMuted && preset == .streamCopy {
+            logger.warning("Mute requested with stream copy preset — ignoring to preserve all streams")
+        } else if isMuted {
             applyMute(to: &ffmpegArgs)
         }
 
@@ -1739,6 +1742,151 @@ extension FFMPEGCommandBuilder {
         // Update args
         ffmpegArgs[vfIndex + 1] = filterChain
         logger.info("Applied crop to video filter chain: \(filterChain, privacy: .public)")
+    }
+
+    // MARK: - Conformance Merge Encoding
+
+    /// Maps a codec name (from ffprobe) to an FFmpeg encoder name.
+    static func ffmpegVideoEncoder(for codec: String) -> String? {
+        switch codec.lowercased() {
+        case "h264", "avc":       return "libx264"
+        case "hevc", "h265":      return "libx265"
+        case "prores":            return "prores_ks"
+        case "av1":               return "libsvtav1"
+        case "mpeg2video":        return "mpeg2video"
+        case "vp9":               return "libvpx-vp9"
+        case "dnxhd":             return "dnxhd"
+        case "mjpeg":             return "mjpeg"
+        default:                  return nil
+        }
+    }
+
+    /// Maps an audio codec name (from ffprobe) to an FFmpeg encoder name.
+    static func ffmpegAudioEncoder(for codec: String) -> String? {
+        switch codec.lowercased() {
+        case "aac":               return "aac"
+        case "pcm_s16le":         return "pcm_s16le"
+        case "pcm_s16be":         return "pcm_s16be"
+        case "pcm_s24le":         return "pcm_s24le"
+        case "pcm_s24be":         return "pcm_s24be"
+        case "pcm_s32le":         return "pcm_s32le"
+        case "pcm_s32be":         return "pcm_s32be"
+        case "pcm_f32le":         return "pcm_f32le"
+        case "mp3", "mp3float":   return "libmp3lame"
+        case "flac":              return "flac"
+        case "opus":              return "libopus"
+        case "vorbis":            return "libvorbis"
+        case "ac3":               return "ac3"
+        case "eac3":              return "eac3"
+        default:                  return nil
+        }
+    }
+
+    /// Builds FFmpeg arguments to re-encode a clip to match a conformance target format.
+    /// Used in the first pass of a two-pass conformance merge.
+    static func buildConformanceArguments(
+        inputURL: URL,
+        outputURL: URL,
+        target: ConversionManager.ConformanceTarget,
+        trimStart: Double? = nil,
+        trimEnd: Double? = nil
+    ) -> [String] {
+        var args: [String] = ["-y", "-nostdin", "-progress", "pipe:2", "-hide_banner"]
+
+        // Trim start (fast seek before input)
+        if let ss = trimStart, ss > 0 {
+            args += ["-ss", String(format: "%.6f", ss)]
+        }
+
+        // Input
+        args += ["-i", inputURL.path]
+
+        // Trim duration
+        if let end = trimEnd {
+            let start = trimStart ?? 0
+            let duration = end - start
+            if duration > 0 {
+                args += ["-t", String(format: "%.6f", duration)]
+            }
+        }
+
+        // Video encoding
+        if let encoder = ffmpegVideoEncoder(for: target.videoCodec) {
+            args += ["-c:v", encoder]
+
+            // Scale to exact target resolution with square pixels
+            args += ["-vf", "scale=\(target.width):\(target.height),setsar=1/1"]
+
+            // Frame rate
+            if let fr = target.frameRate {
+                args += ["-r", String(format: "%.3f", fr)]
+            }
+
+            // Pixel format
+            if let pf = target.pixelFormat {
+                args += ["-pix_fmt", pf]
+            }
+
+            // Encoder-specific quality settings
+            switch encoder {
+            case "libx264":
+                args += ["-crf", "18", "-preset", "medium", "-profile:v", "high"]
+            case "libx265":
+                args += ["-crf", "18", "-preset", "medium"]
+            case "prores_ks":
+                args += ["-profile:v", "3"] // ProRes HQ
+            case "libsvtav1":
+                args += ["-crf", "18", "-preset", "6"]
+            default:
+                break
+            }
+
+            // Interlaced output
+            if target.isInterlaced {
+                args += ["-flags", "+ilme+ildct"]
+            }
+        } else {
+            // Unknown codec — try copy, will fail at concat if format truly differs
+            args += ["-c:v", "copy"]
+        }
+
+        // Audio encoding
+        if let audioCodec = target.audioCodec, let audioEncoder = ffmpegAudioEncoder(for: audioCodec) {
+            args += ["-c:a", audioEncoder]
+            if let sr = target.audioSampleRate {
+                args += ["-ar", "\(sr)"]
+            }
+            if let ch = target.audioChannels {
+                args += ["-ac", "\(ch)"]
+            }
+            // Bitrate for lossy codecs
+            switch audioEncoder {
+            case "aac":       args += ["-b:a", "320k"]
+            case "libmp3lame": args += ["-b:a", "320k"]
+            case "libopus":   args += ["-b:a", "256k"]
+            default: break
+            }
+        } else if target.audioCodec == nil {
+            // Reference has no audio — strip audio
+            args += ["-an"]
+        } else {
+            // Unknown audio codec — try copy
+            args += ["-c:a", "copy"]
+        }
+
+        // Stream mapping
+        args += ["-map", "0:v:0", "-map", "0:a?"]
+
+        // Metadata stripping (conformance temps don't need metadata)
+        args += ["-map_metadata", "-1", "-map_chapters", "-1"]
+
+        // Timestamp handling
+        args += ["-avoid_negative_ts", "make_zero"]
+
+        // Output
+        args.append(outputURL.path)
+
+        return args
     }
 
 }

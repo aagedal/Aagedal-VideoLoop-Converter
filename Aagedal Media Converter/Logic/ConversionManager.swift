@@ -57,6 +57,10 @@ actor ConversionManager: Sendable {
         let temporaryClipURLs: [URL]
         let totalDuration: Double?
         var hasExecuted: Bool
+        /// Whether source clips had audio — used for post-export verification
+        let sourceHasAudio: Bool
+        /// Conformance target for two-pass force merge (nil for standard merge)
+        let conformanceTarget: ConformanceTarget?
     }
 
     private struct MergeSegment {
@@ -67,6 +71,80 @@ actor ConversionManager: Sendable {
         let trimEnd: Double?
         let isTemporary: Bool
         let duration: Double?
+        /// Whether this segment was re-encoded for conformance (informational)
+        let isConformed: Bool
+    }
+
+    // MARK: - Conformance Merge Types
+
+    /// Captures the reference clip's format that non-matching clips must conform to.
+    struct ConformanceTarget: Sendable {
+        let referenceItemID: UUID
+        let referenceURL: URL
+        // Video
+        let videoCodec: String
+        let width: Int
+        let height: Int
+        let frameRate: Double?
+        let pixelFormat: String?
+        let pixelAspectRatio: String?
+        let isInterlaced: Bool
+        // Audio
+        let audioCodec: String?
+        let audioChannels: Int?
+        let audioSampleRate: Int?
+        // Container
+        let containerExtension: String
+
+        /// Builds a ConformanceTarget from a clip's metadata and URL.
+        static func from(metadata: VideoMetadata, url: URL) -> ConformanceTarget? {
+            guard let video = metadata.primaryVideoStream,
+                  let codec = video.codec,
+                  let width = video.width,
+                  let height = video.height else { return nil }
+
+            let audio = metadata.audioStreams.first
+            return ConformanceTarget(
+                referenceItemID: UUID(), // Caller should set this properly
+                referenceURL: url,
+                videoCodec: codec,
+                width: width,
+                height: height,
+                frameRate: video.frameRate?.value,
+                pixelFormat: video.pixelFormat,
+                pixelAspectRatio: video.pixelAspectRatio?.stringValue,
+                isInterlaced: video.isInterlaced ?? false,
+                audioCodec: audio?.codec,
+                audioChannels: audio?.channels,
+                audioSampleRate: audio?.sampleRate,
+                containerExtension: url.pathExtension.lowercased()
+            )
+        }
+
+        /// Human-readable summary of the target format.
+        var formatSummary: String {
+            var parts: [String] = []
+            parts.append("\(width)x\(height)")
+            parts.append(videoCodec)
+            if let fr = frameRate { parts.append("\(Int(fr.rounded()))fps") }
+            if let ac = audioCodec, let ch = audioChannels {
+                let sr = audioSampleRate.map { " \($0 / 1000)kHz" } ?? ""
+                parts.append("\(ch)ch \(ac)\(sr)")
+            }
+            return parts.joined(separator: ", ")
+        }
+    }
+
+    /// Per-clip analysis of what needs to change for conformance merge.
+    struct ConformanceAnalysis: Sendable, Identifiable {
+        let id: UUID  // itemID
+        let itemName: String
+        let needsVideoReencode: Bool
+        let needsAudioReencode: Bool
+        let videoMismatches: [String]
+        let audioMismatches: [String]
+
+        var needsConformance: Bool { needsVideoReencode || needsAudioReencode }
     }
     private var mergePlan: MergePlan?
     private var lastMergeMetadata: [UUID: VideoMetadata] = [:]
@@ -237,6 +315,14 @@ actor ConversionManager: Sendable {
             )
         }()
 
+        // Check if any source clip has audio (for post-export verification)
+        let sourceHasAudio = orderedWaitingItems.contains { item in
+            if let meta = lastMergeMetadata[item.id] {
+                return !(meta.audioStreams.isEmpty)
+            }
+            return false
+        }
+
         return MergePlan(
             itemIDs: itemIDs,
             listFileURL: listFileURL,
@@ -250,7 +336,9 @@ actor ConversionManager: Sendable {
             segments: segments,
             temporaryClipURLs: temporaryFiles,
             totalDuration: totalDuration,
-            hasExecuted: false
+            hasExecuted: false,
+            sourceHasAudio: sourceHasAudio,
+            conformanceTarget: nil
         )
     }
 
@@ -282,7 +370,8 @@ actor ConversionManager: Sendable {
                     trimStart: item.trimStart,
                     trimEnd: item.trimEnd,
                     isTemporary: true,
-                    duration: segmentDuration
+                    duration: segmentDuration,
+                    isConformed: false
                 )
                 segments.append(segment)
                 temporaryFiles.append(trimmedURL)
@@ -294,7 +383,8 @@ actor ConversionManager: Sendable {
                     trimStart: item.trimStart,
                     trimEnd: item.trimEnd,
                     isTemporary: false,
-                    duration: segmentDuration
+                    duration: segmentDuration,
+                    isConformed: false
                 )
                 segments.append(segment)
             }
@@ -493,7 +583,7 @@ actor ConversionManager: Sendable {
             audioRoutingConfig: mergeAudioRoutingConfig,
             cropConfig: mergeCropConfig,
             timecodeConfig: mergeTimecodeConfig,
-            isMuted: primaryInput.isMuted,
+            isMuted: plan.preset == .streamCopy ? false : primaryInput.isMuted,
             waveformRequest: plan.waveformRequest,
             synthesizedVideoRequest: plan.synthesizedVideoRequest,
             waveformBackgroundImageURL: primaryInput.waveformBackgroundImageURL,
@@ -551,6 +641,200 @@ actor ConversionManager: Sendable {
         cleanupTemporaryFiles(plan.temporaryClipURLs)
     }
 
+    // MARK: - Conformance Merge
+
+    /// Re-encodes a single clip to match the conformance target format.
+    private func prepareConformedClip(
+        for item: VideoItem,
+        target: ConformanceTarget
+    ) async -> URL? {
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+            mergeLogger.error("FFmpeg binary not found while preparing conformed clip for \(item.name, privacy: .public)")
+            return nil
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("conformed_\(UUID().uuidString).\(target.containerExtension)")
+
+        let arguments = FFMPEGCommandBuilder.buildConformanceArguments(
+            inputURL: item.url,
+            outputURL: tempURL,
+            target: target,
+            trimStart: item.trimStart,
+            trimEnd: item.trimEnd
+        )
+
+        mergeLogger.info("Conforming \(item.name, privacy: .public) to \(target.formatSummary, privacy: .public)")
+        let success = await runFFmpeg(at: ffmpegPath, arguments: arguments, context: "conform \(item.name)")
+        if success {
+            return tempURL
+        } else {
+            try? FileManager.default.removeItem(at: tempURL)
+            return nil
+        }
+    }
+
+    /// Prepares merge segments with conformance re-encoding for mismatched clips.
+    private func prepareConformanceMergeSegments(
+        from items: [VideoItem],
+        durationLookup: [UUID: Double],
+        target: ConformanceTarget,
+        metadata: [UUID: VideoMetadata],
+        statusUpdate: @MainActor @Sendable (String) -> Void
+    ) async -> ([MergeSegment], [URL], Double?)? {
+        var segments: [MergeSegment] = []
+        var temporaryFiles: [URL] = []
+        var totalDuration: Double = 0
+
+        for (index, item) in items.enumerated() {
+            if Task.isCancelled { return nil }
+
+            let segmentDuration = durationLookup[item.id] ?? item.durationSeconds
+            totalDuration += segmentDuration
+
+            // Check if this item matches the reference format
+            let analysis = ConversionManager.analyzeConformance(
+                items: [item],
+                referenceItemID: target.referenceItemID,
+                metadata: metadata
+            ).first
+
+            let needsConformance = analysis?.needsConformance ?? true
+
+            if needsConformance {
+                // Re-encode to match reference (trim applied in same pass)
+                await statusUpdate("Conforming clip \(index + 1) of \(items.count): \(item.name)")
+                guard let conformedURL = await prepareConformedClip(for: item, target: target) else {
+                    cleanupTemporaryFiles(temporaryFiles)
+                    return nil
+                }
+                segments.append(MergeSegment(
+                    itemID: item.id, originalURL: item.url, preparedURL: conformedURL,
+                    trimStart: item.trimStart, trimEnd: item.trimEnd,
+                    isTemporary: true, duration: segmentDuration, isConformed: true
+                ))
+                temporaryFiles.append(conformedURL)
+            } else if hasActiveTrim(item) {
+                // Already matches but needs trim — stream copy trim
+                guard let trimmedURL = await prepareTrimmedClip(for: item) else {
+                    cleanupTemporaryFiles(temporaryFiles)
+                    return nil
+                }
+                segments.append(MergeSegment(
+                    itemID: item.id, originalURL: item.url, preparedURL: trimmedURL,
+                    trimStart: item.trimStart, trimEnd: item.trimEnd,
+                    isTemporary: true, duration: segmentDuration, isConformed: false
+                ))
+                temporaryFiles.append(trimmedURL)
+            } else {
+                // Already matches, no trim — use original
+                segments.append(MergeSegment(
+                    itemID: item.id, originalURL: item.url, preparedURL: item.url,
+                    trimStart: nil, trimEnd: nil,
+                    isTemporary: false, duration: segmentDuration, isConformed: false
+                ))
+            }
+        }
+
+        return (segments, temporaryFiles, totalDuration)
+    }
+
+    /// Builds a conformance merge plan where mismatched clips are re-encoded to match the reference.
+    private func buildConformanceMergePlan(
+        from items: [VideoItem],
+        metadata: [UUID: VideoMetadata],
+        referenceItemID: UUID,
+        outputFolder: String,
+        groupName: String? = nil,
+        statusUpdate: @MainActor @Sendable (String) -> Void
+    ) async -> MergePlan? {
+        let waitingItems = items.filter { $0.status == .waiting }
+        guard waitingItems.count >= 2 else { return nil }
+
+        guard let refMeta = metadata[referenceItemID],
+              let refItem = waitingItems.first(where: { $0.id == referenceItemID }) else {
+            mergeLogger.error("Conformance reference item not found")
+            return nil
+        }
+
+        guard var target = ConformanceTarget.from(metadata: refMeta, url: refItem.url) else {
+            mergeLogger.error("Failed to build conformance target from reference metadata")
+            return nil
+        }
+        // Fix the referenceItemID (factory uses UUID() placeholder)
+        target = ConformanceTarget(
+            referenceItemID: referenceItemID,
+            referenceURL: target.referenceURL,
+            videoCodec: target.videoCodec,
+            width: target.width, height: target.height,
+            frameRate: target.frameRate,
+            pixelFormat: target.pixelFormat,
+            pixelAspectRatio: target.pixelAspectRatio,
+            isInterlaced: target.isInterlaced,
+            audioCodec: target.audioCodec,
+            audioChannels: target.audioChannels,
+            audioSampleRate: target.audioSampleRate,
+            containerExtension: target.containerExtension
+        )
+
+        // Check that the reference codec is encodable
+        if FFMPEGCommandBuilder.ffmpegVideoEncoder(for: target.videoCodec) == nil {
+            mergeLogger.error("Cannot encode to codec '\(target.videoCodec, privacy: .public)' — unsupported for conformance")
+            return nil
+        }
+
+        let orderedWaitingItems = waitingItems
+        let itemIDs = orderedWaitingItems.map { $0.id }
+        let durationLookup = buildDurationLookup(for: orderedWaitingItems, metadata: metadata)
+
+        guard let (segments, temporaryFiles, totalDuration) = await prepareConformanceMergeSegments(
+            from: orderedWaitingItems,
+            durationLookup: durationLookup,
+            target: target,
+            metadata: metadata,
+            statusUpdate: statusUpdate
+        ) else {
+            return nil
+        }
+
+        guard let listFileURL = createConcatListFile(for: segments) else {
+            cleanupTemporaryFiles(temporaryFiles)
+            return nil
+        }
+
+        let firstItem = orderedWaitingItems[0]
+        let baseName = groupName ?? firstItem.comment
+        let resolvedOutputFolder: String
+        if let url = URL(string: outputFolder) {
+            resolvedOutputFolder = url.path
+        } else {
+            resolvedOutputFolder = outputFolder
+        }
+
+        let outputBaseName = FileNameProcessor.processFileName(baseName.isEmpty ? firstItem.name : baseName)
+        let baseOutputURL = URL(fileURLWithPath: resolvedOutputFolder).appendingPathComponent(outputBaseName)
+
+        let sourceHasAudio = target.audioCodec != nil
+
+        return MergePlan(
+            itemIDs: itemIDs,
+            listFileURL: listFileURL,
+            outputBaseURL: baseOutputURL,
+            outputFolder: outputFolder,
+            preset: .streamCopy, // Concat pass always uses stream copy
+            comment: firstItem.comment,
+            includeDateTag: firstItem.includeDateTag,
+            waveformRequest: nil,
+            synthesizedVideoRequest: nil,
+            segments: segments,
+            temporaryClipURLs: temporaryFiles,
+            totalDuration: totalDuration,
+            hasExecuted: false,
+            sourceHasAudio: sourceHasAudio,
+            conformanceTarget: target
+        )
+    }
+
     private func handleMergeCompletion(
         plan: MergePlan,
         indices: [Int],
@@ -582,6 +866,23 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[index].outputURL = success ? finalURL : nil
                     droppedFiles.wrappedValue[index].outputFileSizeBytes = outputFileSizeBytes
                     droppedFiles.wrappedValue[index].conversionError = success ? nil : errorReason
+                }
+            }
+        }
+
+        // Post-export verification: check output has expected streams
+        if success, plan.sourceHasAudio {
+            Task {
+                if let result = await FFMPEGProbeService.verifyOutputStreams(for: finalURL) {
+                    if result.audioStreamCount == 0 {
+                        mergeLogger.error("POST-EXPORT WARNING: Source clips had audio but output '\(finalURL.lastPathComponent, privacy: .public)' has no audio streams")
+                        await MainActor.run {
+                            if let firstIdx = indices.first, droppedFiles.wrappedValue.indices.contains(firstIdx) {
+                                droppedFiles.wrappedValue[firstIdx].conversionError =
+                                    "Warning: Audio missing in output. Source clips had audio but the merged file has none."
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -813,6 +1114,10 @@ actor ConversionManager: Sendable {
             }
         }
 
+        // Populate metadata early so it's available even when clips are incompatible
+        // (needed for conformance merge reference picker in the UI)
+        lastMergeMetadata = resolvedMetadata
+
         guard let firstItem = waitingItems.first,
               let referenceMetadata = resolvedMetadata[firstItem.id],
               !referenceMetadata.videoStreams.isEmpty else {
@@ -887,7 +1192,6 @@ actor ConversionManager: Sendable {
         }
 
         mergeLogger.debug("Merge compatibility: PASSED for \(waitingItems.count) clips")
-        lastMergeMetadata = resolvedMetadata
         return .compatible
     }
 
@@ -954,6 +1258,207 @@ actor ConversionManager: Sendable {
         }
     }
 
+    /// Pure compatibility check that doesn't mutate actor state.
+    /// Use this from UI code (e.g. card import dialog) where you already have metadata loaded.
+    static func checkMergeCompatibility(
+        items: [VideoItem],
+        metadata: [UUID: VideoMetadata]
+    ) -> MergeCompatibilityResult {
+        let waitingItems = items.filter {
+            $0.status == .waiting &&
+            !$0.isDownloading &&
+            $0.scheduledDownloadTime == nil &&
+            !$0.isImageSequence
+        }
+        guard waitingItems.count >= 2 else {
+            return .insufficientItems(waitingItems.count)
+        }
+
+        guard let firstItem = waitingItems.first,
+              let referenceMetadata = metadata[firstItem.id],
+              !referenceMetadata.videoStreams.isEmpty else {
+            return .missingVideoTrack
+        }
+
+        let referenceVideoStreams = referenceMetadata.videoStreams
+        let referenceAudio = referenceMetadata.audioStreams.first
+
+        for item in waitingItems {
+            guard let meta = metadata[item.id], !meta.videoStreams.isEmpty else {
+                return .missingVideoTrack
+            }
+
+            if meta.videoStreams.count != referenceVideoStreams.count {
+                if meta.primaryVideoStream != nil && !referenceVideoStreams.isEmpty {
+                    return .videoCodecMismatch(item)
+                }
+                return .missingVideoTrack
+            }
+
+            for (video, referenceVideo) in zip(meta.videoStreams, referenceVideoStreams) {
+                if (video.codec?.lowercased() ?? "") != (referenceVideo.codec?.lowercased() ?? "") {
+                    return .videoCodecMismatch(item)
+                }
+                if video.width != referenceVideo.width || video.height != referenceVideo.height {
+                    return .resolutionMismatch(item, expected: referenceVideo)
+                }
+                // PAR check
+                let parEqual: Bool = {
+                    switch (video.pixelAspectRatio, referenceVideo.pixelAspectRatio) {
+                    case (nil, nil): return true
+                    case let (l?, r?):
+                        if let lv = l.doubleValue, let rv = r.doubleValue { return abs(lv - rv) <= 0.001 }
+                        return l.stringValue == r.stringValue
+                    case (nil, let r?):
+                        if let v = r.doubleValue { return abs(v - 1.0) <= 0.001 }
+                        let n = r.stringValue.replacingOccurrences(of: " ", with: "").lowercased()
+                        return n == "1:1" || n == "1" || n == "0:1"
+                    case (let l?, nil):
+                        if let v = l.doubleValue { return abs(v - 1.0) <= 0.001 }
+                        let n = l.stringValue.replacingOccurrences(of: " ", with: "").lowercased()
+                        return n == "1:1" || n == "1" || n == "0:1"
+                    }
+                }()
+                if !parEqual { return .pixelAspectMismatch(item) }
+
+                // Frame rate check
+                let frEqual: Bool = {
+                    switch (video.frameRate?.value, referenceVideo.frameRate?.value) {
+                    case (nil, nil): return true
+                    case let (l?, r?): return abs(l - r) <= 0.01
+                    default: return video.frameRate?.stringValue == referenceVideo.frameRate?.stringValue
+                    }
+                }()
+                if !frEqual { return .frameRateMismatch(item) }
+            }
+
+            switch (referenceAudio, meta.audioStreams.first) {
+            case (nil, nil): break
+            case (nil, .some), (.some, nil):
+                return .audioPresenceMismatch(item)
+            case let (.some(refAudio), .some(audio)):
+                if audio.channels != refAudio.channels { return .audioChannelMismatch(item) }
+                if audio.sampleRate != refAudio.sampleRate { return .audioSampleRateMismatch(item) }
+                if (audio.codec?.lowercased() ?? "") != (refAudio.codec?.lowercased() ?? "") {
+                    return .audioCodecMismatch(item)
+                }
+            }
+        }
+
+        return .compatible
+    }
+
+    /// Groups items into clusters where all items in a cluster are merge-compatible.
+    static func groupByCompatibility(
+        items: [VideoItem],
+        metadata: [UUID: VideoMetadata]
+    ) -> [[VideoItem]] {
+        guard !items.isEmpty else { return [] }
+
+        var groups: [[VideoItem]] = []
+
+        for item in items {
+            guard let itemMeta = metadata[item.id],
+                  !itemMeta.videoStreams.isEmpty else {
+                groups.append([item])
+                continue
+            }
+
+            var placed = false
+            for groupIndex in groups.indices {
+                guard let first = groups[groupIndex].first,
+                      let firstMeta = metadata[first.id] else { continue }
+
+                let twoItems = [first, item]
+                let twoMeta = [first.id: firstMeta, item.id: itemMeta]
+                if case .compatible = checkMergeCompatibility(items: twoItems, metadata: twoMeta) {
+                    groups[groupIndex].append(item)
+                    placed = true
+                    break
+                }
+            }
+
+            if !placed {
+                groups.append([item])
+            }
+        }
+
+        return groups
+    }
+
+    /// Exposes the metadata gathered during the last merge compatibility check.
+    /// Available even when clips are incompatible — used by conformance merge UI.
+    func getLastMergeMetadata() -> [UUID: VideoMetadata] {
+        return lastMergeMetadata
+    }
+
+    /// Analyzes what each clip needs to change to conform to a reference clip's format.
+    static func analyzeConformance(
+        items: [VideoItem],
+        referenceItemID: UUID,
+        metadata: [UUID: VideoMetadata]
+    ) -> [ConformanceAnalysis] {
+        guard let refMeta = metadata[referenceItemID],
+              let refVideo = refMeta.primaryVideoStream else { return [] }
+        let refAudio = refMeta.audioStreams.first
+
+        return items.map { item in
+            guard let itemMeta = metadata[item.id],
+                  let itemVideo = itemMeta.primaryVideoStream else {
+                return ConformanceAnalysis(
+                    id: item.id, itemName: item.name,
+                    needsVideoReencode: true, needsAudioReencode: true,
+                    videoMismatches: ["No video metadata"], audioMismatches: []
+                )
+            }
+            let itemAudio = itemMeta.audioStreams.first
+
+            var videoMismatches: [String] = []
+            if (itemVideo.codec?.lowercased() ?? "") != (refVideo.codec?.lowercased() ?? "") {
+                videoMismatches.append("Codec: \(itemVideo.codec ?? "?") → \(refVideo.codec ?? "?")")
+            }
+            if itemVideo.width != refVideo.width || itemVideo.height != refVideo.height {
+                videoMismatches.append("Resolution: \(itemVideo.width ?? 0)x\(itemVideo.height ?? 0) → \(refVideo.width ?? 0)x\(refVideo.height ?? 0)")
+            }
+            let itemFR = itemVideo.frameRate?.value
+            let refFR = refVideo.frameRate?.value
+            if let i = itemFR, let r = refFR, abs(i - r) > 0.01 {
+                videoMismatches.append("Frame rate: \(String(format: "%.2f", i)) → \(String(format: "%.2f", r))")
+            } else if (itemFR == nil) != (refFR == nil) {
+                videoMismatches.append("Frame rate mismatch")
+            }
+
+            var audioMismatches: [String] = []
+            switch (itemAudio, refAudio) {
+            case (nil, .some(let r)):
+                audioMismatches.append("No audio → \(r.codec ?? "?") \(r.channels ?? 0)ch")
+            case (.some, nil):
+                audioMismatches.append("Audio will be removed")
+            case let (.some(a), .some(r)):
+                if (a.codec?.lowercased() ?? "") != (r.codec?.lowercased() ?? "") {
+                    audioMismatches.append("Codec: \(a.codec ?? "?") → \(r.codec ?? "?")")
+                }
+                if a.channels != r.channels {
+                    audioMismatches.append("Channels: \(a.channels ?? 0) → \(r.channels ?? 0)")
+                }
+                if a.sampleRate != r.sampleRate {
+                    audioMismatches.append("Sample rate: \(a.sampleRate ?? 0) → \(r.sampleRate ?? 0)")
+                }
+            case (nil, nil):
+                break
+            }
+
+            return ConformanceAnalysis(
+                id: item.id,
+                itemName: item.name,
+                needsVideoReencode: !videoMismatches.isEmpty,
+                needsAudioReencode: !audioMismatches.isEmpty,
+                videoMismatches: videoMismatches,
+                audioMismatches: audioMismatches
+            )
+        }
+    }
+
     private func stringsEqual(_ lhs: String?, _ rhs: String?) -> Bool {
         (lhs?.lowercased() ?? "") == (rhs?.lowercased() ?? "")
     }
@@ -1000,7 +1505,10 @@ actor ConversionManager: Sendable {
         groupName: String? = nil,
         transcriptionEnabled: Bool,
         uploadEnabled: Bool,
-        analyticsEnabled: Bool
+        analyticsEnabled: Bool,
+        conformanceMergeEnabled: Bool = false,
+        conformanceReferenceItemID: UUID? = nil,
+        conformanceMetadata: [UUID: VideoMetadata]? = nil
     ) async {
         self.isConverting = true
 
@@ -1024,7 +1532,23 @@ actor ConversionManager: Sendable {
             }
         }
 
-        if concatEnabled && items.wrappedValue.filter({ $0.status == .waiting }).count >= 2 {
+        if conformanceMergeEnabled,
+           let refID = conformanceReferenceItemID,
+           let meta = conformanceMetadata,
+           items.wrappedValue.filter({ $0.status == .waiting }).count >= 2 {
+            // Two-pass conformance merge: re-encode mismatched clips, then stream-copy concat
+            self.mergePlan = await buildConformanceMergePlan(
+                from: items.wrappedValue,
+                metadata: meta,
+                referenceItemID: refID,
+                outputFolder: outputFolder,
+                groupName: groupName,
+                statusUpdate: { message in
+                    // Could update UI status here in future
+                    self.mergeLogger.info("\(message, privacy: .public)")
+                }
+            )
+        } else if concatEnabled && items.wrappedValue.filter({ $0.status == .waiting }).count >= 2 {
             self.mergePlan = await buildMergePlan(from: items.wrappedValue, preset: preset, outputFolder: outputFolder, groupName: groupName)
         } else {
             self.mergePlan = nil

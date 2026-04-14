@@ -753,6 +753,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 loopPlayback: item.loopPlayback,
                 waveformVideoEnabled: item.waveformVideoEnabled,
                 isImageSequence: item.isImageSequence,
+                isGroupChild: isGroupItem,
                 isDCPPreset: parent.preset == .dcp,
                 dcpMetadataTitle: item.dcpMetadata?.contentTitleText,
                 showDCPAudioWarning: parent.preset == .dcp && !(audioRouting?.isCustomized ?? false) && audioStreams.count > 1 && !audioStreams.allSatisfy { ($0.channels ?? 0) == 1 },

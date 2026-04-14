@@ -100,6 +100,9 @@ struct VideoFileCellConfiguration: Equatable {
     let waveformVideoEnabled: Bool
     let isImageSequence: Bool
 
+    // Encoding group membership
+    let isGroupChild: Bool
+
     // DCP
     let isDCPPreset: Bool
     let dcpMetadataTitle: String?
