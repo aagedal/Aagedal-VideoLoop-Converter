@@ -21,6 +21,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     // MARK: - Card Container
 
     private let cardView = NSView()
+    private let groupAccentLayer = CALayer()
 
     // MARK: - Main Layout
 
@@ -154,8 +155,14 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         cardView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(cardView)
 
-        // Dark cyan/teal card background
+        // Dark card background (updateLayer handles group-child tint)
         cardView.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1.0).cgColor
+
+        // Left accent bar for encoding group child rows
+        groupAccentLayer.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.3).cgColor
+        groupAccentLayer.cornerRadius = 1
+        groupAccentLayer.isHidden = true
+        cardView.layer?.addSublayer(groupAccentLayer)
 
         // Shadow on self (outside the clip)
         layer?.shadowColor = NSColor.black.cgColor
@@ -623,6 +630,12 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             sizeLabel.isHidden = config.isCompactMode
         }
 
+        // Group child background — trigger layer update when membership changes
+        if isFirstConfigure || prev?.isGroupChild != config.isGroupChild {
+            groupAccentLayer.isHidden = !config.isGroupChild
+            needsDisplay = true
+        }
+
         // Thumbnail
         if isFirstConfigure || prev?.thumbnailImage !== config.thumbnailImage {
             thumbnailImageView.image = config.thumbnailImage
@@ -727,11 +740,19 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         thumbnailBorderLayer.path = thumbPath
         thumbnailBorderLayer.frame = thumbBounds
         checkerboardLayer.frame = thumbBounds
+
+        // Position encoding group accent bar on left edge
+        groupAccentLayer.frame = CGRect(x: 0, y: 4, width: 2, height: cardBounds.height - 8)
     }
 
     override func updateLayer() {
         super.updateLayer()
-        cardView.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1.0).cgColor
+        if currentConfig?.isGroupChild == true {
+            // Subtle blue-tinted background to visually tie child rows to their encoding group header
+            cardView.layer?.backgroundColor = NSColor(red: 0.11, green: 0.12, blue: 0.17, alpha: 1.0).cgColor
+        } else {
+            cardView.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1.0).cgColor
+        }
     }
 
     private func updateThumbnailSize() {

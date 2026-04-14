@@ -175,6 +175,7 @@
 		RSEL000000000002000BUILD /* RegionSelectionWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */; };
 		SCHEDDL01SERV00000001 /* ScheduledDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */; };
 		VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = VIDITEMIDX00000002 /* VideoItemIndex.swift */; };
+		DC0001A1CFM0000100000002 /* ConformanceMergeDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1CFM0000100000001 /* ConformanceMergeDialog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -396,6 +397,7 @@
 		RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionWindowController.swift; sourceTree = "<group>"; };
 		SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScheduledDownloadService.swift; path = YTDLP/ScheduledDownloadService.swift; sourceTree = "<group>"; };
 		VIDITEMIDX00000002 /* VideoItemIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoItemIndex.swift; sourceTree = "<group>"; };
+		DC0001A1CFM0000100000001 /* ConformanceMergeDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConformanceMergeDialog.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -626,6 +628,7 @@
 				8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */,
 				8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */,
 				DC0001A1DCP0000100000006 /* DCPMetadataView.swift */,
+				DC0001A1CFM0000100000001 /* ConformanceMergeDialog.swift */,
 				8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */,
 				AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */,
 				ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */,
@@ -1126,6 +1129,7 @@
 				8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */,
 				8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */,
 				DC0001A1DCP0000100000005 /* DCPMetadataView.swift in Sources */,
+				DC0001A1CFM0000100000002 /* ConformanceMergeDialog.swift in Sources */,
 				8EEE45182EBEA9F00049F017 /* PreviewPlayerView.swift in Sources */,
 				8EEE45312EC139270049F017 /* FFMPEGProgressParser.swift in Sources */,
 				8EC3DCDD2EF57F0600CD75BC /* RandomTips.swift in Sources */,

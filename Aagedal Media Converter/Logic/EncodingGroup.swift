@@ -25,6 +25,10 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
     var analyticsEnabled: Bool
     var sequentialNamingEnabled: Bool
 
+    // Conformance merge (two-pass force merge for incompatible clips)
+    var conformanceMergeEnabled: Bool
+    var conformanceReferenceItemID: UUID?
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -35,7 +39,9 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
         uploadEnabled: Bool = false,
         transcriptionEnabled: Bool = false,
         analyticsEnabled: Bool = false,
-        sequentialNamingEnabled: Bool = false
+        sequentialNamingEnabled: Bool = false,
+        conformanceMergeEnabled: Bool = false,
+        conformanceReferenceItemID: UUID? = nil
     ) {
         self.id = id
         self.name = name
@@ -47,6 +53,8 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
         self.transcriptionEnabled = transcriptionEnabled
         self.analyticsEnabled = analyticsEnabled
         self.sequentialNamingEnabled = sequentialNamingEnabled
+        self.conformanceMergeEnabled = conformanceMergeEnabled
+        self.conformanceReferenceItemID = conformanceReferenceItemID
     }
 
     var clipCount: Int { items.count }

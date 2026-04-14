@@ -28,8 +28,12 @@ struct CameraCardImportView: View {
     @Binding var selectedPreset: ExportPreset
     @Binding var concatEnabled: Bool
     @Binding var uploadEnabled: Bool
+    let mergeCompatibilityResult: ConversionManager.MergeCompatibilityResult?
+    let isCheckingCompatibility: Bool
     let onImport: () -> Void
     let onCancel: () -> Void
+    let onAutoSplit: (() -> Void)?
+    let onForceMerge: (() -> Void)?
 
     private let presetManager = PresetManager.shared
     @State private var servers: [UploadServerEntry] = []
@@ -103,6 +107,45 @@ struct CameraCardImportView: View {
             Divider()
 
             Toggle("Concatenate clips into single file", isOn: $concatEnabled)
+
+            if concatEnabled {
+                if isCheckingCompatibility {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Checking clip compatibility\u{2026}")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let result = mergeCompatibilityResult {
+                    if case .compatible = result {
+                        // Compatible — no warning needed
+                    } else {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.yellow)
+                            Text(result.tooltip)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if let onAutoSplit {
+                                Button("Auto-split into groups") {
+                                    onAutoSplit()
+                                }
+                                .controlSize(.small)
+                                .help("Create separate encoding groups for compatible clips")
+                            }
+                            if let onForceMerge {
+                                Button("Force Merge\u{2026}") {
+                                    onForceMerge()
+                                }
+                                .controlSize(.small)
+                                .help("Re-encode incompatible clips to match a reference, then merge all")
+                            }
+                        }
+                    }
+                }
+            }
 
             Toggle("Upload after conversion", isOn: $uploadEnabled)
 
