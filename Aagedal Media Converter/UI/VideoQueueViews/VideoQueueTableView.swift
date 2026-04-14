@@ -765,11 +765,38 @@ struct VideoQueueTableView: NSViewRepresentable {
 
         // MARK: - Cell Action Handler
 
+        /// Finds a VideoItem by ID, searching both ungrouped droppedFiles and encoding groups.
+        private func findItem(by itemID: UUID) -> VideoItem? {
+            if let item = parent.droppedFiles.first(where: { $0.id == itemID }) {
+                return item
+            }
+            for group in parent.encodingGroups {
+                if let item = group.items.first(where: { $0.id == itemID }) {
+                    return item
+                }
+            }
+            return nil
+        }
+
+        /// Finds the group ID that contains the given item, if any.
+        private func groupID(for itemID: UUID) -> UUID? {
+            for group in parent.encodingGroups {
+                if group.items.contains(where: { $0.id == itemID }) {
+                    return group.id
+                }
+            }
+            return nil
+        }
+
         func handleCellAction(_ action: CellAction, itemID: UUID, displayRows: [FlatQueueRow], row: Int) {
             switch action {
             case .delete:
                 if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
                     parent.onDelete(IndexSet(integer: idx))
+                } else if let gID = groupID(for: itemID),
+                          let gIdx = parent.encodingGroups.firstIndex(where: { $0.id == gID }),
+                          let iIdx = parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
+                    parent.encodingGroups[gIdx].items.remove(at: iIdx)
                 }
             case .reset(let optionKeyPressed):
                 if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
@@ -919,22 +946,20 @@ struct VideoQueueTableView: NSViewRepresentable {
             case .playFullscreen:
                 parent.onPlayFullscreen?(itemID)
             case .showInFinder:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                    NSWorkspace.shared.activateFileViewerSelecting([parent.droppedFiles[idx].url])
+                if let item = findItem(by: itemID) {
+                    NSWorkspace.shared.activateFileViewerSelecting([item.url])
                 }
             case .showOutputInFinder:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }),
-                   let url = parent.droppedFiles[idx].outputURL {
+                if let item = findItem(by: itemID), let url = item.outputURL {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
             case .showSubtitleInFinder:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }),
-                   let url = parent.droppedFiles[idx].subtitleFilePath {
+                if let item = findItem(by: itemID), let url = item.subtitleFilePath {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
             case .showDownloadedInFinder:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                    NSWorkspace.shared.activateFileViewerSelecting([parent.droppedFiles[idx].url])
+                if let item = findItem(by: itemID) {
+                    NSWorkspace.shared.activateFileViewerSelecting([item.url])
                 }
             case .attachSubtitleFile:
                 promptAttachSubtitleFile(itemID: itemID, source: .ungrouped)

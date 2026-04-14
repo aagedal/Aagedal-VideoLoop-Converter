@@ -106,9 +106,11 @@ struct CameraCardImportView: View {
 
             Divider()
 
-            Toggle("Concatenate clips into single file", isOn: $concatEnabled)
+            if clipCount >= 2 {
+                Toggle("Concatenate clips into single file", isOn: $concatEnabled)
+            }
 
-            if concatEnabled {
+            if concatEnabled && clipCount >= 2 {
                 if isCheckingCompatibility {
                     HStack(spacing: 6) {
                         ProgressView()
