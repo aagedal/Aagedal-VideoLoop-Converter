@@ -200,7 +200,7 @@ enum FFMPEGCommandBuilder {
         // Image sequence inputs (via customInputArguments): the inputURL is a directory
         // so skip audio probing. If no associated audio, strip audio args entirely.
         // If associated audio exists (two -i flags), remap audio from the second input.
-        let isImageSequenceInput = customInputArguments != nil
+        let isImageSequenceInput = customInputArguments?.contains("-framerate") == true
         if isImageSequenceInput {
             let inputCount = customInputArguments?.filter({ $0 == "-i" }).count ?? 0
             if inputCount >= 2 {
