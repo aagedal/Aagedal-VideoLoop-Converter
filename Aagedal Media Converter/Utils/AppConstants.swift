@@ -12,8 +12,9 @@ import Foundation
 enum AppConstants {
     // Default output directory for encoded exports
     static let defaultOutputDirectory: URL = {
-        let defaultDir = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Media_Exports")
+        let moviesDir = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies", isDirectory: true)
+        let defaultDir = moviesDir.appendingPathComponent("Media_Exports")
 
         // Create the directory if it doesn't exist
         try? FileManager.default.createDirectory(at: defaultDir, withIntermediateDirectories: true)
@@ -75,7 +76,8 @@ enum AppConstants {
     
     // Directory for cached preview assets (thumbnails, waveforms, etc.)
     static let previewCacheDirectory: URL = {
-        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         let cacheDir = supportDir
             .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
             .appendingPathComponent("PreviewAssets", isDirectory: true)
@@ -545,7 +547,8 @@ enum AppConstants {
 
     // yt-dlp settings
     static let ytdlpToolsDirectory: URL = {
-        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         let toolsDir = supportDir
             .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
             .appendingPathComponent("tools", isDirectory: true)
@@ -553,7 +556,8 @@ enum AppConstants {
         return toolsDir
     }()
     static let ytdlpCacheDirectory: URL = {
-        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         let cacheDir = supportDir
             .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
             .appendingPathComponent("yt-dlp-cache", isDirectory: true)
@@ -681,7 +685,8 @@ enum AppConstants {
     static let whisperModelKey = "whisperSelectedModel"
     static let whisperCustomModelPathKey = "whisperCustomModelPath"
     static let whisperModelsDirectory: URL = {
-        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         let modelsDir = supportDir
             .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
             .appendingPathComponent("whisper-models", isDirectory: true)
@@ -738,7 +743,8 @@ enum AppConstants {
 
     // tessdata directory in Application Support (user can add extra .traineddata files here)
     static let tesseractTessdataDirectory: URL = {
-        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         let dir = supportDir
             .appendingPathComponent("AagedalMediaConverter", isDirectory: true)
             .appendingPathComponent("tessdata", isDirectory: true)

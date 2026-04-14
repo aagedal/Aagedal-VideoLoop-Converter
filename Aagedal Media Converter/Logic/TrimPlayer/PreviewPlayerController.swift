@@ -720,7 +720,7 @@ final class PreviewPlayerController: ObservableObject {
         } else if let idx = slowSteps.firstIndex(where: { abs($0 - current) < 0.01 }) {
             target = slowSteps[min(idx + 1, slowSteps.count - 1)]
         } else {
-            target = slowSteps.first(where: { $0 < current }) ?? slowSteps.last!
+            target = slowSteps.first(where: { $0 < current }) ?? slowSteps.last ?? slowSteps[0]
         }
 
         if useImageSequence {
