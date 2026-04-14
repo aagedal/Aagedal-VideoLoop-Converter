@@ -109,10 +109,8 @@ final class PreviewPlayerController: ObservableObject {
     var playbackDidFinish: (() -> Void)?
     var timeObserver: Any?
     var playbackTimeObserver: Any?
-    var audioSyncObserver: Any?
     weak var timeObserverOwner: AVPlayer?
     weak var playbackTimeObserverOwner: AVPlayer?
-    weak var audioSyncObserverOwner: AVPlayer?
     var playerItemStatusObserver: Any?
     var mpvEndObserver: AnyCancellable?
     var hasSecurityScope = false
@@ -1235,6 +1233,14 @@ final class PreviewPlayerController: ObservableObject {
         previewAssetURL = nil  // Reset URL tracking so next load can proceed
         player?.pause()
 
+        // Remove observers BEFORE releasing the player, so the owner references
+        // are still valid for removeTimeObserver calls.
+        removeLoopObserver()
+        removeTimeObserver()
+        removePlaybackTimeObserver()
+        removePlayerItemStatusObserver()
+        removeMPVTrimObserver()
+
         // Release security-scoped resource only if we acquired it
         if hasSecurityScope {
             let url = videoItem.url
@@ -1268,10 +1274,6 @@ final class PreviewPlayerController: ObservableObject {
         _lastImageSequenceFrameURL = nil
 
         isPreparing = false
-        removeLoopObserver()
-        removeTimeObserver()
-        removePlaybackTimeObserver()
-        removePlayerItemStatusObserver()
         if resetAudioSelection {
             selectedAudioTrackOrderIndex = 0
             selectedSubtitleTrackOrderIndex = -1
