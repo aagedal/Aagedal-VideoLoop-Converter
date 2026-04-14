@@ -190,6 +190,7 @@ extension VideoFileCellView {
             case .converting: return ("ENCODING", "arrow.trianglehead.2.clockwise", .systemBlue)
             case .done: return ("DONE", "checkmark.circle", .systemGreen)
             case .failed: return ("FAILED", "exclamationmark.circle", .systemRed)
+            case .cancelled: return ("CANCELLED", "xmark.circle", .secondaryLabelColor)
             @unknown default: return ("", "questionmark", .secondaryLabelColor)
             }
         }()
@@ -285,6 +286,8 @@ extension VideoFileCellView {
             return ""
         case .failed:
             return config.conversionError ?? ""
+        case .cancelled:
+            return ""
         @unknown default:
             return ""
         }
@@ -307,6 +310,7 @@ extension VideoFileCellView {
         case .converting: return .systemBlue
         case .done: return .systemGreen
         case .failed: return .systemRed
+        case .cancelled: return .secondaryLabelColor
         @unknown default: return .secondaryLabelColor
         }
     }

@@ -190,37 +190,46 @@ struct ContentView: View {
             preset: selectedPreset,
             mergeClipsEnabled: mergeClipsEnabled,
             mergeClipsAvailable: mergeClipsAvailable,
-            onOpenTrim: { id in
-                // Verify the item exists before presenting the sheet
-                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+            onOpenTrim: { [self] id in
+                // Verify the item exists in either ungrouped queue or encoding groups
+                let exists = droppedFiles.contains(where: { $0.id == id }) ||
+                    encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
+                guard exists else { return }
                 trimSheetItemID = id
             },
-            onOpenTrimWithCrop: { id in
-                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+            onOpenTrimWithCrop: { [self] id in
+                let exists = droppedFiles.contains(where: { $0.id == id }) ||
+                    encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
+                guard exists else { return }
                 trimWithCropSheetItemID = id
             },
-            onOpenTimecode: { id in
-                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+            onOpenTimecode: { [self] id in
+                let exists = droppedFiles.contains(where: { $0.id == id }) ||
+                    encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
+                guard exists else { return }
                 timecodeSheetItemID = id
             },
-            onOpenAudioConfig: { id in
-                guard droppedFiles.contains(where: { $0.id == id }) else { return }
+            onOpenAudioConfig: { [self] id in
+                let exists = droppedFiles.contains(where: { $0.id == id }) ||
+                    encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
+                guard exists else { return }
                 audioConfigSheetItemID = id
             },
-            onOpenMetadata: { ids in
-                let validIDs = ids.filter { id in droppedFiles.contains(where: { $0.id == id }) }
+            onOpenMetadata: { [self] ids in
+                // Gather all items from both ungrouped queue and encoding groups
+                let allItems = droppedFiles + encodingGroups.flatMap { $0.items }
+                let validIDs = ids.filter { id in allItems.contains(where: { $0.id == id }) }
                 guard !validIDs.isEmpty else { return }
-                // Update the shared state and show the window
                 MetadataWindowState.shared.selectedItemIDs = Set(validIDs)
-                MetadataWindowState.shared.allItems = droppedFiles
+                MetadataWindowState.shared.allItems = allItems
                 MetadataWindowController.shared.showWindow()
             },
             onToggleDateTag: { index in
                 droppedFiles[index].includeDateTag.toggle()
             },
-            onPlayFullscreen: { id in
-                if let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-                    let selectedItem = droppedFiles[index]
+            onPlayFullscreen: { [self] id in
+                let allItems = droppedFiles + encodingGroups.flatMap { $0.items }
+                if let selectedItem = allItems.first(where: { $0.id == id }) {
                     if FullscreenPlayerWindowController.shared.isCurrentlyPlaying(itemID: selectedItem.id) {
                         return
                     }
