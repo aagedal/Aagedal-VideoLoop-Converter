@@ -325,6 +325,14 @@ struct ContentView: View {
                 Task { await WhisperService.shared.cancelGeneration() }
                 Task { await ParakeetService.shared.cancelGeneration() }
             }
+            // Cancel in-progress preview generation (thumbnails/waveforms) to free CPU
+            Task { await PreviewAssetGenerator.shared.cancelGeneration(for: item.url) }
+            if item.analyticsStatus.isInProgress {
+                Task { await AnalyticsService.shared.cancelAnalysis() }
+            }
+            if item.uploadStatus == .uploading {
+                Task { await UploadManager.shared.cancelUpload(itemID: item.id) }
+            }
         }
 
         // Note: Cache cleanup is handled by the user's cleanup policy (on app launch or manually)
@@ -1672,6 +1680,19 @@ struct ContentView: View {
                 DownloadManager.shared.cancelDownload(itemID: item.id)
             } else if let _ = item.scheduledDownloadTime {
                 ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
+            }
+            if item.subtitleStatus.isInProgress {
+                Task { await TesseractService.shared.cancelGeneration() }
+                Task { await WhisperService.shared.cancelGeneration() }
+                Task { await ParakeetService.shared.cancelGeneration() }
+            }
+            // Cancel in-progress preview generation (thumbnails/waveforms) to free CPU
+            Task { await PreviewAssetGenerator.shared.cancelGeneration(for: item.url) }
+            if item.analyticsStatus.isInProgress {
+                Task { await AnalyticsService.shared.cancelAnalysis() }
+            }
+            if item.uploadStatus == .uploading {
+                Task { await UploadManager.shared.cancelUpload(itemID: item.id) }
             }
         }
 
