@@ -218,8 +218,11 @@ extension VideoFileCellView {
         }
 
         // Status text
-        statusLabel.stringValue = progressText(config: config)
+        let text = progressText(config: config)
+        statusLabel.stringValue = text
         statusLabel.textColor = statusColor(config: config)
+        // Show full error in tooltip when the label truncates it
+        statusLabel.toolTip = (config.status == .failed || config.downloadError != nil) ? text : nil
     }
 
     // MARK: - Progress Text

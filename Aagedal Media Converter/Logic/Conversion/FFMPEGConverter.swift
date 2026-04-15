@@ -670,33 +670,28 @@ actor FFMPEGConverter {
                trimmed.contains("Permission denied") ||
                trimmed.contains("No space left on device") ||
                trimmed.contains("Invalid data found") ||
-               trimmed.contains("Decoder") && trimmed.contains("not found") ||
-               trimmed.contains("Encoder") && trimmed.contains("not found") ||
+               (trimmed.contains("Decoder") && trimmed.contains("not found")) ||
+               (trimmed.contains("Encoder") && trimmed.contains("not found")) ||
                trimmed.contains("Unknown encoder") ||
                trimmed.contains("Unknown decoder") ||
-               trimmed.contains("Codec") && trimmed.contains("not") ||
+               (trimmed.contains("Codec") && trimmed.contains("not")) ||
                trimmed.contains("does not support") ||
                trimmed.contains("Invalid argument") ||
-               trimmed.contains("Error") && !trimmed.hasPrefix("frame=") ||
+               (trimmed.contains("Error") && !trimmed.hasPrefix("frame=")) ||
                trimmed.contains("Cannot") ||
                trimmed.contains("Could not") ||
                trimmed.contains("Impossible") ||
                trimmed.contains("not found") ||
                trimmed.contains("Unrecognized option") ||
                trimmed.contains("already exists. Overwrite") ||
-               trimmed.contains("Discarded") && trimmed.contains("exceeded") ||
+               (trimmed.contains("Discarded") && trimmed.contains("exceeded")) ||
                trimmed.contains("Conversion failed") ||
                trimmed.contains("Failed to") ||
                trimmed.contains("Unable to") ||
                trimmed.contains("Unsupported") ||
                trimmed.contains("Too many packets buffered") ||
                trimmed.contains("Output file is empty") {
-                // Truncate to a reasonable length for UI display
-                let maxLen = 120
-                if trimmed.count > maxLen {
-                    return String(trimmed.prefix(maxLen)) + "…"
-                }
-                return trimmed
+                return truncateForDisplay(cleanUpErrorMessage(trimmed))
             }
 
             // Track FFmpeg internal error messages as fallback (e.g. "[libx264 @ 0x12345] ...")
@@ -707,14 +702,43 @@ actor FFMPEGConverter {
 
         // Use the last FFmpeg internal error if no high-level pattern matched
         if let internal_ = lastInternalError {
-            let maxLen = 120
-            if internal_.count > maxLen {
-                return String(internal_.prefix(maxLen)) + "…"
-            }
-            return internal_
+            return truncateForDisplay(cleanUpErrorMessage(internal_))
         }
 
-        return "FFmpeg exited with code \(exitCode)"
+        return "Encoding failed (exit code \(exitCode))"
+    }
+
+    /// Strips FFmpeg internal prefixes like "[libx264 @ 0x12345abcdef]" to produce
+    /// cleaner user-facing error messages while keeping the component name.
+    private static func cleanUpErrorMessage(_ message: String) -> String {
+        // Pattern: [component @ 0xHEXADDR] rest of message
+        // Extract "component: rest of message"
+        guard message.hasPrefix("["),
+              let closeBracket = message.firstIndex(of: "]") else {
+            return message
+        }
+        let bracketContent = message[message.index(after: message.startIndex)..<closeBracket]
+        let remainder = message[message.index(after: closeBracket)...].trimmingCharacters(in: .whitespaces)
+
+        // Strip the " @ 0x..." part, keeping just the component name
+        if let atRange = bracketContent.range(of: " @ 0x") {
+            let component = bracketContent[bracketContent.startIndex..<atRange.lowerBound]
+            if remainder.isEmpty {
+                return "[\(component)] (no details)"
+            }
+            return "[\(component)] \(remainder)"
+        }
+
+        // No memory address — return as-is
+        return message
+    }
+
+    /// Truncates a string for UI display, capping at 150 characters.
+    private static func truncateForDisplay(_ text: String, maxLength: Int = 150) -> String {
+        if text.count > maxLength {
+            return String(text.prefix(maxLength)) + "…"
+        }
+        return text
     }
 
     // MARK: - Native Waveform Conversion (Swift Renderer)
