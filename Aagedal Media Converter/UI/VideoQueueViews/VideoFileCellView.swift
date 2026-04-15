@@ -46,8 +46,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     private let outputNameField = NSTextField() // editable, hidden by default
     private let mergeIndicator = NSImageView()
     private let finderButton = NSButton()
+    private let downloadedFinderButton = NSButton()
     private let dragButton = DraggableFileImageView()
-    private let downloadSourceButton = NSButton()
     private let liveRecordingBadge = NSView()
     private let liveRecordingLabel = NSTextField(labelWithString: "LIVE")
 
@@ -329,7 +329,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         // Rotate 90 degrees
         mergeIndicator.frameCenterRotation = 90
 
-        // Finder button
+        // Finder button (shows encoded output file)
         finderButton.image = NSImage(systemSymbolName: "magnifyingglass.circle.fill", accessibilityDescription: "Show in Finder")
         finderButton.isBordered = false
         finderButton.bezelStyle = .inline
@@ -337,6 +337,17 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         finderButton.action = #selector(finderButtonClicked)
         finderButton.isHidden = true
         finderButton.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Downloaded source file Finder button (shows original downloaded file)
+        downloadedFinderButton.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: "Show downloaded file in Finder")
+        downloadedFinderButton.isBordered = false
+        downloadedFinderButton.bezelStyle = .inline
+        downloadedFinderButton.target = self
+        downloadedFinderButton.action = #selector(downloadedFinderButtonClicked)
+        downloadedFinderButton.isHidden = true
+        downloadedFinderButton.contentTintColor = .secondaryLabelColor
+        downloadedFinderButton.toolTip = "Show downloaded source file in Finder"
+        downloadedFinderButton.setContentHuggingPriority(.required, for: .horizontal)
 
         // Drag-to-share button
         dragButton.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: "Drag to share file")
@@ -360,6 +371,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         ])
 
         filenameStack.addArrangedSubview(inputNameLabel)
+        filenameStack.addArrangedSubview(downloadedFinderButton)
         filenameStack.addArrangedSubview(arrowLabel)
         filenameStack.addArrangedSubview(outputNameLabel)
         filenameStack.addArrangedSubview(outputNameField)
@@ -642,14 +654,26 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         }
 
         // Filenames
-        if isFirstConfigure || prev?.name != config.name {
+        if isFirstConfigure || prev?.name != config.name || prev?.sourceURL != config.sourceURL {
             inputNameLabel.stringValue = config.name
+            // Show full path in tooltip; append source URL for downloads
+            var tip = config.url.path
+            if let source = config.sourceURL {
+                tip += "\n\nSource: \(source)"
+            }
+            inputNameLabel.toolTip = tip
         }
         if isFirstConfigure || prev?.outputURL != config.outputURL || prev?.outputFileNameOverride != config.outputFileNameOverride || prev?.status != config.status || prev?.outputFileExists != config.outputFileExists {
             let outputName = displayOutputFilename(config: config)
             outputNameLabel.stringValue = outputName
             outputNameLabel.toolTip = outputName
             outputNameLabel.textColor = (config.status == .waiting && config.outputFileExists) ? .systemOrange : .labelColor
+        }
+
+        // Downloaded source file Finder button (for yt-dlp items)
+        if isFirstConfigure || prev?.sourceURL != config.sourceURL || prev?.isDownloading != config.isDownloading || prev?.status != config.status {
+            let showDownloadedButton = config.sourceURL != nil && !config.isDownloading && config.downloadError == nil
+            downloadedFinderButton.isHidden = !showDownloadedButton
         }
 
         // Merge
@@ -862,6 +886,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     @objc private func redownloadClicked() { actionHandler?(.forceRedownload) }
     @objc private func cancelSubtitleClicked() { actionHandler?(.cancelSubtitleGeneration) }
     @objc private func cancelAnalyticsClicked() { actionHandler?(.cancelAnalytics) }
+    @objc private func downloadedFinderButtonClicked() {
+        actionHandler?(.showDownloadedInFinder)
+    }
     @objc private func finderButtonClicked() {
         guard let config = currentConfig else { return }
         if config.status == .done, let url = config.outputURL {
