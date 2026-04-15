@@ -18,6 +18,8 @@ struct EncodingGroupHeaderView: View {
     var onAddFiles: () -> Void = {}
     var onReset: () -> Void = {}
 
+    @State private var showDeleteConfirmation = false
+
     private let presetManager = PresetManager.shared
 
     private var resolvedPreset: ExportPreset {
@@ -110,7 +112,7 @@ struct EncodingGroupHeaderView: View {
                     .help("Reset all items in group")
 
                     Button {
-                        onDelete()
+                        showDeleteConfirmation = true
                     } label: {
                         Image(systemName: "trash")
                             .foregroundStyle(.red.opacity(0.7))
@@ -239,6 +241,18 @@ struct EncodingGroupHeaderView: View {
             if group.sequentialNamingEnabled {
                 applySequentialNaming()
             }
+        }
+        .confirmationDialog(
+            "Delete Group",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Group", role: .destructive) {
+                onDelete()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will remove the group \"\(group.name)\" and all its items from the queue.")
         }
     }
 

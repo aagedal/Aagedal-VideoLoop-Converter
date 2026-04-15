@@ -94,12 +94,11 @@ struct ConversionToolbarView: ToolbarContent {
                 onReset: onResetAll
             )
 
-            Button(action: onClear) {
-                Label("Clear", systemImage: "square.stack.3d.up.slash")
-                    .foregroundStyle((!hasFiles || isConverting) ? Color.gray : Color.red)
-            }
-            .help("Remove all files from the list")
-            .disabled(!hasFiles || isConverting)
+            ClearButton(
+                hasFiles: hasFiles,
+                isConverting: isConverting,
+                onClear: onClear
+            )
 
             Picker("Preset", selection: $selectedPreset) {
                 ForEach(presets) { preset in
@@ -119,6 +118,39 @@ struct ConversionToolbarView: ToolbarContent {
             .buttonStyle(.plain)
             .help("Application Settings")
             .padding(.horizontal, 8)
+        }
+    }
+}
+
+// MARK: - Clear Button with Confirmation Dialog
+
+private struct ClearButton: View {
+    let hasFiles: Bool
+    let isConverting: Bool
+    let onClear: () -> Void
+
+    @State private var showConfirmation = false
+
+    var body: some View {
+        Button {
+            showConfirmation = true
+        } label: {
+            Label("Clear", systemImage: "square.stack.3d.up.slash")
+                .foregroundStyle((!hasFiles || isConverting) ? Color.gray : Color.red)
+        }
+        .help("Remove all files from the list")
+        .disabled(!hasFiles || isConverting)
+        .confirmationDialog(
+            "Clear All Files",
+            isPresented: $showConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clear All", role: .destructive) {
+                onClear()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will remove all files from the queue and cancel any active downloads.")
         }
     }
 }
