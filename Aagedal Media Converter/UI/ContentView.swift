@@ -126,6 +126,41 @@ struct ContentView: View {
         droppedFiles + encodingGroups.flatMap { $0.items }
     }
 
+    /// Whether a VideoItem with the given ID exists in either the ungrouped queue or any encoding group.
+    private func itemExists(id: UUID) -> Bool {
+        droppedFiles.contains(where: { $0.id == id }) ||
+            encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
+    }
+
+    /// Whether any modal sheet or overlay is currently presented.
+    private var anySheetOrOverlayOpen: Bool {
+        trimSheetItemID != nil ||
+            trimWithCropSheetItemID != nil ||
+            timecodeSheetItemID != nil ||
+            audioConfigSheetItemID != nil ||
+            CaptureOverlayWindowController.shared.isShowing ||
+            showURLInputOverlay ||
+            showPresetQuickSelect
+    }
+
+    /// Applies a preset change with all associated side effects (output URL refresh, merge evaluation, auto-mute).
+    private func applyPresetChange(_ preset: ExportPreset) {
+        let oldValue = selectedPreset
+        hasUserChangedPreset = true
+        selectedPreset = preset
+        refreshExpectedOutputURLs(for: preset)
+        Task { @MainActor in
+            await Task.yield()
+            self.scheduleMergeCompatibilityEvaluation()
+        }
+        presetManager.applyAutoMuteSettings(
+            to: &droppedFiles,
+            oldPreset: oldValue,
+            newPreset: preset,
+            videoLoopDefaultMuted: videoLoopDefaultMuted
+        )
+    }
+
     private var currentConvertingItem: VideoItem? {
         allConversionItems.first { $0.status == .converting }
     }
@@ -191,28 +226,19 @@ struct ContentView: View {
             mergeClipsEnabled: mergeClipsEnabled,
             mergeClipsAvailable: mergeClipsAvailable,
             onOpenTrim: { [self] id in
-                // Verify the item exists in either ungrouped queue or encoding groups
-                let exists = droppedFiles.contains(where: { $0.id == id }) ||
-                    encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
-                guard exists else { return }
+                guard itemExists(id: id) else { return }
                 trimSheetItemID = id
             },
             onOpenTrimWithCrop: { [self] id in
-                let exists = droppedFiles.contains(where: { $0.id == id }) ||
-                    encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
-                guard exists else { return }
+                guard itemExists(id: id) else { return }
                 trimWithCropSheetItemID = id
             },
             onOpenTimecode: { [self] id in
-                let exists = droppedFiles.contains(where: { $0.id == id }) ||
-                    encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
-                guard exists else { return }
+                guard itemExists(id: id) else { return }
                 timecodeSheetItemID = id
             },
             onOpenAudioConfig: { [self] id in
-                let exists = droppedFiles.contains(where: { $0.id == id }) ||
-                    encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
-                guard exists else { return }
+                guard itemExists(id: id) else { return }
                 audioConfigSheetItemID = id
             },
             onOpenMetadata: { [self] ids in
@@ -265,14 +291,7 @@ struct ContentView: View {
                 guard !isConverting else { return }
                 if let gi = encodingGroups.firstIndex(where: { $0.id == groupID }) {
                     for ii in encodingGroups[gi].items.indices where encodingGroups[gi].items[ii].status != .waiting {
-                        encodingGroups[gi].items[ii].status = .waiting
-                        encodingGroups[gi].items[ii].progress = 0.0
-                        encodingGroups[gi].items[ii].eta = nil
-                        encodingGroups[gi].items[ii].conversionError = nil
-                        encodingGroups[gi].items[ii].analyticsResults = nil
-                        encodingGroups[gi].items[ii].analyticsStatus = .notQueued
-                        encodingGroups[gi].items[ii].analyticsProgress = 0.0
-                        encodingGroups[gi].items[ii].analyticsEnabled = false
+                        encodingGroups[gi].items[ii].resetConversionState()
                     }
                 }
             },
@@ -285,7 +304,7 @@ struct ContentView: View {
                 queueOrder.insert(contentsOf: movedIDs, at: insertAt)
             },
             onQueueSync: { sanitizeQueueOrder() },
-            disableKeyboardNavigation: showPresetQuickSelect || showURLInputOverlay || CaptureOverlayWindowController.shared.isShowing || trimSheetItemID != nil || trimWithCropSheetItemID != nil || timecodeSheetItemID != nil || audioConfigSheetItemID != nil
+            disableKeyboardNavigation: anySheetOrOverlayOpen
         )
     }
 
@@ -317,34 +336,15 @@ struct ContentView: View {
 
     private func handleFileReset(_ index: Int, optionKeyPressed: Bool = false) {
         if index < droppedFiles.count {
-            droppedFiles[index].status = .waiting
-            droppedFiles[index].progress = 0.0
-            droppedFiles[index].eta = nil
-            droppedFiles[index].conversionError = nil
+            droppedFiles[index].resetConversionState()
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
-            droppedFiles[index].outputFileSizeBytes = nil
-            droppedFiles[index].analyticsResults = nil
-            droppedFiles[index].analyticsStatus = .notQueued
-            droppedFiles[index].analyticsProgress = 0.0
-            droppedFiles[index].analyticsEnabled = false
 
             // Determine whether to clear settings based on preference and Option key
             let resetClearsSettings = UserDefaults.standard.bool(forKey: AppConstants.resetClearsSettingsKey)
             let shouldClearSettings = optionKeyPressed ? !resetClearsSettings : resetClearsSettings
 
-            // Reset configurations if needed
             if shouldClearSettings {
-                droppedFiles[index].audioRoutingConfig = nil
-                droppedFiles[index].cropConfig = nil
-                droppedFiles[index].timecodeConfig = nil
-                droppedFiles[index].trimStart = nil
-                droppedFiles[index].trimEnd = nil
-                droppedFiles[index].isMuted = false
-                droppedFiles[index].outputFileNameOverride = nil
-                droppedFiles[index].waveformBackgroundImageURL = nil
-                // Also reset comment and date tag to defaults
-                droppedFiles[index].comment = ""
-                droppedFiles[index].includeDateTag = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
+                droppedFiles[index].clearUserSettings(resetNameOverride: true)
             }
         }
     }
@@ -434,7 +434,7 @@ struct ContentView: View {
                 .onAppear { checkCardMergeCompatibility() }
                 .onChange(of: cameraCardPresetRaw) { _, _ in checkCardMergeCompatibility() }
                 .sheet(isPresented: $showCardConformanceMergeDialog) {
-                    if let state = cameraCardImportState {
+                    if cameraCardImportState != nil {
                         ConformanceMergeDialog(
                             items: cardConformanceItems,
                             metadata: cardConformanceMetadata,
@@ -512,20 +512,7 @@ struct ContentView: View {
                 currentPreset: selectedPreset,
                 displayName: { displayName(for: $0) },
                 onSelect: { preset in
-                    hasUserChangedPreset = true
-                    let oldValue = selectedPreset
-                    selectedPreset = preset
-                    refreshExpectedOutputURLs(for: preset)
-                    Task { @MainActor in
-                        await Task.yield()
-                        self.scheduleMergeCompatibilityEvaluation()
-                    }
-                    presetManager.applyAutoMuteSettings(
-                        to: &droppedFiles,
-                        oldPreset: oldValue,
-                        newPreset: preset,
-                        videoLoopDefaultMuted: videoLoopDefaultMuted
-                    )
+                    applyPresetChange(preset)
                 }
             )
         }
@@ -641,32 +628,9 @@ struct ContentView: View {
                 showPresetQuickSelect = true
             },
             onSelectPresetByIndex: { index in
-                // Only handle if no sheets/overlays are open
-                let anySheetOpen = trimSheetItemID != nil ||
-                    trimWithCropSheetItemID != nil ||
-                    timecodeSheetItemID != nil ||
-                    audioConfigSheetItemID != nil ||
-                    CaptureOverlayWindowController.shared.isShowing ||
-                    showURLInputOverlay ||
-                    showPresetQuickSelect
-                guard !anySheetOpen else { return false }
+                guard !anySheetOrOverlayOpen else { return false }
                 guard index < visiblePresets.count else { return false }
-
-                let preset = visiblePresets[index]
-                let oldValue = selectedPreset
-                hasUserChangedPreset = true
-                selectedPreset = preset
-                refreshExpectedOutputURLs(for: preset)
-                Task { @MainActor in
-                    await Task.yield()
-                    self.scheduleMergeCompatibilityEvaluation()
-                }
-                presetManager.applyAutoMuteSettings(
-                    to: &droppedFiles,
-                    oldPreset: oldValue,
-                    newPreset: preset,
-                    videoLoopDefaultMuted: videoLoopDefaultMuted
-                )
+                applyPresetChange(visiblePresets[index])
                 return true
             },
             onShowShortcuts: {
@@ -1727,42 +1691,18 @@ struct ContentView: View {
 
         var didReset = false
         for index in droppedFiles.indices where droppedFiles[index].status != .waiting {
-            droppedFiles[index].status = .waiting
-            droppedFiles[index].progress = 0.0
-            droppedFiles[index].eta = nil
-            droppedFiles[index].conversionError = nil
+            droppedFiles[index].resetConversionState()
             droppedFiles[index].outputURL = expectedOutputURL(for: droppedFiles[index], preset: selectedPreset)
-            droppedFiles[index].outputFileSizeBytes = nil
-            droppedFiles[index].analyticsResults = nil
-            droppedFiles[index].analyticsStatus = .notQueued
-            droppedFiles[index].analyticsProgress = 0.0
-            droppedFiles[index].analyticsEnabled = false
-
             if shouldClearSettings {
-                droppedFiles[index].audioRoutingConfig = nil
-                droppedFiles[index].cropConfig = nil
-                droppedFiles[index].timecodeConfig = nil
-                droppedFiles[index].trimStart = nil
-                droppedFiles[index].trimEnd = nil
-                droppedFiles[index].isMuted = false
-                droppedFiles[index].comment = ""
-                droppedFiles[index].includeDateTag = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
+                droppedFiles[index].clearUserSettings()
             }
-
             didReset = true
         }
 
         // Reset group items too
         for gi in encodingGroups.indices {
             for ii in encodingGroups[gi].items.indices where encodingGroups[gi].items[ii].status != .waiting {
-                encodingGroups[gi].items[ii].status = .waiting
-                encodingGroups[gi].items[ii].progress = 0.0
-                encodingGroups[gi].items[ii].eta = nil
-                encodingGroups[gi].items[ii].conversionError = nil
-                encodingGroups[gi].items[ii].analyticsResults = nil
-                encodingGroups[gi].items[ii].analyticsStatus = .notQueued
-                encodingGroups[gi].items[ii].analyticsProgress = 0.0
-                encodingGroups[gi].items[ii].analyticsEnabled = false
+                encodingGroups[gi].items[ii].resetConversionState()
                 didReset = true
             }
         }
