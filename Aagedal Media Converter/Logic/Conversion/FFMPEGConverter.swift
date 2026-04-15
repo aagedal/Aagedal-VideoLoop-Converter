@@ -657,6 +657,10 @@ actor FFMPEGConverter {
         let lines = stderr.components(separatedBy: .newlines).reversed()
         // FFmpeg typically outputs the most relevant error on the last non-empty lines.
         // Look for lines containing common error patterns.
+        // Track the last FFmpeg internal error (e.g. "[libx264 @ 0x...] message") as a
+        // fallback — these often carry the root cause when no high-level message matches.
+        var lastInternalError: String? = nil
+
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
@@ -675,11 +679,18 @@ actor FFMPEGConverter {
                trimmed.contains("Invalid argument") ||
                trimmed.contains("Error") && !trimmed.hasPrefix("frame=") ||
                trimmed.contains("Cannot") ||
+               trimmed.contains("Could not") ||
                trimmed.contains("Impossible") ||
                trimmed.contains("not found") ||
                trimmed.contains("Unrecognized option") ||
                trimmed.contains("already exists. Overwrite") ||
-               trimmed.contains("Discarded") && trimmed.contains("exceeded") {
+               trimmed.contains("Discarded") && trimmed.contains("exceeded") ||
+               trimmed.contains("Conversion failed") ||
+               trimmed.contains("Failed to") ||
+               trimmed.contains("Unable to") ||
+               trimmed.contains("Unsupported") ||
+               trimmed.contains("Too many packets buffered") ||
+               trimmed.contains("Output file is empty") {
                 // Truncate to a reasonable length for UI display
                 let maxLen = 120
                 if trimmed.count > maxLen {
@@ -687,7 +698,22 @@ actor FFMPEGConverter {
                 }
                 return trimmed
             }
+
+            // Track FFmpeg internal error messages as fallback (e.g. "[libx264 @ 0x12345] ...")
+            if lastInternalError == nil && trimmed.hasPrefix("[") && trimmed.contains(" @ 0x") {
+                lastInternalError = trimmed
+            }
         }
+
+        // Use the last FFmpeg internal error if no high-level pattern matched
+        if let internal_ = lastInternalError {
+            let maxLen = 120
+            if internal_.count > maxLen {
+                return String(internal_.prefix(maxLen)) + "…"
+            }
+            return internal_
+        }
+
         return "FFmpeg exited with code \(exitCode)"
     }
 
