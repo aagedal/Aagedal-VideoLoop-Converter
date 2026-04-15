@@ -13,6 +13,7 @@ struct WhisperSettingsView: View {
     @State private var modelDownloadProgress: [WhisperModel: Double] = [:]
     @State private var modelDownloading: Set<WhisperModel> = []
     @State private var downloadError: String?
+    @State private var showDeleteAllModelsConfirmation = false
 
     @AppStorage(AppConstants.whisperModelKey) private var selectedModel = AppConstants.defaultWhisperModel
     @AppStorage(AppConstants.whisperCustomModelPathKey) private var customModelPath = ""
@@ -34,6 +35,18 @@ struct WhisperSettingsView: View {
             if selectedModel == WhisperModel.custom.rawValue && !customModelExists {
                 selectedModel = AppConstants.defaultWhisperModel
             }
+        }
+        .confirmationDialog(
+            "Delete All Models",
+            isPresented: $showDeleteAllModelsConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete All Models", role: .destructive) {
+                deleteAllModels()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will delete all downloaded Whisper models. You will need to re-download them to use transcription.")
         }
     }
 
@@ -129,7 +142,7 @@ struct WhisperSettingsView: View {
                         Spacer()
 
                         Button(role: .destructive) {
-                            deleteAllModels()
+                            showDeleteAllModelsConfirmation = true
                         } label: {
                             Text("Delete All Models")
                         }
