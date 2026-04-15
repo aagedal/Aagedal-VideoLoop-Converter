@@ -356,6 +356,7 @@ struct VideoFileListView: View {
         }
 
         self.droppedFiles.append(placeholder)
+        onQueueSync?()
         // Auto-mute if VideoLoop preset is selected and setting is enabled
         if preset == .videoLoop && videoLoopDefaultMuted {
             droppedFiles[droppedFiles.count - 1].isMuted = true
