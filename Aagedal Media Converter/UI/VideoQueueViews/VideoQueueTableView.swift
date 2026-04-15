@@ -1167,9 +1167,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                     case .group(let groupID):
                         if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
                            let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
-                            self.parent.encodingGroups[gIdx].items[iIdx].status = .waiting
-                            self.parent.encodingGroups[gIdx].items[iIdx].progress = 0
-                            self.parent.encodingGroups[gIdx].items[iIdx].conversionError = nil
+                            self.parent.encodingGroups[gIdx].items[iIdx].resetConversionState()
                         }
                     }
                 },

@@ -876,6 +876,37 @@ struct VideoItem: Identifiable, Equatable, Sendable {
         !isDownloading && !isLiveStreamRecording && scheduledDownloadTime == nil
     }
 
+    /// Resets conversion-related state so the item can be re-encoded.
+    /// Does NOT touch user settings (trim, crop, audio routing, etc.).
+    mutating func resetConversionState() {
+        status = .waiting
+        progress = 0.0
+        eta = nil
+        conversionError = nil
+        outputFileSizeBytes = nil
+        analyticsResults = nil
+        analyticsStatus = .notQueued
+        analyticsProgress = 0.0
+        analyticsEnabled = false
+    }
+
+    /// Clears user-configured per-item settings (trim, crop, audio routing, mute, comment, etc.).
+    /// Pass `resetNameOverride: true` to also clear the output filename override and waveform background.
+    mutating func clearUserSettings(resetNameOverride: Bool = false) {
+        audioRoutingConfig = nil
+        cropConfig = nil
+        timecodeConfig = nil
+        trimStart = nil
+        trimEnd = nil
+        isMuted = false
+        comment = ""
+        includeDateTag = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
+        if resetNameOverride {
+            outputFileNameOverride = nil
+            waveformBackgroundImageURL = nil
+        }
+    }
+
     mutating func apply(details: VideoFileUtils.VideoItemDetails) {
         size = details.size
         duration = details.duration
@@ -887,20 +918,25 @@ struct VideoItem: Identifiable, Equatable, Sendable {
         hasVideoStream = details.hasVideoStream
     }
     
-    /// Human-readable file size string (<1 MB ⇒ KB, 1–600 MB ⇒ MB, ≥600 MB ⇒ GB)
-    var formattedSize: String {
-        let bytes = Double(size)
+    /// Formats a byte count as a human-readable string (<1 MB ⇒ KB, 1–600 MB ⇒ MB, ≥600 MB ⇒ GB).
+    static func formatFileSize(_ bytes: Int64) -> String {
+        let bytesDouble = Double(bytes)
         let kb = 1024.0
         let mb = kb * 1024
         let gb = mb * 1024
-        
-        if bytes < mb {
-            return String(format: "%.0f KB", bytes / kb)
-        } else if bytes < 600 * mb {
-            return String(format: "%.1f MB", bytes / mb)
+
+        if bytesDouble < mb {
+            return String(format: "%.0f KB", bytesDouble / kb)
+        } else if bytesDouble < 600 * mb {
+            return String(format: "%.1f MB", bytesDouble / mb)
         } else {
-            return String(format: "%.1f GB", bytes / gb)
+            return String(format: "%.1f GB", bytesDouble / gb)
         }
+    }
+
+    /// Human-readable file size string (<1 MB ⇒ KB, 1–600 MB ⇒ MB, ≥600 MB ⇒ GB)
+    var formattedSize: String {
+        Self.formatFileSize(size)
     }
     
     /// Effective trim-in point in seconds (defaults to 0 when unset).
@@ -944,18 +980,7 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var formattedOutputSize: String? {
         // Prefer stored size (set on conversion complete), fall back to cached
         guard let bytes = outputFileSizeBytes ?? cachedOutputFileSize else { return nil }
-        let kb = 1024.0
-        let mb = kb * 1024
-        let gb = mb * 1024
-        let bytesDouble = Double(bytes)
-
-        if bytesDouble < mb {
-            return String(format: "%.0f KB", bytesDouble / kb)
-        } else if bytesDouble < 600 * mb {
-            return String(format: "%.1f MB", bytesDouble / mb)
-        } else {
-            return String(format: "%.1f GB", bytesDouble / gb)
-        }
+        return Self.formatFileSize(bytes)
     }
 
     var requiresWaveformVideo: Bool {
