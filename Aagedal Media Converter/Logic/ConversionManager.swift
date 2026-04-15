@@ -1618,7 +1618,7 @@ actor ConversionManager: Sendable {
         }
 
         guard let nextFile = droppedFiles.wrappedValue.first(where: {
-            $0.status == .waiting && (allowedItemIDs == nil || allowedItemIDs!.contains($0.id))
+            $0.status == .waiting && (allowedItemIDs?.contains($0.id) ?? true)
         }) else {
             self.isConverting = false
             self.allowedItemIDs = nil
@@ -1955,6 +1955,12 @@ actor ConversionManager: Sendable {
         await ffmpegConverter.cancelConversion()
         currentProcess = nil
 
+        // Clean up merge temp files if a merge was in progress
+        if let plan = mergePlan {
+            cleanupMergeArtifacts(for: plan)
+            mergePlan = nil
+        }
+
         // Update UI-bound items to cancelled
         if let droppedFiles = currentDroppedFiles {
             for idx in droppedFiles.wrappedValue.indices
@@ -2010,6 +2016,12 @@ actor ConversionManager: Sendable {
     func cancelAllConversions() async {
         self.isConverting = false
         await ffmpegConverter.cancelConversion()
+
+        // Clean up merge temp files if a merge was in progress
+        if let plan = mergePlan {
+            cleanupMergeArtifacts(for: plan)
+            mergePlan = nil
+        }
 
         // Update UI-bound items to cancelled
         if let droppedFiles = currentDroppedFiles {

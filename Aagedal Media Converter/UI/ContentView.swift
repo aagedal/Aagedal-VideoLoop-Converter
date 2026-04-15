@@ -1034,6 +1034,7 @@ struct ContentView: View {
 
             let url = encodingGroups[gi].items[ii].url
             let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
+            let metadata = await VideoFileUtils.fetchMetadata(for: url)
 
             // Re-lookup indices in case array changed during await
             guard let gi2 = encodingGroups.firstIndex(where: { $0.id == groupID }),
@@ -1041,6 +1042,7 @@ struct ContentView: View {
 
             encodingGroups[gi2].items[ii2].apply(details: details)
             encodingGroups[gi2].items[ii2].detailsLoaded = true
+            encodingGroups[gi2].items[ii2].metadata = metadata
         }
     }
 
