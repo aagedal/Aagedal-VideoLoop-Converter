@@ -882,7 +882,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-profile:v", "main",
                 "-level:v", "4.0",
                 "-an",
-                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
+                "-vf", Self.desqueezeFilter(maxShortEdge: 1080)
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata)
             return args
@@ -904,7 +904,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-b:a", "128k",
                 "-map", "0:v:0",
                 "-map", "0:a",
-                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),1080,-2)':h='if(lte(iw,ih),-2,1080)'"
+                "-vf", Self.desqueezeFilter(maxShortEdge: 1080)
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
@@ -932,12 +932,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let audioBitrate = AudioBitrate(rawValue: audioBitrateRaw) ?? .k192
 
             // Build scale filter
-            let scaleFilter: String
-            if let maxHeight = resolution.maxHeight {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
-            } else {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
-            }
+            let scaleFilter = Self.desqueezeFilter(maxShortEdge: resolution.maxHeight)
 
             var args = commonArgs
 
@@ -1003,12 +998,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let audioBitrate = AudioBitrate(rawValue: audioBitrateRaw) ?? .k192
 
             // Build scale filter
-            let scaleFilter: String
-            if let maxHeight = resolution.maxHeight {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
-            } else {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
-            }
+            let scaleFilter = Self.desqueezeFilter(maxShortEdge: resolution.maxHeight)
 
             var args = commonArgs
 
@@ -1101,12 +1091,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let audioBitrate = AudioBitrate(rawValue: audioBitrateRaw) ?? .k192
 
             // Build scale filter
-            let scaleFilter: String
-            if let maxHeight = resolution.maxHeight {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
-            } else {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
-            }
+            let scaleFilter = Self.desqueezeFilter(maxShortEdge: resolution.maxHeight)
 
             var args = commonArgs + [
                 "-c:v", "libsvtav1",
@@ -1163,19 +1148,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             // When a resolution limit is set, force 16:9 aspect ratio with pillarbox/letterbox (matching AVC-Intra)
             // When unlimited, just desqueeze and export at source/cropped resolution
             let scaleFilter: String
-            switch resolution {
-            case .r720:
-                // 1. Desqueeze anamorphic to square pixels
-                // 2. Scale to fit within 16:9 frame while preserving aspect ratio
-                // 3. Pad to exact 16:9 resolution with black bars (centered)
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:-1:-1:color=black"
-            case .r1080:
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1:color=black"
-            case .r2160:
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=3840:2160:force_original_aspect_ratio=decrease,pad=3840:2160:-1:-1:color=black"
-            case .unlimited:
-                // No resolution limit: just desqueeze, export at source/cropped resolution
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+            if let dims = resolution.targetDimensions {
+                scaleFilter = Self.desqueezeFilterForced16x9(width: dims.width, height: dims.height)
+            } else {
+                scaleFilter = Self.desqueezeFilter
             }
 
             var args = commonArgs + [
@@ -1190,26 +1166,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             ]
 
             // Apply framerate settings
-            let framerateArgs = framerateMode.ffmpegArgs
-            if framerateMode.isInterlaced {
-                // For interlaced, combine scale with interlace filter
-                if let vfIndex = framerateArgs.firstIndex(of: "-vf"), vfIndex + 1 < framerateArgs.count {
-                    let interlaceFilter = framerateArgs[vfIndex + 1]
-                    args.append(contentsOf: ["-vf", "\(scaleFilter),\(interlaceFilter)"])
-                    // Add non-vf args
-                    for (i, arg) in framerateArgs.enumerated() {
-                        if arg != "-vf" && (i == 0 || framerateArgs[i - 1] != "-vf") {
-                            args.append(arg)
-                        }
-                    }
-                } else {
-                    args.append(contentsOf: ["-vf", scaleFilter])
-                    args.append(contentsOf: framerateArgs)
-                }
-            } else {
-                args.append(contentsOf: ["-vf", scaleFilter])
-                args.append(contentsOf: framerateArgs)
-            }
+            Self.appendTVFilterAndFramerate(to: &args, scaleFilter: scaleFilter, framerateMode: framerateMode)
 
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
@@ -1228,28 +1185,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
             // Build scale filter based on resolution
             // Force 16:9 aspect ratio with pillarbox/letterbox for broadcast MXF delivery
-            let scaleFilter: String
-            let targetWidth: Int
-            let targetHeight: Int
-            switch resolution {
-            case .r720:
-                targetWidth = 1280
-                targetHeight = 720
-            case .r1080:
-                targetWidth = 1920
-                targetHeight = 1080
-            case .r2160:
-                targetWidth = 3840
-                targetHeight = 2160
-            case .unlimited:
-                // Default to 1080p for 16:9 enforcement when unlimited
-                targetWidth = 1920
-                targetHeight = 1080
-            }
-            // 1. Desqueeze anamorphic to square pixels
-            // 2. Scale to fit within 16:9 frame while preserving aspect ratio
-            // 3. Pad to exact 16:9 resolution with black bars (centered)
-            scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=\(targetWidth):\(targetHeight):force_original_aspect_ratio=decrease,pad=\(targetWidth):\(targetHeight):-1:-1:color=black"
+            // Default to 1080p for 16:9 enforcement when unlimited
+            let dims = resolution.targetDimensions ?? (1920, 1080)
+            let scaleFilter = Self.desqueezeFilterForced16x9(width: dims.width, height: dims.height)
 
             // Build audio: map all audio streams and output as N mono channels
             // MXF broadcast typically needs a fixed number of mono PCM tracks
@@ -1270,26 +1208,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             ]
 
             // Apply framerate settings
-            let framerateArgs = framerateMode.ffmpegArgs
-            if framerateMode.isInterlaced {
-                // For interlaced, combine scale with interlace filter
-                if let vfIndex = framerateArgs.firstIndex(of: "-vf"), vfIndex + 1 < framerateArgs.count {
-                    let interlaceFilter = framerateArgs[vfIndex + 1]
-                    args.append(contentsOf: ["-vf", "\(scaleFilter),\(interlaceFilter)"])
-                    // Add non-vf args
-                    for (i, arg) in framerateArgs.enumerated() {
-                        if arg != "-vf" && (i == 0 || framerateArgs[i - 1] != "-vf") {
-                            args.append(arg)
-                        }
-                    }
-                } else {
-                    args.append(contentsOf: ["-vf", scaleFilter])
-                    args.append(contentsOf: framerateArgs)
-                }
-            } else {
-                args.append(contentsOf: ["-vf", scaleFilter])
-                args.append(contentsOf: framerateArgs)
-            }
+            Self.appendTVFilterAndFramerate(to: &args, scaleFilter: scaleFilter, framerateMode: framerateMode)
 
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
@@ -1306,7 +1225,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                     "-preset", "6",
                     "-crf", "28",
                     "-an",
-                    "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'"
+                    "-vf", Self.desqueezeFilter(maxShortEdge: 900)
                 ]
             case .gif:
                 args += [
@@ -1317,7 +1236,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             case .apng:
                 args += [
                     "-plays", "0",
-                    "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'",
+                    "-vf", Self.desqueezeFilter(maxShortEdge: 900),
                     "-an"
                 ]
             case .jpegXL:
@@ -1325,7 +1244,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                     "-c:v", "libjxl_anim",
                     "-distance", "1",
                     "-effort", "7",
-                    "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'",
+                    "-vf", Self.desqueezeFilter(maxShortEdge: 900),
                     "-an"
                 ]
             case .webp:
@@ -1335,7 +1254,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                     "-compression_level", "4",
                     "-q:v", "75",
                     "-loop", "0",
-                    "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),900,-2)':h='if(lte(iw,ih),-2,900)'",
+                    "-vf", Self.desqueezeFilter(maxShortEdge: 900),
                     "-an"
                 ]
             }
@@ -1350,12 +1269,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let resolution = ProxyResolutionLimit(rawValue: resolutionRaw) ?? .r1080
 
             // Build scale filter based on resolution
-            let scaleFilter: String
-            if let maxHeight = resolution.maxHeight {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1,scale=w='if(lte(iw,ih),\(maxHeight),-2)':h='if(lte(iw,ih),-2,\(maxHeight))'"
-            } else {
-                scaleFilter = "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
-            }
+            let scaleFilter = Self.desqueezeFilter(maxShortEdge: resolution.maxHeight)
 
             var args = commonArgs
 
@@ -1398,7 +1312,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
                 "-pix_fmt", "yuv422p10le",
                 "-vcodec", "prores_videotoolbox",
                 "-profile:v", profile.ffmpegProfileName,
-                "-vf", "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1",
+                "-vf", Self.desqueezeFilter,
                 "-c:a", "pcm_s24le",
                 "-map", "0:v:0",
                 "-map", "0:a"
@@ -1768,6 +1682,65 @@ extension ExportPreset {
         }
     }
     
+    // MARK: - Scale Filter Builders
+
+    /// Base desqueeze filter: normalizes anamorphic (non-square pixel) content to square pixels.
+    /// Rounds dimensions to even values for codec compatibility.
+    private static var desqueezeFilter: String {
+        "scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1"
+    }
+
+    /// Desqueeze filter with orientation-aware short-edge resolution cap.
+    /// Constrains the short edge to `maxShortEdge` while maintaining aspect ratio.
+    private static func desqueezeFilter(maxShortEdge: Int) -> String {
+        "\(desqueezeFilter),scale=w='if(lte(iw,ih),\(maxShortEdge),-2)':h='if(lte(iw,ih),-2,\(maxShortEdge))'"
+    }
+
+    /// Desqueeze filter with optional short-edge cap.
+    /// When `maxShortEdge` is nil, returns the base desqueeze filter without resolution limiting.
+    private static func desqueezeFilter(maxShortEdge: Int?) -> String {
+        if let maxShortEdge {
+            return desqueezeFilter(maxShortEdge: maxShortEdge)
+        }
+        return desqueezeFilter
+    }
+
+    /// Desqueeze filter that forces content into a specific resolution with letterbox/pillarbox padding.
+    /// Used for broadcast delivery where exact frame dimensions are required (e.g. 1920×1080).
+    private static func desqueezeFilterForced16x9(width: Int, height: Int) -> String {
+        "\(desqueezeFilter),scale=\(width):\(height):force_original_aspect_ratio=decrease,pad=\(width):\(height):-1:-1:color=black"
+    }
+
+    /// Appends the video filter chain and framerate arguments for TV presets.
+    /// When the framerate mode is interlaced, the interlace filter is combined with the scale filter
+    /// into a single `-vf` value. Otherwise, they are added as separate arguments.
+    private static func appendTVFilterAndFramerate(
+        to args: inout [String],
+        scaleFilter: String,
+        framerateMode: TVFramerateMode
+    ) {
+        let framerateArgs = framerateMode.ffmpegArgs
+        if framerateMode.isInterlaced {
+            // For interlaced, combine scale with interlace filter
+            if let vfIndex = framerateArgs.firstIndex(of: "-vf"), vfIndex + 1 < framerateArgs.count {
+                let interlaceFilter = framerateArgs[vfIndex + 1]
+                args.append(contentsOf: ["-vf", "\(scaleFilter),\(interlaceFilter)"])
+                // Add non-vf args
+                for (i, arg) in framerateArgs.enumerated() {
+                    if arg != "-vf" && (i == 0 || framerateArgs[i - 1] != "-vf") {
+                        args.append(arg)
+                    }
+                }
+            } else {
+                args.append(contentsOf: ["-vf", scaleFilter])
+                args.append(contentsOf: framerateArgs)
+            }
+        } else {
+            args.append(contentsOf: ["-vf", scaleFilter])
+            args.append(contentsOf: framerateArgs)
+        }
+    }
+
     private static func appendArgumentPair(_ key: String, value: String, to args: inout [String]) {
         var index = 0
         while index < args.count - 1 {
