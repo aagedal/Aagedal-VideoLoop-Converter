@@ -308,6 +308,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         var encodingGroupsIndex: [UUID: Int] = [:]
         var displayRowIndex: [UUID: Int] = [:]
         var queueOrderLookup: [UUID: Int] = [:]
+        var itemToGroupID: [UUID: UUID] = [:]
 
         /// Previous snapshot for selective cell updates
         var previousDisplayRows: [FlatQueueRow] = []
@@ -321,6 +322,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         private static let cellID = NSUserInterfaceItemIdentifier("VideoQueueCell")
         private static let appkitCellID = NSUserInterfaceItemIdentifier("VideoFileCellView")
         private static let swiftUICellID = NSUserInterfaceItemIdentifier("SwiftUICell")
+        private static let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
 
         init(parent: VideoQueueTableView) {
             self.parent = parent
@@ -347,6 +349,13 @@ struct VideoQueueTableView: NSViewRepresentable {
             queueOrderLookup.removeAll(keepingCapacity: true)
             for (i, id) in parent.queueOrder.enumerated() {
                 queueOrderLookup[id] = i
+            }
+
+            itemToGroupID.removeAll(keepingCapacity: true)
+            for group in parent.encodingGroups {
+                for item in group.items {
+                    itemToGroupID[item.id] = group.id
+                }
             }
         }
 
@@ -555,13 +564,17 @@ struct VideoQueueTableView: NSViewRepresentable {
         func applyRowMoves(from oldIDs: [UUID], to newIDs: [UUID]) {
             guard let tableView = tableView else { return }
             var workingIDs = oldIDs
+            var positionOf: [UUID: Int] = Dictionary(minimumCapacity: oldIDs.count)
+            for (i, id) in oldIDs.enumerated() { positionOf[id] = i }
             tableView.beginUpdates()
             for newIndex in 0..<newIDs.count {
                 let targetID = newIDs[newIndex]
-                if workingIDs[newIndex] == targetID { continue }
-                guard let currentIndex = workingIDs.firstIndex(of: targetID) else { continue }
+                guard let currentIndex = positionOf[targetID], currentIndex != newIndex else { continue }
                 workingIDs.remove(at: currentIndex)
                 workingIDs.insert(targetID, at: newIndex)
+                let lo = min(currentIndex, newIndex)
+                let hi = max(currentIndex, newIndex)
+                for i in lo...hi { positionOf[workingIDs[i]] = i }
                 tableView.moveRow(at: currentIndex, to: newIndex)
             }
             tableView.endUpdates()
@@ -656,8 +669,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         func buildCellConfiguration(item: VideoItem, isGroupItem: Bool) -> VideoFileCellConfiguration {
             let metadata = item.metadata
             let audioStreams = metadata?.audioStreams ?? []
-            let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
-            let hasBitmapSubs = metadata?.subtitleStreams.contains { bitmapCodecs.contains($0.codec?.lowercased() ?? "") } ?? false
+            let hasBitmapSubs = metadata?.subtitleStreams.contains { Self.bitmapCodecs.contains($0.codec?.lowercased() ?? "") } ?? false
             let hasSurround = audioStreams.contains { ($0.channels ?? 0) > 2 }
             let audioRouting = item.audioRoutingConfig
             let hasCustomRouting = audioRouting?.isCustomized ?? false
@@ -767,39 +779,35 @@ struct VideoQueueTableView: NSViewRepresentable {
 
         /// Finds a VideoItem by ID, searching both ungrouped droppedFiles and encoding groups.
         private func findItem(by itemID: UUID) -> VideoItem? {
-            if let item = parent.droppedFiles.first(where: { $0.id == itemID }) {
-                return item
+            // Fast path: use O(1) caches
+            if let idx = droppedFilesIndex[itemID], idx < parent.droppedFiles.count,
+               parent.droppedFiles[idx].id == itemID {
+                return parent.droppedFiles[idx]
             }
-            for group in parent.encodingGroups {
-                if let item = group.items.first(where: { $0.id == itemID }) {
-                    return item
-                }
+            if let gID = itemToGroupID[itemID],
+               let gIdx = encodingGroupsIndex[gID], gIdx < parent.encodingGroups.count {
+                return parent.encodingGroups[gIdx].items.first(where: { $0.id == itemID })
             }
             return nil
         }
 
         /// Finds the group ID that contains the given item, if any.
         private func groupID(for itemID: UUID) -> UUID? {
-            for group in parent.encodingGroups {
-                if group.items.contains(where: { $0.id == itemID }) {
-                    return group.id
-                }
-            }
-            return nil
+            return itemToGroupID[itemID]
         }
 
         func handleCellAction(_ action: CellAction, itemID: UUID, displayRows: [FlatQueueRow], row: Int) {
             switch action {
             case .delete:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.onDelete(IndexSet(integer: idx))
                 } else if let gID = groupID(for: itemID),
-                          let gIdx = parent.encodingGroups.firstIndex(where: { $0.id == gID }),
+                          let gIdx = encodingGroupsIndex[gID],
                           let iIdx = parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
                     parent.encodingGroups[gIdx].items.remove(at: iIdx)
                 }
             case .reset(let optionKeyPressed):
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.onReset(idx, optionKeyPressed)
                 }
             case .cancel:
@@ -814,19 +822,19 @@ struct VideoQueueTableView: NSViewRepresentable {
                 Task { await DownloadManager.shared.forceRedownload(itemID: itemID) }
             case .cancelScheduledDownload:
                 ScheduledDownloadService.shared.cancelScheduledItem(itemID: itemID)
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.onDelete(IndexSet(integer: idx))
                 }
             case .cancelSubtitleGeneration:
                 Task { await TesseractService.shared.cancelGeneration() }
                 Task { await WhisperService.shared.cancelGeneration() }
                 Task { await ParakeetService.shared.cancelGeneration() }
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.droppedFiles[idx].subtitleStatus = .notQueued
                 }
             case .cancelAnalytics:
                 Task { await AnalyticsService.shared.cancelAnalysis() }
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.droppedFiles[idx].analyticsStatus = .notQueued
                     parent.droppedFiles[idx].analyticsProgress = 0
                 }
@@ -839,7 +847,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                     }
                 }
             case .toggleUpload(let optionPressed):
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     if optionPressed {
                         parent.droppedFiles[idx].uploadSourceFile.toggle()
                         if parent.droppedFiles[idx].uploadSourceFile {
@@ -854,7 +862,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                     }
                 }
             case .toggleTranscription(let optionPressed):
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     if optionPressed {
                         let method: SubtitleConversionMethod = UserDefaults.standard.string(forKey: AppConstants.defaultTranscriptionEngineKey) == "parakeet" ? .parakeet : .whisper
                         Task { @MainActor in
@@ -869,7 +877,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                     }
                 }
             case .toggleOCR(let optionPressed):
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     if optionPressed {
                         Task { @MainActor in
                             await parent.transcribeOnly?(itemID, .ocr)
@@ -882,7 +890,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                     }
                 }
             case .toggleAnalytics(let optionPressed):
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     if parent.droppedFiles[idx].analyticsResults != nil {
                         if optionPressed && parent.droppedFiles[idx].isReadyForAnalytics {
                             parent.droppedFiles[idx].analyticsResults = nil
@@ -903,23 +911,23 @@ struct VideoQueueTableView: NSViewRepresentable {
                     }
                 }
             case .toggleAutoEncode:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.droppedFiles[idx].autoEncodeAfterDownload.toggle()
                 }
             case .toggleWaveform:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.droppedFiles[idx].waveformVideoEnabled.toggle()
                 }
             case .toggleDateTag:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.droppedFiles[idx].includeDateTag.toggle()
                 }
             case .toggleMute:
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.droppedFiles[idx].isMuted.toggle()
                 }
             case .commentChanged(let text):
-                if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFilesIndex[itemID] {
                     parent.droppedFiles[idx].comment = text
                 }
             case .commentFocusChanged(let focused):
