@@ -309,8 +309,7 @@ struct VideoFileRowView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                                 .help(file.name)
-                                .layoutPriority(-1)
-                            // Duration warning icon
+                                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                             Text("→")
                                 .layoutPriority(1)
                             HStack(spacing: 4) {
@@ -346,7 +345,7 @@ struct VideoFileRowView: View {
                                         .onTapGesture(count: 2) {
                                             beginOutputNameEdit()
                                         }
-                                        .layoutPriority(-1)
+                                        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                                 }
                                 if shouldShowMergeIndicator {
                                     Image(systemName: "link")

@@ -307,6 +307,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         configureLabel(inputNameLabel, font: .systemFont(ofSize: 13, weight: .semibold))
         inputNameLabel.lineBreakMode = .byTruncatingMiddle
         inputNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        inputNameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         configureLabel(arrowLabel, font: .systemFont(ofSize: 13, weight: .regular))
         arrowLabel.setContentHuggingPriority(.required, for: .horizontal)
@@ -314,6 +315,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         configureLabel(outputNameLabel, font: .systemFont(ofSize: 13, weight: .semibold))
         outputNameLabel.lineBreakMode = .byTruncatingMiddle
         outputNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        outputNameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         // Editable output name field (hidden by default)
         outputNameField.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -387,6 +389,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         NSLayoutConstraint.activate([
             filenameStack.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             filenameStack.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            // Equal-width constraint ensures both filename labels share available space
+            // evenly, preventing one long name from pushing the other off-screen
+            inputNameLabel.widthAnchor.constraint(equalTo: outputNameLabel.widthAnchor),
         ])
     }
 
