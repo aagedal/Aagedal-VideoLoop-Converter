@@ -126,6 +126,16 @@ enum TVResolutionLimit: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The 16:9 target dimensions for broadcast delivery, or nil for unlimited (source resolution).
+    var targetDimensions: (width: Int, height: Int)? {
+        switch self {
+        case .r720: return (1280, 720)
+        case .r1080: return (1920, 1080)
+        case .r2160: return (3840, 2160)
+        case .unlimited: return nil
+        }
+    }
+
     var bitrate: String {
         switch self {
         case .r720: return "8M"
