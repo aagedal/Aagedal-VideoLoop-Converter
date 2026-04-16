@@ -26,6 +26,9 @@ struct URLInputOverlay: View {
     @State private var historyIndex: Int = -1  // -1 means not navigating history
     @State private var originalText: String = ""  // Text before starting history navigation
 
+    // Clipboard indicator
+    @State private var showClipboardIndicator = false
+
     /// Returns a default schedule date: 2 minutes from now, rounded to the next full minute
     private static func defaultScheduleDate() -> Date {
         let now = Date()
@@ -69,6 +72,17 @@ struct URLInputOverlay: View {
                 let sanitized = DownloadManager.sanitizeURLInput(clipboardString)
                 if DownloadManager.isValidURL(sanitized) {
                     urlText = sanitized
+                    // Show clipboard indicator after layout settles
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showClipboardIndicator = true
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            withAnimation(.easeInOut(duration: 0.4)) {
+                                showClipboardIndicator = false
+                            }
+                        }
+                    }
                 }
             }
 
@@ -85,6 +99,7 @@ struct URLInputOverlay: View {
         VStack(spacing: 16) {
             headerSection
             urlInputSection
+            clipboardIndicator
             invalidURLWarning
             actionSection
             automationToggles
@@ -149,6 +164,21 @@ struct URLInputOverlay: View {
                     historyIndex = -1
                 }
             }
+    }
+
+    @ViewBuilder
+    private var clipboardIndicator: some View {
+        if showClipboardIndicator {
+            HStack(spacing: 4) {
+                Image(systemName: "doc.on.clipboard.fill")
+                    .font(.caption)
+                Text("Pasted from clipboard")
+                    .font(.caption)
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .transition(.opacity)
+        }
     }
 
     @ViewBuilder

@@ -151,7 +151,7 @@ struct AnalyticsSettingsView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
         }
-        .padding(10)
+        .padding(8)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }

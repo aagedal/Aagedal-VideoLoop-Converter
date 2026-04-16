@@ -18,20 +18,22 @@ struct ParakeetSettingsView: View {
     @AppStorage(AppConstants.parakeetModelKey) private var selectedModelId = AppConstants.defaultParakeetModel
     @AppStorage(AppConstants.parakeetCustomPathKey) private var customPath = ""
     var body: some View {
-        Section(header: Text("parakeet-mlx (NeMo ASR on Apple Silicon)")) {
-            statusSection
-        }
+        Group {
+            Section(header: Text("parakeet-mlx (NeMo ASR on Apple Silicon)")) {
+                statusSection
+            }
 
-        Section(header: Text("Parakeet Models")) {
-            modelManagementSection
-        }
+            Section(header: Text("Parakeet Models")) {
+                modelManagementSection
+            }
 
-        Section(header: Text("Parakeet Default Settings")) {
-            defaultSettingsSection
-        }
+            Section(header: Text("Parakeet Default Settings")) {
+                defaultSettingsSection
+            }
 
-        Section(header: Text("About Parakeet")) {
-            aboutSection
+            Section(header: Text("About Parakeet")) {
+                aboutSection
+            }
         }
     }
 

@@ -349,7 +349,7 @@ struct WaveformSettingsView: View {
                 }
                 .padding(.leading, 20)
             }
-            .padding(7)
+            .padding(8)
         } label: {
             Label("Colors", systemImage: "paintpalette")
         }.padding(.bottom, 5)
@@ -374,7 +374,7 @@ struct WaveformSettingsView: View {
                     placeholder: ""
                 )
             }
-            .padding(7)
+            .padding(8)
         } label: {
             Label("Colors", systemImage: "paintpalette")
         }.padding(.bottom, 5)
