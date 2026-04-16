@@ -28,6 +28,42 @@ actor FFMPEGConverter {
 
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGConverter")
 
+    // MARK: - Temp File Cleanup
+
+    /// Removes a temporary file with proper error logging instead of silently swallowing failures.
+    /// Silent `try?` on file removal can hide disk space leaks that accumulate over many conversions.
+    private static func cleanupTempFile(at url: URL, label: String) {
+        do {
+            try FileManager.default.removeItem(at: url)
+            logger.debug("Cleaned up temp file (\(label, privacy: .public)): \(url.lastPathComponent, privacy: .public)")
+        } catch {
+            logger.warning("Failed to clean up temp file (\(label, privacy: .public)): \(url.lastPathComponent, privacy: .public) — \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Output Validation
+
+    /// Validates that an output file exists and has a non-zero size after FFmpeg reports success.
+    /// FFmpeg can exit with status 0 while producing empty or corrupt output (e.g., disk full,
+    /// interrupted I/O, or edge-case codec errors that don't set a non-zero exit code).
+    private static func validateOutputFile(at url: URL) -> String? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: url.path) else {
+            return "Output file was not created"
+        }
+        do {
+            let attrs = try fm.attributesOfItem(atPath: url.path)
+            let fileSize = attrs[.size] as? UInt64 ?? 0
+            if fileSize == 0 {
+                return "Output file is empty (0 bytes)"
+            }
+            logger.info("Output validated: \(url.lastPathComponent, privacy: .public) (\(fileSize) bytes)")
+        } catch {
+            return "Cannot read output file attributes: \(error.localizedDescription)"
+        }
+        return nil
+    }
+
     /// Converts a video file using the specified export preset
     /// - Parameters:
     ///   - request: All conversion parameters bundled in a ConversionRequest
@@ -143,6 +179,10 @@ actor FFMPEGConverter {
                 outputFileURL = safeOutputURL
             }
 
+            // Ensure the output path is unique — prevents silently overwriting
+            // a previous conversion output (FFmpeg runs with -y).
+            outputFileURL = FileSafetyUtils.uniqueOutputURL(outputFileURL, notOverwriting: inputURL)
+
             // Register this file as created by the app (for safe deletion later if needed)
             FileSafetyUtils.registerCreatedFile(outputFileURL)
         }
@@ -155,8 +195,9 @@ actor FFMPEGConverter {
         if needsBMXRewrap {
             // Create temp file for FFmpeg output
             let tempDir = FileManager.default.temporaryDirectory
-            tempMXFURL = tempDir.appendingPathComponent("ffmpeg_mxf_\(UUID().uuidString).mxf")
-            ffmpegOutputURL = tempMXFURL!
+            let tempURL = tempDir.appendingPathComponent("ffmpeg_mxf_\(UUID().uuidString).mxf")
+            tempMXFURL = tempURL
+            ffmpegOutputURL = tempURL
             Self.logger.info("AVC-Intra: FFmpeg will output to temp file for OP1a rewrap")
         }
 
@@ -329,6 +370,18 @@ actor FFMPEGConverter {
                     errorReason = Self.extractErrorReason(from: stderrString, exitCode: process.terminationStatus)
                 }
 
+                // Validate output file exists and has content.
+                // FFmpeg can exit 0 while producing empty/corrupt output (disk full, I/O error, etc.)
+                // Skip validation for image sequence and DCP exports (they produce directories, not single files).
+                if success && !capturedIsImageSequenceExport && !capturedIsDCPExport {
+                    let fileToValidate = capturedNeedsBMXRewrap ? (capturedTempMXFURL ?? capturedFinalOutputURL) : capturedFinalOutputURL
+                    if let validationError = Self.validateOutputFile(at: fileToValidate) {
+                        Self.logger.error("Output validation failed: \(validationError, privacy: .public)")
+                        errorReason = validationError
+                        success = false
+                    }
+                }
+
                 // Run bmxtranswrap for AVC-Intra to ensure OP1a compliance
                 if success && capturedNeedsBMXRewrap, let tempMXF = capturedTempMXFURL {
                     Self.logger.info("Running bmxtranswrap to rewrap MXF to OP1a format")
@@ -362,14 +415,12 @@ actor FFMPEGConverter {
                     }
 
                     // Clean up temp MXF file
-                    try? FileManager.default.removeItem(at: tempMXF)
-                    Self.logger.debug("Cleaned up temp MXF file")
+                    Self.cleanupTempFile(at: tempMXF, label: "BMX rewrap temp MXF")
                 }
 
                 // Clean up temp audio file if it exists
                 if let tempURL = capturedTempAudioURL {
-                    try? FileManager.default.removeItem(at: tempURL)
-                    Self.logger.debug("Cleaned up temp audio file: \(tempURL.lastPathComponent)")
+                    Self.cleanupTempFile(at: tempURL, label: "AVC-Intra pre-processed audio")
                 }
 
                 // DCP assembly: wrap JP2 frames + audio WAV into DCP-compliant MXF using asdcp-wrap
@@ -461,7 +512,7 @@ actor FFMPEGConverter {
                                 } else {
                                     Self.logger.error("asdcp-wrap failed for video MXF (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
                                     success = false
-                                    try? fm.removeItem(at: tmpVideoMXF)
+                                    Self.cleanupTempFile(at: tmpVideoMXF, label: "failed DCP video MXF")
                                 }
                             } catch {
                                 try? stderrPipe.fileHandleForReading.close()
@@ -470,7 +521,7 @@ actor FFMPEGConverter {
                             }
 
                             // Clean up J2C frames
-                            try? fm.removeItem(at: j2cDir)
+                            Self.cleanupTempFile(at: j2cDir, label: "DCP J2C frames")
                         }
                     } else {
                         Self.logger.error("asdcp-wrap not found — cannot create DCP-compliant MXF files")
@@ -480,7 +531,7 @@ actor FFMPEGConverter {
                     // Clean up JP2 images unless user wants to keep them
                     let keepJP2 = UserDefaults.standard.bool(forKey: AppConstants.dcpKeepJP2ImagesKey)
                     if !keepJP2 {
-                        try? fm.removeItem(at: jp2Dir)
+                        Self.cleanupTempFile(at: jp2Dir, label: "DCP JP2 images")
                     }
 
                     // Step 2: Extract audio as WAV
@@ -541,7 +592,7 @@ actor FFMPEGConverter {
                         }
 
                         // Clean up WAV
-                        try? fm.removeItem(at: wavURL)
+                        Self.cleanupTempFile(at: wavURL, label: "DCP audio WAV")
                     }
 
                     // Step 4: Assemble DCP XML metadata (only if video MXF was created)
@@ -600,7 +651,7 @@ actor FFMPEGConverter {
 
                         // Clean up temp video MXF if DCPService moved it
                         if fm.fileExists(atPath: videoMXF.path) {
-                            try? fm.removeItem(at: videoMXF)
+                            Self.cleanupTempFile(at: videoMXF, label: "DCP video MXF")
                         }
                     }
                 }
@@ -892,7 +943,7 @@ actor FFMPEGConverter {
                             success = false
                         }
                     }
-                    try? FileManager.default.removeItem(at: tempMXF)
+                    Self.cleanupTempFile(at: tempMXF, label: "waveform BMX rewrap temp MXF")
                 }
 
                 completion(success, errorReason)
@@ -1004,7 +1055,7 @@ actor FFMPEGConverter {
             } else {
                 logger.warning("Audio WAV extraction failed with status \(process.terminationStatus)")
                 // Clean up partial WAV file
-                try? FileManager.default.removeItem(at: wavOutputURL)
+                Self.cleanupTempFile(at: wavOutputURL, label: "partial audio WAV")
             }
         } catch {
             logger.error("Failed to start audio extraction: \(error.localizedDescription)")
@@ -1127,7 +1178,7 @@ actor FFMPEGConverter {
                 return audioWavURL
             } else {
                 logger.warning("Audio WAV extraction for DCP failed (status \(process.terminationStatus)): \(stderrStr.suffix(300))")
-                try? FileManager.default.removeItem(at: audioWavURL)
+                Self.cleanupTempFile(at: audioWavURL, label: "failed DCP audio WAV")
                 return nil
             }
         } catch {

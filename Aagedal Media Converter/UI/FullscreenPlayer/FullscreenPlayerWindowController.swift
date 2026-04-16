@@ -71,7 +71,10 @@ final class FullscreenPlayerWindowController {
             currentIndex = 0
         }
 
-        let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first!
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            logger.error("No screen available for fullscreen player")
+            return
+        }
         currentScreen = targetScreen
 
         currentlyPlayingItemID = item.id
@@ -215,7 +218,10 @@ final class FullscreenPlayerWindowController {
         queue = []
         currentIndex = 0
 
-        let targetScreen = NSScreen.main ?? NSScreen.screens.first!
+        guard let targetScreen = NSScreen.main ?? NSScreen.screens.first else {
+            logger.error("No screen available for fullscreen player")
+            return
+        }
         currentScreen = targetScreen
 
         currentlyPlayingItemID = item.id

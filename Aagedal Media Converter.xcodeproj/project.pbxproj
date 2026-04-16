@@ -153,6 +153,7 @@
 		CC01A1C0PY00010000000002 /* CopyableCommandRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */; };
 		CCF14EFA815D8DCCB62749E1 /* YTDLPUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */; };
 		D44F5A230D40961161251EB6 /* PresetQuickSelectOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60A8FB8DB2F86F528514D26E /* PresetQuickSelectOverlay.swift */; };
+		DC0001A1CFM0000100000002 /* ConformanceMergeDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1CFM0000100000001 /* ConformanceMergeDialog.swift */; };
 		DC0001A1DCP0000100000001 /* DCPModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000002 /* DCPModels.swift */; };
 		DC0001A1DCP0000100000003 /* DCPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000004 /* DCPService.swift */; };
 		DC0001A1DCP0000100000005 /* DCPMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1DCP0000100000006 /* DCPMetadataView.swift */; };
@@ -175,7 +176,6 @@
 		RSEL000000000002000BUILD /* RegionSelectionWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */; };
 		SCHEDDL01SERV00000001 /* ScheduledDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */; };
 		VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = VIDITEMIDX00000002 /* VideoItemIndex.swift */; };
-		DC0001A1CFM0000100000002 /* ConformanceMergeDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0001A1CFM0000100000001 /* ConformanceMergeDialog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -373,6 +373,7 @@
 		D74FE70B45739608F6F73A9C /* CellConfiguration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CellConfiguration.swift; sourceTree = "<group>"; };
 		D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = KeychainCredentialManager.swift; path = "Aagedal Media Converter/Utils/KeychainCredentialManager.swift"; sourceTree = "<group>"; };
 		D8EBD41EE1711E209C16F57C /* mxf2raw */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = mxf2raw; sourceTree = "<group>"; };
+		DC0001A1CFM0000100000001 /* ConformanceMergeDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConformanceMergeDialog.swift; sourceTree = "<group>"; };
 		DC0001A1DCP0000100000002 /* DCPModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DCPModels.swift; sourceTree = "<group>"; };
 		DC0001A1DCP0000100000004 /* DCPService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DCPService.swift; sourceTree = "<group>"; };
 		DC0001A1DCP0000100000006 /* DCPMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DCPMetadataView.swift; sourceTree = "<group>"; };
@@ -397,7 +398,6 @@
 		RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionWindowController.swift; sourceTree = "<group>"; };
 		SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScheduledDownloadService.swift; path = YTDLP/ScheduledDownloadService.swift; sourceTree = "<group>"; };
 		VIDITEMIDX00000002 /* VideoItemIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoItemIndex.swift; sourceTree = "<group>"; };
-		DC0001A1CFM0000100000001 /* ConformanceMergeDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConformanceMergeDialog.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -1432,7 +1432,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 412;
+				CURRENT_PROJECT_VERSION = 445;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2093,7 +2093,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 412;
+				CURRENT_PROJECT_VERSION = 445;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;

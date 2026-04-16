@@ -93,29 +93,29 @@ enum WhisperModel: String, CaseIterable, Codable, Sendable {
     }
 
     /// Download URL from Hugging Face
-    var downloadURL: URL {
+    var downloadURL: URL? {
         switch self {
         case .norwegianTiny:
-            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-tiny/resolve/main/ggml-model.bin")!
+            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-tiny/resolve/main/ggml-model.bin")
         case .norwegianSmall:
-            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-small/resolve/main/ggml-model.bin")!
+            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-small/resolve/main/ggml-model.bin")
         case .norwegianMedium:
-            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-medium/resolve/main/ggml-model.bin")!
+            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-medium/resolve/main/ggml-model.bin")
         case .norwegianLarge:
-            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-large/resolve/main/ggml-model.bin")!
+            return URL(string: "https://huggingface.co/NbAiLab/nb-whisper-large/resolve/main/ggml-model.bin")
         case .swedishBase:
-            return URL(string: "https://huggingface.co/KBLab/kb-whisper-base/resolve/main/ggml-model.bin")!
+            return URL(string: "https://huggingface.co/KBLab/kb-whisper-base/resolve/main/ggml-model.bin")
         case .swedishSmall:
-            return URL(string: "https://huggingface.co/KBLab/kb-whisper-small/resolve/main/ggml-model.bin")!
+            return URL(string: "https://huggingface.co/KBLab/kb-whisper-small/resolve/main/ggml-model.bin")
         case .swedishMedium:
-            return URL(string: "https://huggingface.co/KBLab/kb-whisper-medium/resolve/main/ggml-model.bin")!
+            return URL(string: "https://huggingface.co/KBLab/kb-whisper-medium/resolve/main/ggml-model.bin")
         case .swedishLarge:
-            return URL(string: "https://huggingface.co/KBLab/kb-whisper-large/resolve/main/ggml-model.bin")!
+            return URL(string: "https://huggingface.co/KBLab/kb-whisper-large/resolve/main/ggml-model.bin")
         case .custom:
-            return URL(fileURLWithPath: "/")
+            return nil
         default:
             let baseURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
-            return URL(string: baseURL + fileName)!
+            return URL(string: baseURL + fileName)
         }
     }
 
