@@ -92,7 +92,7 @@ actor WhisperModelManager {
         _ model: WhisperModel,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
-        guard model.isDownloadable else {
+        guard model.isDownloadable, let downloadURL = model.downloadURL else {
             throw WhisperModelError.modelNotFound
         }
         // Check if already downloading
@@ -122,7 +122,7 @@ actor WhisperModelManager {
             delegateQueue: nil
         )
 
-        let task = session.downloadTask(with: model.downloadURL)
+        let task = session.downloadTask(with: downloadURL)
         downloadTasks[model] = task
 
         // Use continuation to wait for completion
