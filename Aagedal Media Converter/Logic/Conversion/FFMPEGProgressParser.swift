@@ -62,6 +62,40 @@ final class FrameStallTracker: Sendable {
     }
 }
 
+/// Throttles progress update dispatches to the main thread to avoid excessive
+/// SwiftUI re-renders. Without throttling, FFmpeg stderr output fires progress
+/// callbacks 5-10x/sec, each mutating @State arrays and triggering full
+/// updateNSView cycles — causing scroll lag with many queued items.
+final class ProgressThrottler: Sendable {
+    private struct State {
+        var lastDispatchTime: Date = .distantPast
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: State())
+    private let minInterval: TimeInterval
+
+    /// - Parameter minInterval: Minimum seconds between dispatches (default 0.25 = 4 Hz)
+    init(minInterval: TimeInterval = 0.25) {
+        self.minInterval = minInterval
+    }
+
+    /// Returns true if the update should be dispatched to the UI.
+    /// Always allows completion (progress >= 1.0) through immediately.
+    func shouldDispatch(progress: Double) -> Bool {
+        // Never throttle completion
+        if progress >= 1.0 { return true }
+
+        return lock.withLock { state in
+            let now = Date()
+            guard now.timeIntervalSince(state.lastDispatchTime) >= minInterval else {
+                return false
+            }
+            state.lastDispatchTime = now
+            return true
+        }
+    }
+}
+
 enum FFMPEGProgressParser {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGProgressParser")
 
@@ -80,6 +114,7 @@ enum FFMPEGProgressParser {
         effectiveDuration: Double?,
         frameRate: Double = 24.0,
         frameStallTracker: FrameStallTracker? = nil,
+        progressThrottler: ProgressThrottler? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void
     ) -> (Double?, (Double, String?)?) {
         var newTotalDuration = totalDuration
@@ -96,10 +131,12 @@ enum FFMPEGProgressParser {
 
         // Try time-based progress first (works for encoding)
         if let progress = ParsingUtils.parseTimeProgress(from: output, totalDuration: durationForProgress) {
-            Task { @MainActor in
-                progressUpdate(progress.0, progress.1)
-            }
             progressTuple = progress
+            if progressThrottler?.shouldDispatch(progress: progress.0) ?? true {
+                Task { @MainActor in
+                    progressUpdate(progress.0, progress.1)
+                }
+            }
         }
         // Fall back to frame-based progress (works for stream copy)
         else if let frameProgress = ParsingUtils.parseFrameProgress(from: output, totalDuration: durationForProgress, frameRate: frameRate) {
@@ -112,10 +149,12 @@ enum FFMPEGProgressParser {
                 }
             }
 
-            Task { @MainActor in
-                progressUpdate(frameProgress.0, etaString)
-            }
             progressTuple = (frameProgress.0, etaString)
+            if progressThrottler?.shouldDispatch(progress: frameProgress.0) ?? true {
+                Task { @MainActor in
+                    progressUpdate(frameProgress.0, etaString)
+                }
+            }
         }
 
         return (newTotalDuration, progressTuple)
