@@ -297,6 +297,7 @@ actor FFMPEGConverter {
         }
         let stderrCollector = StderrCollector()
         let frameStallTracker = FrameStallTracker()
+        let progressThrottler = ProgressThrottler()
         let frameRate = request.videoFrameRate ?? 24.0  // Default to 24fps if not provided
 
         // For DCP exports, scale FFmpeg progress to 0-75% to leave room for post-processing steps
@@ -319,6 +320,7 @@ actor FFMPEGConverter {
                     effectiveDuration: effectiveDurationBox.value,
                     frameRate: frameRate,
                     frameStallTracker: frameStallTracker,
+                    progressThrottler: progressThrottler,
                     progressUpdate: ffmpegProgressUpdate
                 )
                 if let newTotalDuration = newTotalDuration {

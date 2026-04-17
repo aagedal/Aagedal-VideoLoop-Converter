@@ -591,9 +591,19 @@ actor ConversionManager: Sendable {
             additionalOutputArguments: mergeOutputArguments
         )
 
+        // Throttle UI updates to ~4 Hz to avoid SwiftUI re-render storms during encoding
+        let mergeUIThrottle = OSAllocatedUnfairLock(initialState: Date.distantPast)
         await ffmpegConverter.convert(
             request: mergeRequest,
             progressUpdate: { progress, eta in
+                let now = Date()
+                let shouldUpdate = mergeUIThrottle.withLock { last -> Bool in
+                    guard progress < 1.0 else { return true }
+                    guard now.timeIntervalSince(last) >= 0.25 else { return false }
+                    last = now
+                    return true
+                }
+                guard shouldUpdate else { return }
                 Task { @MainActor in
                     for index in indices {
                         droppedFiles.wrappedValue[index].progress = progress
@@ -1762,9 +1772,19 @@ actor ConversionManager: Sendable {
             customInputArguments: imageSeqInputArgs
         )
 
+        // Throttle UI updates to ~4 Hz to avoid SwiftUI re-render storms during encoding
+        let singleUIThrottle = OSAllocatedUnfairLock(initialState: Date.distantPast)
         await ffmpegConverter.convert(
             request: conversionRequest,
             progressUpdate: { progress, eta in
+                let now = Date()
+                let shouldUpdate = singleUIThrottle.withLock { last -> Bool in
+                    guard progress < 1.0 else { return true }
+                    guard now.timeIntervalSince(last) >= 0.25 else { return false }
+                    last = now
+                    return true
+                }
+                guard shouldUpdate else { return }
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
                         droppedFiles.wrappedValue[idx].progress = progress
