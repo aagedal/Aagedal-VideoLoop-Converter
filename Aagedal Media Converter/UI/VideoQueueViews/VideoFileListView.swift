@@ -380,7 +380,6 @@ struct VideoFileListView: View {
             await MainActor.run {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].metadata = metadata
-                    VideoFileUtils.prefetchPreviewAssets(for: url)
                 }
             }
         }
