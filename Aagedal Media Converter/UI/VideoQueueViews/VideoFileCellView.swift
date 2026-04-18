@@ -139,6 +139,13 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     private var lastThumbBoundsSize: CGSize = .zero
     private var lastThumbCornerRadius: CGFloat = -1
 
+    // MARK: - Debug: Disable UI sections to test scroll performance
+    /// Set to `false` to hide the entire thumbnail/checkerboard/badge/hover-button area.
+    /// When disabled, rows show only the text content — useful for isolating scroll-perf issues.
+    static let thumbnailAreaEnabled = true
+    /// Set to `false` to hide the comment field, date-tag, waveform, and toggle buttons.
+    static let commentSectionEnabled = true
+
     // MARK: - Sizing Constants
 
     private var thumbnailWidth: CGFloat { isCompact ? 160 : 240 }
@@ -238,6 +245,10 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
         // Dark card background (updateLayer handles group-child tint)
         cardView.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1.0).cgColor
+        // PERF: Rasterize the rounded-corner card so masksToBounds + cornerRadius
+        // don't force an offscreen rendering pass on every scroll frame.
+        cardView.layer?.shouldRasterize = true
+        cardView.layer?.rasterizationScale = NSScreen.main?.backingScaleFactor ?? 2.0
 
         // Left accent bar for encoding group child rows
         groupAccentLayer.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.3).cgColor
@@ -246,6 +257,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         cardView.layer?.addSublayer(groupAccentLayer)
 
         // Shadow on self (outside the clip)
+        // PERF: shadowPath is set in layout() so Core Animation doesn't
+        // have to recompute the outline from pixel content every frame.
         layer?.shadowColor = NSColor.black.cgColor
         layer?.shadowOpacity = 0.25
         layer?.shadowRadius = 4
@@ -266,7 +279,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         mainHStack.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(mainHStack)
 
-        setupThumbnailArea()
+        if Self.thumbnailAreaEnabled {
+            setupThumbnailArea()
+        }
         setupContentArea()
 
         // Constraints
@@ -361,7 +376,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         setupProgressBar()
         setupInfoRow()
         setupButtonsRow()
-        setupCommentSection()
+        if Self.commentSectionEnabled { setupCommentSection() }
 
         // Wrap content stack in a padded container
         let contentPadding = NSView()
@@ -716,13 +731,19 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             return
         }
 
+        // PERF: Suppress implicit Core Animation transitions and batch all
+        // subview property changes so NSStackView relayouts are coalesced.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
         let isFirstConfigure = prev == nil || prev?.itemID != config.itemID
         self.currentItemID = config.itemID
 
         // Compact mode change — update thumbnail size
         if isFirstConfigure || prev?.isCompactMode != config.isCompactMode {
             self.isCompact = config.isCompactMode
-            updateThumbnailSize()
+            if Self.thumbnailAreaEnabled { updateThumbnailSize() }
             durationLabel.isHidden = config.isCompactMode
             dotSeparator.isHidden = config.isCompactMode
             sizeLabel.isHidden = config.isCompactMode
@@ -735,7 +756,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         }
 
         // Thumbnail
-        if isFirstConfigure || prev?.thumbnailImage !== config.thumbnailImage {
+        if Self.thumbnailAreaEnabled, isFirstConfigure || prev?.thumbnailImage !== config.thumbnailImage {
             thumbnailImageView.image = config.thumbnailImage
         }
 
@@ -871,12 +892,12 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         }
 
         // Comment section — only on relevant changes
-        if isFirstConfigure || prev?.comment != config.comment || prev?.isCompactMode != config.isCompactMode || prev?.showCommentField != config.showCommentField || prev?.includeDateTag != config.includeDateTag || prev?.isFocusedComment != config.isFocusedComment || prev?.waveformVideoEnabled != config.waveformVideoEnabled {
+        if Self.commentSectionEnabled, isFirstConfigure || prev?.comment != config.comment || prev?.isCompactMode != config.isCompactMode || prev?.showCommentField != config.showCommentField || prev?.includeDateTag != config.includeDateTag || prev?.isFocusedComment != config.isFocusedComment || prev?.waveformVideoEnabled != config.waveformVideoEnabled {
             updateCommentSection(config: config)
         }
 
         // Badges
-        if isFirstConfigure
+        if Self.thumbnailAreaEnabled, isFirstConfigure
             || prev?.isMuted != config.isMuted
             || prev?.hasCustomAudioRouting != config.hasCustomAudioRouting
             || prev?.hasDownmix != config.hasDownmix
@@ -914,19 +935,26 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             let path = CGPath(roundedRect: cardBounds, cornerWidth: 12, cornerHeight: 12, transform: nil)
             selectionBorderLayer.path = path
             selectionBorderLayer.frame = cardBounds
+            // PERF: Provide an explicit shadowPath so Core Animation doesn't
+            // have to render the layer offscreen to compute the shadow outline.
+            // Inset matches the cardView constraints (leading/trailing 8, top/bottom 6).
+            let shadowRect = cardBounds.offsetBy(dx: 8, dy: 6)
+            layer?.shadowPath = CGPath(roundedRect: shadowRect, cornerWidth: 12, cornerHeight: 12, transform: nil)
             lastCardBoundsSize = cardBounds.size
         }
 
         // Thumbnail border path — rebuild only when size or corner radius changes
-        let thumbBounds = thumbnailContainer.bounds
-        let cornerRadius: CGFloat = isCompact ? 6 : 9
-        if thumbBounds.size != lastThumbBoundsSize || cornerRadius != lastThumbCornerRadius {
-            let thumbPath = CGPath(roundedRect: thumbBounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
-            thumbnailBorderLayer.path = thumbPath
-            thumbnailBorderLayer.frame = thumbBounds
-            checkerboardLayer.frame = thumbBounds
-            lastThumbBoundsSize = thumbBounds.size
-            lastThumbCornerRadius = cornerRadius
+        if Self.thumbnailAreaEnabled {
+            let thumbBounds = thumbnailContainer.bounds
+            let cornerRadius: CGFloat = isCompact ? 6 : 9
+            if thumbBounds.size != lastThumbBoundsSize || cornerRadius != lastThumbCornerRadius {
+                let thumbPath = CGPath(roundedRect: thumbBounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+                thumbnailBorderLayer.path = thumbPath
+                thumbnailBorderLayer.frame = thumbBounds
+                checkerboardLayer.frame = thumbBounds
+                lastThumbBoundsSize = thumbBounds.size
+                lastThumbCornerRadius = cornerRadius
+            }
         }
 
         // Position encoding group accent bar on left edge
@@ -945,7 +973,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     /// Applies a thumbnail decoded on a background queue. The `forItemID` guard
     /// prevents a late decode from painting over a reused cell now showing a different item.
     func applyDecodedThumbnail(_ image: NSImage?, forItemID itemID: UUID) {
-        guard currentItemID == itemID else { return }
+        guard Self.thumbnailAreaEnabled, currentItemID == itemID else { return }
         thumbnailImageView.image = image
     }
 

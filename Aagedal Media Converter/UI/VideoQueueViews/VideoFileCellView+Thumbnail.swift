@@ -84,6 +84,7 @@ extension VideoFileCellView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        guard Self.thumbnailAreaEnabled else { return }
         if let existing = trackingArea {
             thumbnailContainer.removeTrackingArea(existing)
         }
