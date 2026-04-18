@@ -118,13 +118,16 @@ struct VideoFileCellConfiguration: Equatable {
 
 // MARK: - EncodingGroupCellConfiguration
 
-/// Snapshot of all data an EncodingGroupCellView needs to render.
+/// Snapshot of all data an EncodingGroupHeaderCellView needs to render.
+/// Mirrors VideoFileCellConfiguration: immutable, Equatable, built from the
+/// current EncodingGroup plus global state by the Coordinator.
 struct EncodingGroupCellConfiguration: Equatable {
     let groupID: UUID
     let name: String
     let isExpanded: Bool
     let itemCount: Int
     let isSelected: Bool
+    let isCompactMode: Bool
     let globalPreset: ExportPreset
 
     // Group-level settings
@@ -134,6 +137,7 @@ struct EncodingGroupCellConfiguration: Equatable {
     let transcriptionEnabled: Bool
     let analyticsEnabled: Bool
     let sequentialNamingEnabled: Bool
+    let isUploadConfigured: Bool
 
     // Status
     let status: ConversionManager.ConversionStatus
@@ -143,6 +147,18 @@ struct EncodingGroupCellConfiguration: Equatable {
 
     // Concat output
     let concatOutputURL: URL?
+    let concatOutputAlreadyExists: Bool
+    let concatOutputExistingURL: URL?
+
+    // Upload summary (shown below progress bar when any item is uploading / has uploaded)
+    enum UploadSummaryState: Equatable {
+        case hidden
+        case uploaded(count: Int, total: Int)
+        case failed(count: Int, total: Int)
+        case uploading(completed: Int, total: Int, progress: Double, speed: String?)
+        case pending(uploaded: Int, total: Int)
+    }
+    let uploadSummary: UploadSummaryState
 }
 
 // MARK: - CellAction

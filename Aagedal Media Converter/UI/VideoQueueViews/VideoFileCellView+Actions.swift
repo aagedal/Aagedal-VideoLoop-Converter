@@ -4,6 +4,13 @@
 
 import AppKit
 
+private let scheduledTimeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .none
+    formatter.timeStyle = .short
+    return formatter
+}()
+
 extension VideoFileCellView {
 
     // MARK: - Toggle Buttons Update
@@ -12,7 +19,7 @@ extension VideoFileCellView {
         // --- Encode button (green play icon) ---
         encodeButton.isHidden = config.isCompactMode
         let isEncoding = config.status == .converting
-        encodeButton.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+        encodeButton.image = VideoFileCellView.Symbol.playFill
         encodeButton.contentTintColor = isEncoding ? .systemGreen : .systemGreen.withAlphaComponent(0.5)
         encodeButton.isEnabled = config.status == .waiting || config.status == .done || config.status == .failed
         encodeButton.toolTip = isEncoding ? "Encoding in progress" : "Start encoding"
@@ -22,7 +29,7 @@ extension VideoFileCellView {
         let showAutoEncode = config.isDownloading || config.scheduledDownloadTime != nil
         autoEncodeButton.isHidden = !showAutoEncode || config.isCompactMode
         if showAutoEncode {
-            autoEncodeButton.image = NSImage(systemSymbolName: config.autoEncodeAfterDownload ? "play.fill" : "play", accessibilityDescription: nil)
+            autoEncodeButton.image = config.autoEncodeAfterDownload ? VideoFileCellView.Symbol.playFill : VideoFileCellView.Symbol.play
             autoEncodeButton.contentTintColor = config.autoEncodeAfterDownload ? .systemGreen : .secondaryLabelColor
             autoEncodeButton.toolTip = config.autoEncodeAfterDownload ? "Auto-encode enabled" : "Enable auto-encode after download"
         }
@@ -31,7 +38,7 @@ extension VideoFileCellView {
         transcriptionButton.isHidden = config.isCompactMode
         let isTranscriptionEnabled = config.subtitleEnabled && (config.subtitleMethod == .whisper || config.subtitleMethod == .parakeet)
         let isTranscribing = config.subtitleStatus.isInProgress
-        transcriptionButton.image = NSImage(systemSymbolName: isTranscriptionEnabled ? "captions.bubble.fill" : "captions.bubble", accessibilityDescription: nil)
+        transcriptionButton.image = isTranscriptionEnabled ? VideoFileCellView.Symbol.captionsBubbleFill : VideoFileCellView.Symbol.captionsBubble
         if !config.isTranscriptionAvailable {
             transcriptionButton.contentTintColor = .systemOrange
             transcriptionButton.toolTip = "Transcription engine not installed. Configure in Settings → Transcription."
@@ -80,7 +87,7 @@ extension VideoFileCellView {
                 analyticsColor = .secondaryLabelColor
                 analyticsButton.toolTip = "Enable quality analytics (VMAF/PSNR/SSIMULACRA2)"
             }
-            analyticsButton.image = NSImage(systemSymbolName: analyticsIcon, accessibilityDescription: nil)
+            analyticsButton.image = VideoFileCellView.Symbol.named(analyticsIcon)
             analyticsButton.contentTintColor = analyticsColor
         }
         applyProcessingRing(to: analyticsButton, active: isAnalyzing, color: .systemCyan)
@@ -105,7 +112,7 @@ extension VideoFileCellView {
                 ? "Enable upload after encoding. ⌥-click to upload source file."
                 : "Configure upload in Settings → Upload"
         }
-        uploadButton.image = NSImage(systemSymbolName: uploadIcon, accessibilityDescription: nil)
+        uploadButton.image = VideoFileCellView.Symbol.named(uploadIcon)
         uploadButton.contentTintColor = uploadColor
         uploadButton.isEnabled = config.isUploadConfigured
         applyProcessingRing(to: uploadButton, active: isUploading, color: .systemBlue)
@@ -197,7 +204,7 @@ extension VideoFileCellView {
 
         capsuleLabel.stringValue = text
         capsuleLabel.textColor = color
-        capsuleIcon.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+        capsuleIcon.image = VideoFileCellView.Symbol.named(icon)
         capsuleIcon.contentTintColor = color
         statusCapsule.layer?.borderColor = color.withAlphaComponent(0.6).cgColor
         statusCapsule.toolTip = config.status == .failed ? config.conversionError : nil
@@ -230,10 +237,7 @@ extension VideoFileCellView {
     private func progressText(config: VideoFileCellConfiguration) -> String {
         // Scheduled download — capsule can't show time detail
         if let scheduledTime = config.scheduledDownloadTime {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .none
-            formatter.timeStyle = .short
-            return "Scheduled \(formatter.string(from: scheduledTime))"
+            return "Scheduled \(scheduledTimeFormatter.string(from: scheduledTime))"
         }
 
         // Downloading — show percentage and speed (capsule shows DOWNLOADING)

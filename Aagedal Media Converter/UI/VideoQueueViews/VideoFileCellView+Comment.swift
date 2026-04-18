@@ -94,7 +94,7 @@ extension VideoFileCellView {
         // Comment toggle button (always visible, uses cyan to distinguish from green transcription)
         commentToggleButton.isHidden = config.isCompactMode
         let commentActive = config.showCommentField
-        commentToggleButton.image = NSImage(systemSymbolName: commentActive ? "text.bubble.fill" : "text.bubble", accessibilityDescription: nil)
+        commentToggleButton.image = commentActive ? VideoFileCellView.Symbol.textBubbleFill : VideoFileCellView.Symbol.textBubble
         commentToggleButton.contentTintColor = commentActive ? .systemCyan : .secondaryLabelColor
 
         // Comment field
@@ -115,7 +115,7 @@ extension VideoFileCellView {
         dateTagButton.isHidden = !showDateTag || showDCP
         if showDateTag {
             let isActive = config.includeDateTag
-            dateTagButton.image = NSImage(systemSymbolName: isActive ? "calendar.badge.checkmark" : "calendar.badge.minus", accessibilityDescription: nil)
+            dateTagButton.image = isActive ? VideoFileCellView.Symbol.calendarCheck : VideoFileCellView.Symbol.calendarMinus
             dateTagButton.contentTintColor = isActive ? .controlAccentColor : .secondaryLabelColor
         }
 
@@ -124,7 +124,7 @@ extension VideoFileCellView {
         waveformBgButton.isHidden = !showWaveform
         if showWaveform {
             let isActive = config.waveformVideoEnabled
-            waveformButton.image = NSImage(systemSymbolName: isActive ? "waveform.circle.fill" : "waveform.circle", accessibilityDescription: nil)
+            waveformButton.image = isActive ? VideoFileCellView.Symbol.waveformCircleFill : VideoFileCellView.Symbol.waveformCircle
             waveformButton.contentTintColor = isActive ? .controlAccentColor : .secondaryLabelColor
         }
     }

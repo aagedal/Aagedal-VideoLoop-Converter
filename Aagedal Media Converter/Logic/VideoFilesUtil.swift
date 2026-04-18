@@ -264,27 +264,6 @@ struct VideoFileUtils: Sendable {
         )
     }
 
-    /// Schedules generation of heavy preview assets (filmstrip thumbnails, waveform)
-    /// after the lightweight metadata and row thumbnail are complete.
-    static func prefetchPreviewAssets(for url: URL) {
-        // Skip if file doesn't exist (e.g., scheduled downloads)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            logger.info("[prefetchPreviewAssets] Skipping - file doesn't exist: \(url.lastPathComponent, privacy: .public)")
-            return
-        }
-
-        Task.detached(priority: .background) {
-            let fileName = url.lastPathComponent
-            do {
-                let generator = PreviewAssetGenerator.shared
-                let assets = try await generator.generateAssets(for: url)
-                logger.debug("[prefetchPreviewAssets] Cached filmstrip/waveform for \(fileName, privacy: .public) (\(assets.thumbnails.count) thumbnails, waveform: \(assets.waveform != nil))")
-            } catch {
-                logger.error("[prefetchPreviewAssets] Failed to generate preview assets for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
-        }
-    }
-
     static func loadDetailsAsync(
         for url: URL,
         outputFolder: String? = nil,
