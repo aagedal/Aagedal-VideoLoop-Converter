@@ -1,5 +1,6 @@
 # Xcode
 build/
+*.app/
 *.pbxuser
 !default.pbxuser
 *.mode1v3
@@ -71,3 +72,6 @@ fastlane/test_output
 # Testing
 /MPVKit/
 /VideoTestFiles/
+
+# Claude Code
+.claude/
