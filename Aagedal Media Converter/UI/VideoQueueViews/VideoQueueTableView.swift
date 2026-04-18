@@ -60,32 +60,6 @@ private final class TransparentRowView: NSTableRowView {
 
 // MARK: - Table Cell View (hosts SwiftUI via NSHostingView)
 
-private final class VideoQueueTableCellView: NSTableCellView {
-    private var hostingView: NSHostingView<AnyView>?
-
-    func configure(with content: AnyView) {
-        if let hostingView = self.hostingView {
-            hostingView.rootView = content
-        } else {
-            let hosting = NSHostingView(rootView: content)
-            hosting.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(hosting)
-            NSLayoutConstraint.activate([
-                hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-                hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-                hosting.topAnchor.constraint(equalTo: topAnchor),
-                hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
-            ])
-            self.hostingView = hosting
-        }
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        // hostingView is reused, rootView will be updated via configure()
-    }
-}
-
 // MARK: - Pasteboard type for internal reorder
 
 private extension NSPasteboard.PasteboardType {
@@ -314,10 +288,10 @@ struct VideoQueueTableView: NSViewRepresentable {
         /// Prevents duplicate enqueues when the same cell scrolls in/out quickly.
         var inFlightThumbnailDecodes: Set<UUID> = []
 
-        /// Cached per-group Binding, reused across scroll updates so
-        /// NSHostingView rootView reassignment doesn't churn closure instances.
-        /// Pruned in rebuildLookupCaches when a group disappears.
-        var groupBindings: [UUID: Binding<EncodingGroup>] = [:]
+        /// Previous item count per group, used to auto-reapply sequential naming
+        /// when items are added to or removed from a group (mirrors the onChange
+        /// watcher in the old SwiftUI EncodingGroupHeaderView).
+        var previousGroupItemCount: [UUID: Int] = [:]
 
         /// Previous snapshot for selective cell updates
         var previousDisplayRows: [FlatQueueRow] = []
@@ -330,7 +304,7 @@ struct VideoQueueTableView: NSViewRepresentable {
 
         private static let cellID = NSUserInterfaceItemIdentifier("VideoQueueCell")
         private static let appkitCellID = NSUserInterfaceItemIdentifier("VideoFileCellView")
-        private static let swiftUICellID = NSUserInterfaceItemIdentifier("SwiftUICell")
+        private static let groupHeaderCellID = NSUserInterfaceItemIdentifier("EncodingGroupHeaderCellView")
         private static let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
 
         init(parent: VideoQueueTableView) {
@@ -367,10 +341,22 @@ struct VideoQueueTableView: NSViewRepresentable {
                 }
             }
 
-            // Drop cached bindings for groups that no longer exist
-            if !groupBindings.isEmpty {
+            // Re-apply sequential naming when a group's item count has changed
+            // (drag-in, drag-out, programmatic add/remove). Mirrors the old
+            // SwiftUI .onChange(of: group.items.count) watcher.
+            for (idx, group) in parent.encodingGroups.enumerated() {
+                let prev = previousGroupItemCount[group.id]
+                let current = group.items.count
+                if let prev, prev != current, group.sequentialNamingEnabled {
+                    parent.encodingGroups[idx].normalizeSequentialNaming()
+                }
+                previousGroupItemCount[group.id] = current
+            }
+
+            // Drop tracked counts for groups that no longer exist
+            if !previousGroupItemCount.isEmpty {
                 let validGroupIDs = Set(parent.encodingGroups.map(\.id))
-                groupBindings = groupBindings.filter { validGroupIDs.contains($0.key) }
+                previousGroupItemCount = previousGroupItemCount.filter { validGroupIDs.contains($0.key) }
             }
         }
 
@@ -400,12 +386,15 @@ struct VideoQueueTableView: NSViewRepresentable {
                     self.handleCellAction(action, itemID: capturedID, displayRows: self.cachedDisplayRows, row: row)
                 }
                 return cell
-            case .groupHeader:
-                let cell = tableView.makeView(withIdentifier: Self.swiftUICellID, owner: nil) as? VideoQueueTableCellView
-                    ?? VideoQueueTableCellView()
-                cell.identifier = Self.swiftUICellID
-                let rowContent = buildRowView(for: row, displayRows: displayRows)
-                cell.configure(with: AnyView(rowContent))
+            case .groupHeader(let group):
+                let cell = tableView.makeView(withIdentifier: Self.groupHeaderCellID, owner: nil) as? EncodingGroupHeaderCellView
+                    ?? EncodingGroupHeaderCellView()
+                cell.identifier = Self.groupHeaderCellID
+                let config = buildGroupCellConfiguration(group: group)
+                let capturedID = group.id
+                cell.configure(with: config) { [weak self] (action: CellAction) in
+                    self?.handleGroupAction(action, groupID: capturedID)
+                }
                 return cell
             }
         }
@@ -419,14 +408,9 @@ struct VideoQueueTableView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             let displayRows = cachedDisplayRows
             guard row < displayRows.count else { return 200 }
-            switch displayRows[row] {
-            case .single:
-                return parent.isCompactMode ? 103 : 170
-            case .groupHeader:
-                return 106
-            case .groupItem:
-                return 119
-            }
+            // All row types share the same height to unify the column look.
+            _ = displayRows[row]
+            return parent.isCompactMode ? 103 : 170
         }
 
         // MARK: Selection
@@ -641,9 +625,14 @@ struct VideoQueueTableView: NSViewRepresentable {
                         }
                     default: break
                     }
-                } else if let swiftUICell = cellView as? VideoQueueTableCellView {
-                    let rowContent = buildRowView(for: row, displayRows: displayRows)
-                    swiftUICell.configure(with: AnyView(rowContent))
+                } else if let groupCell = cellView as? EncodingGroupHeaderCellView {
+                    if case .groupHeader(let group) = displayRows[row] {
+                        let config = buildGroupCellConfiguration(group: group)
+                        let capturedID = group.id
+                        groupCell.configure(with: config) { [weak self] (action: CellAction) in
+                            self?.handleGroupAction(action, groupID: capturedID)
+                        }
+                    }
                 }
             }
 
@@ -807,6 +796,115 @@ struct VideoQueueTableView: NSViewRepresentable {
                 isTranscriptionAvailable: WhisperUpdateService.shared.getInstallationStatus().isAvailable || ParakeetService.shared.getInstallationStatus().isAvailable,
                 isUploadConfigured: UploadManager.shared.isConfigured
             )
+        }
+
+        // MARK: - Group Cell Configuration Builder
+
+        func buildGroupCellConfiguration(group: EncodingGroup) -> EncodingGroupCellConfiguration {
+            let concatOutputURL: URL? = {
+                guard group.concatEnabled, group.status == .done,
+                      let first = group.items.first else { return nil }
+                return first.outputURL
+            }()
+
+            let (concatExists, existingURL): (Bool, URL?) = {
+                guard group.concatEnabled, group.status == .waiting,
+                      let first = group.items.first,
+                      let output = first.outputURL else { return (false, nil) }
+                let exists = FileManager.default.fileExists(atPath: output.path)
+                return (exists, exists ? output : nil)
+            }()
+
+            return EncodingGroupCellConfiguration(
+                groupID: group.id,
+                name: group.name,
+                isExpanded: group.isExpanded,
+                itemCount: group.items.count,
+                isSelected: parent.selection.contains(group.id),
+                isCompactMode: parent.isCompactMode,
+                globalPreset: parent.preset,
+                groupPreset: group.preset,
+                concatEnabled: group.concatEnabled,
+                uploadEnabled: group.uploadEnabled,
+                transcriptionEnabled: group.transcriptionEnabled,
+                analyticsEnabled: group.analyticsEnabled,
+                sequentialNamingEnabled: group.sequentialNamingEnabled,
+                isUploadConfigured: UploadManager.shared.isConfigured,
+                status: group.status,
+                progress: group.progress,
+                totalDuration: group.formattedTotalDuration,
+                totalSize: "",
+                concatOutputURL: concatOutputURL,
+                concatOutputAlreadyExists: concatExists,
+                concatOutputExistingURL: existingURL,
+                uploadSummary: buildGroupUploadSummary(items: group.items)
+            )
+        }
+
+        private func buildGroupUploadSummary(items: [VideoItem]) -> EncodingGroupCellConfiguration.UploadSummaryState {
+            let uploadItems = items.filter { $0.uploadEnabled }
+            guard !uploadItems.isEmpty else { return .hidden }
+
+            let uploaded = uploadItems.filter { $0.uploadStatus.isComplete }.count
+            let failed = uploadItems.filter { $0.uploadStatus.hasFailed }.count
+            let uploading = uploadItems.filter { $0.uploadStatus == .uploading }
+            let pending = uploadItems.filter { $0.uploadStatus == .pending }.count
+            let total = uploadItems.count
+
+            if uploaded == total {
+                return .uploaded(count: uploaded, total: total)
+            }
+            if failed > 0 && uploading.isEmpty && pending == 0 {
+                return .failed(count: failed, total: total)
+            }
+            if let current = uploading.first {
+                let completed = Double(uploaded)
+                let overall = (completed + current.uploadProgress) / Double(total)
+                return .uploading(completed: uploaded, total: total, progress: overall, speed: current.uploadSpeed)
+            }
+            if pending > 0 {
+                return .pending(uploaded: uploaded, total: total)
+            }
+            return .hidden
+        }
+
+        // MARK: - Group Action Handler
+
+        func handleGroupAction(_ action: CellAction, groupID: UUID) {
+            guard let idx = encodingGroupsIndex[groupID],
+                  idx < parent.encodingGroups.count,
+                  parent.encodingGroups[idx].id == groupID else { return }
+
+            switch action {
+            case .toggleExpanded:
+                parent.encodingGroups[idx].isExpanded.toggle()
+            case .groupNameChanged(let name):
+                parent.encodingGroups[idx].name = name
+                if parent.encodingGroups[idx].sequentialNamingEnabled {
+                    parent.encodingGroups[idx].normalizeSequentialNaming()
+                }
+            case .toggleConcat:
+                parent.encodingGroups[idx].concatEnabled.toggle()
+            case .toggleGroupUpload:
+                parent.encodingGroups[idx].uploadEnabled.toggle()
+            case .toggleGroupTranscription:
+                parent.encodingGroups[idx].transcriptionEnabled.toggle()
+            case .toggleGroupAnalytics:
+                parent.encodingGroups[idx].analyticsEnabled.toggle()
+            case .toggleSequentialNaming:
+                parent.encodingGroups[idx].sequentialNamingEnabled.toggle()
+                parent.encodingGroups[idx].normalizeSequentialNaming()
+            case .setGroupPreset(let preset):
+                parent.encodingGroups[idx].preset = preset
+            case .deleteGroup:
+                parent.onDeleteGroup?(groupID)
+            case .addFilesToGroup:
+                parent.onAddFilesToGroup?(groupID)
+            case .resetGroup:
+                parent.onResetGroup?(groupID)
+            default:
+                break
+            }
         }
 
         // MARK: - Cell Action Handler
@@ -1011,307 +1109,9 @@ struct VideoQueueTableView: NSViewRepresentable {
             }
         }
 
-        // MARK: Row Builder (SwiftUI - used for group headers)
-
-        @ViewBuilder
-        private func buildRowView(for row: Int, displayRows: [FlatQueueRow]) -> some View {
-            switch displayRows[row] {
-            case .single(let item):
-                buildFileRowView(itemID: item.id, source: .ungrouped)
-                    .padding(.vertical, 4)
-            case .groupHeader(let group):
-                buildGroupHeaderView(groupID: group.id)
-                    .padding(.vertical, 4)
-            case .groupItem(let item, let groupID):
-                buildFileRowView(itemID: item.id, source: .group(groupID))
-                    .padding(.vertical, 2)
-                    .padding(.leading, 24)
-            }
-        }
-
         private enum ItemSource {
             case ungrouped
             case group(UUID)
-        }
-
-        private func buildGroupHeaderView(groupID: UUID) -> some View {
-            let groupBinding = cachedGroupBinding(for: groupID)
-            let isSelected = parent.selection.contains(groupID)
-
-            return EncodingGroupHeaderView(
-                group: groupBinding,
-                globalPreset: parent.preset,
-                isSelected: isSelected,
-                onDelete: { [weak self] in
-                    self?.parent.onDeleteGroup?(groupID)
-                },
-                onAddFiles: { [weak self] in
-                    self?.parent.onAddFilesToGroup?(groupID)
-                },
-                onReset: { [weak self] in
-                    self?.parent.onResetGroup?(groupID)
-                }
-            )
-        }
-
-        /// Returns a stable Binding<EncodingGroup> for the given groupID, creating
-        /// and caching it on first use. Reusing the same Binding instance across
-        /// scroll updates avoids constructing fresh closures on every visible cell refresh.
-        private func cachedGroupBinding(for groupID: UUID) -> Binding<EncodingGroup> {
-            if let existing = groupBindings[groupID] {
-                return existing
-            }
-            let fallbackGroup = EncodingGroup(name: "")
-            let binding = Binding<EncodingGroup>(
-                get: { [weak self] in
-                    guard let self else { return fallbackGroup }
-                    let groups = self.parent.encodingGroups
-                    if let idx = self.encodingGroupsIndex[groupID],
-                       idx < groups.count,
-                       groups[idx].id == groupID {
-                        return groups[idx]
-                    }
-                    return groups.first(where: { $0.id == groupID }) ?? fallbackGroup
-                },
-                set: { [weak self] newValue in
-                    guard let self else { return }
-                    let groups = self.parent.encodingGroups
-                    if let idx = self.encodingGroupsIndex[groupID],
-                       idx < groups.count,
-                       groups[idx].id == groupID {
-                        self.parent.encodingGroups[idx] = newValue
-                        return
-                    }
-                    guard let idx = groups.firstIndex(where: { $0.id == groupID }) else { return }
-                    self.parent.encodingGroups[idx] = newValue
-                }
-            )
-            groupBindings[groupID] = binding
-            return binding
-        }
-
-        private func buildFileRowView(itemID: UUID, source: ItemSource) -> some View {
-            let placeholderItem = VideoItem(
-                url: URL(fileURLWithPath: "/"),
-                name: "",
-                size: 0,
-                duration: "",
-                thumbnailData: nil,
-                status: .waiting,
-                progress: 0,
-                eta: nil,
-                outputURL: nil,
-                comment: ""
-            )
-
-            let fileBinding: Binding<VideoItem>
-            let isGroupItem: Bool
-
-            switch source {
-            case .ungrouped:
-                isGroupItem = false
-                fileBinding = Binding<VideoItem>(
-                    get: { [weak self] in
-                        guard let self else { return placeholderItem }
-                        let files = self.parent.droppedFiles
-                        if let idx = self.droppedFilesIndex[itemID],
-                           idx < files.count,
-                           files[idx].id == itemID {
-                            return files[idx]
-                        }
-                        guard let idx = files.firstIndex(where: { $0.id == itemID }) else {
-                            return placeholderItem
-                        }
-                        return files[idx]
-                    },
-                    set: { [weak self] newValue in
-                        guard let self else { return }
-                        let files = self.parent.droppedFiles
-                        if let idx = self.droppedFilesIndex[itemID],
-                           idx < files.count,
-                           files[idx].id == itemID {
-                            self.parent.droppedFiles[idx] = newValue
-                            return
-                        }
-                        guard let idx = files.firstIndex(where: { $0.id == itemID }) else { return }
-                        self.parent.droppedFiles[idx] = newValue
-                    }
-                )
-            case .group(let groupID):
-                isGroupItem = true
-                fileBinding = Binding<VideoItem>(
-                    get: { [weak self] in
-                        guard let self else { return placeholderItem }
-                        let groups = self.parent.encodingGroups
-                        let gIdx: Int
-                        if let cached = self.encodingGroupsIndex[groupID],
-                           cached < groups.count,
-                           groups[cached].id == groupID {
-                            gIdx = cached
-                        } else {
-                            guard let found = groups.firstIndex(where: { $0.id == groupID }) else { return placeholderItem }
-                            gIdx = found
-                        }
-                        guard let iIdx = groups[gIdx].items.firstIndex(where: { $0.id == itemID })
-                        else { return placeholderItem }
-                        return groups[gIdx].items[iIdx]
-                    },
-                    set: { [weak self] newValue in
-                        guard let self else { return }
-                        let groups = self.parent.encodingGroups
-                        let gIdx: Int
-                        if let cached = self.encodingGroupsIndex[groupID],
-                           cached < groups.count,
-                           groups[cached].id == groupID {
-                            gIdx = cached
-                        } else {
-                            guard let found = groups.firstIndex(where: { $0.id == groupID }) else { return }
-                            gIdx = found
-                        }
-                        guard let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID })
-                        else { return }
-                        self.parent.encodingGroups[gIdx].items[iIdx] = newValue
-                    }
-                )
-            }
-
-            let isSelected = parent.selection.contains(itemID)
-
-            let focusedBinding = Binding<UUID?>(
-                get: { [weak self] in self?.parent.focusedCommentID },
-                set: { [weak self] newValue in self?.parent.focusedCommentID = newValue }
-            )
-
-            return VideoFileRowView(
-                file: fileBinding,
-                focusedCommentID: focusedBinding,
-                preset: parent.preset,
-                onCancel: {
-                    Task { await ConversionManager.shared.cancelItem(with: itemID) }
-                },
-                onDelete: { [weak self] in
-                    guard let self else { return }
-                    switch source {
-                    case .ungrouped:
-                        if let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                            self.parent.onDelete(IndexSet(integer: idx))
-                        }
-                    case .group(let groupID):
-                        if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }) {
-                            if let item = self.parent.encodingGroups[gIdx].items.first(where: { $0.id == itemID }) {
-                                if item.subtitleStatus.isInProgress {
-                                    Task { await TesseractService.shared.cancelGeneration() }
-                                    Task { await WhisperService.shared.cancelGeneration() }
-                                    Task { await ParakeetService.shared.cancelGeneration() }
-                                }
-                            }
-                            self.parent.encodingGroups[gIdx].items.removeAll { $0.id == itemID }
-                        }
-                    }
-                },
-                onReset: { [weak self] optionKeyPressed in
-                    guard let self else { return }
-                    switch source {
-                    case .ungrouped:
-                        if let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                            self.parent.onReset(idx, optionKeyPressed)
-                        }
-                    case .group(let groupID):
-                        if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
-                           let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
-                            self.parent.encodingGroups[gIdx].items[iIdx].resetConversionState()
-                        }
-                    }
-                },
-                onCancelDownload: {
-                    DownloadManager.shared.cancelDownload(itemID: itemID)
-                },
-                onStopLiveRecording: {
-                    DownloadManager.shared.stopLiveDownload(itemID: itemID)
-                },
-                onRetryDownload: {
-                    Task { await DownloadManager.shared.retryDownload(itemID: itemID) }
-                },
-                onForceRedownload: {
-                    Task { await DownloadManager.shared.forceRedownload(itemID: itemID) }
-                },
-                onCancelScheduledDownload: { [weak self] in
-                    guard let self else { return }
-                    ScheduledDownloadService.shared.cancelScheduledItem(itemID: itemID)
-                    if case .ungrouped = source,
-                       let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                        self.parent.onDelete(IndexSet(integer: idx))
-                    }
-                },
-                onTranscribeOnly: { [weak self] method in
-                    guard let self else { return }
-                    let callback = self.parent.transcribeOnly
-                    Task { @MainActor in
-                        await callback?(itemID, method)
-                    }
-                },
-                onCancelSubtitleGeneration: { [weak self] in
-                    guard let self else { return }
-                    // Cancel whichever subtitle service is running
-                    Task { await TesseractService.shared.cancelGeneration() }
-                    Task { await WhisperService.shared.cancelGeneration() }
-                    Task { await ParakeetService.shared.cancelGeneration() }
-                    // Reset subtitle status so the row returns to idle
-                    switch source {
-                    case .ungrouped:
-                        if let idx = self.parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
-                            self.parent.droppedFiles[idx].subtitleStatus = .notQueued
-                        }
-                    case .group(let groupID):
-                        if let gIdx = self.parent.encodingGroups.firstIndex(where: { $0.id == groupID }),
-                           let iIdx = self.parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
-                            self.parent.encodingGroups[gIdx].items[iIdx].subtitleStatus = .notQueued
-                        }
-                    }
-                },
-                onAnalyzeOnly: { [weak self] in
-                    guard let self else { return }
-                    let callback = self.parent.analyzeOnly
-                    Task { @MainActor in
-                        await callback?(itemID)
-                    }
-                },
-                onAnalyzeMetrics: { [weak self] metrics in
-                    guard let self else { return }
-                    let callback = self.parent.analyzeMetrics
-                    Task { @MainActor in
-                        await callback?(itemID, metrics)
-                    }
-                },
-                onAttachSubtitleFile: { [weak self] in
-                    self?.promptAttachSubtitleFile(itemID: itemID, source: source)
-                },
-                onRenameOutputFileName: { [weak self] newName in
-                    self?.parent.onRenameOutputFileName?(itemID, newName)
-                },
-                isSelected: isSelected,
-                onCommentFocusChange: { [weak self] id, isFocused in
-                    guard let self else { return }
-                    if isFocused {
-                        if !self.parent.selection.contains(id) {
-                            self.parent.selection = [id]
-                        }
-                        if self.parent.focusedCommentID != id {
-                            self.parent.focusedCommentID = id
-                        }
-                    } else if self.parent.focusedCommentID == id {
-                        self.parent.focusedCommentID = nil
-                    }
-                },
-                onPlayFullscreen: { [weak self] in
-                    self?.parent.onPlayFullscreen?(itemID)
-                },
-                mergeClipsEnabled: isGroupItem ? false : parent.mergeClipsEnabled,
-                mergeClipsAvailable: isGroupItem ? false : parent.mergeClipsAvailable,
-                showCommentField: isGroupItem ? false : parent.showCommentField,
-                showDateTagButton: isGroupItem ? false : parent.showDateTagButton,
-                isCompactMode: isGroupItem ? true : parent.isCompactMode
-            )
         }
 
         // MARK: - Attach Subtitle File
