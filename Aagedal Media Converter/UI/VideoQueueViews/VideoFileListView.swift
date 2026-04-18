@@ -234,15 +234,12 @@ struct VideoFileListView: View {
                     onNavigateUp: { handleNavigateSelection(direction: .up) },
                     onNavigateDown: { handleNavigateSelection(direction: .down) },
                     onSort: handleSortShortcut,
+                    onDelete: deleteSelectedItems,
+                    onPrimaryPreview: handlePlayFullscreenShortcut,
+                    onPrimaryAction: handleTrimShortcut,
+                    onSelectAll: selectAllItems,
                     disableNavigation: disableKeyboardNavigation
                 )
-
-                Button(action: deleteSelectedItems) {
-                    EmptyView()
-                }
-                .keyboardShortcut(.delete, modifiers: [.command])
-                .frame(width: 0, height: 0)
-                .opacity(0)
 
                 // Control+R to show a new random tip
                 Button(action: { currentTip = RandomTips.randomTip() }) {
@@ -460,6 +457,16 @@ struct VideoFileListView: View {
         selection.removeAll()
         focusedCommentID = nil
     }
+
+    private func selectAllItems() {
+        var allIDs = Set<UUID>()
+        for item in droppedFiles { allIDs.insert(item.id) }
+        for group in encodingGroups {
+            allIDs.insert(group.id)
+            for item in group.items { allIDs.insert(item.id) }
+        }
+        selection = allIDs
+    }
     
     // MARK: - Keyboard Shortcut Handlers
     
@@ -644,41 +651,31 @@ struct VideoFileListView: View {
     }
     
     private func handleMoveSelection(direction: MoveDirection) {
-        // Get sorted indices of selected items
-        let selectedIndices = selection.compactMap { selectedID in
-            droppedFiles.firstIndex(where: { $0.id == selectedID })
-        }.sorted()
+        // Move top-level queue entries (single files + groups) via the authoritative
+        // `queueOrder` through the existing onReorder callback. Children inside groups
+        // aren't top-level, so they get filtered out.
+        let topLevelPositions = selection
+            .compactMap { queueOrder.firstIndex(of: $0) }
+            .sorted()
+        guard !topLevelPositions.isEmpty else { return }
 
-        guard !selectedIndices.isEmpty else { return }
+        let movedIDs = topLevelPositions.map { queueOrder[$0] }
+        let toRemove = Set(movedIDs)
+        var remaining = queueOrder
+        remaining.removeAll { toRemove.contains($0) }
 
         switch direction {
         case .up:
-            // Can't move up if first item is selected and at index 0
-            guard selectedIndices.first != 0 else { return }
-            
-            // Move items up one by one from top to bottom
-            for index in selectedIndices {
-                let newIndex = index - 1
-                droppedFiles.swapAt(index, newIndex)
-            }
-            
-            // Update selection to new positions
-            let newSelection = Set(selectedIndices.map { droppedFiles[$0 - 1].id })
-            selection = newSelection
-            
+            guard let minPos = topLevelPositions.min(), minPos > 0 else { return }
+            let targetItem = queueOrder[minPos - 1]
+            let insertAt = remaining.firstIndex(of: targetItem) ?? 0
+            onReorder?(movedIDs, insertAt)
+
         case .down:
-            // Can't move down if last item is selected and at last index
-            guard selectedIndices.last != droppedFiles.count - 1 else { return }
-
-            // Move items down one by one from bottom to top
-            for index in selectedIndices.reversed() {
-                let newIndex = index + 1
-                droppedFiles.swapAt(index, newIndex)
-            }
-
-            // Update selection to new positions
-            let newSelection = Set(selectedIndices.map { droppedFiles[$0 + 1].id })
-            selection = newSelection
+            guard let maxPos = topLevelPositions.max(), maxPos < queueOrder.count - 1 else { return }
+            let targetItem = queueOrder[maxPos + 1]
+            let insertAt = (remaining.firstIndex(of: targetItem) ?? remaining.count) + 1
+            onReorder?(movedIDs, insertAt)
         }
         shouldScrollToSelection = true
     }
@@ -1271,6 +1268,11 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     var onNavigateDown: () -> Void
     // Sort shortcut
     var onSort: () -> Void
+    // Standard list shortcuts
+    var onDelete: () -> Void
+    var onPrimaryPreview: () -> Void   // Space: fullscreen preview
+    var onPrimaryAction: () -> Void    // Return: open trim
+    var onSelectAll: () -> Void        // ⌘A
     // Flag to disable navigation when overlays are open
     var disableNavigation: Bool
 
@@ -1297,6 +1299,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onNavigateUp: onNavigateUp,
             onNavigateDown: onNavigateDown,
             onSort: onSort,
+            onDelete: onDelete,
+            onPrimaryPreview: onPrimaryPreview,
+            onPrimaryAction: onPrimaryAction,
+            onSelectAll: onSelectAll,
             disableNavigation: disableNavigation
         )
     }
@@ -1330,6 +1336,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         context.coordinator.onNavigateUp = onNavigateUp
         context.coordinator.onNavigateDown = onNavigateDown
         context.coordinator.onSort = onSort
+        context.coordinator.onDelete = onDelete
+        context.coordinator.onPrimaryPreview = onPrimaryPreview
+        context.coordinator.onPrimaryAction = onPrimaryAction
+        context.coordinator.onSelectAll = onSelectAll
         context.coordinator.disableNavigation = disableNavigation
     }
 
@@ -1359,6 +1369,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
         var onNavigateUp: () -> Void
         var onNavigateDown: () -> Void
         var onSort: () -> Void
+        var onDelete: () -> Void
+        var onPrimaryPreview: () -> Void
+        var onPrimaryAction: () -> Void
+        var onSelectAll: () -> Void
         var disableNavigation: Bool
         private var monitor: Any?
 
@@ -1384,6 +1398,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             onNavigateUp: @escaping () -> Void,
             onNavigateDown: @escaping () -> Void,
             onSort: @escaping () -> Void,
+            onDelete: @escaping () -> Void,
+            onPrimaryPreview: @escaping () -> Void,
+            onPrimaryAction: @escaping () -> Void,
+            onSelectAll: @escaping () -> Void,
             disableNavigation: Bool
         ) {
             self.onForward = onForward
@@ -1407,6 +1425,10 @@ private struct KeyEventHandlingView: NSViewRepresentable {
             self.onNavigateUp = onNavigateUp
             self.onNavigateDown = onNavigateDown
             self.onSort = onSort
+            self.onDelete = onDelete
+            self.onPrimaryPreview = onPrimaryPreview
+            self.onPrimaryAction = onPrimaryAction
+            self.onSelectAll = onSelectAll
             self.disableNavigation = disableNavigation
         }
 
@@ -1418,6 +1440,22 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 // When navigation is disabled (overlay is open), pass through all key events
                 // This allows overlays like URLInputOverlay to handle their own keyboard input
                 if self.disableNavigation {
+                    return event
+                }
+
+                // Pass through when the key window is a sheet or modal panel (e.g. NSOpenPanel,
+                // NSSavePanel, confirmation alerts). Otherwise this monitor swallows shortcuts
+                // the panel itself needs, like ⌘A to select all items in the file picker.
+                let isInSheetOrPanel = MainActor.assumeIsolated { () -> Bool in
+                    guard let keyWindow = NSApp.keyWindow else { return false }
+                    if keyWindow.sheetParent != nil { return true }
+                    if keyWindow.attachedSheet != nil { return true }
+                    // NSOpenPanel / NSSavePanel are NSPanels; treat any focused panel that isn't
+                    // owned by our main content as out-of-scope for queue shortcuts.
+                    if keyWindow is NSPanel { return true }
+                    return false
+                }
+                if isInSheetOrPanel {
                     return event
                 }
 
@@ -1442,6 +1480,47 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                 let hasOption = event.modifierFlags.contains(.option)
                 let hasShift = event.modifierFlags.contains(.shift)
                 let hasControl = event.modifierFlags.contains(.control)
+
+                // Delete / Backspace (with or without ⌘): delete selected rows.
+                // Skip if a text field is editing — the isTextInput early return above
+                // only intercepts arrow keys, so explicitly guard here too.
+                if event.keyCode == kVK_Delete || event.keyCode == kVK_ForwardDelete {
+                    if !hasOption && !hasShift && !hasControl {
+                        if let firstResponder, firstResponder is NSTextView || firstResponder is NSTextField {
+                            return event
+                        }
+                        self.onDelete()
+                        return nil
+                    }
+                }
+
+                // Space: fullscreen preview (QuickLook-style) on the focused item
+                if !hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_Space {
+                    if let firstResponder, firstResponder is NSTextView || firstResponder is NSTextField {
+                        return event
+                    }
+                    self.onPrimaryPreview()
+                    return nil
+                }
+
+                // Return / Enter: open trim preview on the focused item
+                if !hasCommand && !hasOption && !hasShift && !hasControl
+                    && (event.keyCode == kVK_Return || event.keyCode == kVK_ANSI_KeypadEnter) {
+                    if let firstResponder, firstResponder is NSTextView || firstResponder is NSTextField {
+                        return event
+                    }
+                    self.onPrimaryAction()
+                    return nil
+                }
+
+                // ⌘A: select all rows
+                if hasCommand && !hasOption && !hasShift && !hasControl && event.keyCode == kVK_ANSI_A {
+                    if let firstResponder, firstResponder is NSTextView || firstResponder is NSTextField {
+                        return event
+                    }
+                    self.onSelectAll()
+                    return nil
+                }
 
                 // Tab handling (no command/option/control)
                 if event.keyCode == kVK_Tab {

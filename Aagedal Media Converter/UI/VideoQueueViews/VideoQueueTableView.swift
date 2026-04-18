@@ -106,6 +106,8 @@ struct VideoQueueTableView: NSViewRepresentable {
     // MARK: - Display Rows
 
     /// Computes a flat list of display rows ordered by queueOrder.
+    /// Group children are rendered inline inside the group-header cell when expanded,
+    /// so we never emit `.groupItem` rows here.
     func computeDisplayRows() -> [FlatQueueRow] {
         let filesByID = Dictionary(uniqueKeysWithValues: droppedFiles.map { ($0.id, $0) })
         let groupsByID = Dictionary(uniqueKeysWithValues: encodingGroups.map { ($0.id, $0) })
@@ -117,11 +119,6 @@ struct VideoQueueTableView: NSViewRepresentable {
                 rows.append(.single(item))
             } else if let group = groupsByID[id] {
                 rows.append(.groupHeader(group))
-                if group.isExpanded {
-                    for item in group.items {
-                        rows.append(.groupItem(item, groupID: group.id))
-                    }
-                }
             }
         }
         return rows
@@ -408,9 +405,23 @@ struct VideoQueueTableView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             let displayRows = cachedDisplayRows
             guard row < displayRows.count else { return 200 }
-            // All row types share the same height to unify the column look.
-            _ = displayRows[row]
-            return parent.isCompactMode ? 103 : 170
+            switch displayRows[row] {
+            case .single, .groupItem:
+                return parent.isCompactMode ? 120 : 170
+            case .groupHeader(let group):
+                let base = parent.isCompactMode
+                    ? EncodingGroupHeaderCellView.baseCompactRowHeight
+                    : EncodingGroupHeaderCellView.baseRowHeight
+                guard group.isExpanded, !group.items.isEmpty else { return base }
+                let count = CGFloat(group.items.count)
+                let miniRowHeight = EncodingGroupHeaderCellView.childMiniRowHeight
+                let spacing = EncodingGroupHeaderCellView.childMiniRowSpacing
+                let rows = count * miniRowHeight + max(0, count - 1) * spacing
+                return base
+                    + EncodingGroupHeaderCellView.childListTopPadding
+                    + rows
+                    + EncodingGroupHeaderCellView.childListBottomPadding
+            }
         }
 
         // MARK: Selection
@@ -681,10 +692,22 @@ struct VideoQueueTableView: NSViewRepresentable {
             if let image {
                 ThumbnailCache.shared[itemID] = image
             }
-            guard let tableView = self.tableView,
-                  let row = displayRowIndex[itemID] else { return }
-            guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? VideoFileCellView else { return }
-            cell.applyDecodedThumbnail(image, forItemID: itemID)
+            guard let tableView = self.tableView else { return }
+
+            // Case 1: the item has its own row (ungrouped single or flattened group item).
+            if let row = displayRowIndex[itemID],
+               let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? VideoFileCellView {
+                cell.applyDecodedThumbnail(image, forItemID: itemID)
+                return
+            }
+
+            // Case 2: the item lives inside an expanded group — refresh that group's header cell
+            // so the stacked thumbnail preview and the inline mini-row can pick up the new image.
+            if let groupID = itemToGroupID[itemID],
+               let groupRow = displayRowIndex[groupID],
+               let cell = tableView.view(atColumn: 0, row: groupRow, makeIfNecessary: false) as? EncodingGroupHeaderCellView {
+                cell.applyDecodedChildThumbnail(image, forItemID: itemID)
+            }
         }
 
         // MARK: - AppKit Cell Configuration Builder
@@ -815,6 +838,35 @@ struct VideoQueueTableView: NSViewRepresentable {
                 return (exists, exists ? output : nil)
             }()
 
+            let childSummaries: [EncodingGroupChildSummary] = group.items.map { item in
+                EncodingGroupChildSummary(
+                    itemID: item.id,
+                    name: item.name,
+                    status: item.status,
+                    progress: item.progress,
+                    hasVideoStream: item.hasVideoStream,
+                    durationSeconds: item.durationSeconds,
+                    isDownloading: item.isDownloading
+                )
+            }
+
+            let stacked = Array(childSummaries.prefix(3))
+            // Kick off thumbnail decodes for stacked previews so the cache populates
+            // for children that aren't rendered as their own rows.
+            for child in stacked {
+                if ThumbnailCache.shared[child.itemID] == nil,
+                   let rawData = thumbnailData(forItemID: child.itemID) {
+                    enqueueThumbnailDecode(itemID: child.itemID, data: rawData)
+                }
+            }
+            if group.isExpanded {
+                for child in childSummaries where ThumbnailCache.shared[child.itemID] == nil {
+                    if let rawData = thumbnailData(forItemID: child.itemID) {
+                        enqueueThumbnailDecode(itemID: child.itemID, data: rawData)
+                    }
+                }
+            }
+
             return EncodingGroupCellConfiguration(
                 groupID: group.id,
                 name: group.name,
@@ -823,6 +875,8 @@ struct VideoQueueTableView: NSViewRepresentable {
                 isSelected: parent.selection.contains(group.id),
                 isCompactMode: parent.isCompactMode,
                 globalPreset: parent.preset,
+                stackedChildren: stacked,
+                expandedChildren: group.isExpanded ? childSummaries : [],
                 groupPreset: group.preset,
                 concatEnabled: group.concatEnabled,
                 uploadEnabled: group.uploadEnabled,
@@ -839,6 +893,18 @@ struct VideoQueueTableView: NSViewRepresentable {
                 concatOutputExistingURL: existingURL,
                 uploadSummary: buildGroupUploadSummary(items: group.items)
             )
+        }
+
+        /// Looks up the raw thumbnail data for an item in either `droppedFiles` or any encoding group.
+        private func thumbnailData(forItemID itemID: UUID) -> Data? {
+            if let idx = droppedFilesIndex[itemID], idx < parent.droppedFiles.count {
+                return parent.droppedFiles[idx].thumbnailData
+            }
+            if let groupID = itemToGroupID[itemID],
+               let gIdx = encodingGroupsIndex[groupID], gIdx < parent.encodingGroups.count {
+                return parent.encodingGroups[gIdx].items.first(where: { $0.id == itemID })?.thumbnailData
+            }
+            return nil
         }
 
         private func buildGroupUploadSummary(items: [VideoItem]) -> EncodingGroupCellConfiguration.UploadSummaryState {
@@ -902,6 +968,15 @@ struct VideoQueueTableView: NSViewRepresentable {
                 parent.onAddFilesToGroup?(groupID)
             case .resetGroup:
                 parent.onResetGroup?(groupID)
+            case .deleteGroupChild(let itemID):
+                if let iIdx = parent.encodingGroups[idx].items.firstIndex(where: { $0.id == itemID }) {
+                    parent.encodingGroups[idx].items.remove(at: iIdx)
+                    if parent.encodingGroups[idx].sequentialNamingEnabled {
+                        parent.encodingGroups[idx].normalizeSequentialNaming()
+                    }
+                }
+            case .previewGroupChild(let itemID):
+                parent.onOpenTrim?(itemID)
             default:
                 break
             }

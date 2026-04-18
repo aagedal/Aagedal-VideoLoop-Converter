@@ -121,6 +121,18 @@ struct VideoFileCellConfiguration: Equatable {
 /// Snapshot of all data an EncodingGroupHeaderCellView needs to render.
 /// Mirrors VideoFileCellConfiguration: immutable, Equatable, built from the
 /// current EncodingGroup plus global state by the Coordinator.
+/// Compact summary of a single child item used for the stacked-thumbnail
+/// preview and the inline expanded mini-row list inside the group card.
+struct EncodingGroupChildSummary: Equatable {
+    let itemID: UUID
+    let name: String
+    let status: ConversionManager.ConversionStatus
+    let progress: Double
+    let hasVideoStream: Bool
+    let durationSeconds: Double
+    let isDownloading: Bool
+}
+
 struct EncodingGroupCellConfiguration: Equatable {
     let groupID: UUID
     let name: String
@@ -129,6 +141,13 @@ struct EncodingGroupCellConfiguration: Equatable {
     let isSelected: Bool
     let isCompactMode: Bool
     let globalPreset: ExportPreset
+
+    /// Up to three first children, used for the stacked-thumbnail preview.
+    let stackedChildren: [EncodingGroupChildSummary]
+
+    /// Full child list, passed when `isExpanded == true` so the cell can render
+    /// mini-rows inline inside the group card.
+    let expandedChildren: [EncodingGroupChildSummary]
 
     // Group-level settings
     let groupPreset: ExportPreset?
@@ -236,4 +255,8 @@ enum CellAction {
     case deleteGroup
     case addFilesToGroup
     case resetGroup
+
+    // Child actions inside an expanded group card
+    case deleteGroupChild(itemID: UUID)
+    case previewGroupChild(itemID: UUID)
 }

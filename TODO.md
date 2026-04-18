@@ -8,7 +8,6 @@
 
 ## Main App Window
 [x] Improve scrolling performance for long encoding queues.
-[] Fix layout problems for files with long filenames (often an issue with yt-dlp downloads)
 
 ## Presets
 [x] Preset Settings Vew: Fix missing preset descriptions
@@ -33,5 +32,4 @@
 
 
 ## GitHub
-[] Make readme.md more structured and visual
 [x] Update KeyboardShortcuts.md with new keyboard shortcuts: Downloads, Uploads, Full Screen

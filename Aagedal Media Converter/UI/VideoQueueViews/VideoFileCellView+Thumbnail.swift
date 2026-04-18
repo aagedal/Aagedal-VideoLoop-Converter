@@ -19,19 +19,14 @@ extension VideoFileCellView {
 
         for (badge, hAttr, vAttr) in badges {
             thumbnailContainer.addSubview(badge)
-            let hConst: CGFloat = (hAttr == .leading) ? 4 : -4
-            let vConst: CGFloat = (vAttr == .top) ? 4 : (vAttr == .bottom) ? -4 : 0
+            let hConst: CGFloat = (hAttr == .leading) ? 6 : -6
+            let vConst: CGFloat = (vAttr == .top) ? 6 : (vAttr == .bottom) ? -6 : 0
             NSLayoutConstraint.activate([
                 NSLayoutConstraint(item: badge, attribute: hAttr, relatedBy: .equal, toItem: thumbnailContainer, attribute: hAttr, multiplier: 1, constant: hConst),
                 NSLayoutConstraint(item: badge, attribute: vAttr, relatedBy: .equal, toItem: thumbnailContainer, attribute: vAttr, multiplier: 1, constant: vConst),
             ])
         }
 
-        // Set corner anchors so each badge scales toward its corner
-        audioRoutingBadge.cornerAnchor = CGPoint(x: 0, y: 1)    // top-left
-        timecodeBadge.cornerAnchor = CGPoint(x: 1, y: 1)        // top-right
-        trimBadge.cornerAnchor = CGPoint(x: 0, y: 0)            // bottom-left
-        cropBadge.cornerAnchor = CGPoint(x: 1, y: 0)            // bottom-right
         // Wire up badge click actions
         audioRoutingBadge.onClick = { [weak self] in self?.actionHandler?(.showAudioRouting) }
         timecodeBadge.onClick = { [weak self] in self?.actionHandler?(.showTimecode) }
@@ -39,14 +34,10 @@ extension VideoFileCellView {
         cropBadge.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
     }
 
-    // MARK: - Overlay Action Buttons (shown on hover)
+    // MARK: - Overlay Buttons (shown on hover)
 
     func setupOverlayButtons() {
-        // These are always-available action buttons, shown only on hover.
-        // Added after badges so they render on top.
-
-        // Play button — center
-        overlayPlayButton.update(icon: "play.fill", text: "")
+        // Play button — centered, revealed on hover.
         overlayPlayButton.isHidden = true
         overlayPlayButton.onClick = { [weak self] in self?.actionHandler?(.playFullscreen) }
         thumbnailContainer.addSubview(overlayPlayButton)
@@ -55,29 +46,17 @@ extension VideoFileCellView {
             overlayPlayButton.centerYAnchor.constraint(equalTo: thumbnailContainer.centerYAnchor),
         ])
 
-        // Trim button — bottom left
-        overlayTrimButton.update(icon: "scissors", text: "Trim")
-        overlayTrimButton.isHidden = true
-        overlayTrimButton.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
-        thumbnailContainer.addSubview(overlayTrimButton)
+        // Info button — appears on hover above the bottom edge, centred horizontally,
+        // so it doesn't collide with the corner state badges.
+        overlayInfoButton.update(icon: "info.circle", text: "Info")
+        overlayInfoButton.isHidden = true
+        overlayInfoButton.alphaValue = 0
+        overlayInfoButton.onClick = { [weak self] in self?.actionHandler?(.showMetadata) }
+        thumbnailContainer.addSubview(overlayInfoButton)
         NSLayoutConstraint.activate([
-            overlayTrimButton.leadingAnchor.constraint(equalTo: thumbnailContainer.leadingAnchor, constant: 4),
-            overlayTrimButton.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -4),
+            overlayInfoButton.centerXAnchor.constraint(equalTo: thumbnailContainer.centerXAnchor),
+            overlayInfoButton.topAnchor.constraint(equalTo: thumbnailContainer.topAnchor, constant: 8),
         ])
-
-        // Metadata button — bottom right
-        overlayMetadataButton.update(icon: "info.circle", text: "Info")
-        overlayMetadataButton.isHidden = true
-        overlayMetadataButton.onClick = { [weak self] in self?.actionHandler?(.showMetadata) }
-        thumbnailContainer.addSubview(overlayMetadataButton)
-        NSLayoutConstraint.activate([
-            overlayMetadataButton.trailingAnchor.constraint(equalTo: thumbnailContainer.trailingAnchor, constant: -4),
-            overlayMetadataButton.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -4),
-        ])
-    }
-
-    private var overlayButtons: [BadgeView] {
-        [overlayPlayButton, overlayTrimButton, overlayMetadataButton]
     }
 
     // MARK: - Tracking Area (hover detection)
@@ -103,22 +82,27 @@ extension VideoFileCellView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        for badge in allBadges {
-            badge.showHoverOutline()
-        }
-        for button in overlayButtons {
-            button.isHidden = false
-            button.showHoverOutline()
+        overlayPlayButton.setHovered(true)
+        setInfoButtonHovered(true)
+        for badge in allBadges where !badge.isHidden {
+            badge.setHovered(true)
         }
     }
 
     override func mouseExited(with event: NSEvent) {
+        overlayPlayButton.setHovered(false)
+        setInfoButtonHovered(false)
         for badge in allBadges {
-            badge.hideHoverOutline()
+            badge.setHovered(false)
         }
-        for button in overlayButtons {
-            button.isHidden = true
-            button.hideHoverOutline()
+    }
+
+    private func setInfoButtonHovered(_ hovered: Bool) {
+        overlayInfoButton.isHidden = false
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            ctx.allowsImplicitAnimation = true
+            overlayInfoButton.animator().alphaValue = hovered ? 1 : 0
         }
     }
 
@@ -142,7 +126,9 @@ extension VideoFileCellView {
             audioRoutingBadge.hide()
         }
 
-        // Trim badge
+        // Trim badge — always visible so it doubles as the "enter trim mode" button.
+        // Shows just the scissors icon when no trim is set; adds the trimmed duration
+        // once the user sets trim points.
         if config.hasTrim {
             let secs = config.trimmedDuration
             let mins = Int(secs) / 60
@@ -150,14 +136,14 @@ extension VideoFileCellView {
             let durationStr = mins > 0 ? "\(mins)m\(secsRemainder)s" : "\(secsRemainder)s"
             trimBadge.update(icon: "scissors", text: durationStr)
         } else {
-            trimBadge.hide()
+            trimBadge.update(icon: "scissors", text: "")
         }
 
-        // Crop badge
+        // Crop badge — always visible so it doubles as the "enter crop mode" button.
         if config.hasCrop {
             cropBadge.update(icon: "crop", text: "\(config.cropPercentage)%")
         } else {
-            cropBadge.hide()
+            cropBadge.update(icon: "crop", text: "")
         }
 
         // Timecode badge
