@@ -22,7 +22,7 @@ final class ThumbnailCache: @unchecked Sendable {
     private let cache = NSCache<NSUUID, NSImage>()
 
     private init() {
-        cache.countLimit = 300
+        cache.countLimit = 1000
     }
 
     subscript(id: UUID) -> NSImage? {
@@ -34,6 +34,28 @@ final class ThumbnailCache: @unchecked Sendable {
                 cache.removeObject(forKey: id as NSUUID)
             }
         }
+    }
+}
+
+/// Decodes JPEG thumbnail data off the main thread.
+/// Callers receive the decoded image via a completion closure dispatched back to MainActor.
+enum ThumbnailDecoder {
+    static let queue = DispatchQueue(
+        label: "com.aagedal.thumbnaildecoder",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
+    /// Synchronous decode. Safe to call off-main.
+    static func decodeSync(data: Data) -> NSImage? {
+        guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
+                kCGImageSourceShouldCache: true,
+                kCGImageSourceShouldAllowFloat: false,
+              ] as CFDictionary) else {
+            return NSImage(data: data)
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 }
 
