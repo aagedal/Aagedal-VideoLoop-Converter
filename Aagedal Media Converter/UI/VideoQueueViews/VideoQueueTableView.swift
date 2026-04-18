@@ -310,6 +310,15 @@ struct VideoQueueTableView: NSViewRepresentable {
         var queueOrderLookup: [UUID: Int] = [:]
         var itemToGroupID: [UUID: UUID] = [:]
 
+        /// Item IDs with an in-flight background thumbnail decode.
+        /// Prevents duplicate enqueues when the same cell scrolls in/out quickly.
+        var inFlightThumbnailDecodes: Set<UUID> = []
+
+        /// Cached per-group Binding, reused across scroll updates so
+        /// NSHostingView rootView reassignment doesn't churn closure instances.
+        /// Pruned in rebuildLookupCaches when a group disappears.
+        var groupBindings: [UUID: Binding<EncodingGroup>] = [:]
+
         /// Previous snapshot for selective cell updates
         var previousDisplayRows: [FlatQueueRow] = []
         var previousSelection: Set<UUID> = []
@@ -356,6 +365,12 @@ struct VideoQueueTableView: NSViewRepresentable {
                 for item in group.items {
                     itemToGroupID[item.id] = group.id
                 }
+            }
+
+            // Drop cached bindings for groups that no longer exist
+            if !groupBindings.isEmpty {
+                let validGroupIDs = Set(parent.encodingGroups.map(\.id))
+                groupBindings = groupBindings.filter { validGroupIDs.contains($0.key) }
             }
         }
 
@@ -643,25 +658,44 @@ struct VideoQueueTableView: NSViewRepresentable {
 
         // MARK: - Thumbnail Resolution
 
-        /// Returns a cached thumbnail, decoding from thumbnailData if needed.
-        private static func resolvedThumbnail(for item: VideoItem) -> NSImage? {
+        /// Returns a cached thumbnail if available, otherwise kicks off an async
+        /// background decode and returns nil. When the decode completes the
+        /// matching visible cell is updated directly via `applyDecodedThumbnail`.
+        func resolvedThumbnail(for item: VideoItem) -> NSImage? {
             if let cached = ThumbnailCache.shared[item.id] {
                 return cached
             }
-            guard let data = item.thumbnailData else { return nil }
-            // Synchronous decode — data is small (a few KB JPEG)
-            guard let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
-                  let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, [
-                    kCGImageSourceShouldCache: false,
-                    kCGImageSourceShouldAllowFloat: false,
-                  ] as CFDictionary) else {
-                let image = NSImage(data: data)
-                if let image { ThumbnailCache.shared[item.id] = image }
-                return image
+            if let data = item.thumbnailData {
+                enqueueThumbnailDecode(itemID: item.id, data: data)
             }
-            let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-            ThumbnailCache.shared[item.id] = image
-            return image
+            return nil
+        }
+
+        /// Dispatches a thumbnail decode to a background queue. Hops back to
+        /// MainActor to populate the cache and refresh the live cell.
+        private func enqueueThumbnailDecode(itemID: UUID, data: Data) {
+            guard !inFlightThumbnailDecodes.contains(itemID) else { return }
+            inFlightThumbnailDecodes.insert(itemID)
+            ThumbnailDecoder.queue.async { [weak self] in
+                let image = ThumbnailDecoder.decodeSync(data: data)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    MainActor.assumeIsolated {
+                        self.completeThumbnailDecode(itemID: itemID, image: image)
+                    }
+                }
+            }
+        }
+
+        private func completeThumbnailDecode(itemID: UUID, image: NSImage?) {
+            inFlightThumbnailDecodes.remove(itemID)
+            if let image {
+                ThumbnailCache.shared[itemID] = image
+            }
+            guard let tableView = self.tableView,
+                  let row = displayRowIndex[itemID] else { return }
+            guard let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? VideoFileCellView else { return }
+            cell.applyDecodedThumbnail(image, forItemID: itemID)
         }
 
         // MARK: - AppKit Cell Configuration Builder
@@ -710,7 +744,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 includeDateTag: item.includeDateTag,
                 outputURL: item.outputURL,
                 url: item.url,
-                thumbnailImage: Self.resolvedThumbnail(for: item),
+                thumbnailImage: resolvedThumbnail(for: item),
                 hasVideoStream: item.hasVideoStream,
                 isSelected: parent.selection.contains(item.id),
                 isCompactMode: isGroupItem ? true : parent.isCompactMode,
@@ -1001,9 +1035,34 @@ struct VideoQueueTableView: NSViewRepresentable {
         }
 
         private func buildGroupHeaderView(groupID: UUID) -> some View {
-            let fallbackGroup = EncodingGroup(name: "")
+            let groupBinding = cachedGroupBinding(for: groupID)
+            let isSelected = parent.selection.contains(groupID)
 
-            let groupBinding = Binding<EncodingGroup>(
+            return EncodingGroupHeaderView(
+                group: groupBinding,
+                globalPreset: parent.preset,
+                isSelected: isSelected,
+                onDelete: { [weak self] in
+                    self?.parent.onDeleteGroup?(groupID)
+                },
+                onAddFiles: { [weak self] in
+                    self?.parent.onAddFilesToGroup?(groupID)
+                },
+                onReset: { [weak self] in
+                    self?.parent.onResetGroup?(groupID)
+                }
+            )
+        }
+
+        /// Returns a stable Binding<EncodingGroup> for the given groupID, creating
+        /// and caching it on first use. Reusing the same Binding instance across
+        /// scroll updates avoids constructing fresh closures on every visible cell refresh.
+        private func cachedGroupBinding(for groupID: UUID) -> Binding<EncodingGroup> {
+            if let existing = groupBindings[groupID] {
+                return existing
+            }
+            let fallbackGroup = EncodingGroup(name: "")
+            let binding = Binding<EncodingGroup>(
                 get: { [weak self] in
                     guard let self else { return fallbackGroup }
                     let groups = self.parent.encodingGroups
@@ -1027,23 +1086,8 @@ struct VideoQueueTableView: NSViewRepresentable {
                     self.parent.encodingGroups[idx] = newValue
                 }
             )
-
-            let isSelected = parent.selection.contains(groupID)
-
-            return EncodingGroupHeaderView(
-                group: groupBinding,
-                globalPreset: parent.preset,
-                isSelected: isSelected,
-                onDelete: { [weak self] in
-                    self?.parent.onDeleteGroup?(groupID)
-                },
-                onAddFiles: { [weak self] in
-                    self?.parent.onAddFilesToGroup?(groupID)
-                },
-                onReset: { [weak self] in
-                    self?.parent.onResetGroup?(groupID)
-                }
-            )
+            groupBindings[groupID] = binding
+            return binding
         }
 
         private func buildFileRowView(itemID: UUID, source: ItemSource) -> some View {

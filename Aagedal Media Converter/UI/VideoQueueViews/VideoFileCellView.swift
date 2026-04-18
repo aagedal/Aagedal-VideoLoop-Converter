@@ -942,6 +942,13 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         lastProgressTintColor = nil
     }
 
+    /// Applies a thumbnail decoded on a background queue. The `forItemID` guard
+    /// prevents a late decode from painting over a reused cell now showing a different item.
+    func applyDecodedThumbnail(_ image: NSImage?, forItemID itemID: UUID) {
+        guard currentItemID == itemID else { return }
+        thumbnailImageView.image = image
+    }
+
     override func updateLayer() {
         super.updateLayer()
         if currentConfig?.isGroupChild == true {
