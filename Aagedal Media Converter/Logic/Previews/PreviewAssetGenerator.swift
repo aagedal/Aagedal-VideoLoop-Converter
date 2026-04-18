@@ -1696,7 +1696,7 @@ actor PreviewAssetGenerator {
 
         // Debug: Log when FFmpeg/FFprobe processes are spawned
         let execName = executable.lastPathComponent
-        let argsPreview = String(arguments.joined(separator: " ").prefix(200))
+        let argsPreview = String(arguments.joined(separator: " ").prefix(500))
         logger.info("🔧 Spawning \(execName, privacy: .public) process: \(argsPreview, privacy: .public)")
 
         // Create process on actor, track it, then run in detached task
