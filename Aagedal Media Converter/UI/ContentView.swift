@@ -1131,8 +1131,6 @@ struct ContentView: View {
                             self.droppedFiles[index].apply(details: details)
                             self.droppedFiles[index].detailsLoaded = true
                             self.droppedFiles[index].metadata = metadata
-
-                            VideoFileUtils.prefetchPreviewAssets(for: url)
                         }
                     }
                 }
@@ -1422,8 +1420,6 @@ struct ContentView: View {
                         self.droppedFiles[index].apply(details: details)
                         self.droppedFiles[index].detailsLoaded = true
                         self.droppedFiles[index].metadata = metadata
-
-                        VideoFileUtils.prefetchPreviewAssets(for: url)
                     }
                 }
             }
@@ -2233,8 +2229,6 @@ private struct ContentViewNotificationHandlers: ViewModifier {
                         }
                     }
                 }
-
-                VideoFileUtils.prefetchPreviewAssets(for: url)
             }
         }
     }
