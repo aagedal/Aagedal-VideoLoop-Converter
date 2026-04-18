@@ -126,11 +126,92 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     // Selection border
     private let selectionBorderLayer = CAShapeLayer()
 
+    // Progress bar tint caching — rebuilding CIFilter each configure is expensive
+    private lazy var progressTintFilter: CIFilter? = {
+        let filter = CIFilter(name: "CIFalseColor")
+        filter?.setValue(CIColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1), forKey: "inputColor0")
+        return filter
+    }()
+    private var lastProgressTintColor: NSColor?
+
+    // Layout path caching — avoid rebuilding CGPaths when bounds are unchanged
+    private var lastCardBoundsSize: CGSize = .zero
+    private var lastThumbBoundsSize: CGSize = .zero
+    private var lastThumbCornerRadius: CGFloat = -1
+
     // MARK: - Sizing Constants
 
     private var thumbnailWidth: CGFloat { isCompact ? 160 : 240 }
     private var thumbnailHeight: CGFloat { isCompact ? 75 : 150 }
     private var isCompact = false
+
+    // MARK: - Cached SF Symbols
+    // Resolved once and shared across all cells. NSImage from systemSymbolName is
+    // immutable after creation, so reusing the instance is safe on the main thread.
+    enum Symbol {
+        // Encode / playback
+        static let playFill            = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+        static let play                = NSImage(systemSymbolName: "play", accessibilityDescription: nil)
+        // Transcription
+        static let captionsBubble      = NSImage(systemSymbolName: "captions.bubble", accessibilityDescription: nil)
+        static let captionsBubbleFill  = NSImage(systemSymbolName: "captions.bubble.fill", accessibilityDescription: nil)
+        // Analytics
+        static let chartAscending      = NSImage(systemSymbolName: "chart.bar.xaxis.ascending", accessibilityDescription: nil)
+        static let chartBase           = NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: nil)
+        // Upload
+        static let cloudArrowUp        = NSImage(systemSymbolName: "icloud.and.arrow.up", accessibilityDescription: nil)
+        static let cloudArrowUpFill    = NSImage(systemSymbolName: "icloud.and.arrow.up.fill", accessibilityDescription: nil)
+        static let docArrowUpFill      = NSImage(systemSymbolName: "arrow.up.doc.fill", accessibilityDescription: nil)
+        // Status capsule
+        static let exclamationCircle   = NSImage(systemSymbolName: "exclamationmark.circle", accessibilityDescription: nil)
+        static let arrowDownCircle     = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+        static let boltFill            = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil)
+        static let arrowUpCircle       = NSImage(systemSymbolName: "arrow.up.circle", accessibilityDescription: nil)
+        static let checkmarkCircle     = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: nil)
+        static let clock               = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
+        static let arrowTriangleHead   = NSImage(systemSymbolName: "arrow.trianglehead.2.clockwise", accessibilityDescription: nil)
+        static let xmarkCircle         = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: nil)
+        static let questionmark        = NSImage(systemSymbolName: "questionmark", accessibilityDescription: nil)
+        // Comment section
+        static let textBubble          = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: nil)
+        static let textBubbleFill      = NSImage(systemSymbolName: "text.bubble.fill", accessibilityDescription: nil)
+        static let calendarCheck       = NSImage(systemSymbolName: "calendar.badge.checkmark", accessibilityDescription: nil)
+        static let calendarMinus       = NSImage(systemSymbolName: "calendar.badge.minus", accessibilityDescription: nil)
+        static let waveformCircle      = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: nil)
+        static let waveformCircleFill  = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: nil)
+
+        /// Maps a raw symbol name to the cached image when available.
+        /// Falls back to a fresh lookup so callers using dynamic names still work.
+        static func named(_ name: String) -> NSImage? {
+            switch name {
+            case "play.fill": return playFill
+            case "play": return play
+            case "captions.bubble": return captionsBubble
+            case "captions.bubble.fill": return captionsBubbleFill
+            case "chart.bar.xaxis.ascending": return chartAscending
+            case "chart.bar.xaxis": return chartBase
+            case "icloud.and.arrow.up": return cloudArrowUp
+            case "icloud.and.arrow.up.fill": return cloudArrowUpFill
+            case "arrow.up.doc.fill": return docArrowUpFill
+            case "exclamationmark.circle": return exclamationCircle
+            case "arrow.down.circle": return arrowDownCircle
+            case "bolt.fill": return boltFill
+            case "arrow.up.circle": return arrowUpCircle
+            case "checkmark.circle": return checkmarkCircle
+            case "clock": return clock
+            case "arrow.trianglehead.2.clockwise": return arrowTriangleHead
+            case "xmark.circle": return xmarkCircle
+            case "questionmark": return questionmark
+            case "text.bubble": return textBubble
+            case "text.bubble.fill": return textBubbleFill
+            case "calendar.badge.checkmark": return calendarCheck
+            case "calendar.badge.minus": return calendarMinus
+            case "waveform.circle": return waveformCircle
+            case "waveform.circle.fill": return waveformCircleFill
+            default: return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            }
+        }
+    }
 
     // MARK: - Init
 
@@ -722,16 +803,72 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         }
 
         // Toggle buttons — only when relevant state changes
-        updateToggleButtons(config: config)
+        if isFirstConfigure
+            || prev?.isCompactMode != config.isCompactMode
+            || prev?.status != config.status
+            || prev?.isDownloading != config.isDownloading
+            || prev?.scheduledDownloadTime != config.scheduledDownloadTime
+            || prev?.autoEncodeAfterDownload != config.autoEncodeAfterDownload
+            || prev?.subtitleEnabled != config.subtitleEnabled
+            || prev?.subtitleMethod != config.subtitleMethod
+            || prev?.subtitleStatus != config.subtitleStatus
+            || prev?.hasBitmapSubtitles != config.hasBitmapSubtitles
+            || prev?.isTranscriptionAvailable != config.isTranscriptionAvailable
+            || prev?.hasVideoStream != config.hasVideoStream
+            || prev?.analyticsStatus != config.analyticsStatus
+            || prev?.analyticsEnabled != config.analyticsEnabled
+            || prev?.hasAnalyticsResults != config.hasAnalyticsResults
+            || prev?.uploadSourceFile != config.uploadSourceFile
+            || prev?.uploadEnabled != config.uploadEnabled
+            || prev?.uploadStatus != config.uploadStatus
+            || prev?.isUploadConfigured != config.isUploadConfigured {
+            updateToggleButtons(config: config)
+        }
 
         // Action buttons — only when status changes
         if isFirstConfigure || prev?.status != config.status || prev?.isDownloading != config.isDownloading || prev?.scheduledDownloadTime != config.scheduledDownloadTime || prev?.downloadError != config.downloadError || prev?.fileAlreadyExistsPath != config.fileAlreadyExistsPath || prev?.subtitleStatus != config.subtitleStatus || prev?.analyticsStatus != config.analyticsStatus {
             updateActionButtons(config: config)
         }
 
-        // Status text + capsule
-        updateStatusRow(config: config)
-        updateStatusCapsule(config: config)
+        // Status row — progress text, output size, overwrite warning
+        if isFirstConfigure
+            || prev?.isCompactMode != config.isCompactMode
+            || prev?.status != config.status
+            || prev?.outputFileExists != config.outputFileExists
+            || prev?.formattedOutputSize != config.formattedOutputSize
+            || prev?.progress != config.progress
+            || prev?.eta != config.eta
+            || prev?.conversionError != config.conversionError
+            || prev?.downloadError != config.downloadError
+            || prev?.isDownloading != config.isDownloading
+            || prev?.downloadProgress != config.downloadProgress
+            || prev?.downloadHasProgress != config.downloadHasProgress
+            || prev?.downloadSpeed != config.downloadSpeed
+            || prev?.downloadStopping != config.downloadStopping
+            || prev?.isLiveStreamRecording != config.isLiveStreamRecording
+            || prev?.fileAlreadyExistsPath != config.fileAlreadyExistsPath
+            || prev?.uploadStatus != config.uploadStatus
+            || prev?.uploadProgress != config.uploadProgress
+            || prev?.subtitleStatus != config.subtitleStatus
+            || prev?.subtitleProgress != config.subtitleProgress
+            || prev?.analyticsStatus != config.analyticsStatus
+            || prev?.analyticsProgress != config.analyticsProgress
+            || prev?.scheduledDownloadTime != config.scheduledDownloadTime {
+            updateStatusRow(config: config)
+        }
+
+        // Status capsule — colored pill
+        if isFirstConfigure
+            || prev?.status != config.status
+            || prev?.isDownloading != config.isDownloading
+            || prev?.isLiveStreamRecording != config.isLiveStreamRecording
+            || prev?.uploadStatus != config.uploadStatus
+            || prev?.subtitleStatus != config.subtitleStatus
+            || prev?.analyticsStatus != config.analyticsStatus
+            || prev?.downloadError != config.downloadError
+            || prev?.conversionError != config.conversionError {
+            updateStatusCapsule(config: config)
+        }
 
         // Comment section — only on relevant changes
         if isFirstConfigure || prev?.comment != config.comment || prev?.isCompactMode != config.isCompactMode || prev?.showCommentField != config.showCommentField || prev?.includeDateTag != config.includeDateTag || prev?.isFocusedComment != config.isFocusedComment || prev?.waveformVideoEnabled != config.waveformVideoEnabled {
@@ -739,7 +876,20 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         }
 
         // Badges
-        updateBadges(config: config)
+        if isFirstConfigure
+            || prev?.isMuted != config.isMuted
+            || prev?.hasCustomAudioRouting != config.hasCustomAudioRouting
+            || prev?.hasDownmix != config.hasDownmix
+            || prev?.hasOutputSurroundWithoutDownmix != config.hasOutputSurroundWithoutDownmix
+            || prev?.audioTrackCount != config.audioTrackCount
+            || prev?.hasSurroundAudio != config.hasSurroundAudio
+            || prev?.hasTrim != config.hasTrim
+            || prev?.trimmedDuration != config.trimmedDuration
+            || prev?.hasCrop != config.hasCrop
+            || prev?.cropPercentage != config.cropPercentage
+            || prev?.timecodeMode != config.timecodeMode {
+            updateBadges(config: config)
+        }
 
         // Selection border
         if isFirstConfigure || prev?.isSelected != config.isSelected {
@@ -758,20 +908,38 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
     override func layout() {
         super.layout()
-        // Update border paths
+        // Card border path — rebuild only when bounds size changes
         let cardBounds = cardView.bounds
-        let path = CGPath(roundedRect: cardBounds, cornerWidth: 12, cornerHeight: 12, transform: nil)
-        selectionBorderLayer.path = path
-        selectionBorderLayer.frame = cardBounds
+        if cardBounds.size != lastCardBoundsSize {
+            let path = CGPath(roundedRect: cardBounds, cornerWidth: 12, cornerHeight: 12, transform: nil)
+            selectionBorderLayer.path = path
+            selectionBorderLayer.frame = cardBounds
+            lastCardBoundsSize = cardBounds.size
+        }
 
+        // Thumbnail border path — rebuild only when size or corner radius changes
         let thumbBounds = thumbnailContainer.bounds
-        let thumbPath = CGPath(roundedRect: thumbBounds, cornerWidth: isCompact ? 6 : 9, cornerHeight: isCompact ? 6 : 9, transform: nil)
-        thumbnailBorderLayer.path = thumbPath
-        thumbnailBorderLayer.frame = thumbBounds
-        checkerboardLayer.frame = thumbBounds
+        let cornerRadius: CGFloat = isCompact ? 6 : 9
+        if thumbBounds.size != lastThumbBoundsSize || cornerRadius != lastThumbCornerRadius {
+            let thumbPath = CGPath(roundedRect: thumbBounds, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+            thumbnailBorderLayer.path = thumbPath
+            thumbnailBorderLayer.frame = thumbBounds
+            checkerboardLayer.frame = thumbBounds
+            lastThumbBoundsSize = thumbBounds.size
+            lastThumbCornerRadius = cornerRadius
+        }
 
         // Position encoding group accent bar on left edge
         groupAccentLayer.frame = CGRect(x: 0, y: 4, width: 2, height: cardBounds.height - 8)
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        // Invalidate path caches so a reused cell recomputes paths for its new bounds
+        lastCardBoundsSize = .zero
+        lastThumbBoundsSize = .zero
+        lastThumbCornerRadius = -1
+        lastProgressTintColor = nil
     }
 
     override func updateLayer() {
@@ -816,14 +984,20 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             } else {
                 progressBar.isIndeterminate = false
                 progressBar.stopAnimation(nil)
-                progressBar.doubleValue = progressBarValue(config: config)
+                let newValue = progressBarValue(config: config)
+                if progressBar.doubleValue != newValue {
+                    progressBar.doubleValue = newValue
+                }
             }
             // Tint progress bar to match the active process color
             tintProgressBar(config: config)
         } else {
             progressBar.isHidden = true
             progressBar.stopAnimation(nil)
-            progressBar.contentFilters = []
+            if !progressBar.contentFilters.isEmpty {
+                progressBar.contentFilters = []
+            }
+            lastProgressTintColor = nil
         }
     }
 
@@ -840,13 +1014,19 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         } else if config.uploadStatus == .uploading {
             tintColor = .systemBlue
         } else {
-            progressBar.contentFilters = []
+            if !progressBar.contentFilters.isEmpty {
+                progressBar.contentFilters = []
+            }
+            lastProgressTintColor = nil
             return
         }
-        if let filter = CIFilter(name: "CIFalseColor") {
-            filter.setValue(CIColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1), forKey: "inputColor0")
+        if lastProgressTintColor == tintColor {
+            return
+        }
+        if let filter = progressTintFilter {
             filter.setValue(CIColor(color: tintColor), forKey: "inputColor1")
             progressBar.contentFilters = [filter]
+            lastProgressTintColor = tintColor
         }
     }
 
