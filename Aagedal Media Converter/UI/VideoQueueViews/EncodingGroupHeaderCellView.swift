@@ -5,9 +5,28 @@
 import AppKit
 
 /// Pure AppKit cell view for an encoding group header.
-/// Replaces the SwiftUI EncodingGroupHeaderView so the NSTableView scroll
-/// hot path stays AppKit-only (no NSHostingView / SwiftUI body rebuilds).
+/// Mirrors VideoFileCellView's card layout — same thumbnail area + shadow + corner radius — so
+/// groups read as peers of single items. The thumbnail area uses a stacked-thumbnail preview
+/// that signals "this is a group of items"; the selection border is dashed at rest and solid
+/// + system-blue when selected. When expanded, child items render as compact mini-rows inside
+/// the group's card rather than as separate table rows.
 final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
+
+    static let baseRowHeight: CGFloat = 170
+    static let baseCompactRowHeight: CGFloat = 120
+    static let childMiniRowHeight: CGFloat = 30
+    static let childMiniRowSpacing: CGFloat = 2
+    static let childListTopPadding: CGFloat = 8
+    static let childListBottomPadding: CGFloat = 10
+
+    /// Computes the total row height the table view should reserve for this group.
+    static func rowHeight(for config: EncodingGroupCellConfiguration) -> CGFloat {
+        let base = config.isCompactMode ? baseCompactRowHeight : baseRowHeight
+        guard config.isExpanded, !config.expandedChildren.isEmpty else { return base }
+        let count = CGFloat(config.expandedChildren.count)
+        let rows = count * childMiniRowHeight + max(0, count - 1) * childMiniRowSpacing
+        return base + childListTopPadding + rows + childListBottomPadding
+    }
 
     // MARK: - Cached SF Symbols (group-header-specific)
 
@@ -26,6 +45,11 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         static let uploadedCheck    = NSImage(systemSymbolName: "checkmark.icloud.fill", accessibilityDescription: nil)
         static let uploadFailed     = NSImage(systemSymbolName: "exclamationmark.icloud.fill", accessibilityDescription: nil)
         static let uploadPending    = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: nil)
+        static let playCircle       = NSImage(systemSymbolName: "play.circle.fill", accessibilityDescription: nil)
+        static let checkmarkCircle  = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
+        static let xmarkCircle      = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil)
+        static let arrowDownCircle  = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+        static let clock            = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
     }
 
     // MARK: - State
@@ -39,6 +63,18 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let cardView = NSView()
     private let selectionBorderLayer = CAShapeLayer()
 
+    private let mainHStack = NSStackView()
+
+    // Thumbnail area (left)
+    private let thumbnailContainer = NSView()
+    private let thumbnailBorderLayer = CAShapeLayer()
+    private let stackedThumb1 = NSImageView()   // back
+    private let stackedThumb2 = NSImageView()   // middle
+    private let stackedThumb3 = NSImageView()   // front (primary)
+    private let emptyFolderIcon = NSImageView()
+    private let childCountBadge = NSTextField(labelWithString: "")
+
+    // Right side: content
     private let contentStack = NSStackView()
     private let topRow = NSStackView()
     private let bottomRow = NSStackView()
@@ -48,6 +84,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let uploadIcon = NSImageView()
     private let uploadLabel = NSTextField(labelWithString: "")
     private let uploadProgress = NSProgressIndicator()
+    private let childListStack = NSStackView()
+    private var childMiniRowPool: [EncodingGroupChildMiniRow] = []
 
     // Top row
     private let expandChevronButton = NSButton()
@@ -70,10 +108,16 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let analyticsToggle = NSButton()
 
     private var presetWidthConstraint: NSLayoutConstraint?
+    private var thumbnailWidthConstraint: NSLayoutConstraint?
+    private var thumbnailHeightConstraint: NSLayoutConstraint?
+    private var checkerHeightConstraint: NSLayoutConstraint?
 
     // Layout cache
     private var lastCardBoundsSize: CGSize = .zero
+    private var lastThumbBoundsSize: CGSize = .zero
     private var isCompact = false
+
+    private var thumbnailWidth: CGFloat { isCompact ? 160 : 240 }
 
     // MARK: - Init
 
@@ -103,18 +147,22 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         layer?.shadowRadius = 4
         layer?.shadowOffset = NSSize(width: 0, height: -2)
 
+        // Selection border — dashed at rest, solid + system-blue on selection. Idle dash is a
+        // muted neutral so it reads as "container" without competing with VideoItem selection.
         selectionBorderLayer.fillColor = nil
-        selectionBorderLayer.lineWidth = 0.8
-        selectionBorderLayer.strokeColor = NSColor.systemBlue.withAlphaComponent(0.3).cgColor
+        selectionBorderLayer.strokeColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        selectionBorderLayer.lineWidth = 1.2
+        selectionBorderLayer.lineDashPattern = [6, 4]
         selectionBorderLayer.zPosition = 100
         cardView.layer?.addSublayer(selectionBorderLayer)
 
-        contentStack.orientation = .vertical
-        contentStack.alignment = .leading
-        contentStack.spacing = 8
-        contentStack.distribution = .fill
-        contentStack.translatesAutoresizingMaskIntoConstraints = false
-        cardView.addSubview(contentStack)
+        // Main horizontal stack: thumbnail | content
+        mainHStack.orientation = .horizontal
+        mainHStack.spacing = 0
+        mainHStack.alignment = .top
+        mainHStack.distribution = .fill
+        mainHStack.translatesAutoresizingMaskIntoConstraints = false
+        cardView.addSubview(mainHStack)
 
         NSLayoutConstraint.activate([
             cardView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
@@ -122,23 +170,184 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             cardView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             cardView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
 
-            contentStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 12),
-            contentStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -12),
-            contentStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 10),
-            contentStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor, constant: -10),
+            mainHStack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+            mainHStack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16),
+            mainHStack.topAnchor.constraint(equalTo: cardView.topAnchor),
+            mainHStack.bottomAnchor.constraint(lessThanOrEqualTo: cardView.bottomAnchor),
         ])
+
+        setupThumbnailArea()
+        setupContentArea()
+    }
+
+    // MARK: - Thumbnail area
+
+    private func setupThumbnailArea() {
+        thumbnailContainer.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailContainer.wantsLayer = true
+        thumbnailContainer.layer?.masksToBounds = true
+        thumbnailContainer.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        thumbnailContainer.layer?.cornerRadius = 8
+
+        // Checkerboard background — pinned to thumbnail container so it tracks the compact width.
+        let checkSize: CGFloat = 16
+        let checkImage = NSImage(size: NSSize(width: checkSize * 2, height: checkSize * 2), flipped: true) { rect in
+            NSColor(white: 0.2, alpha: 1).setFill()
+            rect.fill()
+            NSColor(white: 0.3, alpha: 1).setFill()
+            NSRect(x: 0, y: 0, width: checkSize, height: checkSize).fill()
+            NSRect(x: checkSize, y: checkSize, width: checkSize, height: checkSize).fill()
+            return true
+        }
+        let checkerView = NSView()
+        checkerView.wantsLayer = true
+        if let cgImage = checkImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            checkerView.layer?.backgroundColor = NSColor(patternImage: NSImage(cgImage: cgImage, size: NSSize(width: checkSize * 2, height: checkSize * 2))).cgColor
+        }
+        checkerView.layer?.masksToBounds = true
+        checkerView.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+        checkerView.layer?.cornerRadius = 8
+        checkerView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.addSubview(checkerView, positioned: .below, relativeTo: mainHStack)
+        let checkerHeight = checkerView.heightAnchor.constraint(equalToConstant: Self.baseRowHeight - 12)
+        self.checkerHeightConstraint = checkerHeight
+
+        // Stacked thumbnail layers — back → middle → front, slight offsets create the "stack" feel.
+        for (i, view) in [stackedThumb1, stackedThumb2, stackedThumb3].enumerated() {
+            view.imageScaling = .scaleProportionallyUpOrDown
+            view.wantsLayer = true
+            view.layer?.masksToBounds = true
+            view.layer?.cornerRadius = 6
+            view.layer?.borderWidth = 1
+            view.layer?.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
+            view.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+            view.translatesAutoresizingMaskIntoConstraints = false
+            thumbnailContainer.addSubview(view)
+            // Slight darkening for back/mid layers so the stack reads front-to-back.
+            view.alphaValue = i == 0 ? 0.55 : (i == 1 ? 0.8 : 1.0)
+        }
+
+        // Fallback folder icon, shown when there are no children at all.
+        emptyFolderIcon.image = GroupSymbol.folderFill
+        emptyFolderIcon.contentTintColor = NSColor.systemBlue.withAlphaComponent(0.75)
+        emptyFolderIcon.imageScaling = .scaleProportionallyUpOrDown
+        emptyFolderIcon.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailContainer.addSubview(emptyFolderIcon)
+
+        // Child count badge (bottom-right of thumbnail) — always shown when itemCount > 1.
+        childCountBadge.font = .systemFont(ofSize: 10, weight: .semibold)
+        childCountBadge.textColor = .white
+        childCountBadge.isBezeled = false
+        childCountBadge.isEditable = false
+        childCountBadge.drawsBackground = true
+        childCountBadge.backgroundColor = NSColor.black.withAlphaComponent(0.55)
+        childCountBadge.alignment = .center
+        childCountBadge.wantsLayer = true
+        childCountBadge.layer?.cornerRadius = 10
+        childCountBadge.layer?.masksToBounds = true
+        childCountBadge.translatesAutoresizingMaskIntoConstraints = false
+        thumbnailContainer.addSubview(childCountBadge)
+
+        // Border over the entire thumbnail container
+        thumbnailBorderLayer.fillColor = nil
+        thumbnailBorderLayer.strokeColor = NSColor.black.withAlphaComponent(0.2).cgColor
+        thumbnailBorderLayer.lineWidth = 1
+        thumbnailContainer.layer?.addSublayer(thumbnailBorderLayer)
+
+        mainHStack.addArrangedSubview(thumbnailContainer)
+
+        let widthConstraint = thumbnailContainer.widthAnchor.constraint(equalToConstant: thumbnailWidth)
+        widthConstraint.identifier = "groupThumbnailWidth"
+        self.thumbnailWidthConstraint = widthConstraint
+
+        // Thumbnail only spans the BASE row region; the expanded children live below.
+        let heightConstraint = thumbnailContainer.heightAnchor.constraint(equalToConstant: Self.baseRowHeight - 12)
+        self.thumbnailHeightConstraint = heightConstraint
+
+        // Now that thumbnailContainer has a superview, its width anchor can be bound to
+        // the checkerView's width anchor (they share `cardView` as a common ancestor).
+        NSLayoutConstraint.activate([
+            widthConstraint,
+            heightConstraint,
+            thumbnailContainer.topAnchor.constraint(equalTo: mainHStack.topAnchor),
+
+            checkerView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor),
+            checkerView.topAnchor.constraint(equalTo: cardView.topAnchor),
+            checkerHeight,
+            checkerView.widthAnchor.constraint(equalTo: thumbnailContainer.widthAnchor),
+        ])
+
+        // Position stacked thumbnails and fallback folder icon relative to the container.
+        // Back layer is nudged up-left, middle slightly less so, front is flush to (left + 12, center).
+        // Each layer gets ~68% of the container width so they clearly overlap.
+        let inset: CGFloat = 12
+        let backOffset: CGFloat = 16
+        let midOffset: CGFloat = 8
+
+        NSLayoutConstraint.activate([
+            // stackedThumb1 (back)
+            stackedThumb1.leadingAnchor.constraint(equalTo: thumbnailContainer.leadingAnchor, constant: inset + backOffset),
+            stackedThumb1.topAnchor.constraint(equalTo: thumbnailContainer.topAnchor, constant: inset + backOffset),
+            stackedThumb1.trailingAnchor.constraint(equalTo: thumbnailContainer.trailingAnchor, constant: -inset),
+            stackedThumb1.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -inset),
+
+            // stackedThumb2 (middle)
+            stackedThumb2.leadingAnchor.constraint(equalTo: thumbnailContainer.leadingAnchor, constant: inset + midOffset),
+            stackedThumb2.topAnchor.constraint(equalTo: thumbnailContainer.topAnchor, constant: inset + midOffset),
+            stackedThumb2.trailingAnchor.constraint(equalTo: thumbnailContainer.trailingAnchor, constant: -inset - backOffset + midOffset),
+            stackedThumb2.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -inset - backOffset + midOffset),
+
+            // stackedThumb3 (front, primary)
+            stackedThumb3.leadingAnchor.constraint(equalTo: thumbnailContainer.leadingAnchor, constant: inset),
+            stackedThumb3.topAnchor.constraint(equalTo: thumbnailContainer.topAnchor, constant: inset),
+            stackedThumb3.trailingAnchor.constraint(equalTo: thumbnailContainer.trailingAnchor, constant: -inset - backOffset),
+            stackedThumb3.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -inset - backOffset),
+
+            // Empty folder icon
+            emptyFolderIcon.centerXAnchor.constraint(equalTo: thumbnailContainer.centerXAnchor),
+            emptyFolderIcon.centerYAnchor.constraint(equalTo: thumbnailContainer.centerYAnchor),
+            emptyFolderIcon.widthAnchor.constraint(equalToConstant: 40),
+            emptyFolderIcon.heightAnchor.constraint(equalToConstant: 40),
+
+            // Child count badge, bottom-right corner
+            childCountBadge.trailingAnchor.constraint(equalTo: thumbnailContainer.trailingAnchor, constant: -6),
+            childCountBadge.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -6),
+            childCountBadge.heightAnchor.constraint(equalToConstant: 20),
+            childCountBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
+        ])
+    }
+
+    // MARK: - Content area
+
+    private func setupContentArea() {
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 8
+        contentStack.distribution = .fill
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
 
         setupTopRow()
         setupBottomRow()
         setupProgressBar()
         setupUploadRow()
+        setupChildListStack()
 
         contentStack.addArrangedSubview(topRow)
-        contentStack.addArrangedSubview(bottomRow)
         contentStack.addArrangedSubview(progressBar)
+        contentStack.addArrangedSubview(bottomRow)
         contentStack.addArrangedSubview(uploadRow)
+        contentStack.addArrangedSubview(childListStack)
 
+        // Wrap contentStack in a padded container, matching VideoFileCellView's right column.
+        let contentPadding = NSView()
+        contentPadding.translatesAutoresizingMaskIntoConstraints = false
+        contentPadding.addSubview(contentStack)
         NSLayoutConstraint.activate([
+            contentStack.leadingAnchor.constraint(equalTo: contentPadding.leadingAnchor, constant: 12),
+            contentStack.trailingAnchor.constraint(equalTo: contentPadding.trailingAnchor),
+            contentStack.topAnchor.constraint(equalTo: contentPadding.topAnchor, constant: 12),
+            contentStack.bottomAnchor.constraint(lessThanOrEqualTo: contentPadding.bottomAnchor, constant: -8),
+
             topRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             topRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             bottomRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
@@ -147,7 +356,12 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             progressBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             uploadRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             uploadRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            childListStack.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            childListStack.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
         ])
+
+        mainHStack.addArrangedSubview(contentPadding)
+        contentPadding.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
     private func setupTopRow() {
@@ -306,6 +520,15 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         uploadRow.isHidden = true
     }
 
+    private func setupChildListStack() {
+        childListStack.orientation = .vertical
+        childListStack.alignment = .leading
+        childListStack.spacing = Self.childMiniRowSpacing
+        childListStack.distribution = .fill
+        childListStack.translatesAutoresizingMaskIntoConstraints = false
+        childListStack.isHidden = true
+    }
+
     private func configureBorderlessButton(_ button: NSButton, symbol: NSImage?, tint: NSColor, action: Selector) {
         button.image = symbol
         button.bezelStyle = .regularSquare
@@ -345,6 +568,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         if isFirstConfigure || prev?.isCompactMode != config.isCompactMode {
             isCompact = config.isCompactMode
             applyCompactLayout(config.isCompactMode)
+            thumbnailWidthConstraint?.constant = thumbnailWidth
         }
 
         if isFirstConfigure || prev?.isExpanded != config.isExpanded {
@@ -415,12 +639,43 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             updateSelectionBorder(isSelected: config.isSelected)
         }
 
+        if isFirstConfigure || prev?.stackedChildren != config.stackedChildren {
+            updateStackedThumbnails(config: config)
+        }
+
+        if isFirstConfigure || prev?.itemCount != config.itemCount {
+            updateChildCountBadge(count: config.itemCount)
+        }
+
+        if isFirstConfigure
+            || prev?.isExpanded != config.isExpanded
+            || prev?.expandedChildren != config.expandedChildren {
+            updateChildList(config: config)
+        }
+
         self.currentConfig = config
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
         lastCardBoundsSize = .zero
+        lastThumbBoundsSize = .zero
+    }
+
+    /// Called by the coordinator when a child's thumbnail data finishes decoding off-main.
+    /// Checks the current config to avoid painting a late decode over a reused cell.
+    func applyDecodedChildThumbnail(_ image: NSImage?, forItemID itemID: UUID) {
+        guard let config = currentConfig else { return }
+        for (slot, child) in config.stackedChildren.prefix(3).enumerated() {
+            if child.itemID == itemID {
+                switch slot {
+                case 0: stackedThumb3.image = image
+                case 1: stackedThumb2.image = image
+                case 2: stackedThumb1.image = image
+                default: break
+                }
+            }
+        }
     }
 
     // MARK: - Layout
@@ -434,12 +689,22 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             selectionBorderLayer.frame = cardBounds
             lastCardBoundsSize = cardBounds.size
         }
+
+        let thumbBounds = thumbnailContainer.bounds
+        if thumbBounds.size != lastThumbBoundsSize {
+            let path = CGPath(roundedRect: thumbBounds, cornerWidth: 8, cornerHeight: 8, transform: nil)
+            thumbnailBorderLayer.path = path
+            thumbnailBorderLayer.frame = thumbBounds
+            lastThumbBoundsSize = thumbBounds.size
+        }
     }
 
     private func applyCompactLayout(_ compact: Bool) {
         contentStack.spacing = compact ? 4 : 8
         presetWidthConstraint?.constant = compact ? 140 : 220
-        folderIcon.isHidden = compact
+        let baseHeight = (compact ? Self.baseCompactRowHeight : Self.baseRowHeight) - 12
+        thumbnailHeightConstraint?.constant = baseHeight
+        checkerHeightConstraint?.constant = baseHeight
     }
 
     // MARK: - Sub-updates
@@ -579,15 +844,84 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     }
 
     private func updateSelectionBorder(isSelected: Bool) {
-        selectionBorderLayer.strokeColor = isSelected
-            ? NSColor.controlAccentColor.cgColor
-            : NSColor.systemBlue.withAlphaComponent(0.3).cgColor
-        selectionBorderLayer.lineWidth = isSelected ? 2 : 0.8
+        if isSelected {
+            selectionBorderLayer.strokeColor = NSColor.systemBlue.withAlphaComponent(0.9).cgColor
+            selectionBorderLayer.lineWidth = 2.5
+            selectionBorderLayer.lineDashPattern = nil
+        } else {
+            selectionBorderLayer.strokeColor = NSColor.white.withAlphaComponent(0.18).cgColor
+            selectionBorderLayer.lineWidth = 1.2
+            selectionBorderLayer.lineDashPattern = [6, 4]
+        }
     }
 
-    /// Applies a thumbnail-equivalent refresh if needed. (Group headers have no thumbnail;
-    /// method kept as a symmetric placeholder to match VideoFileCellView's shape.)
-    func applyDecodedThumbnail(_ image: NSImage?, forItemID: UUID) { /* no-op */ }
+    private func updateStackedThumbnails(config: EncodingGroupCellConfiguration) {
+        let children = Array(config.stackedChildren.prefix(3))
+
+        // Reset all three slots first.
+        stackedThumb1.image = nil
+        stackedThumb2.image = nil
+        stackedThumb3.image = nil
+
+        let visibleCount = children.count
+        stackedThumb1.isHidden = visibleCount < 3
+        stackedThumb2.isHidden = visibleCount < 2
+        stackedThumb3.isHidden = visibleCount < 1
+        emptyFolderIcon.isHidden = visibleCount > 0
+
+        // Front → back mapping: first child goes to front (stackedThumb3), next to middle, last to back.
+        for (slot, child) in children.enumerated() {
+            let cached = ThumbnailCache.shared[child.itemID]
+            let view: NSImageView
+            switch slot {
+            case 0: view = stackedThumb3
+            case 1: view = stackedThumb2
+            case 2: view = stackedThumb1
+            default: continue
+            }
+            view.image = cached
+        }
+    }
+
+    private func updateChildCountBadge(count: Int) {
+        childCountBadge.isHidden = count <= 1
+        if count > 1 {
+            childCountBadge.stringValue = "  \(count) clips  "
+        }
+    }
+
+    private func updateChildList(config: EncodingGroupCellConfiguration) {
+        if !config.isExpanded || config.expandedChildren.isEmpty {
+            childListStack.isHidden = true
+            for row in childMiniRowPool { row.isHidden = true }
+            return
+        }
+
+        childListStack.isHidden = false
+        let children = config.expandedChildren
+
+        // Grow the pool as needed.
+        while childMiniRowPool.count < children.count {
+            let row = EncodingGroupChildMiniRow()
+            childMiniRowPool.append(row)
+            childListStack.addArrangedSubview(row)
+            row.leadingAnchor.constraint(equalTo: childListStack.leadingAnchor).isActive = true
+            row.trailingAnchor.constraint(equalTo: childListStack.trailingAnchor).isActive = true
+            row.heightAnchor.constraint(equalToConstant: Self.childMiniRowHeight).isActive = true
+        }
+
+        for (i, child) in children.enumerated() {
+            let row = childMiniRowPool[i]
+            row.isHidden = false
+            row.configure(with: child) { [weak self] action in
+                self?.actionHandler?(action)
+            }
+        }
+        // Hide any extra pooled rows.
+        for i in children.count..<childMiniRowPool.count {
+            childMiniRowPool[i].isHidden = true
+        }
+    }
 
     // MARK: - Actions
 
@@ -644,5 +978,139 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     func controlTextDidEndEditing(_ obj: Notification) {
         nameFieldCommitted()
+    }
+}
+
+// MARK: - Child Mini Row
+
+/// Compact mini-row rendered inline inside an expanded group card.
+/// Shows a small thumbnail, filename, status indicator, and a delete button.
+/// Double-click opens the preview (trim editor) for that child.
+final class EncodingGroupChildMiniRow: NSView {
+    private let thumbView = NSImageView()
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let statusIcon = NSImageView()
+    private let deleteButton = NSButton()
+    private var onAction: ((CellAction) -> Void)?
+    private var currentItemID: UUID?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    private func setup() {
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.03).cgColor
+        translatesAutoresizingMaskIntoConstraints = false
+
+        thumbView.imageScaling = .scaleProportionallyUpOrDown
+        thumbView.wantsLayer = true
+        thumbView.layer?.cornerRadius = 3
+        thumbView.layer?.masksToBounds = true
+        thumbView.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
+        thumbView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(thumbView)
+
+        nameLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        nameLabel.textColor = .labelColor
+        nameLabel.isBezeled = false
+        nameLabel.isEditable = false
+        nameLabel.drawsBackground = false
+        nameLabel.lineBreakMode = .byTruncatingMiddle
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(nameLabel)
+
+        statusIcon.contentTintColor = .secondaryLabelColor
+        statusIcon.imageScaling = .scaleProportionallyDown
+        statusIcon.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(statusIcon)
+
+        deleteButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Remove from group")
+        deleteButton.bezelStyle = .regularSquare
+        deleteButton.isBordered = false
+        deleteButton.imagePosition = .imageOnly
+        deleteButton.contentTintColor = .tertiaryLabelColor
+        deleteButton.target = self
+        deleteButton.action = #selector(deleteClicked)
+        deleteButton.toolTip = "Remove from group"
+        deleteButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(deleteButton)
+
+        NSLayoutConstraint.activate([
+            thumbView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            thumbView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            thumbView.widthAnchor.constraint(equalToConstant: 44),
+            thumbView.heightAnchor.constraint(equalToConstant: 24),
+
+            nameLabel.leadingAnchor.constraint(equalTo: thumbView.trailingAnchor, constant: 8),
+            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusIcon.leadingAnchor, constant: -8),
+
+            statusIcon.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor, constant: -6),
+            statusIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            statusIcon.widthAnchor.constraint(equalToConstant: 14),
+            statusIcon.heightAnchor.constraint(equalToConstant: 14),
+
+            deleteButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            deleteButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            deleteButton.widthAnchor.constraint(equalToConstant: 16),
+            deleteButton.heightAnchor.constraint(equalToConstant: 16),
+        ])
+
+        let click = NSClickGestureRecognizer(target: self, action: #selector(rowDoubleClicked))
+        click.numberOfClicksRequired = 2
+        addGestureRecognizer(click)
+    }
+
+    func configure(with child: EncodingGroupChildSummary, onAction: @escaping (CellAction) -> Void) {
+        self.currentItemID = child.itemID
+        self.onAction = onAction
+        nameLabel.stringValue = child.name
+        thumbView.image = ThumbnailCache.shared[child.itemID]
+        updateStatusIcon(status: child.status, isDownloading: child.isDownloading, progress: child.progress)
+    }
+
+    private func updateStatusIcon(status: ConversionManager.ConversionStatus, isDownloading: Bool, progress: Double) {
+        if isDownloading {
+            statusIcon.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Downloading")
+            statusIcon.contentTintColor = .systemBlue
+            return
+        }
+        switch status {
+        case .done:
+            statusIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Done")
+            statusIcon.contentTintColor = .systemGreen
+        case .converting:
+            statusIcon.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Encoding")
+            statusIcon.contentTintColor = .systemOrange
+        case .failed:
+            statusIcon.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: "Failed")
+            statusIcon.contentTintColor = .systemRed
+        case .cancelled:
+            statusIcon.image = NSImage(systemSymbolName: "minus.circle.fill", accessibilityDescription: "Cancelled")
+            statusIcon.contentTintColor = .secondaryLabelColor
+        case .waiting:
+            statusIcon.image = NSImage(systemSymbolName: "clock", accessibilityDescription: "Waiting")
+            statusIcon.contentTintColor = .tertiaryLabelColor
+        }
+    }
+
+    @objc private func deleteClicked() {
+        guard let id = currentItemID else { return }
+        onAction?(.deleteGroupChild(itemID: id))
+    }
+
+    @objc private func rowDoubleClicked() {
+        guard let id = currentItemID else { return }
+        onAction?(.previewGroupChild(itemID: id))
+    }
+
+    override func updateLayer() {
+        super.updateLayer()
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.03).cgColor
     }
 }

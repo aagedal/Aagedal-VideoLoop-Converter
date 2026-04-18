@@ -119,6 +119,7 @@ extension VideoFileCellView {
 
         // Divider visibility (hide when toggle buttons are hidden)
         buttonDivider.isHidden = config.isCompactMode
+        metaDivider.isHidden = config.isCompactMode
     }
 
     /// Shows or hides a circular ring around a button to indicate active processing.
