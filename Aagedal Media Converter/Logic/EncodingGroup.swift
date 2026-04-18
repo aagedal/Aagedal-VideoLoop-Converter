@@ -92,6 +92,22 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
     var totalSize: Int64 {
         items.reduce(0) { $0 + $1.size }
     }
+
+    /// Re-applies (or clears) sequential output-filename overrides on `items`
+    /// in place, matching the current `sequentialNamingEnabled` flag and `name`.
+    /// Call from: toggle, name change, and any time items are added/removed.
+    mutating func normalizeSequentialNaming() {
+        if sequentialNamingEnabled {
+            let processed = FileNameProcessor.processFileName(name)
+            for i in items.indices {
+                items[i].outputFileNameOverride = String(format: "%@_%03d", processed, i + 1)
+            }
+        } else {
+            for i in items.indices {
+                items[i].outputFileNameOverride = nil
+            }
+        }
+    }
 }
 
 // MARK: - Queue Entry
