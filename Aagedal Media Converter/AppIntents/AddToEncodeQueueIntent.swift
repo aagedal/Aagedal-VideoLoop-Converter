@@ -17,6 +17,9 @@ extension Notification.Name {
     static let showFileImporter = Notification.Name("showFileImporter")
     static let showCameraCardImporter = Notification.Name("showCameraCardImporter")
     static let createEncodingGroup = Notification.Name("createEncodingGroup")
+    /// Posted after the queue has appended a new group. `userInfo["groupID"]` holds
+    /// the new group's UUID so the list view can highlight and scroll to it.
+    static let encodingGroupCreated = Notification.Name("encodingGroupCreated")
 }
 
 // MARK: - Add To Encode Queue Intent

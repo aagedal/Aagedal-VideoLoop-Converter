@@ -136,18 +136,17 @@ struct EncodingGroupChildSummary: Equatable {
 struct EncodingGroupCellConfiguration: Equatable {
     let groupID: UUID
     let name: String
-    let isExpanded: Bool
     let itemCount: Int
     let isSelected: Bool
+    /// True while a drag is hovering over this group as a potential drop target.
+    /// Used to paint a bright solid-blue border so the user can see where the drop
+    /// will land (distinct from selection, which is slightly dimmer).
+    let isDropTargetHover: Bool
     let isCompactMode: Bool
     let globalPreset: ExportPreset
 
     /// Up to three first children, used for the stacked-thumbnail preview.
     let stackedChildren: [EncodingGroupChildSummary]
-
-    /// Full child list, passed when `isExpanded == true` so the cell can render
-    /// mini-rows inline inside the group card.
-    let expandedChildren: [EncodingGroupChildSummary]
 
     // Group-level settings
     let groupPreset: ExportPreset?
@@ -244,7 +243,6 @@ enum CellAction {
     case cancelAnalytics
 
     // Group-specific actions
-    case toggleExpanded
     case groupNameChanged(String)
     case toggleConcat
     case toggleGroupUpload
@@ -255,8 +253,8 @@ enum CellAction {
     case deleteGroup
     case addFilesToGroup
     case resetGroup
-
-    // Child actions inside an expanded group card
-    case deleteGroupChild(itemID: UUID)
-    case previewGroupChild(itemID: UUID)
+    /// Cycles the group's internal sort mode (filename A–Z → Z–A → date old–new → new–old).
+    case cycleGroupSort
+    /// Opens the standalone group editor window for the current group.
+    case openGroupEditor
 }

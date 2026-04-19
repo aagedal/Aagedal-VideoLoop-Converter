@@ -14,25 +14,17 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     static let baseRowHeight: CGFloat = 170
     static let baseCompactRowHeight: CGFloat = 120
-    static let childMiniRowHeight: CGFloat = 30
-    static let childMiniRowSpacing: CGFloat = 2
-    static let childListTopPadding: CGFloat = 8
-    static let childListBottomPadding: CGFloat = 10
 
     /// Computes the total row height the table view should reserve for this group.
+    /// Groups are now single-height summary cards — expand/collapse was removed
+    /// when detail editing moved to the standalone Group Editor window.
     static func rowHeight(for config: EncodingGroupCellConfiguration) -> CGFloat {
-        let base = config.isCompactMode ? baseCompactRowHeight : baseRowHeight
-        guard config.isExpanded, !config.expandedChildren.isEmpty else { return base }
-        let count = CGFloat(config.expandedChildren.count)
-        let rows = count * childMiniRowHeight + max(0, count - 1) * childMiniRowSpacing
-        return base + childListTopPadding + rows + childListBottomPadding
+        config.isCompactMode ? baseCompactRowHeight : baseRowHeight
     }
 
     // MARK: - Cached SF Symbols (group-header-specific)
 
     private enum GroupSymbol {
-        static let chevronDown      = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)
-        static let chevronRight     = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
         static let folderFill       = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)
         static let plus             = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
         static let reset            = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
@@ -84,11 +76,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let uploadIcon = NSImageView()
     private let uploadLabel = NSTextField(labelWithString: "")
     private let uploadProgress = NSProgressIndicator()
-    private let childListStack = NSStackView()
-    private var childMiniRowPool: [EncodingGroupChildMiniRow] = []
 
     // Top row
-    private let expandChevronButton = NSButton()
     private let folderIcon = NSImageView()
     private let nameField = NSTextField()
     private let clipCountLabel = NSTextField(labelWithString: "")
@@ -96,6 +85,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let concatDragButton = DraggableFileImageView()
     private let concatWarningButton = NSButton()
     private let addFilesButton = NSButton()
+    private let editButton = NSButton()
+    private let sortButton = NSButton()
     private let resetButton = NSButton()
     private let deleteButton = NSButton()
 
@@ -330,13 +321,11 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         setupBottomRow()
         setupProgressBar()
         setupUploadRow()
-        setupChildListStack()
 
         contentStack.addArrangedSubview(topRow)
         contentStack.addArrangedSubview(progressBar)
         contentStack.addArrangedSubview(bottomRow)
         contentStack.addArrangedSubview(uploadRow)
-        contentStack.addArrangedSubview(childListStack)
 
         // Wrap contentStack in a padded container, matching VideoFileCellView's right column.
         let contentPadding = NSView()
@@ -356,8 +345,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             progressBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             uploadRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             uploadRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
-            childListStack.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            childListStack.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
         ])
 
         mainHStack.addArrangedSubview(contentPadding)
@@ -370,10 +357,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         topRow.spacing = 8
         topRow.distribution = .fill
         topRow.translatesAutoresizingMaskIntoConstraints = false
-
-        configureBorderlessButton(expandChevronButton, symbol: GroupSymbol.chevronRight, tint: .secondaryLabelColor, action: #selector(chevronClicked))
-        expandChevronButton.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        expandChevronButton.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
         folderIcon.image = GroupSymbol.folderFill
         folderIcon.contentTintColor = .systemBlue
@@ -420,13 +403,20 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         configureBorderlessButton(addFilesButton, symbol: GroupSymbol.plus, tint: .secondaryLabelColor, action: #selector(addFilesClicked))
         addFilesButton.toolTip = "Add files to group"
 
+        // Opens the standalone editor window where reorder/remove/extract happen.
+        // Keeps the main queue focused on high-level queue manipulation.
+        configureBorderlessButton(editButton, symbol: NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Edit group contents"), tint: .systemBlue, action: #selector(editClicked))
+        editButton.toolTip = "Edit group contents (reorder, remove, rename)"
+
+        configureBorderlessButton(sortButton, symbol: NSImage(systemSymbolName: "arrow.up.arrow.down", accessibilityDescription: "Sort items in group"), tint: .secondaryLabelColor, action: #selector(sortClicked))
+        sortButton.toolTip = "Sort items in group (cycle: filename A–Z, Z–A, date old→new, new→old)"
+
         configureBorderlessButton(resetButton, symbol: GroupSymbol.reset, tint: .secondaryLabelColor, action: #selector(resetClicked))
         resetButton.toolTip = "Reset all items in group"
 
         configureBorderlessButton(deleteButton, symbol: GroupSymbol.trash, tint: NSColor.systemRed.withAlphaComponent(0.75), action: #selector(deleteClicked))
         deleteButton.toolTip = "Delete group"
 
-        topRow.addArrangedSubview(expandChevronButton)
         topRow.addArrangedSubview(folderIcon)
         topRow.addArrangedSubview(nameField)
         topRow.addArrangedSubview(clipCountLabel)
@@ -434,6 +424,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         topRow.addArrangedSubview(concatDragButton)
         topRow.addArrangedSubview(concatWarningButton)
         topRow.addArrangedSubview(addFilesButton)
+        topRow.addArrangedSubview(editButton)
+        topRow.addArrangedSubview(sortButton)
         topRow.addArrangedSubview(resetButton)
         topRow.addArrangedSubview(deleteButton)
     }
@@ -520,15 +512,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         uploadRow.isHidden = true
     }
 
-    private func setupChildListStack() {
-        childListStack.orientation = .vertical
-        childListStack.alignment = .leading
-        childListStack.spacing = Self.childMiniRowSpacing
-        childListStack.distribution = .fill
-        childListStack.translatesAutoresizingMaskIntoConstraints = false
-        childListStack.isHidden = true
-    }
-
     private func configureBorderlessButton(_ button: NSButton, symbol: NSImage?, tint: NSColor, action: Selector) {
         button.image = symbol
         button.bezelStyle = .regularSquare
@@ -569,10 +552,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             isCompact = config.isCompactMode
             applyCompactLayout(config.isCompactMode)
             thumbnailWidthConstraint?.constant = thumbnailWidth
-        }
-
-        if isFirstConfigure || prev?.isExpanded != config.isExpanded {
-            expandChevronButton.image = config.isExpanded ? GroupSymbol.chevronDown : GroupSymbol.chevronRight
         }
 
         if isFirstConfigure || prev?.name != config.name {
@@ -635,8 +614,10 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             updateUploadSummary(config: config)
         }
 
-        if isFirstConfigure || prev?.isSelected != config.isSelected {
-            updateSelectionBorder(isSelected: config.isSelected)
+        if isFirstConfigure
+            || prev?.isSelected != config.isSelected
+            || prev?.isDropTargetHover != config.isDropTargetHover {
+            updateSelectionBorder(isSelected: config.isSelected, isDropTargetHover: config.isDropTargetHover)
         }
 
         if isFirstConfigure || prev?.stackedChildren != config.stackedChildren {
@@ -645,12 +626,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
         if isFirstConfigure || prev?.itemCount != config.itemCount {
             updateChildCountBadge(count: config.itemCount)
-        }
-
-        if isFirstConfigure
-            || prev?.isExpanded != config.isExpanded
-            || prev?.expandedChildren != config.expandedChildren {
-            updateChildList(config: config)
         }
 
         self.currentConfig = config
@@ -662,18 +637,16 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         lastThumbBoundsSize = .zero
     }
 
-    /// Called by the coordinator when a child's thumbnail data finishes decoding off-main.
-    /// Checks the current config to avoid painting a late decode over a reused cell.
+    /// Called by the coordinator when a child's thumbnail data finishes decoding
+    /// off-main. Updates the stacked-preview slots that reference that child.
     func applyDecodedChildThumbnail(_ image: NSImage?, forItemID itemID: UUID) {
         guard let config = currentConfig else { return }
-        for (slot, child) in config.stackedChildren.prefix(3).enumerated() {
-            if child.itemID == itemID {
-                switch slot {
-                case 0: stackedThumb3.image = image
-                case 1: stackedThumb2.image = image
-                case 2: stackedThumb1.image = image
-                default: break
-                }
+        for (slot, child) in config.stackedChildren.prefix(3).enumerated() where child.itemID == itemID {
+            switch slot {
+            case 0: stackedThumb3.image = image
+            case 1: stackedThumb2.image = image
+            case 2: stackedThumb1.image = image
+            default: break
             }
         }
     }
@@ -843,8 +816,15 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         }
     }
 
-    private func updateSelectionBorder(isSelected: Bool) {
-        if isSelected {
+    private func updateSelectionBorder(isSelected: Bool, isDropTargetHover: Bool) {
+        // Drop-target hover wins over selection so the user can see exactly where a
+        // dragged item will land. Uses a bright, thick, solid blue — distinct from
+        // the dimmer selection border so the two states read differently.
+        if isDropTargetHover {
+            selectionBorderLayer.strokeColor = NSColor.systemBlue.cgColor
+            selectionBorderLayer.lineWidth = 3
+            selectionBorderLayer.lineDashPattern = nil
+        } else if isSelected {
             selectionBorderLayer.strokeColor = NSColor.systemBlue.withAlphaComponent(0.9).cgColor
             selectionBorderLayer.lineWidth = 2.5
             selectionBorderLayer.lineDashPattern = nil
@@ -890,43 +870,11 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         }
     }
 
-    private func updateChildList(config: EncodingGroupCellConfiguration) {
-        if !config.isExpanded || config.expandedChildren.isEmpty {
-            childListStack.isHidden = true
-            for row in childMiniRowPool { row.isHidden = true }
-            return
-        }
-
-        childListStack.isHidden = false
-        let children = config.expandedChildren
-
-        // Grow the pool as needed.
-        while childMiniRowPool.count < children.count {
-            let row = EncodingGroupChildMiniRow()
-            childMiniRowPool.append(row)
-            childListStack.addArrangedSubview(row)
-            row.leadingAnchor.constraint(equalTo: childListStack.leadingAnchor).isActive = true
-            row.trailingAnchor.constraint(equalTo: childListStack.trailingAnchor).isActive = true
-            row.heightAnchor.constraint(equalToConstant: Self.childMiniRowHeight).isActive = true
-        }
-
-        for (i, child) in children.enumerated() {
-            let row = childMiniRowPool[i]
-            row.isHidden = false
-            row.configure(with: child) { [weak self] action in
-                self?.actionHandler?(action)
-            }
-        }
-        // Hide any extra pooled rows.
-        for i in children.count..<childMiniRowPool.count {
-            childMiniRowPool[i].isHidden = true
-        }
-    }
-
     // MARK: - Actions
 
-    @objc private func chevronClicked() { actionHandler?(.toggleExpanded) }
     @objc private func addFilesClicked() { actionHandler?(.addFilesToGroup) }
+    @objc private func editClicked() { actionHandler?(.openGroupEditor) }
+    @objc private func sortClicked() { actionHandler?(.cycleGroupSort) }
     @objc private func resetClicked() { actionHandler?(.resetGroup) }
     @objc private func deleteClicked() {
         guard let groupName = currentConfig?.name else {
@@ -978,139 +926,5 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     func controlTextDidEndEditing(_ obj: Notification) {
         nameFieldCommitted()
-    }
-}
-
-// MARK: - Child Mini Row
-
-/// Compact mini-row rendered inline inside an expanded group card.
-/// Shows a small thumbnail, filename, status indicator, and a delete button.
-/// Double-click opens the preview (trim editor) for that child.
-final class EncodingGroupChildMiniRow: NSView {
-    private let thumbView = NSImageView()
-    private let nameLabel = NSTextField(labelWithString: "")
-    private let statusIcon = NSImageView()
-    private let deleteButton = NSButton()
-    private var onAction: ((CellAction) -> Void)?
-    private var currentItemID: UUID?
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
-
-    private func setup() {
-        wantsLayer = true
-        layer?.cornerRadius = 6
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.03).cgColor
-        translatesAutoresizingMaskIntoConstraints = false
-
-        thumbView.imageScaling = .scaleProportionallyUpOrDown
-        thumbView.wantsLayer = true
-        thumbView.layer?.cornerRadius = 3
-        thumbView.layer?.masksToBounds = true
-        thumbView.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
-        thumbView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(thumbView)
-
-        nameLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        nameLabel.textColor = .labelColor
-        nameLabel.isBezeled = false
-        nameLabel.isEditable = false
-        nameLabel.drawsBackground = false
-        nameLabel.lineBreakMode = .byTruncatingMiddle
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(nameLabel)
-
-        statusIcon.contentTintColor = .secondaryLabelColor
-        statusIcon.imageScaling = .scaleProportionallyDown
-        statusIcon.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(statusIcon)
-
-        deleteButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Remove from group")
-        deleteButton.bezelStyle = .regularSquare
-        deleteButton.isBordered = false
-        deleteButton.imagePosition = .imageOnly
-        deleteButton.contentTintColor = .tertiaryLabelColor
-        deleteButton.target = self
-        deleteButton.action = #selector(deleteClicked)
-        deleteButton.toolTip = "Remove from group"
-        deleteButton.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(deleteButton)
-
-        NSLayoutConstraint.activate([
-            thumbView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            thumbView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            thumbView.widthAnchor.constraint(equalToConstant: 44),
-            thumbView.heightAnchor.constraint(equalToConstant: 24),
-
-            nameLabel.leadingAnchor.constraint(equalTo: thumbView.trailingAnchor, constant: 8),
-            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusIcon.leadingAnchor, constant: -8),
-
-            statusIcon.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor, constant: -6),
-            statusIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            statusIcon.widthAnchor.constraint(equalToConstant: 14),
-            statusIcon.heightAnchor.constraint(equalToConstant: 14),
-
-            deleteButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            deleteButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            deleteButton.widthAnchor.constraint(equalToConstant: 16),
-            deleteButton.heightAnchor.constraint(equalToConstant: 16),
-        ])
-
-        let click = NSClickGestureRecognizer(target: self, action: #selector(rowDoubleClicked))
-        click.numberOfClicksRequired = 2
-        addGestureRecognizer(click)
-    }
-
-    func configure(with child: EncodingGroupChildSummary, onAction: @escaping (CellAction) -> Void) {
-        self.currentItemID = child.itemID
-        self.onAction = onAction
-        nameLabel.stringValue = child.name
-        thumbView.image = ThumbnailCache.shared[child.itemID]
-        updateStatusIcon(status: child.status, isDownloading: child.isDownloading, progress: child.progress)
-    }
-
-    private func updateStatusIcon(status: ConversionManager.ConversionStatus, isDownloading: Bool, progress: Double) {
-        if isDownloading {
-            statusIcon.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Downloading")
-            statusIcon.contentTintColor = .systemBlue
-            return
-        }
-        switch status {
-        case .done:
-            statusIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Done")
-            statusIcon.contentTintColor = .systemGreen
-        case .converting:
-            statusIcon.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Encoding")
-            statusIcon.contentTintColor = .systemOrange
-        case .failed:
-            statusIcon.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: "Failed")
-            statusIcon.contentTintColor = .systemRed
-        case .cancelled:
-            statusIcon.image = NSImage(systemSymbolName: "minus.circle.fill", accessibilityDescription: "Cancelled")
-            statusIcon.contentTintColor = .secondaryLabelColor
-        case .waiting:
-            statusIcon.image = NSImage(systemSymbolName: "clock", accessibilityDescription: "Waiting")
-            statusIcon.contentTintColor = .tertiaryLabelColor
-        }
-    }
-
-    @objc private func deleteClicked() {
-        guard let id = currentItemID else { return }
-        onAction?(.deleteGroupChild(itemID: id))
-    }
-
-    @objc private func rowDoubleClicked() {
-        guard let id = currentItemID else { return }
-        onAction?(.previewGroupChild(itemID: id))
-    }
-
-    override func updateLayer() {
-        super.updateLayer()
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.03).cgColor
     }
 }
