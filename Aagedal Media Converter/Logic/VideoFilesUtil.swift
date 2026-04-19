@@ -380,16 +380,10 @@ struct VideoFileUtils: Sendable {
             return nil
         }
 
-        // Check if ExifTool is available
-        guard ExifToolService.shared.isAvailable else {
-            logger.info("[fetchC2PAMetadata] ExifTool not available")
-            return nil
-        }
-
         logger.debug("[fetchC2PAMetadata] Checking C2PA for: \(fileName, privacy: .public)")
 
         do {
-            let c2paMetadata = try await ExifToolService.shared.getC2PAMetadata(for: url)
+            let c2paMetadata = try await SwiftExifMetadataService.shared.getC2PAMetadata(for: url)
             if c2paMetadata != nil {
                 logger.debug("[fetchC2PAMetadata] Found C2PA metadata for: \(fileName, privacy: .public)")
             } else {
@@ -413,16 +407,10 @@ struct VideoFileUtils: Sendable {
             return nil
         }
 
-        // Check if ExifTool is available
-        guard ExifToolService.shared.isAvailable else {
-            logger.info("[fetchCameraMetadata] ExifTool not available")
-            return nil
-        }
-
         logger.debug("[fetchCameraMetadata] Checking camera metadata for: \(fileName, privacy: .public)")
 
         do {
-            let cameraMetadata = try await ExifToolService.shared.getCameraMetadata(for: url)
+            let cameraMetadata = try await SwiftExifMetadataService.shared.getCameraMetadata(for: url)
             if cameraMetadata != nil {
                 logger.debug("[fetchCameraMetadata] Found camera metadata for: \(fileName, privacy: .public)")
             } else {
