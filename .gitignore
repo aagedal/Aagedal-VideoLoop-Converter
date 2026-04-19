@@ -17,7 +17,9 @@ DerivedData
 *.ipa
 *.xcuserstate
 *.xcscmblueprint
-*.xcodeproj/project.xcworkspace/xcshareddata/
+*.xcodeproj/project.xcworkspace/xcshareddata/*
+!*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+!*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 *.xcodeproj/xcuserdata/
 
 # Release builds
@@ -46,7 +48,6 @@ Temporary Items
 .build/
 Packages/
 Package.pins
-Package.resolved
 
 # Fastlane
 fastlane/report.xml
