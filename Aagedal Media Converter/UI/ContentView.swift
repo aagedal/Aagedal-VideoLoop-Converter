@@ -494,6 +494,7 @@ struct ContentView: View {
                 .toolbar {
                     conversionToolbar
                 }
+                .background(LiquidGlassToolbarConfigurator())
 
             if isConverting {
                 OverallProgressView(
