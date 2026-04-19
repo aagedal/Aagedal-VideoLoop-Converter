@@ -162,6 +162,7 @@
 		DLHIST001SERV00000001 /* DownloadHistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DLHIST001SERV00000002 /* DownloadHistoryService.swift */; };
 		E22C3CB47572F41BA23EAF92 /* bmxtranswrap in Resources */ = {isa = PBXBuildFile; fileRef = 8488177BC5403EC6637A5C25 /* bmxtranswrap */; };
 		E69050ED114BBF6B493BE257 /* URLInputOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */; };
+		LQGLSTB00000001 /* LiquidGlassToolbarConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = LQGLSTB00000002 /* LiquidGlassToolbarConfigurator.swift */; };
 		ENCGRP00000000001 /* EncodingGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRP00000000002 /* EncodingGroup.swift */; };
 		ENCGRPVIEW00000001 /* EncodingGroupHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRPVIEW00000002 /* EncodingGroupHeaderView.swift */; };
 		F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */; };
@@ -356,6 +357,7 @@
 		A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModelManager.swift; sourceTree = "<group>"; };
 		AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackPickerSheet.swift; sourceTree = "<group>"; };
 		ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = URLInputOverlay.swift; sourceTree = "<group>"; };
+		LQGLSTB00000002 /* LiquidGlassToolbarConfigurator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassToolbarConfigurator.swift; sourceTree = "<group>"; };
 		ANALYTICSEXP00000001 /* AnalyticsExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsExporter.swift; sourceTree = "<group>"; };
 		ANALYTICSMOD00000001 /* AnalyticsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsModels.swift; sourceTree = "<group>"; };
 		ANALYTICSRESV0000001 /* AnalyticsResultsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsResultsView.swift; sourceTree = "<group>"; };
@@ -634,6 +636,7 @@
 				8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */,
 				AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */,
 				ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */,
+				LQGLSTB00000002 /* LiquidGlassToolbarConfigurator.swift */,
 				CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */,
 				RSEL000000000001000FREF1 /* RegionSelectionOverlayView.swift */,
 				RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */,
@@ -1192,6 +1195,7 @@
 				FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */,
 				CCF14EFA815D8DCCB62749E1 /* YTDLPUpdateService.swift in Sources */,
 				E69050ED114BBF6B493BE257 /* URLInputOverlay.swift in Sources */,
+				LQGLSTB00000001 /* LiquidGlassToolbarConfigurator.swift in Sources */,
 				B709DBE54F69E12A7484E1CE /* YTDLPSettingsView.swift in Sources */,
 				7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */,
 				515A407918750E4E62409DA5 /* BinaryPathResolver.swift in Sources */,

@@ -1241,24 +1241,36 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
 // MARK: - Badge View
 
-/// Minimal flat badge for thumbnail corners (trim, crop, audio routing, etc.).
-/// Clickable — set `onClick` to handle taps. Gets a white hover border when
+/// Liquid-glass badge for thumbnail corners (trim, audio routing, metadata, etc.).
+/// Renders a perfect circle when icon-only, expanding to a pill when paired with
+/// text. Clickable — set `onClick` to handle taps. Gets a white hover border when
 /// `setHovered(true)` is called so it reads as a button, not a passive label.
 final class BadgeView: NSView {
+    private let effectBackground = NSVisualEffectView()
     private let iconView = NSImageView()
     private let textLabel = NSTextField(labelWithString: "")
+    private var iconOnlyConstraints: [NSLayoutConstraint] = []
+    private var iconWithTextConstraints: [NSLayoutConstraint] = []
+
+    static let badgeHeight: CGFloat = 22
+
     var onClick: (() -> Void)?
 
     override init(frame: NSRect) {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = Self.badgeHeight / 2
         layer?.masksToBounds = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.clear.cgColor
         translatesAutoresizingMaskIntoConstraints = false
         isHidden = true
+
+        effectBackground.material = .hudWindow
+        effectBackground.blendingMode = .withinWindow
+        effectBackground.state = .active
+        effectBackground.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(effectBackground)
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentTintColor = .white
@@ -1274,17 +1286,33 @@ final class BadgeView: NSView {
         addSubview(textLabel)
 
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
+            effectBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
+            effectBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
+            effectBackground.topAnchor.constraint(equalTo: topAnchor),
+            effectBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
+
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 11),
             iconView.heightAnchor.constraint(equalToConstant: 11),
 
-            textLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 3),
-            textLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             textLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
-            heightAnchor.constraint(equalToConstant: 20),
+            heightAnchor.constraint(equalToConstant: Self.badgeHeight),
         ])
+
+        iconOnlyConstraints = [
+            iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            widthAnchor.constraint(equalToConstant: Self.badgeHeight),
+        ]
+
+        iconWithTextConstraints = [
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7),
+            textLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 3),
+            textLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+        ]
+
+        NSLayoutConstraint.activate(iconOnlyConstraints)
+        textLabel.isHidden = true
 
         let click = NSClickGestureRecognizer(target: self, action: #selector(badgeClicked))
         addGestureRecognizer(click)
@@ -1300,12 +1328,24 @@ final class BadgeView: NSView {
         iconView.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
         iconView.contentTintColor = color
         textLabel.stringValue = text
-        textLabel.isHidden = text.isEmpty
+        setIconOnly(text.isEmpty)
         isHidden = false
     }
 
     func hide() {
         isHidden = true
+    }
+
+    private func setIconOnly(_ iconOnly: Bool) {
+        if iconOnly {
+            NSLayoutConstraint.deactivate(iconWithTextConstraints)
+            NSLayoutConstraint.activate(iconOnlyConstraints)
+            textLabel.isHidden = true
+        } else {
+            NSLayoutConstraint.deactivate(iconOnlyConstraints)
+            NSLayoutConstraint.activate(iconWithTextConstraints)
+            textLabel.isHidden = false
+        }
     }
 
     /// Toggles a white highlight border so the badge reads as a button when the
