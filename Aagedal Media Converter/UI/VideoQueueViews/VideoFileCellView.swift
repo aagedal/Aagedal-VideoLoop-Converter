@@ -361,13 +361,17 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             checkerView.widthAnchor.constraint(equalTo: thumbnailContainer.widthAnchor),
         ])
 
-        // Thumbnail: fixed width, full height of parent
+        // Thumbnail: fixed width, pinned directly to the card's vertical extent so
+        // it always matches the checkerboard area. Pinning to mainHStack caused the
+        // container to follow the stack's content-driven height, which grew when a
+        // generated thumbnail advertised an intrinsic size — dragging the bottom
+        // overlay badges downward out of alignment with the checkerboard corners.
         let widthConstraint = thumbnailContainer.widthAnchor.constraint(equalToConstant: 200)
         widthConstraint.identifier = "thumbnailWidth"
         NSLayoutConstraint.activate([
             widthConstraint,
-            thumbnailContainer.topAnchor.constraint(equalTo: mainHStack.topAnchor),
-            thumbnailContainer.bottomAnchor.constraint(equalTo: mainHStack.bottomAnchor),
+            thumbnailContainer.topAnchor.constraint(equalTo: cardView.topAnchor),
+            thumbnailContainer.bottomAnchor.constraint(equalTo: cardView.bottomAnchor),
         ])
 
         NSLayoutConstraint.activate([
