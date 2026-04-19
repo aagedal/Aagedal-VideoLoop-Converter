@@ -2597,6 +2597,8 @@ actor ConversionManager: Sendable {
             ) { metric, progressValue in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        // Drop in-flight progress updates that arrive after cancellation.
+                        guard droppedFiles.wrappedValue[idx].analyticsStatus.isInProgress else { return }
                         droppedFiles.wrappedValue[idx].analyticsStatus = .running(metric: metric, progress: progressValue)
                         droppedFiles.wrappedValue[idx].analyticsProgress = progressValue
                     }
@@ -2629,6 +2631,10 @@ actor ConversionManager: Sendable {
         } catch {
             await MainActor.run {
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    if case AnalyticsError.cancelled = error {
+                        // User-initiated cancel already set status to .notQueued; don't overwrite.
+                        return
+                    }
                     droppedFiles.wrappedValue[idx].analyticsStatus = .failed(error.localizedDescription)
                 }
             }
