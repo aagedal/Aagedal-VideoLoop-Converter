@@ -403,6 +403,11 @@ struct ContentView: View {
                 scheduleAutoEncode: scheduleAutoEncode
             ))
             .onChange(of: droppedFiles) { _, _ in
+                // Keep the display-order array in sync with the source list.
+                // Without this, items appended outside the drag-drop path (e.g.
+                // downloads started by DownloadManager) never become visible
+                // because VideoQueueTableView only renders IDs present in queueOrder.
+                sanitizeQueueOrder()
                 if mergeClipsEnabled {
                     refreshExpectedOutputURLs(for: selectedPreset)
                 }
