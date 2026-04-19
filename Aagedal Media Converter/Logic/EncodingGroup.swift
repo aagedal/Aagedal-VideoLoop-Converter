@@ -29,6 +29,10 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
     var conformanceMergeEnabled: Bool
     var conformanceReferenceItemID: UUID?
 
+    /// Last sort applied to `items`. Tracked so the per-group sort button can
+    /// cycle through modes without passing state through the UI layer.
+    var lastSortMode: QueueSortMode?
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -41,7 +45,8 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
         analyticsEnabled: Bool = false,
         sequentialNamingEnabled: Bool = false,
         conformanceMergeEnabled: Bool = false,
-        conformanceReferenceItemID: UUID? = nil
+        conformanceReferenceItemID: UUID? = nil,
+        lastSortMode: QueueSortMode? = nil
     ) {
         self.id = id
         self.name = name
@@ -55,6 +60,7 @@ struct EncodingGroup: Identifiable, Equatable, Sendable {
         self.sequentialNamingEnabled = sequentialNamingEnabled
         self.conformanceMergeEnabled = conformanceMergeEnabled
         self.conformanceReferenceItemID = conformanceReferenceItemID
+        self.lastSortMode = lastSortMode
     }
 
     var clipCount: Int { items.count }

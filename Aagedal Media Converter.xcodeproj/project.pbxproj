@@ -62,6 +62,7 @@
 		8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D842C33FD610088C274 /* DocumentPickerView.swift */; };
 		8E545D872C33FD8C0088C274 /* VideoFilesUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */; };
 		8E545D892C34030C0088C274 /* VideoFileListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D882C34030C0088C274 /* VideoFileListView.swift */; };
+		GRPEDITWIN000002 /* GroupEditorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPEDITWIN000001 /* GroupEditorWindow.swift */; };
 		8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */; };
 		8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E545D932C3412AE0088C274 /* ConversionManager.swift */; };
 		8E824ABA2EF8A9E1001A6B95 /* MPVKit-GPL in Frameworks */ = {isa = PBXBuildFile; productRef = 8E824AB92EF8A9E1001A6B95 /* MPVKit-GPL */; };
@@ -282,6 +283,7 @@
 		8E545D842C33FD610088C274 /* DocumentPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentPickerView.swift; sourceTree = "<group>"; };
 		8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFilesUtil.swift; sourceTree = "<group>"; };
 		8E545D882C34030C0088C274 /* VideoFileListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileListView.swift; sourceTree = "<group>"; };
+		GRPEDITWIN000001 /* GroupEditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorWindow.swift; sourceTree = "<group>"; };
 		8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGConverter.swift; sourceTree = "<group>"; };
 		8E545D932C3412AE0088C274 /* ConversionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionManager.swift; sourceTree = "<group>"; };
 		8E824ABB2EF8AB02001A6B95 /* MPVMetalLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MPVMetalLayer.swift; sourceTree = "<group>"; };
@@ -836,6 +838,7 @@
 				1B28D978311204AF28106F84 /* VideoFileCellView+Actions.swift */,
 				A1B4BB0C06D28560C6D47EC0 /* VideoFileCellView+Comment.swift */,
 				ENCGRPCELL00000002 /* EncodingGroupHeaderCellView.swift */,
+				GRPEDITWIN000001 /* GroupEditorWindow.swift */,
 			);
 			path = VideoQueueViews;
 			sourceTree = "<group>";
@@ -1184,6 +1187,7 @@
 				8EEE451C2EBF4BFD0049F017 /* PreviewAssetGenerator.swift in Sources */,
 				8EA1B0012F0E8A000049F017 /* NativeWaveformRenderer.swift in Sources */,
 				8E545D892C34030C0088C274 /* VideoFileListView.swift in Sources */,
+				GRPEDITWIN000002 /* GroupEditorWindow.swift in Sources */,
 				8EEE453D2EC13E960049F017 /* OverallProgressView.swift in Sources */,
 				8EA25FE92F82A7BA0087B1F1 /* TesseractSettingsView.swift in Sources */,
 				8EEE45202EBF81FD0049F017 /* VideoMetadataService.swift in Sources */,

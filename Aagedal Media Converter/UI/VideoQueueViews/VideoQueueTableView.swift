@@ -17,6 +17,11 @@ private final class VideoQueueNSTableView: NSTableView {
     /// Tracks whether we're in a file-drag so we can override the operation mask.
     private var isFileDrag = false
 
+    /// Fires when a drag leaves the table without dropping, so the coordinator can
+    /// clear its "hovering over group" highlight. `validateDrop` isn't called at
+    /// exit, so we need this AppKit-level hook.
+    var onDragExit: (() -> Void)?
+
     override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         if isFileDrag {
             return .copy
@@ -27,6 +32,16 @@ private final class VideoQueueNSTableView: NSTableView {
     override func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         isFileDrag = false
         super.draggingSession(session, endedAt: screenPoint, operation: operation)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        onDragExit?()
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        onDragExit?()
+        super.draggingEnded(sender)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -62,8 +77,30 @@ private final class TransparentRowView: NSTableRowView {
 
 // MARK: - Pasteboard type for internal reorder
 
-private extension NSPasteboard.PasteboardType {
+extension NSPasteboard.PasteboardType {
     static let videoQueueItem = NSPasteboard.PasteboardType("com.aagedal.mediaconverter.videoqueueitem")
+}
+
+/// Returns true when `info` represents a drag that originated inside `tableView` —
+/// either the table itself or any of its descendants (e.g. a group child mini-row).
+/// Used to distinguish internal reorder/group-move gestures from external Finder drops.
+@MainActor
+func draggingSourceIsInternal(_ info: any NSDraggingInfo, tableView: NSTableView) -> Bool {
+    if let src = info.draggingSource as? NSTableView, src === tableView { return true }
+    if let view = info.draggingSource as? NSView, view.isDescendant(of: tableView) { return true }
+    return false
+}
+
+// MARK: - Queue Table Handle
+//
+// Lightweight bridge letting a SwiftUI parent ask the NSTableView questions
+// about its current state without owning a reference. Currently only answers
+// "is row X fully visible?" — used by VideoFileListView to decide whether the
+// "new group" toast should offer a scroll button.
+
+@MainActor final class QueueTableHandle: ObservableObject {
+    fileprivate var isRowVisibleImpl: (UUID) -> Bool = { _ in false }
+    func isRowVisible(for id: UUID) -> Bool { isRowVisibleImpl(id) }
 }
 
 // MARK: - VideoQueueTableView (NSViewRepresentable)
@@ -103,6 +140,22 @@ struct VideoQueueTableView: NSViewRepresentable {
     var queueOrder: [UUID]
     var onReorder: ((_ movedIDs: [UUID], _ destinationQueueIndex: Int) -> Void)?
     var onQueueSync: (() -> Void)?
+    /// Called when the user clicks the sort button on a group card. Cycling the
+    /// sort mode is handled in VideoFileListView so main-queue and group sorts
+    /// share the same comparator logic.
+    var onCycleGroupSort: ((UUID) -> Void)?
+    /// Called when the user clicks the "Edit" button on a group card. The caller
+    /// (ContentView) owns the window lifecycle.
+    var onOpenGroupEditor: ((UUID) -> Void)?
+    /// Handle exposed back to the SwiftUI parent so it can ask the table view
+    /// questions (e.g. row visibility). Optional — tests/previews can omit it.
+    var handle: QueueTableHandle?
+    /// Called when the user drops files from Finder directly onto a group header.
+    var onFileDropToGroup: ((UUID, [URL]) -> Void)?
+    /// Called when the user drops files from Finder onto the table but not on a group.
+    /// The NSTableView claims file drags over its bounds, so routing non-group drops
+    /// through this callback preserves the "drop anywhere to add to main queue" UX.
+    var onFileDropToMainQueue: (([URL]) -> Void)?
 
     // MARK: - Display Rows
 
@@ -169,12 +222,28 @@ struct VideoQueueTableView: NSViewRepresentable {
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
 
-        // Register for drag-to-reorder
-        tableView.registerForDraggedTypes([.videoQueueItem])
+        // Register internal reorder + external Finder file drops. File drops are only
+        // accepted when they land ON a group header; drops elsewhere fall through to
+        // the outer SwiftUI .onDrop which adds them to the main queue.
+        tableView.registerForDraggedTypes([.videoQueueItem, .fileURL])
         tableView.setDraggingSourceOperationMask(.move, forLocal: true)
+        tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
+
+        // Clear the "hovering over group" highlight when the drag leaves or ends
+        // without a drop — `validateDrop` isn't called in that case.
+        tableView.onDragExit = { [weak coordinator = context.coordinator] in
+            coordinator?.setDragHoverGroup(nil)
+        }
 
         scrollView.documentView = tableView
         context.coordinator.tableView = tableView
+
+        // Let the parent query "is row X visible?" via the handle — used to
+        // decide whether the "new group created" toast should offer a scroll
+        // button (skipped when the group already fits on screen).
+        handle?.isRowVisibleImpl = { [weak coordinator = context.coordinator] id in
+            coordinator?.isRowVisible(for: id) ?? false
+        }
 
         // Store initial snapshot and populate cache
         let initialRows = computeDisplayRows()
@@ -290,6 +359,11 @@ struct VideoQueueTableView: NSViewRepresentable {
         /// when items are added to or removed from a group (mirrors the onChange
         /// watcher in the old SwiftUI EncodingGroupHeaderView).
         var previousGroupItemCount: [UUID: Int] = [:]
+
+        /// Group currently receiving a drag-hover highlight. Updated from validateDrop
+        /// (whenever the proposed drop lands `.on` a group header) and cleared on
+        /// acceptDrop or when the drag exits the table without dropping.
+        var dragHoverGroupID: UUID?
 
         /// Previous snapshot for selective cell updates
         var previousDisplayRows: [FlatQueueRow] = []
@@ -409,19 +483,12 @@ struct VideoQueueTableView: NSViewRepresentable {
             switch displayRows[row] {
             case .single, .groupItem:
                 return parent.isCompactMode ? 120 : 170
-            case .groupHeader(let group):
-                let base = parent.isCompactMode
+            case .groupHeader:
+                // Group cards are now single-height summary rows; the detail
+                // editor lives in its own window.
+                return parent.isCompactMode
                     ? EncodingGroupHeaderCellView.baseCompactRowHeight
                     : EncodingGroupHeaderCellView.baseRowHeight
-                guard group.isExpanded, !group.items.isEmpty else { return base }
-                let count = CGFloat(group.items.count)
-                let miniRowHeight = EncodingGroupHeaderCellView.childMiniRowHeight
-                let spacing = EncodingGroupHeaderCellView.childMiniRowSpacing
-                let rows = count * miniRowHeight + max(0, count - 1) * spacing
-                return base
-                    + EncodingGroupHeaderCellView.childListTopPadding
-                    + rows
-                    + EncodingGroupHeaderCellView.childListBottomPadding
             }
         }
 
@@ -445,29 +512,56 @@ struct VideoQueueTableView: NSViewRepresentable {
         // MARK: Drag-to-Reorder
 
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-            // Allow dragging ungrouped (.single) and group item rows
+            // Encode the row's stable ID (item UUID or group UUID) on the pasteboard so
+            // drags can be matched across sources — including mini-rows inside a group
+            // card that don't have their own table row.
             let displayRows = cachedDisplayRows
             guard row < displayRows.count else { return nil }
-            switch displayRows[row] {
-            case .single, .groupItem, .groupHeader:
-                let item = NSPasteboardItem()
-                item.setString(String(row), forType: .videoQueueItem)
-                return item
-            }
+            let item = NSPasteboardItem()
+            item.setString(displayRows[row].id.uuidString, forType: .videoQueueItem)
+            return item
         }
 
         func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo, proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
-            guard info.draggingSource as? NSTableView === tableView else { return [] }
-
             let displayRows = cachedDisplayRows
+            // Helper: if the proposed drop lands `.on` a group header, return its ID.
+            // Used below to highlight that group as the active drop target.
+            let hoverGroupID: UUID? = {
+                guard dropOperation == .on, row < displayRows.count,
+                      case .groupHeader(let g) = displayRows[row] else { return nil }
+                return g.id
+            }()
 
-            // Dropping ON a group header → move files into that group
-            if dropOperation == .on, row < displayRows.count {
-                if case .groupHeader = displayRows[row] {
-                    return .move
+            // External drag (e.g. Finder file drop). The table claims file drags over
+            // its bounds, so we have to answer for BOTH cases here — dropping ON a
+            // group routes into that group, dropping anywhere else in the table
+            // routes to the main queue (preserving the "drop anywhere" UX).
+            if !draggingSourceIsInternal(info, tableView: tableView) {
+                guard info.draggingPasteboard.types?.contains(.fileURL) == true else {
+                    setDragHoverGroup(nil)
+                    return []
                 }
-                return []
+                if hoverGroupID != nil {
+                    setDragHoverGroup(hoverGroupID)
+                    return .copy
+                }
+                setDragHoverGroup(nil)
+                // Force `.above` as the visual affordance for main-queue drops so
+                // AppKit doesn't draw the "drop on row" highlight on single items.
+                tableView.setDropRow(row, dropOperation: .above)
+                return .copy
             }
+
+            // Dropping ON a group header → move items into that group
+            if hoverGroupID != nil {
+                setDragHoverGroup(hoverGroupID)
+                return .move
+            }
+
+            setDragHoverGroup(nil)
+
+            // Drop ON a non-group row is not accepted
+            if dropOperation == .on { return [] }
 
             // Dropping ABOVE at any position → reorder in queue
             if dropOperation == .above {
@@ -478,47 +572,80 @@ struct VideoQueueTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
-            guard info.draggingSource as? NSTableView === tableView else { return false }
+            // Clear any drop-target highlight as soon as we commit to a drop.
+            defer { setDragHoverGroup(nil) }
+
+            // External file drop → route URLs to either a group or the main queue
+            // depending on where the drop landed.
+            if !draggingSourceIsInternal(info, tableView: tableView) {
+                let urls = (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]) ?? []
+                guard !urls.isEmpty else { return false }
+                let displayRows = cachedDisplayRows
+                if dropOperation == .on,
+                   row < displayRows.count,
+                   case .groupHeader(let targetGroup) = displayRows[row] {
+                    parent.onFileDropToGroup?(targetGroup.id, urls)
+                } else {
+                    parent.onFileDropToMainQueue?(urls)
+                }
+                return true
+            }
 
             let displayRows = cachedDisplayRows
 
-            // Collect source row indices
-            var sourceRows: [Int] = []
+            // Collect source IDs from the pasteboard — stable across moves within the drag.
+            var sourceIDs: [UUID] = []
             info.enumerateDraggingItems(options: [], for: tableView, classes: [NSPasteboardItem.self], searchOptions: [:]) { item, _, _ in
-                if let pasteboardItem = item.item as? NSPasteboardItem,
-                   let rowStr = pasteboardItem.string(forType: .videoQueueItem),
-                   let sourceRow = Int(rowStr) {
-                    sourceRows.append(sourceRow)
+                if let pbItem = item.item as? NSPasteboardItem,
+                   let str = pbItem.string(forType: .videoQueueItem),
+                   let uuid = UUID(uuidString: str) {
+                    sourceIDs.append(uuid)
                 }
             }
-            sourceRows.sort()
-            guard !sourceRows.isEmpty else { return false }
+            guard !sourceIDs.isEmpty else { return false }
+
+            // Classify each source ID once so both branches share the same logic.
+            enum SourceKind { case single(VideoItem), groupItem(VideoItem, UUID), groupHeader(UUID) }
+            let sources: [SourceKind] = sourceIDs.compactMap { id in
+                if let idx = droppedFilesIndex[id], idx < parent.droppedFiles.count {
+                    return .single(parent.droppedFiles[idx])
+                }
+                if let groupID = itemToGroupID[id],
+                   let gIdx = encodingGroupsIndex[groupID],
+                   let item = parent.encodingGroups[gIdx].items.first(where: { $0.id == id }) {
+                    return .groupItem(item, groupID)
+                }
+                if let gIdx = encodingGroupsIndex[id], gIdx < parent.encodingGroups.count {
+                    return .groupHeader(id)
+                }
+                return nil
+            }
+            guard !sources.isEmpty else { return false }
 
             // Dropping ON a group header → move items into that group
             if dropOperation == .on, row < displayRows.count,
                case .groupHeader(let targetGroup) = displayRows[row] {
                 guard parent.encodingGroups.contains(where: { $0.id == targetGroup.id }) else { return false }
 
-                // Collect items to move and remove from their sources (reverse order)
                 var itemsToMove: [VideoItem] = []
-                for sourceRow in sourceRows.reversed() {
-                    guard sourceRow < displayRows.count else { continue }
-                    switch displayRows[sourceRow] {
+                for source in sources {
+                    switch source {
                     case .single(let item):
                         if let idx = parent.droppedFiles.firstIndex(where: { $0.id == item.id }) {
-                            itemsToMove.insert(parent.droppedFiles.remove(at: idx), at: 0)
+                            itemsToMove.append(parent.droppedFiles.remove(at: idx))
                         }
                     case .groupItem(let item, let srcGroupID):
+                        // Skip drops onto the same group (no-op)
+                        guard srcGroupID != targetGroup.id else { continue }
                         if let srcGIdx = parent.encodingGroups.firstIndex(where: { $0.id == srcGroupID }),
                            let iIdx = parent.encodingGroups[srcGIdx].items.firstIndex(where: { $0.id == item.id }) {
-                            itemsToMove.insert(parent.encodingGroups[srcGIdx].items.remove(at: iIdx), at: 0)
+                            itemsToMove.append(parent.encodingGroups[srcGIdx].items.remove(at: iIdx))
                         }
                     case .groupHeader:
                         continue
                     }
                 }
 
-                // Re-lookup group index (may have shifted)
                 if let gIdx2 = parent.encodingGroups.firstIndex(where: { $0.id == targetGroup.id }) {
                     parent.encodingGroups[gIdx2].items.append(contentsOf: itemsToMove)
                 }
@@ -528,43 +655,80 @@ struct VideoQueueTableView: NSViewRepresentable {
                 return true
             }
 
-            // Dropping ABOVE → reorder in the unified queue
+            // Dropping ABOVE → reorder in the unified queue. Items pulled out of a
+            // group become ungrouped singles.
             let destQueueIndex = parent.queueOrderIndex(forDisplayRow: row, in: displayRows, queueOrderLookup: queueOrderLookup)
 
-            // Collect the top-level IDs being moved (singles → item ID, group headers → group ID, group items → move out of group first)
             var movedTopLevelIDs: [UUID] = []
             var itemsToMoveToUngrouped: [VideoItem] = []
 
-            for sourceRow in sourceRows.reversed() {
-                guard sourceRow < displayRows.count else { continue }
-                switch displayRows[sourceRow] {
+            for source in sources {
+                switch source {
                 case .single(let item):
-                    movedTopLevelIDs.insert(item.id, at: 0)
-                case .groupHeader(let group):
-                    movedTopLevelIDs.insert(group.id, at: 0)
+                    movedTopLevelIDs.append(item.id)
+                case .groupHeader(let groupID):
+                    movedTopLevelIDs.append(groupID)
                 case .groupItem(let item, let srcGroupID):
-                    // Move out of group → becomes ungrouped single
                     if let gIdx = parent.encodingGroups.firstIndex(where: { $0.id == srcGroupID }),
                        let iIdx = parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == item.id }) {
                         let removed = parent.encodingGroups[gIdx].items.remove(at: iIdx)
-                        itemsToMoveToUngrouped.insert(removed, at: 0)
-                        movedTopLevelIDs.insert(removed.id, at: 0)
+                        itemsToMoveToUngrouped.append(removed)
+                        movedTopLevelIDs.append(removed.id)
                     }
                 }
             }
 
-            // Add items that left a group into droppedFiles
             if !itemsToMoveToUngrouped.isEmpty {
                 parent.droppedFiles.append(contentsOf: itemsToMoveToUngrouped)
             }
 
             guard !movedTopLevelIDs.isEmpty else { return false }
 
-            // Report reorder to ContentView which manages queueOrder
             parent.onReorder?(movedTopLevelIDs, destQueueIndex)
-
             parent.selection = Set(movedTopLevelIDs)
             return true
+        }
+
+        // MARK: Visibility
+
+        /// Returns true when the row for `id` is FULLY visible in the scroll view.
+        /// Used by the "new group created" toast to decide whether offering a
+        /// scroll button makes sense — if the group is already on screen, a
+        /// scroll button would feel redundant.
+        func isRowVisible(for id: UUID) -> Bool {
+            guard let tableView,
+                  let row = displayRowIndex[id] else { return false }
+            let rowRect = tableView.rect(ofRow: row)
+            guard !rowRect.isEmpty else { return false }
+            return NSContainsRect(tableView.visibleRect, rowRect)
+        }
+
+        // MARK: Drag-Hover Highlight
+
+        /// Updates `dragHoverGroupID` and re-renders the two affected group cells so
+        /// the border highlight transitions immediately. Called from validateDrop on
+        /// every mouse-move, so the guard on equality keeps this cheap.
+        func setDragHoverGroup(_ groupID: UUID?) {
+            guard dragHoverGroupID != groupID else { return }
+            let previous = dragHoverGroupID
+            dragHoverGroupID = groupID
+            refreshGroupCell(groupID: previous)
+            refreshGroupCell(groupID: groupID)
+        }
+
+        private func refreshGroupCell(groupID: UUID?) {
+            guard let groupID,
+                  let row = displayRowIndex[groupID],
+                  let tableView = tableView,
+                  let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? EncodingGroupHeaderCellView,
+                  let gIdx = encodingGroupsIndex[groupID],
+                  gIdx < parent.encodingGroups.count else { return }
+            let group = parent.encodingGroups[gIdx]
+            let config = buildGroupCellConfiguration(group: group)
+            let capturedID = group.id
+            cell.configure(with: config) { [weak self] (action: CellAction) in
+                self?.handleGroupAction(action, groupID: capturedID)
+            }
         }
 
         // MARK: Row Moves
@@ -600,6 +764,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         func updateVisibleCells() {
             guard let tableView = tableView else { return }
             let displayRows = cachedDisplayRows
+
             let visibleRange = tableView.rows(in: tableView.visibleRect)
             guard visibleRange.length > 0 else { return }
             let start = visibleRange.location
@@ -860,24 +1025,16 @@ struct VideoQueueTableView: NSViewRepresentable {
                     enqueueThumbnailDecode(itemID: child.itemID, data: rawData)
                 }
             }
-            if group.isExpanded {
-                for child in childSummaries where ThumbnailCache.shared[child.itemID] == nil {
-                    if let rawData = thumbnailData(forItemID: child.itemID) {
-                        enqueueThumbnailDecode(itemID: child.itemID, data: rawData)
-                    }
-                }
-            }
 
             return EncodingGroupCellConfiguration(
                 groupID: group.id,
                 name: group.name,
-                isExpanded: group.isExpanded,
                 itemCount: group.items.count,
                 isSelected: parent.selection.contains(group.id),
+                isDropTargetHover: dragHoverGroupID == group.id,
                 isCompactMode: parent.isCompactMode,
                 globalPreset: parent.preset,
                 stackedChildren: stacked,
-                expandedChildren: group.isExpanded ? childSummaries : [],
                 groupPreset: group.preset,
                 concatEnabled: group.concatEnabled,
                 uploadEnabled: group.uploadEnabled,
@@ -943,8 +1100,6 @@ struct VideoQueueTableView: NSViewRepresentable {
                   parent.encodingGroups[idx].id == groupID else { return }
 
             switch action {
-            case .toggleExpanded:
-                parent.encodingGroups[idx].isExpanded.toggle()
             case .groupNameChanged(let name):
                 parent.encodingGroups[idx].name = name
                 if parent.encodingGroups[idx].sequentialNamingEnabled {
@@ -969,15 +1124,10 @@ struct VideoQueueTableView: NSViewRepresentable {
                 parent.onAddFilesToGroup?(groupID)
             case .resetGroup:
                 parent.onResetGroup?(groupID)
-            case .deleteGroupChild(let itemID):
-                if let iIdx = parent.encodingGroups[idx].items.firstIndex(where: { $0.id == itemID }) {
-                    parent.encodingGroups[idx].items.remove(at: iIdx)
-                    if parent.encodingGroups[idx].sequentialNamingEnabled {
-                        parent.encodingGroups[idx].normalizeSequentialNaming()
-                    }
-                }
-            case .previewGroupChild(let itemID):
-                parent.onOpenTrim?(itemID)
+            case .cycleGroupSort:
+                parent.onCycleGroupSort?(groupID)
+            case .openGroupEditor:
+                parent.onOpenGroupEditor?(groupID)
             default:
                 break
             }

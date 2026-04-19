@@ -295,7 +295,10 @@ struct ContentView: View {
                     }
                 }
             },
-            queueOrder: queueOrder,
+            onFileDropToGroup: { groupID, urls in
+                Task { await addURLsToGroup(groupID: groupID, urls: urls) }
+            },
+            queueOrder: $queueOrder,
             onReorder: { movedIDs, destIndex in
                 // Remove moved IDs from current position
                 queueOrder.removeAll { movedIDs.contains($0) }
@@ -304,6 +307,17 @@ struct ContentView: View {
                 queueOrder.insert(contentsOf: movedIDs, at: insertAt)
             },
             onQueueSync: { sanitizeQueueOrder() },
+            onOpenGroupEditor: { groupID in
+                GroupEditorWindowController.shared.open(
+                    groupID: groupID,
+                    groups: $encodingGroups,
+                    droppedFiles: $droppedFiles,
+                    queueOrder: $queueOrder,
+                    onAddFiles: { id in
+                        Task { await addFilesToGroup(groupID: id) }
+                    }
+                )
+            },
             disableKeyboardNavigation: anySheetOrOverlayOpen
         )
     }
@@ -420,6 +434,13 @@ struct ContentView: View {
                 let group = EncodingGroup(name: "New Group")
                 encodingGroups.append(group)
                 queueOrder.append(group.id)
+                // Let the list view show a "group created" toast + scroll affordance,
+                // since Cmd+N appends at the end where the user may not see it.
+                NotificationCenter.default.post(
+                    name: .encodingGroupCreated,
+                    object: nil,
+                    userInfo: ["groupID": group.id]
+                )
             }
             .sheet(item: $cameraCardImportState) { state in
                 CameraCardImportView(
@@ -1037,6 +1058,57 @@ struct ContentView: View {
         }
 
         // Load details asynchronously for added items
+        await loadGroupItemDetails(groupID: groupID, itemIDs: newItemIDs, preset: groupPreset)
+    }
+
+    /// Appends files dropped from Finder directly onto a group header.
+    /// Mirrors `addFilesToGroup(groupID:)` but skips the NSOpenPanel since the URLs
+    /// are already provided by the drag session. Handles security-scoped access
+    /// and skips files already present in the group or in the ungrouped queue.
+    @MainActor
+    private func addURLsToGroup(groupID: UUID, urls: [URL]) async {
+        guard let groupIndex = encodingGroups.firstIndex(where: { $0.id == groupID }) else { return }
+
+        let supported = AppConstants.supportedVideoExtensions
+        let groupPreset = encodingGroups[groupIndex].preset ?? selectedPreset
+        var newItemIDs: [UUID] = []
+
+        // Union of everything already in the queue — drag-drop should be idempotent.
+        let existingURLs: Set<URL> = {
+            var urls = Set(droppedFiles.map(\.url))
+            for group in encodingGroups {
+                for item in group.items { urls.insert(item.url) }
+            }
+            return urls
+        }()
+
+        for url in urls {
+            guard supported.contains(url.pathExtension.lowercased()) else { continue }
+            guard !existingURLs.contains(url) else { continue }
+
+            let hadAccess = url.startAccessingSecurityScopedResource()
+            _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
+            if hadAccess { url.stopAccessingSecurityScopedResource() }
+
+            if let item = VideoFileUtils.makePlaceholderItem(
+                from: url,
+                outputFolder: outputFolder,
+                preset: groupPreset
+            ) {
+                newItemIDs.append(item.id)
+                // Re-lookup each iteration: earlier loads above are awaited but the
+                // array is only mutated on the main actor, so the index stays valid
+                // within this loop.
+                encodingGroups[groupIndex].items.append(item)
+            }
+        }
+
+        guard !newItemIDs.isEmpty else { return }
+
+        if encodingGroups[groupIndex].sequentialNamingEnabled {
+            encodingGroups[groupIndex].normalizeSequentialNaming()
+        }
+
         await loadGroupItemDetails(groupID: groupID, itemIDs: newItemIDs, preset: groupPreset)
     }
 

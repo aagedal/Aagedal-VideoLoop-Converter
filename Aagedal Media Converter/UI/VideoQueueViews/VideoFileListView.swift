@@ -64,9 +64,16 @@ struct VideoFileListView: View {
     var onDeleteGroup: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
-    var queueOrder: [UUID]
+    /// Called when files are dragged from Finder directly onto a group header.
+    /// ContentView resolves these URLs into VideoItems and appends them to the group.
+    var onFileDropToGroup: ((UUID, [URL]) -> Void)?
+    @Binding var queueOrder: [UUID]
     var onReorder: ((_ movedIDs: [UUID], _ destinationQueueIndex: Int) -> Void)?
     var onQueueSync: (() -> Void)?
+    /// Cycles the sort mode of the items inside a specific group (handled in ContentView).
+    var onCycleGroupSort: ((UUID) -> Void)?
+    /// Opens the dedicated Group Editor window for the given group (handled in ContentView).
+    var onOpenGroupEditor: ((UUID) -> Void)?
     var disableKeyboardNavigation: Bool = false
 
     @State private var isTargeted = false
@@ -77,12 +84,25 @@ struct VideoFileListView: View {
     @State private var shouldScrollToSelection = false
     /// Current sort mode (nil = original/unsorted order)
     @State private var currentSortMode: QueueSortMode?
-    /// Whether to show the sort mode overlay
-    @State private var showSortOverlay = false
+    /// Text shown in the bottom-leading toast when the user triggers any kind of
+    /// sort (main queue or group). Nil hides the toast. Keeping it as a single
+    /// String state lets both sort paths share one overlay and one dismiss timer.
+    @State private var sortOverlayText: String?
     /// Work item for dismissing the sort overlay
     @State private var sortOverlayDismissTask: DispatchWorkItem?
     /// Item whose analytics results should be presented, nil = sheet dismissed
     @State private var analyticsResultsItemID: UUID?
+    /// Group ID of the most recently created group (via Cmd+N or menu). Drives the
+    /// "New group created" toast and its "Scroll to show" button.
+    @State private var lastCreatedGroupID: UUID?
+    @State private var showGroupCreatedOverlay = false
+    @State private var groupCreatedDismissTask: DispatchWorkItem?
+
+    /// Lightweight handle so this view can ask the NSTableView questions (e.g.
+    /// whether a specific row is already on screen), instead of duplicating its
+    /// scroll state in SwiftUI.
+    @StateObject private var tableHandle = QueueTableHandle()
+
 
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = false
@@ -95,6 +115,11 @@ struct VideoFileListView: View {
 
     var body: some View {
         ZStack {
+            // Backstop so SwiftUI's .onDrop has a reliable full-bounds hit shape.
+            // Without this, the empty state's centered VStack leaves the outer
+            // margins un-hittable and the drag-hover overlay never activates.
+            Color.clear.contentShape(Rectangle())
+
             if droppedFiles.isEmpty && encodingGroups.isEmpty {
                 // Empty state with drag and drop instructions
                 VStack {
@@ -175,7 +200,18 @@ struct VideoFileListView: View {
                     onResetGroup: onResetGroup,
                     queueOrder: queueOrder,
                     onReorder: onReorder,
-                    onQueueSync: onQueueSync
+                    onQueueSync: onQueueSync,
+                    onCycleGroupSort: { groupID in
+                        cycleGroupSort(groupID: groupID)
+                    },
+                    onOpenGroupEditor: onOpenGroupEditor,
+                    handle: tableHandle,
+                    onFileDropToGroup: onFileDropToGroup,
+                    onFileDropToMainQueue: { urls in
+                        Task { @MainActor in
+                            await importURLs(urls)
+                        }
+                    }
                 )
                 .onChange(of: selection) { _, newSelection in
                     // Sync selection to metadata window state
@@ -203,14 +239,45 @@ struct VideoFileListView: View {
             }
         }
         .overlay(alignment: .bottomLeading) {
-            if showSortOverlay, let sortMode = currentSortMode {
-                SortModeOverlay(text: sortMode.displayName)
+            if let text = sortOverlayText {
+                SortModeOverlay(text: text)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                     .padding(.leading, 16)
                     .padding(.bottom, 16)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: showSortOverlay)
+        .animation(.easeInOut(duration: 0.2), value: sortOverlayText)
+        .overlay(alignment: .bottomTrailing) {
+            if showGroupCreatedOverlay {
+                GroupCreatedOverlay(
+                    onScrollToGroup: { scrollToLastCreatedGroup() },
+                    onDismiss: { dismissGroupCreatedOverlay() }
+                )
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .padding(.trailing, 16)
+                .padding(.bottom, 16)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showGroupCreatedOverlay)
+        .onReceive(NotificationCenter.default.publisher(for: .encodingGroupCreated)) { notification in
+            guard let groupID = notification.userInfo?["groupID"] as? UUID else { return }
+            lastCreatedGroupID = groupID
+            // Always select the new group so the selection border makes it pop.
+            selection = [groupID]
+            // Defer the visibility check until after the table has processed the
+            // new row — the row only gets a valid rect once updateNSView runs.
+            DispatchQueue.main.async {
+                if tableHandle.isRowVisible(for: groupID) {
+                    // Already on screen — selection highlight is enough, no toast.
+                    return
+                }
+                showGroupCreatedOverlay = true
+                groupCreatedDismissTask?.cancel()
+                let task = DispatchWorkItem { showGroupCreatedOverlay = false }
+                groupCreatedDismissTask = task
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0, execute: task)
+            }
+        }
         .sheet(isPresented: Binding(
             get: { analyticsResultsItemID != nil },
             set: { if !$0 { analyticsResultsItemID = nil } }
@@ -274,6 +341,34 @@ struct VideoFileListView: View {
             await self.importProviders(providers)
         }
         return true
+    }
+
+    /// Selects the newly created group and flips `shouldScrollToSelection`, which the
+    /// NSTableView picks up in `updateNSView` to scroll that row into view. Also
+    /// clears the toast so the user sees the group instead of a lingering banner.
+    private func scrollToLastCreatedGroup() {
+        guard let id = lastCreatedGroupID else { return }
+        selection = [id]
+        shouldScrollToSelection = true
+        dismissGroupCreatedOverlay()
+    }
+
+    private func dismissGroupCreatedOverlay() {
+        groupCreatedDismissTask?.cancel()
+        groupCreatedDismissTask = nil
+        showGroupCreatedOverlay = false
+    }
+
+    /// Imports a list of concrete file URLs into the main queue. Used by the
+    /// NSTableView's external-file-drop handler, which already has resolved URLs
+    /// (the NSItemProvider path is only used by SwiftUI's outer .onDrop).
+    @MainActor
+    private func importURLs(_ urls: [URL]) async {
+        let supported = AppConstants.supportedVideoExtensions
+        for url in urls {
+            let hadAccess = url.startAccessingSecurityScopedResource()
+            await self.processFileURL(url, supportedExtensions: supported, hasSecurityAccess: hadAccess)
+        }
     }
 
     @MainActor
@@ -727,44 +822,98 @@ struct VideoFileListView: View {
     }
 
     private func handleSortShortcut() {
-        guard droppedFiles.count > 1 else { return }
+        guard droppedFiles.count + encodingGroups.count > 1 else { return }
 
         // Cycle to the next sort mode
-        let nextMode: QueueSortMode
-        if let current = currentSortMode {
-            nextMode = current.next()
-        } else {
-            nextMode = .filenameAscending
-        }
+        let nextMode: QueueSortMode = currentSortMode?.next() ?? .filenameAscending
         currentSortMode = nextMode
 
-        // Sort the array based on the mode
-        switch nextMode {
-        case .filenameAscending:
-            droppedFiles.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        case .filenameDescending:
-            droppedFiles.sort { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
-        case .dateOldest:
-            droppedFiles.sort { fileCreationDate(for: $0.url) < fileCreationDate(for: $1.url) }
-        case .dateNewest:
-            droppedFiles.sort { fileCreationDate(for: $0.url) > fileCreationDate(for: $1.url) }
-        }
+        // Keep `droppedFiles` sorted for any consumer that iterates it directly.
+        droppedFiles.sort(by: comparator(for: nextMode))
 
-        // Show the sort mode overlay
+        // Sort the actual render order (which is `queueOrder`, not `droppedFiles`).
+        // Groups are sorted alongside singles — groups use their name as the
+        // filename key and the earliest child's creation date as the date key —
+        // but items *inside* a group are left alone; only per-group sort touches
+        // those.
+        queueOrder.sort { queueEntryLessThan($0, $1, mode: nextMode) }
+
+        showSortToast(nextMode.displayName)
+    }
+
+    /// Resolves a queue-order ID (single item OR group) into the two keys the
+    /// sort modes compare against: a display name and a representative date.
+    /// For groups, the date is the oldest child's creation date — that way
+    /// "sort by date" keeps groups next to items with similar recency.
+    private func queueEntryLessThan(_ a: UUID, _ b: UUID, mode: QueueSortMode) -> Bool {
+        let (nameA, dateA) = queueEntrySortKey(a)
+        let (nameB, dateB) = queueEntrySortKey(b)
+        switch mode {
+        case .filenameAscending:  return nameA.localizedStandardCompare(nameB) == .orderedAscending
+        case .filenameDescending: return nameA.localizedStandardCompare(nameB) == .orderedDescending
+        case .dateOldest:         return dateA < dateB
+        case .dateNewest:         return dateA > dateB
+        }
+    }
+
+    private func queueEntrySortKey(_ id: UUID) -> (name: String, date: Date) {
+        if let file = droppedFiles.first(where: { $0.id == id }) {
+            return (file.name, fileCreationDate(for: file.url))
+        }
+        if let group = encodingGroups.first(where: { $0.id == id }) {
+            let earliest = group.items.map { fileCreationDate(for: $0.url) }.min() ?? Date.distantPast
+            return (group.name, earliest)
+        }
+        return ("", Date.distantPast)
+    }
+
+    /// Shows the bottom-leading toast with `text` for 3.5s. Replaces any in-flight
+    /// dismiss so back-to-back sort cycles read as one toast updating its label.
+    private func showSortToast(_ text: String) {
         sortOverlayDismissTask?.cancel()
-        showSortOverlay = true
-
-        // Schedule dismissal after 3.5 seconds
-        let dismissTask = DispatchWorkItem { [self] in
-            showSortOverlay = false
-        }
-        sortOverlayDismissTask = dismissTask
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: dismissTask)
+        sortOverlayText = text
+        let task = DispatchWorkItem { sortOverlayText = nil }
+        sortOverlayDismissTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5, execute: task)
     }
 
     private func fileCreationDate(for url: URL) -> Date {
         let resourceValues = try? url.resourceValues(forKeys: [.creationDateKey])
         return resourceValues?.creationDate ?? Date.distantPast
+    }
+
+    /// Shared comparator used by main-queue sort and per-group sort so ordering is
+    /// consistent whether you sort the whole queue or just one group's contents.
+    private func comparator(for mode: QueueSortMode) -> (VideoItem, VideoItem) -> Bool {
+        switch mode {
+        case .filenameAscending:
+            return { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .filenameDescending:
+            return { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+        case .dateOldest:
+            return { [self] in fileCreationDate(for: $0.url) < fileCreationDate(for: $1.url) }
+        case .dateNewest:
+            return { [self] in fileCreationDate(for: $0.url) > fileCreationDate(for: $1.url) }
+        }
+    }
+
+    /// Cycles a group's internal sort mode on each click. State is stored on the
+    /// group itself (`lastSortMode`) so the next click resumes from where the user
+    /// left off — mirroring how the main queue's `currentSortMode` works.
+    private func cycleGroupSort(groupID: UUID) {
+        guard let gIdx = encodingGroups.firstIndex(where: { $0.id == groupID }),
+              encodingGroups[gIdx].items.count > 1 else { return }
+        let nextMode = encodingGroups[gIdx].lastSortMode?.next() ?? .filenameAscending
+        encodingGroups[gIdx].items.sort(by: comparator(for: nextMode))
+        encodingGroups[gIdx].lastSortMode = nextMode
+        if encodingGroups[gIdx].sequentialNamingEnabled {
+            encodingGroups[gIdx].normalizeSequentialNaming()
+        }
+        // Surface the new mode in the same toast the main-queue sort uses so users
+        // get immediate feedback on what happened.
+        let groupName = encodingGroups[gIdx].name
+        let label = groupName.isEmpty ? "Group" : "“\(groupName)”"
+        showSortToast("\(label) · \(nextMode.displayName)")
     }
 
     // MARK: - Transcribe Only (Option+click)
@@ -1278,7 +1427,7 @@ struct VideoFileListView_Previews: PreviewProvider {
             preset: .videoLoop,
             mergeClipsEnabled: true,
             mergeClipsAvailable: true,
-            queueOrder: []
+            queueOrder: .constant([])
         )
     }
 }
@@ -1762,5 +1911,49 @@ private struct SortModeOverlay: View {
                     .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
             )
             .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
+    }
+}
+
+/// Toast shown after Cmd+N creates a new group. The group is appended at the end
+/// of the queue where the user may not see it — the "Scroll to group" action
+/// brings it on-screen, and the "×" dismisses the toast immediately.
+private struct GroupCreatedOverlay: View {
+    let onScrollToGroup: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "folder.fill.badge.plus")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.accentColor)
+            Text("New group created")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.primary)
+            Button(action: onScrollToGroup) {
+                Label("Scroll to group", systemImage: "arrow.down.circle.fill")
+                    .labelStyle(.titleAndIcon)
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.15), radius: 4, x: 0, y: 2)
     }
 }
