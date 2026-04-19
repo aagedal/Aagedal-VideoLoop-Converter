@@ -47,6 +47,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     private let mergeIndicator = NSImageView()
     private let finderButton = NSButton()
     private let downloadedFinderButton = NSButton()
+    private let copyPathButton = NSButton()
     private let dragButton = DraggableFileImageView()
     private let liveRecordingBadge = NSView()
     private let liveRecordingLabel = NSTextField(labelWithString: "LIVE")
@@ -331,6 +332,15 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         // otherwise Auto Layout can't find a common ancestor and throws.
         thumbnailImageView.imageScaling = .scaleProportionallyUpOrDown
         thumbnailImageView.translatesAutoresizingMaskIntoConstraints = false
+        // Prevent NSImageView's intrinsic content size from nudging the overlay
+        // badges when a real thumbnail replaces the placeholder. With defaults,
+        // compression resistance = .defaultHigh; a freshly-assigned image briefly
+        // advertises its native size and the engine re-solves before the edge
+        // constraints win, which visually jitters the badges pinned to the container.
+        thumbnailImageView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        thumbnailImageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        thumbnailImageView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        thumbnailImageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         thumbnailContainer.addSubview(thumbnailImageView)
 
         // Border
@@ -375,16 +385,22 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
         setupFilenameRow()
-        setupProgressBar()
+        setupStatusRow()
         setupInfoRow()
         // Configure comment/date-tag/waveform buttons BEFORE the buttons row so they
         // can be added to the row's leading group alongside the main process toggles.
         if Self.commentSectionEnabled { setupCommentSection() }
         setupButtonsRow()
+        setupProgressBar()
 
-        // Extra breathing room between the status row and the buttons row so the
+        // A little breathing room between the status row and the duration/size row
+        // so the capsule doesn't feel glued to the metadata below it.
+        contentStack.setCustomSpacing(8, after: statusRow)
+        // Extra breathing room between the metadata row and the buttons row so the
         // active-processing ring has visible space around it.
-        contentStack.setCustomSpacing(10, after: statusRow)
+        contentStack.setCustomSpacing(10, after: infoStack)
+        // Nudge the progress bar down from the buttons row so it reads as its own element.
+        contentStack.setCustomSpacing(10, after: buttonsRow)
 
         // Wrap content stack in a padded container
         let contentPadding = NSView()
@@ -455,6 +471,16 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         downloadedFinderButton.toolTip = "Show downloaded source file in Finder"
         downloadedFinderButton.setContentHuggingPriority(.required, for: .horizontal)
 
+        // Copy file path button
+        copyPathButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy file path")
+        copyPathButton.isBordered = false
+        copyPathButton.bezelStyle = .inline
+        copyPathButton.target = self
+        copyPathButton.action = #selector(copyPathButtonClicked)
+        copyPathButton.isHidden = true
+        copyPathButton.toolTip = "Copy file path"
+        copyPathButton.setContentHuggingPriority(.required, for: .horizontal)
+
         // Drag-to-share button
         dragButton.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: "Drag to share file")
         dragButton.translatesAutoresizingMaskIntoConstraints = false
@@ -485,7 +511,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             in: .leading
         )
         filenameStack.setViews(
-            [finderButton, dragButton, liveRecordingBadge],
+            [finderButton, copyPathButton, dragButton, liveRecordingBadge],
             in: .trailing
         )
 
@@ -551,7 +577,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             infoStack.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             infoStack.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
         ])
+    }
 
+    private func setupStatusRow() {
         // Status row — capsule + status label + overwrite warning on its own line.
         statusRow.orientation = .horizontal
         statusRow.spacing = 6
@@ -606,14 +634,21 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         setupActionButtons()
 
         // Layout: [process toggles] | [date/comment/waveform group] … [divider] [actionButtonStack]
-        // First divider sits between the upload button and the date-tag/comment group.
-        buttonsRow.setViews(
-            [encodeButton, autoEncodeButton, transcriptionButton, ocrButton, analyticsButton, uploadButton,
-             metaDivider,
-             dateTagButton, commentToggleButton, waveformButton, waveformBgButton],
-            in: .leading
-        )
-        buttonsRow.setViews([buttonDivider, actionButtonStack], in: .trailing)
+        // A flexible spacer between the metadata group and the trailing divider/actions
+        // keeps the destructive actions pinned to the trailing edge regardless of how
+        // many process/metadata icons are visible.
+        let trailingSpacer = NSView()
+        trailingSpacer.translatesAutoresizingMaskIntoConstraints = false
+        trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        trailingSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        for view in [encodeButton, autoEncodeButton, transcriptionButton, ocrButton, analyticsButton, uploadButton,
+                     metaDivider,
+                     dateTagButton, commentToggleButton, waveformButton, waveformBgButton,
+                     trailingSpacer,
+                     buttonDivider, actionButtonStack] {
+            buttonsRow.addArrangedSubview(view)
+        }
 
         contentStack.addArrangedSubview(buttonsRow)
         buttonsRow.translatesAutoresizingMaskIntoConstraints = false
@@ -809,6 +844,10 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             let showFinderButton = config.status == .done || (config.status == .waiting && config.outputFileExists)
             finderButton.isHidden = !showFinderButton
             finderButton.contentTintColor = config.status == .done ? .systemBlue : .systemOrange
+
+            // Copy-path icon (shown alongside Finder button, tinted to match)
+            copyPathButton.isHidden = !showFinderButton
+            copyPathButton.contentTintColor = config.status == .done ? .systemBlue : .systemOrange
 
             // Drag-to-share icon (shown alongside Finder button)
             dragButton.isHidden = !showFinderButton
@@ -1132,6 +1171,14 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         } else {
             NSWorkspace.shared.activateFileViewerSelecting([config.url])
         }
+    }
+
+    @objc private func copyPathButtonClicked() {
+        guard let config = currentConfig else { return }
+        let url: URL = (config.status == .done ? config.outputURL : nil) ?? config.url
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(url.path, forType: .string)
     }
 
     @objc private func uploadButtonClicked() {

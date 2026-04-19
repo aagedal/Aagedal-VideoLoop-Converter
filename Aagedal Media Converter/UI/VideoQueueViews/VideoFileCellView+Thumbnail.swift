@@ -9,12 +9,14 @@ extension VideoFileCellView {
     // MARK: - Badge Setup
 
     func setupBadges() {
+        // The bottom-right slot is owned by `overlayInfoButton` (metadata), configured
+        // in `setupOverlayButtons`. The crop badge used to live there but duplicated
+        // the trim badge's role as a "tap to open the trim view" entry point, so the
+        // trim badge at bottom-left is now the single gateway to that view.
         let badges: [(BadgeView, NSLayoutConstraint.Attribute, NSLayoutConstraint.Attribute)] = [
             (audioRoutingBadge, .leading, .top),
             (timecodeBadge, .trailing, .top),
             (trimBadge, .leading, .bottom),
-            (cropBadge, .trailing, .bottom),
-
         ]
 
         for (badge, hAttr, vAttr) in badges {
@@ -31,7 +33,6 @@ extension VideoFileCellView {
         audioRoutingBadge.onClick = { [weak self] in self?.actionHandler?(.showAudioRouting) }
         timecodeBadge.onClick = { [weak self] in self?.actionHandler?(.showTimecode) }
         trimBadge.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
-        cropBadge.onClick = { [weak self] in self?.actionHandler?(.showPreview) }
     }
 
     // MARK: - Overlay Buttons (shown on hover)
@@ -46,16 +47,14 @@ extension VideoFileCellView {
             overlayPlayButton.centerYAnchor.constraint(equalTo: thumbnailContainer.centerYAnchor),
         ])
 
-        // Info button — appears on hover above the bottom edge, centred horizontally,
-        // so it doesn't collide with the corner state badges.
-        overlayInfoButton.update(icon: "info.circle", text: "Info")
-        overlayInfoButton.isHidden = true
-        overlayInfoButton.alphaValue = 0
+        // Info button — anchored to the bottom-right corner as the always-visible
+        // counterpart to the trim badge at bottom-left. Clicking opens metadata.
+        overlayInfoButton.update(icon: "info.circle", text: "")
         overlayInfoButton.onClick = { [weak self] in self?.actionHandler?(.showMetadata) }
         thumbnailContainer.addSubview(overlayInfoButton)
         NSLayoutConstraint.activate([
-            overlayInfoButton.centerXAnchor.constraint(equalTo: thumbnailContainer.centerXAnchor),
-            overlayInfoButton.topAnchor.constraint(equalTo: thumbnailContainer.topAnchor, constant: 8),
+            overlayInfoButton.trailingAnchor.constraint(equalTo: thumbnailContainer.trailingAnchor, constant: -6),
+            overlayInfoButton.bottomAnchor.constraint(equalTo: thumbnailContainer.bottomAnchor, constant: -6),
         ])
     }
 
@@ -78,12 +77,11 @@ extension VideoFileCellView {
     }
 
     private var allBadges: [BadgeView] {
-        [audioRoutingBadge, timecodeBadge, trimBadge, cropBadge]
+        [audioRoutingBadge, timecodeBadge, trimBadge, overlayInfoButton]
     }
 
     override func mouseEntered(with event: NSEvent) {
         overlayPlayButton.setHovered(true)
-        setInfoButtonHovered(true)
         for badge in allBadges where !badge.isHidden {
             badge.setHovered(true)
         }
@@ -91,18 +89,8 @@ extension VideoFileCellView {
 
     override func mouseExited(with event: NSEvent) {
         overlayPlayButton.setHovered(false)
-        setInfoButtonHovered(false)
         for badge in allBadges {
             badge.setHovered(false)
-        }
-    }
-
-    private func setInfoButtonHovered(_ hovered: Bool) {
-        overlayInfoButton.isHidden = false
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.15
-            ctx.allowsImplicitAnimation = true
-            overlayInfoButton.animator().alphaValue = hovered ? 1 : 0
         }
     }
 
@@ -139,12 +127,9 @@ extension VideoFileCellView {
             trimBadge.update(icon: "scissors", text: "")
         }
 
-        // Crop badge — always visible so it doubles as the "enter crop mode" button.
-        if config.hasCrop {
-            cropBadge.update(icon: "crop", text: "\(config.cropPercentage)%")
-        } else {
-            cropBadge.update(icon: "crop", text: "")
-        }
+        // cropBadge is no longer placed on the thumbnail; keep it hidden so the
+        // retained property doesn't render stale state if it ever gets added back.
+        cropBadge.hide()
 
         // Timecode badge
         if let mode = config.timecodeMode {
