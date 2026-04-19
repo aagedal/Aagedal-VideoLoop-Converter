@@ -81,6 +81,8 @@ struct VideoFileListView: View {
     @State private var showSortOverlay = false
     /// Work item for dismissing the sort overlay
     @State private var sortOverlayDismissTask: DispatchWorkItem?
+    /// Item whose analytics results should be presented, nil = sheet dismissed
+    @State private var analyticsResultsItemID: UUID?
 
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = false
@@ -150,6 +152,9 @@ struct VideoFileListView: View {
                     onOpenTimecode: onOpenTimecode,
                     onOpenAudioConfig: onOpenAudioConfig,
                     onOpenMetadata: onOpenMetadata,
+                    onOpenAnalyticsResults: { itemID in
+                        analyticsResultsItemID = itemID
+                    },
                     onToggleDateTag: onToggleDateTag,
                     onPlayFullscreen: onPlayFullscreen,
                     onRenameOutputFileName: onRenameOutputFileName,
@@ -206,6 +211,12 @@ struct VideoFileListView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showSortOverlay)
+        .sheet(isPresented: Binding(
+            get: { analyticsResultsItemID != nil },
+            set: { if !$0 { analyticsResultsItemID = nil } }
+        )) {
+            analyticsResultsSheetContent
+        }
         // Support file drops and URL drops on entire view (empty or populated)
         .onDrop(of: [.fileURL, .url, .plainText, .folder], isTargeted: $isTargeted) { providers in
             return handleDrop(providers: providers)
@@ -1069,6 +1080,8 @@ struct VideoFileListView: View {
             ) { metric, progressValue in
                 Task { @MainActor in
                     if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        // Drop in-flight progress updates that arrive after cancellation.
+                        guard self.droppedFiles[idx].analyticsStatus.isInProgress else { return }
                         self.droppedFiles[idx].analyticsStatus = .running(metric: metric, progress: progressValue)
                         self.droppedFiles[idx].analyticsProgress = progressValue
                     }
@@ -1099,6 +1112,10 @@ struct VideoFileListView: View {
         } catch {
             await MainActor.run {
                 if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    if case AnalyticsError.cancelled = error {
+                        // User-initiated cancel already set status to .notQueued; don't overwrite.
+                        return
+                    }
                     droppedFiles[idx].analyticsStatus = .failed(error.localizedDescription)
                 }
             }
@@ -1141,6 +1158,8 @@ struct VideoFileListView: View {
             ) { metric, progressValue in
                 Task { @MainActor in
                     if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        // Drop in-flight progress updates that arrive after cancellation.
+                        guard self.droppedFiles[idx].analyticsStatus.isInProgress else { return }
                         self.droppedFiles[idx].analyticsStatus = .running(metric: metric, progress: progressValue)
                         self.droppedFiles[idx].analyticsProgress = progressValue
                     }
@@ -1178,6 +1197,15 @@ struct VideoFileListView: View {
         } catch {
             await MainActor.run {
                 if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                    if case AnalyticsError.cancelled = error {
+                        // User-initiated cancel already set status to .notQueued. If the
+                        // item has prior completed results, restore that state so the
+                        // results badge stays visible.
+                        if droppedFiles[idx].analyticsResults != nil {
+                            droppedFiles[idx].analyticsStatus = .completed
+                        }
+                        return
+                    }
                     // Restore to completed if we had prior results
                     if droppedFiles[idx].analyticsResults != nil {
                         droppedFiles[idx].analyticsStatus = .completed
@@ -1187,6 +1215,19 @@ struct VideoFileListView: View {
                 }
             }
             Self.logger.error("Additional metrics failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    @ViewBuilder
+    private var analyticsResultsSheetContent: some View {
+        if let itemID = analyticsResultsItemID,
+           let item = droppedFiles.first(where: { $0.id == itemID }),
+           let results = item.analyticsResults {
+            AnalyticsResultsView(results: results) { metrics in
+                Task { @MainActor in
+                    await analyzeMetrics(itemID: itemID, metrics: metrics)
+                }
+            }
         }
     }
 

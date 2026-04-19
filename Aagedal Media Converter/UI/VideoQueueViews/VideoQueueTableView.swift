@@ -89,6 +89,7 @@ struct VideoQueueTableView: NSViewRepresentable {
     var onOpenTimecode: ((UUID) -> Void)?
     var onOpenAudioConfig: ((UUID) -> Void)?
     var onOpenMetadata: (([UUID]) -> Void)?
+    var onOpenAnalyticsResults: ((UUID) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)?
@@ -1106,8 +1107,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                                 await parent.analyzeOnly?(itemID)
                             }
                         } else {
-                            // Show results — handled via sheet
-                            parent.onOpenMetadata?([itemID])
+                            parent.onOpenAnalyticsResults?(itemID)
                         }
                     } else if parent.droppedFiles[idx].isReadyForAnalytics {
                         Task { @MainActor in
