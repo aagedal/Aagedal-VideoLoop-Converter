@@ -113,7 +113,7 @@ final class PreviewPlayerController: ObservableObject {
     weak var playbackTimeObserverOwner: AVPlayer?
     var playerItemStatusObserver: Any?
     var mpvEndObserver: AnyCancellable?
-    var hasSecurityScope = false
+    var securityScopedURL: URL?
     weak var playerView: AVPlayerView?
     var selectedAudioTrackOrderIndex: Int = 0
     var selectedSubtitleTrackOrderIndex: Int = -1  // -1 means subtitles disabled
@@ -247,8 +247,8 @@ final class PreviewPlayerController: ObservableObject {
         // First try bookmark-based access (more reliable for sandboxed apps)
         let bookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url)
         let directAccess = !bookmarkAccess && url.startAccessingSecurityScopedResource()
-        hasSecurityScope = bookmarkAccess || directAccess
-        
+        securityScopedURL = (bookmarkAccess || directAccess) ? url : nil
+
         // Create asset with security-scoped access preference
         let asset = AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         let playerItem = AVPlayerItem(asset: asset)
@@ -284,7 +284,7 @@ final class PreviewPlayerController: ObservableObject {
         // Re-acquire security-scoped access for MPV (teardown released it)
         let bookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url)
         let directAccess = !bookmarkAccess && url.startAccessingSecurityScopedResource()
-        hasSecurityScope = bookmarkAccess || directAccess
+        securityScopedURL = (bookmarkAccess || directAccess) ? url : nil
 
         let mpv = MPVPlayer()
         self.mpvPlayer = mpv
@@ -359,7 +359,7 @@ final class PreviewPlayerController: ObservableObject {
         // Acquire security-scoped access to the sequence directory
         let bookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: config.directory)
         let directAccess = !bookmarkAccess && config.directory.startAccessingSecurityScopedResource()
-        hasSecurityScope = bookmarkAccess || directAccess
+        securityScopedURL = (bookmarkAccess || directAccess) ? config.directory : nil
 
         // Set up audio player for the associated audio file
         if let audioURL = config.associatedAudioURL {
@@ -1241,13 +1241,12 @@ final class PreviewPlayerController: ObservableObject {
         removePlayerItemStatusObserver()
         removeMPVTrimObserver()
 
-        // Release security-scoped resource only if we acquired it
-        if hasSecurityScope {
-            let url = videoItem.url
-            // Try both release methods to ensure cleanup
+        // Release security-scoped resource only if we acquired it.
+        // Stored URL is either the video file (AVPlayer/MPV) or the sequence directory (image sequences).
+        if let url = securityScopedURL {
             SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
             url.stopAccessingSecurityScopedResource()
-            hasSecurityScope = false
+            securityScopedURL = nil
         }
 
         player = nil
