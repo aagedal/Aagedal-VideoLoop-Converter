@@ -897,13 +897,19 @@ struct VideoQueueTableView: NSViewRepresentable {
             let hasOutputSurroundNoDownmix = audioRouting?.hasOutputSurroundWithoutDownmix ?? false
             let trackCount = audioRouting?.outputTracks.count ?? 0
 
-            var timecodeMode: String? = nil
+            // Timecode mode string drives the thumbnail badge. We always emit a
+            // value (never nil) so the badge stays clickable — users need to be
+            // able to reopen the timecode popover after choosing "disabled"
+            // inside it (which nils out item.timecodeConfig).
+            let timecodeMode: String
             if let tc = item.timecodeConfig {
                 switch tc.mode {
                 case .manual: timecodeMode = "MAN"
                 case .preserveSource:
                     timecodeMode = (metadata?.timecode != nil) ? "SRC" : "No TC"
                 }
+            } else {
+                timecodeMode = "No TC"
             }
 
             let cropPct: Int

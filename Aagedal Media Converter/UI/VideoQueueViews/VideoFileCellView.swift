@@ -1348,8 +1348,13 @@ final class BadgeView: NSView {
     private let textLabel = NSTextField(labelWithString: "")
     private var iconOnlyConstraints: [NSLayoutConstraint] = []
     private var iconWithTextConstraints: [NSLayoutConstraint] = []
+    // Optional diagonal slash drawn across the icon — used to indicate a
+    // disabled/absent state (e.g. "no timecode") without needing a separate
+    // SF Symbol slash variant for every icon we render.
+    private let slashBackdropLayer = CAShapeLayer()
+    private let slashLayer = CAShapeLayer()
 
-    static let badgeHeight: CGFloat = 22
+    static let badgeHeight: CGFloat = 30
 
     var onClick: (() -> Void)?
 
@@ -1374,7 +1379,7 @@ final class BadgeView: NSView {
         iconView.imageScaling = .scaleProportionallyDown
         addSubview(iconView)
 
-        textLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        textLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         textLabel.textColor = .white
         textLabel.isBezeled = false
         textLabel.isEditable = false
@@ -1389,8 +1394,8 @@ final class BadgeView: NSView {
             effectBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 11),
-            iconView.heightAnchor.constraint(equalToConstant: 11),
+            iconView.widthAnchor.constraint(equalToConstant: 15),
+            iconView.heightAnchor.constraint(equalToConstant: 15),
 
             textLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
@@ -1411,6 +1416,25 @@ final class BadgeView: NSView {
         NSLayoutConstraint.activate(iconOnlyConstraints)
         textLabel.isHidden = true
 
+        // Slash overlay — hidden unless `slashed: true` is passed to update().
+        // A wider backdrop stroke sits below the main stroke to mimic the
+        // "cutout" look of SF Symbols' built-in .slash variants against the
+        // dark hudWindow material.
+        slashBackdropLayer.fillColor = nil
+        slashBackdropLayer.strokeColor = NSColor.black.withAlphaComponent(0.75).cgColor
+        slashBackdropLayer.lineWidth = 4
+        slashBackdropLayer.lineCap = .round
+        slashBackdropLayer.isHidden = true
+
+        slashLayer.fillColor = nil
+        slashLayer.strokeColor = NSColor.white.cgColor
+        slashLayer.lineWidth = 2
+        slashLayer.lineCap = .round
+        slashLayer.isHidden = true
+
+        layer?.addSublayer(slashBackdropLayer)
+        layer?.addSublayer(slashLayer)
+
         let click = NSClickGestureRecognizer(target: self, action: #selector(badgeClicked))
         addGestureRecognizer(click)
     }
@@ -1421,12 +1445,32 @@ final class BadgeView: NSView {
         onClick?()
     }
 
-    func update(icon: String, text: String, color: NSColor = .white) {
+    func update(icon: String, text: String, color: NSColor = .white, slashed: Bool = false) {
         iconView.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
         iconView.contentTintColor = color
         textLabel.stringValue = text
         setIconOnly(text.isEmpty)
+        slashLayer.strokeColor = color.cgColor
+        slashLayer.isHidden = !slashed
+        slashBackdropLayer.isHidden = !slashed
         isHidden = false
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        guard !slashLayer.isHidden else { return }
+        let iconFrame = iconView.frame
+        guard iconFrame.width > 0 && iconFrame.height > 0 else { return }
+        // Diagonal from bottom-left to top-right of the icon's frame. A small
+        // outward extension makes the slash feel like it spans past the glyph
+        // rather than hugging its bounding box.
+        let extend: CGFloat = 1.5
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: iconFrame.minX - extend, y: iconFrame.minY - extend))
+        path.addLine(to: CGPoint(x: iconFrame.maxX + extend, y: iconFrame.maxY + extend))
+        slashLayer.path = path
+        slashBackdropLayer.path = path
     }
 
     func hide() {

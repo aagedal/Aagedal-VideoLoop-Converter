@@ -209,10 +209,18 @@ extension VideoFileCellView {
         // retained property doesn't render stale state if it ever gets added back.
         cropBadge.hide()
 
-        // Timecode badge
-        if let mode = config.timecodeMode {
-            timecodeBadge.update(icon: "timer", text: mode)
-        } else {
+        // Timecode badge — icon-only. Color encodes the source:
+        //   SRC (source timecode) → blue
+        //   MAN (manual override) → orange
+        //   No TC → white with a diagonal slash across the glyph
+        switch config.timecodeMode {
+        case "SRC":
+            timecodeBadge.update(icon: "timer", text: "", color: .systemBlue)
+        case "MAN":
+            timecodeBadge.update(icon: "timer", text: "", color: .systemOrange)
+        case "No TC":
+            timecodeBadge.update(icon: "timer", text: "", color: .white, slashed: true)
+        default:
             timecodeBadge.hide()
         }
 
