@@ -53,10 +53,10 @@ final class FileImportCoordinator {
                 var isDirectory: ObjCBool = false
                 if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
                     // Folder — detect image sequences
-                    _ = url.startAccessingSecurityScopedResource()
+                    let hasAccess = url.startAccessingSecurityScopedResource()
                     let sequences = ImageSequenceDetector.detectSequences(inFolder: url)
                     _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-                    url.stopAccessingSecurityScopedResource()
+                    if hasAccess { url.stopAccessingSecurityScopedResource() }
                     for config in sequences {
                         sequenceItems.append(VideoFileUtils.makePlaceholderItem(
                             fromImageSequence: config, outputFolder: outputFolder, preset: preset
@@ -66,7 +66,7 @@ final class FileImportCoordinator {
                     let ext = url.pathExtension.lowercased()
                     if AppConstants.supportedImageSequenceExtensions.contains(ext) {
                         // Image file — detect sequence from parent directory
-                        _ = url.startAccessingSecurityScopedResource()
+                        let hasAccess = url.startAccessingSecurityScopedResource()
                         if let config = ImageSequenceDetector.detectSequence(fromFile: url) {
                             let parentDir = url.deletingLastPathComponent()
                             _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: parentDir)
@@ -74,7 +74,7 @@ final class FileImportCoordinator {
                                 fromImageSequence: config, outputFolder: outputFolder, preset: preset
                             ))
                         }
-                        url.stopAccessingSecurityScopedResource()
+                        if hasAccess { url.stopAccessingSecurityScopedResource() }
                     } else {
                         mediaURLs.append(url)
                     }

@@ -1047,9 +1047,9 @@ struct ContentView: View {
         var newItemIDs: [UUID] = []
 
         for url in panel.urls {
-            _ = url.startAccessingSecurityScopedResource()
+            let hasAccess = url.startAccessingSecurityScopedResource()
             _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-            url.stopAccessingSecurityScopedResource()
+            if hasAccess { url.stopAccessingSecurityScopedResource() }
 
             if let item = VideoFileUtils.makePlaceholderItem(
                 from: url,
@@ -1149,10 +1149,10 @@ struct ContentView: View {
                 // Check if URL is a directory — detect image sequences
                 var isDirectory: ObjCBool = false
                 if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
-                    _ = url.startAccessingSecurityScopedResource()
+                    let hasAccess = url.startAccessingSecurityScopedResource()
                     let sequences = ImageSequenceDetector.detectSequences(inFolder: url)
                     _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
-                    url.stopAccessingSecurityScopedResource()
+                    if hasAccess { url.stopAccessingSecurityScopedResource() }
                     for config in sequences {
                         let item = VideoFileUtils.makePlaceholderItem(
                             fromImageSequence: config,
@@ -1168,11 +1168,11 @@ struct ContentView: View {
                 // Check if it's a single image file that could be part of a sequence
                 let ext = url.pathExtension.lowercased()
                 if AppConstants.supportedImageSequenceExtensions.contains(ext) {
-                    _ = url.startAccessingSecurityScopedResource()
+                    let hasAccess = url.startAccessingSecurityScopedResource()
+                    defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
                     if let config = ImageSequenceDetector.detectSequence(fromFile: url) {
                         let parentDir = url.deletingLastPathComponent()
                         _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: parentDir)
-                        url.stopAccessingSecurityScopedResource()
                         let item = VideoFileUtils.makePlaceholderItem(
                             fromImageSequence: config,
                             outputFolder: outputFolder,
@@ -1182,7 +1182,6 @@ struct ContentView: View {
                         queueOrder.append(item.id)
                         continue
                     }
-                    url.stopAccessingSecurityScopedResource()
                     continue // Single image without sequence, skip
                 }
 
