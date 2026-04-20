@@ -28,6 +28,8 @@
 		6FEB07F32A610D999000F78C /* mxf2raw in Resources */ = {isa = PBXBuildFile; fileRef = D8EBD41EE1711E209C16F57C /* mxf2raw */; };
 		SE01XIF00SVC000000000001 /* SwiftExifMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE01XIF00SVC000000000002 /* SwiftExifMetadataService.swift */; };
 		SE01XIF00TYP000000000001 /* MetadataTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE01XIF00TYP000000000002 /* MetadataTypes.swift */; };
+		METAEXPORT000000000001 /* MetadataExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = METAEXPORT000000000002 /* MetadataExporter.swift */; };
+		METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = METAEXPVIEW000000000002 /* MetadataExportView.swift */; };
 		7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */; };
 		8567742F36A93E24233F8006 /* YTDLPProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */; };
 		8ABB9EA264C8772C2537FED2 /* MetadataWindowState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596BC21F86AEFDA304EF948F /* MetadataWindowState.swift */; };
@@ -242,6 +244,8 @@
 		74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataWindowController.swift; sourceTree = "<group>"; };
 		SE01XIF00SVC000000000002 /* SwiftExifMetadataService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwiftExifMetadataService.swift; sourceTree = "<group>"; };
 		SE01XIF00TYP000000000002 /* MetadataTypes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataTypes.swift; sourceTree = "<group>"; };
+		METAEXPORT000000000002 /* MetadataExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataExporter.swift; sourceTree = "<group>"; };
+		METAEXPVIEW000000000002 /* MetadataExportView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataExportView.swift; sourceTree = "<group>"; };
 		7AE24C0F6CCD5518CB708EE9 /* WhisperService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperService.swift; sourceTree = "<group>"; };
 		8488177BC5403EC6637A5C25 /* bmxtranswrap */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = bmxtranswrap; sourceTree = "<group>"; };
 		8DB61275F62951C0011F36D8 /* MetadataWindowContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataWindowContent.swift; sourceTree = "<group>"; };
@@ -456,6 +460,8 @@
 			children = (
 				SE01XIF00TYP000000000002 /* MetadataTypes.swift */,
 				SE01XIF00SVC000000000002 /* SwiftExifMetadataService.swift */,
+				METAEXPORT000000000002 /* MetadataExporter.swift */,
+				METAEXPVIEW000000000002 /* MetadataExportView.swift */,
 			);
 			path = Metadata;
 			sourceTree = "<group>";
@@ -1221,6 +1227,8 @@
 				F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */,
 				SE01XIF00SVC000000000001 /* SwiftExifMetadataService.swift in Sources */,
 				SE01XIF00TYP000000000001 /* MetadataTypes.swift in Sources */,
+				METAEXPORT000000000001 /* MetadataExporter.swift in Sources */,
+				METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */,
 				PRESET01MGR000000001 /* PresetManager.swift in Sources */,
 				VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */,
 				FILEIMPMGR00000001 /* FileImportManager.swift in Sources */,

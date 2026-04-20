@@ -173,15 +173,6 @@ struct MetadataComparisonView: View {
             comparisonRow("Actions Digital Source Type") { item in
                 c2paMetadata(for: item)?.actionsDigitalSourceType
             }
-            comparisonRow("Signature Types") { item in
-                c2paMetadata(for: item)?.userDescriptiveMetadataName
-            }
-            comparisonRow("Signature Content") { item in
-                c2paMetadata(for: item)?.userDescriptiveMetadataContent
-            }
-            comparisonRow("C2PA Creation Date") { item in
-                c2paMetadata(for: item)?.creationDateValue
-            }
             comparisonRow("Manifest Store") { item in
                 c2paMetadata(for: item)?.manifestStore
             }
@@ -222,6 +213,11 @@ struct MetadataComparisonView: View {
             }
             comparisonRow("Capture FPS") { item in
                 cameraMetadata(for: item)?.captureFps
+            }
+            comparisonRow("User Metadata") { item in
+                guard let entries = cameraMetadata(for: item)?.userDescriptiveMetadata,
+                      !entries.isEmpty else { return nil }
+                return entries.map { "\($0.name): \($0.content)" }.joined(separator: "\n")
             }
         }
     }

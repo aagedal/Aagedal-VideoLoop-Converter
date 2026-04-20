@@ -89,23 +89,12 @@ actor SwiftExifMetadataService {
     // MARK: - Mapping
 
     static func makeC2PAMetadata(from video: SwiftExif.VideoMetadata) -> C2PAMetadata? {
-        let manifest = video.c2pa?.activeManifest
-        let hasManifest = manifest != nil
+        // Only surface C2PA when the container actually carries a C2PA manifest.
+        // Sony NRT camera XML (video.camera.userMeta*, video.camera.creationDate) is
+        // *not* C2PA — previously it was routed here and produced false positives.
+        guard let manifest = video.c2pa?.activeManifest else { return nil }
 
-        let xmlName = joinedNonEmpty(video.camera?.userMetaNames)
-        let xmlContent = joinedNonEmpty(video.camera?.userMetaContents)
-        let xmlCreationDate = video.camera?.creationDate.map { $0.formatted(.iso8601) }
-
-        // If neither a C2PA manifest nor the XML-derived fields are present, return nil
-        // to match the original ExifTool behavior (absent = don't surface).
-        guard hasManifest || xmlName != nil || xmlContent != nil || xmlCreationDate != nil else {
-            return nil
-        }
-
-        let claimGenerator = manifest?.claim.claimGenerator
-        let claimGeneratorInfoName = manifest?.claim.claimGeneratorInfo?.name
-
-        let firstActionAssertion = manifest?.assertions.first { assertion in
+        let firstActionAssertion = manifest.assertions.first { assertion in
             assertion.label.hasPrefix("c2pa.actions")
         }
         let firstAction: C2PAAction? = {
@@ -114,26 +103,35 @@ actor SwiftExifMetadataService {
             return actions.actions.first
         }()
 
-        let assertionLabels = manifest?.assertions.map { $0.label }
-        let hasSignature = (manifest?.signature.signatureBytes.isEmpty == false)
+        let assertionLabels = manifest.assertions.map { $0.label }
+        let hasSignature = !manifest.signature.signatureBytes.isEmpty
 
         return C2PAMetadata(
-            hasContentCredentials: hasManifest,
+            hasContentCredentials: true,
             hasSignature: hasSignature,
             actionsAction: firstAction?.action,
             actionsDigitalSourceType: firstAction?.digitalSourceType,
-            claimGenerator: claimGenerator,
-            claimGeneratorInfoName: claimGeneratorInfoName,
-            manifestStore: manifest?.label,
-            assertions: assertionLabels?.isEmpty == true ? nil : assertionLabels,
-            userDescriptiveMetadataName: xmlName,
-            userDescriptiveMetadataContent: xmlContent,
-            creationDateValue: xmlCreationDate
+            claimGenerator: manifest.claim.claimGenerator,
+            claimGeneratorInfoName: manifest.claim.claimGeneratorInfo?.name,
+            manifestStore: manifest.label,
+            assertions: assertionLabels.isEmpty ? nil : assertionLabels
         )
     }
 
     static func makeCameraMetadata(from cam: SwiftExif.CameraMetadata) -> CameraMetadata {
-        CameraMetadata(
+        // SwiftExif surfaces the `<Meta>` entries as two parallel arrays; zip them
+        // back into name/content pairs and drop any empty ones.
+        let userMetadata: [UserMetadataEntry]? = {
+            let pairs = zip(cam.userMetaNames, cam.userMetaContents).compactMap { name, content -> UserMetadataEntry? in
+                let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let c = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !n.isEmpty || !c.isEmpty else { return nil }
+                return UserMetadataEntry(name: n, content: c)
+            }
+            return pairs.isEmpty ? nil : pairs
+        }()
+
+        return CameraMetadata(
             deviceManufacturer: cam.deviceManufacturer,
             deviceModelName: cam.deviceModelName,
             deviceSerialNumber: cam.deviceSerialNumber,
@@ -145,14 +143,9 @@ actor SwiftExifMetadataService {
                 fps.truncatingRemainder(dividingBy: 1) == 0
                     ? String(format: "%.0f", fps)
                     : String(format: "%.3f", fps)
-            }
+            },
+            userDescriptiveMetadata: userMetadata
         )
-    }
-
-    private static func joinedNonEmpty(_ values: [String]?) -> String? {
-        guard let values, !values.isEmpty else { return nil }
-        let joined = values.joined(separator: ", ")
-        return joined.isEmpty ? nil : joined
     }
 
     private func readVideoMetadata(from url: URL) async throws -> SwiftExif.VideoMetadata {

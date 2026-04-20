@@ -14,9 +14,6 @@ struct C2PAMetadata: Codable, Sendable, Equatable {
     let claimGeneratorInfoName: String?
     let manifestStore: String?
     let assertions: [String]?
-    let userDescriptiveMetadataName: String?
-    let userDescriptiveMetadataContent: String?
-    let creationDateValue: String?
 
     static let empty = C2PAMetadata(
         hasContentCredentials: false,
@@ -26,10 +23,7 @@ struct C2PAMetadata: Codable, Sendable, Equatable {
         claimGenerator: nil,
         claimGeneratorInfoName: nil,
         manifestStore: nil,
-        assertions: nil,
-        userDescriptiveMetadataName: nil,
-        userDescriptiveMetadataContent: nil,
-        creationDateValue: nil
+        assertions: nil
     )
 }
 
@@ -43,6 +37,9 @@ struct CameraMetadata: Codable, Sendable, Equatable {
     let captureGammaEquation: String?
     let recordingModeType: String?
     let captureFps: String?
+    /// Paired `<Meta name="..." content="..."/>` entries from Sony NRT
+    /// `<UserDescriptiveMetadata>` (e.g. user-supplied Creator / Description / Location).
+    let userDescriptiveMetadata: [UserMetadataEntry]?
 
     static let empty = CameraMetadata(
         deviceManufacturer: nil,
@@ -52,7 +49,8 @@ struct CameraMetadata: Codable, Sendable, Equatable {
         timeZone: nil,
         captureGammaEquation: nil,
         recordingModeType: nil,
-        captureFps: nil
+        captureFps: nil,
+        userDescriptiveMetadata: nil
     )
 
     /// Whether any camera metadata fields have values
@@ -64,6 +62,14 @@ struct CameraMetadata: Codable, Sendable, Equatable {
         timeZone != nil ||
         captureGammaEquation != nil ||
         recordingModeType != nil ||
-        captureFps != nil
+        captureFps != nil ||
+        (userDescriptiveMetadata?.isEmpty == false)
     }
+}
+
+/// A single `<Meta name="..." content="..."/>` entry from Sony NRT
+/// `<UserDescriptiveMetadata>`.
+struct UserMetadataEntry: Codable, Sendable, Equatable {
+    let name: String
+    let content: String
 }

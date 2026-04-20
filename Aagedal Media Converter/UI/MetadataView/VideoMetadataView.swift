@@ -6,6 +6,7 @@ struct VideoMetadataView: View {
 
     @State private var isLoadingC2PA = false
     @State private var isLoadingCamera = false
+    @State private var exportErrorMessage: String?
 
     private var metadata: VideoMetadata? { item.metadata }
 
@@ -23,6 +24,8 @@ struct VideoMetadataView: View {
                 }
 
                 Spacer()
+
+                exportMenu
 
                 Button {
                     dismiss()
@@ -60,6 +63,50 @@ struct VideoMetadataView: View {
         .task {
             await fetchC2PAIfNeeded()
             await fetchCameraMetadataIfNeeded()
+        }
+        .alert("Export Failed", isPresented: Binding(
+            get: { exportErrorMessage != nil },
+            set: { if !$0 { exportErrorMessage = nil } }
+        ), presenting: exportErrorMessage) { _ in
+            Button("OK", role: .cancel) { exportErrorMessage = nil }
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    // MARK: - Export
+
+    private var exportMenu: some View {
+        Menu {
+            Button("Export as JSON…") {
+                performExport(format: .json)
+            }
+            Button("Export as PDF…") {
+                performExport(format: .pdf)
+            }
+        } label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+                .labelStyle(.iconOnly)
+                .font(.system(size: 16, weight: .semibold))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Export metadata")
+        .accessibilityLabel("Export metadata")
+    }
+
+    private func performExport(format: MetadataExporter.Format) {
+        // Make sure lazy metadata is loaded before exporting so the JSON/PDF
+        // isn't missing C2PA/camera fields the user can see on screen.
+        Task { @MainActor in
+            await fetchC2PAIfNeeded()
+            await fetchCameraMetadataIfNeeded()
+            do {
+                _ = try MetadataExporter.exportWithSavePanel(item: item, format: format)
+            } catch {
+                exportErrorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -243,9 +290,6 @@ struct VideoMetadataView: View {
                 infoRow("Claim Generator", value: c2pa.claimGenerator)
                 infoRow("Actions Action", value: c2pa.actionsAction)
                 infoRow("Actions Digital Source Type", value: c2pa.actionsDigitalSourceType)
-                infoRow("Signature Types", value: c2pa.userDescriptiveMetadataName)
-                infoRow("Signature Content", value: c2pa.userDescriptiveMetadataContent)
-                infoRow("C2PA Creation Date", value: c2pa.creationDateValue)
                 if let manifestStore = c2pa.manifestStore, !manifestStore.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Manifest Store")
@@ -306,6 +350,26 @@ struct VideoMetadataView: View {
                 infoRow("Gamma/Color Profile", value: camera.captureGammaEquation)
                 infoRow("Recording Mode", value: camera.recordingModeType)
                 infoRow("Capture FPS", value: camera.captureFps)
+
+                if let entries = camera.userDescriptiveMetadata, !entries.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("User Metadata")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.top, 4)
+                        ForEach(entries.indices, id: \.self) { idx in
+                            let entry = entries[idx]
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(entry.name.isEmpty ? "—" : entry.name)
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer(minLength: 12)
+                                Text(entry.content)
+                                    .font(.system(.subheadline, design: .monospaced))
+                                    .multilineTextAlignment(.trailing)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else {
                 HStack(spacing: 6) {
                     Image(systemName: "camera")
