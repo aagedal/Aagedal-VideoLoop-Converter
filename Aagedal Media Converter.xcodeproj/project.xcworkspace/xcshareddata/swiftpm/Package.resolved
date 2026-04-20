@@ -1,6 +1,15 @@
 {
-  "originHash" : "51175b63ef2959392be167294484c3d8394557c5f81f9d5aac242ceeee1266ed",
+  "originHash" : "9108c26e927c3449a97d824c95e2465d62d9a96be6f59096b7033f85e305a805",
   "pins" : [
+    {
+      "identity" : "mpvkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/aagedal/MPVKit.git",
+      "state" : {
+        "branch" : "aagedal/custom-builds",
+        "revision" : "b7d3beac76f68ccfa69a2993e5713be64f738723"
+      }
+    },
     {
       "identity" : "swiftexif",
       "kind" : "remoteSourceControl",

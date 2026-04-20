@@ -1036,7 +1036,7 @@
 			);
 			mainGroup = 8EE6EE8D2C31FC6B007B629D;
 			packageReferences = (
-				8E824AE62EF8B66F001A6B95 /* XCLocalSwiftPackageReference "MPVKit" */,
+				8E824AE62EF8B66F001A6B95 /* XCRemoteSwiftPackageReference "MPVKit" */,
 				8ED369EF2F8CEFFC00FB9A33 /* XCRemoteSwiftPackageReference "SwiftExif" */,
 			);
 			productRefGroup = 8EE6EE972C31FC6B007B629D /* Products */;
@@ -2875,14 +2875,15 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		8E824AE62EF8B66F001A6B95 /* XCLocalSwiftPackageReference "MPVKit" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = MPVKit;
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
+		8E824AE62EF8B66F001A6B95 /* XCRemoteSwiftPackageReference "MPVKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/aagedal/MPVKit.git";
+			requirement = {
+				branch = "aagedal/custom-builds";
+				kind = branch;
+			};
+		};
 		8ED369EF2F8CEFFC00FB9A33 /* XCRemoteSwiftPackageReference "SwiftExif" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/aagedal/SwiftExif.git";
@@ -2896,7 +2897,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		8E824AB92EF8A9E1001A6B95 /* MPVKit-GPL */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 8E824AE62EF8B66F001A6B95 /* XCLocalSwiftPackageReference "MPVKit" */;
+			package = 8E824AE62EF8B66F001A6B95 /* XCRemoteSwiftPackageReference "MPVKit" */;
 			productName = "MPVKit-GPL";
 		};
 		8ED369F02F8CEFFC00FB9A33 /* SwiftExif */ = {
