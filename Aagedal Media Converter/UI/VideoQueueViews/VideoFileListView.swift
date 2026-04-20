@@ -173,6 +173,9 @@ struct VideoFileListView: View {
                     mergeClipsAvailable: mergeClipsAvailable,
                     showCommentField: showCommentField,
                     showDateTagButton: showDateTagButton,
+                    onTabCommentField: { forward in
+                        handleTabPress(forward: forward)
+                    },
                     onDelete: onDelete,
                     onReset: onReset,
                     onOpenTrim: onOpenTrim,

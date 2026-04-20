@@ -1551,6 +1551,35 @@ extension ExportPreset {
         }
     }
 
+    /// Whether the preset's output container supports an embedded "comment"
+    /// metadata tag that common media players expose to the user. Drives the
+    /// visibility of the per-item comment button on queue rows — no point
+    /// offering a comment field for formats that silently drop the tag (MXF,
+    /// image sequences, animated stills) or use their own metadata surface
+    /// (DCP has a dedicated metadata sheet).
+    var supportsMetadataComment: Bool {
+        switch self {
+        case .dcp, .imageSequence, .animatedStill, .tvAVCIntra:
+            return false
+        case .proxy:
+            let codecRaw = UserDefaults.standard.string(forKey: AppConstants.proxyCodecKey) ?? AppConstants.defaultProxyCodec
+            let codec = ProxyCodec(rawValue: codecRaw) ?? .hevc
+            return codec != .dnxhd // DNxHR in MXF doesn't carry comment metadata
+        default:
+            return ExportPreset.extensionSupportsCommentMetadata(fileExtension)
+        }
+    }
+
+    private static func extensionSupportsCommentMetadata(_ ext: String) -> Bool {
+        switch ext.lowercased() {
+        case "mp4", "m4v", "m4a", "mov", "mkv", "webm",
+             "wav", "flac", "ogg", "opus", "mp3":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Optional per-preset override for waveform/padded video resolution.
     var waveformResolutionOverride: CGSize? {
         switch self {

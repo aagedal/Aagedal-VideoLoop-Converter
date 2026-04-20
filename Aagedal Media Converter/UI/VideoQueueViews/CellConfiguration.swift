@@ -212,6 +212,9 @@ enum CellAction {
     // Comment
     case commentChanged(String)
     case commentFocusChanged(Bool)
+    /// Raised when the user presses Tab / Shift-Tab inside the comment popover
+    /// so the coordinator can move focus to the next/previous row's comment.
+    case tabCommentField(forward: Bool)
 
     // Output filename
     case beginRename

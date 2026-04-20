@@ -90,6 +90,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     let buttonsRow = NSStackView()
     let buttonDivider = NSView()   // separates process toggles from destructive actions
     let metaDivider = NSView()     // separates process toggles from comment/date/waveform group
+    let encodeDivider = NSView()   // separates encode toggles from the transcribe/analytics group
     private let statusRow = NSStackView()
 
     // Status labels (displayed in info row)
@@ -627,7 +628,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         setupToggleButton(uploadButton, symbol: "icloud.and.arrow.up", action: #selector(uploadButtonClicked))
 
         // Dividers between process toggles, the metadata group, and destructive actions.
-        for divider in [buttonDivider, metaDivider] {
+        for divider in [buttonDivider, metaDivider, encodeDivider] {
             divider.wantsLayer = true
             divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
             divider.translatesAutoresizingMaskIntoConstraints = false
@@ -648,7 +649,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         trailingSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        for view in [encodeButton, autoEncodeButton, transcriptionButton, ocrButton, analyticsButton, uploadButton,
+        for view in [encodeButton, autoEncodeButton, encodeDivider, transcriptionButton, ocrButton, analyticsButton, uploadButton,
                      metaDivider,
                      dateTagButton, commentToggleButton, waveformButton, waveformBgButton,
                      trailingSpacer,
@@ -1247,6 +1248,14 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         guard let field = obj.object as? NSTextField, field === commentField else { return }
         actionHandler?(.commentChanged(field.stringValue))
+        // Refresh the popover preview live as the user types so the full-output
+        // box always reflects the current comment + prefix/suffix composition.
+        if commentPopover?.isShown == true {
+            refreshPreviewContent(
+                comment: field.stringValue,
+                includeDateTag: currentConfig?.includeDateTag ?? false
+            )
+        }
     }
 
     func controlTextDidBeginEditing(_ obj: Notification) {
@@ -1257,6 +1266,33 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     func controlTextDidEndEditing(_ obj: Notification) {
         guard let field = obj.object as? NSTextField, field === commentField else { return }
         actionHandler?(.commentFocusChanged(false))
+    }
+
+    /// NSTextFieldDelegate entry point for special keys. NSTextField inside an
+    /// NSPopover swallows Tab as "move to next key view," which goes nowhere
+    /// because the popover has only one focusable control. Intercept Tab and
+    /// Shift-Tab here so the coordinator can hand focus to the next row's
+    /// comment field (same behavior as the SwiftUI queue rows had).
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard control === commentField else { return false }
+        switch commandSelector {
+        case #selector(NSResponder.insertTab(_:)):
+            actionHandler?(.tabCommentField(forward: true))
+            return true
+        case #selector(NSResponder.insertBacktab(_:)):
+            actionHandler?(.tabCommentField(forward: false))
+            return true
+        case #selector(NSResponder.insertNewline(_:)):
+            // Return dismisses the popover rather than inserting a newline into
+            // the single-line field.
+            commentPopover?.performClose(nil)
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            commentPopover?.performClose(nil)
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Label hit-testing (rename, Finder reveal, metadata shortcuts)

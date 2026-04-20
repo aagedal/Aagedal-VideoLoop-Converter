@@ -118,6 +118,11 @@ struct VideoQueueTableView: NSViewRepresentable {
     let showCommentField: Bool
     let showDateTagButton: Bool
 
+    /// Invoked when a cell raises `.tabCommentField` from its comment popover.
+    /// VideoFileListView owns the focus-navigation logic (`handleTabPress`), so
+    /// this just forwards the direction.
+    var onTabCommentField: ((Bool) -> Void)?
+
     // Callbacks
     var onDelete: (IndexSet) -> Void
     var onReset: (Int, Bool) -> Void
@@ -1299,6 +1304,8 @@ struct VideoQueueTableView: NSViewRepresentable {
                 } else if parent.focusedCommentID == itemID {
                     parent.focusedCommentID = nil
                 }
+            case .tabCommentField(let forward):
+                parent.onTabCommentField?(forward)
             case .beginRename:
                 parent.onRenameOutputFileName?(itemID, nil)
             case .commitRename(let name):
