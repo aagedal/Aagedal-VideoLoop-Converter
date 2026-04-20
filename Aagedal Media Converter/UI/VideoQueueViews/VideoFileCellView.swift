@@ -34,6 +34,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     private let thumbnailBorderLayer = CAShapeLayer()
 
     var trackingArea: NSTrackingArea?
+    var durationSizeTracker: NSTrackingArea?
+    var isDurationSizeHovered = false
 
     // Content area (right)
     let contentStack = NSStackView()
@@ -630,8 +632,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
             divider.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                divider.widthAnchor.constraint(equalToConstant: 1),
-                divider.heightAnchor.constraint(equalToConstant: 24),
+                divider.widthAnchor.constraint(equalToConstant: 2),
+                divider.heightAnchor.constraint(equalToConstant: 26),
             ])
         }
 
@@ -741,6 +743,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
     func setupToggleButton(_ button: NSButton, symbol: String, action: Selector) {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        // Applied on the button (not the image) so it survives the state-driven
+        // reassignments in +Actions.swift (`uploadButton.image = Symbol.named(...)`).
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
         button.isBordered = false
         button.bezelStyle = .inline
         button.target = self
@@ -761,6 +766,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
     private func setupActionButton(_ button: NSButton, symbol: String, color: NSColor, action: Selector) {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
         button.contentTintColor = color
         button.isBordered = false
         button.bezelStyle = .inline
@@ -769,8 +775,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         button.isHidden = true
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 24),
-            button.heightAnchor.constraint(equalToConstant: 24),
+            button.widthAnchor.constraint(equalToConstant: 28),
+            button.heightAnchor.constraint(equalToConstant: 28),
         ])
     }
 
@@ -880,6 +886,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         if isFirstConfigure || prev?.formattedSize != config.formattedSize {
             sizeLabel.stringValue = config.formattedSize
         }
+        // Setting stringValue wipes any hover underline — reapply if still hovered.
+        refreshDurationSizeHoverStyle()
 
         // Toggle buttons — only when relevant state changes
         if isFirstConfigure
@@ -1185,19 +1193,43 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         pasteboard.setString(url.path, forType: .string)
     }
 
+    /// Shift+Cmd is used instead of plain Shift because NSTableView reserves
+    /// Shift-click for range selection. Shift+Cmd is unclaimed, so it reliably
+    /// reaches the button's action handler with the modifier flags intact.
+    private static func isShiftCommandPressed() -> Bool {
+        let flags = NSEvent.modifierFlags
+        return flags.contains(.shift) && flags.contains(.command)
+    }
+
     @objc private func uploadButtonClicked() {
+        if Self.isShiftCommandPressed() {
+            actionHandler?(.openSettingsTab("upload"))
+            return
+        }
         let opt = NSEvent.modifierFlags.contains(.option)
         actionHandler?(.toggleUpload(optionPressed: opt))
     }
     @objc private func transcriptionButtonClicked() {
+        if Self.isShiftCommandPressed() {
+            actionHandler?(.openSettingsTab("whisper"))
+            return
+        }
         let opt = NSEvent.modifierFlags.contains(.option)
         actionHandler?(.toggleTranscription(optionPressed: opt))
     }
     @objc private func ocrButtonClicked() {
+        if Self.isShiftCommandPressed() {
+            actionHandler?(.openSettingsTab("ocr"))
+            return
+        }
         let opt = NSEvent.modifierFlags.contains(.option)
         actionHandler?(.toggleOCR(optionPressed: opt))
     }
     @objc private func analyticsButtonClicked() {
+        if Self.isShiftCommandPressed() {
+            actionHandler?(.openSettingsTab("analytics"))
+            return
+        }
         let opt = NSEvent.modifierFlags.contains(.option)
         actionHandler?(.toggleAnalytics(optionPressed: opt))
     }
@@ -1227,14 +1259,40 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         actionHandler?(.commentFocusChanged(false))
     }
 
-    // MARK: - Double-click for output name editing
+    // MARK: - Label hit-testing (rename, Finder reveal, metadata shortcuts)
+
+    /// Returns true if `point` (in self's coordinates) hits `label`.
+    /// Uses the label's on-screen frame in self's coord space — plain `label.frame`
+    /// is relative to the label's immediate parent stack, not self, so it would
+    /// miss whenever the label is nested inside a stack view.
+    private func labelContains(_ label: NSView, point: NSPoint) -> Bool {
+        guard !label.isHidden else { return false }
+        return label.convert(label.bounds, to: self).contains(point)
+    }
 
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
-        if event.clickCount == 2 && outputNameLabel.frame.contains(location) {
+        let flags = event.modifierFlags
+        let isShiftCmd = flags.contains(.shift) && flags.contains(.command)
+
+        // Shift+Cmd-click on the source filename → reveal in Finder
+        if isShiftCmd && labelContains(inputNameLabel, point: location) {
+            actionHandler?(.showInFinder)
+            return
+        }
+
+        // Double-click on the output filename → begin rename
+        if event.clickCount == 2 && labelContains(outputNameLabel, point: location) {
             actionHandler?(.beginRename)
             return
         }
+
+        // Click on duration or file-size label → open metadata
+        if labelContains(durationLabel, point: location) || labelContains(sizeLabel, point: location) {
+            actionHandler?(.showMetadata)
+            return
+        }
+
         super.mouseDown(with: event)
     }
 }

@@ -156,6 +156,9 @@ struct VideoQueueTableView: NSViewRepresentable {
     /// The NSTableView claims file drags over its bounds, so routing non-group drops
     /// through this callback preserves the "drop anywhere to add to main queue" UX.
     var onFileDropToMainQueue: (([URL]) -> Void)?
+    /// Opens the Settings window on a specific tab (e.g. "upload", "whisper", "analytics").
+    /// Triggered by Shift+Cmd-clicking a queue item's action icon.
+    var onOpenSettingsTab: ((String) -> Void)?
 
     // MARK: - Display Rows
 
@@ -1310,6 +1313,8 @@ struct VideoQueueTableView: NSViewRepresentable {
                 parent.onOpenTimecode?(itemID)
             case .playFullscreen:
                 parent.onPlayFullscreen?(itemID)
+            case .openSettingsTab(let tab):
+                parent.onOpenSettingsTab?(tab)
             case .showInFinder:
                 if let item = findItem(by: itemID) {
                     NSWorkspace.shared.activateFileViewerSelecting([item.url])

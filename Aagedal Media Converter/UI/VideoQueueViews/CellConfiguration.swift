@@ -231,6 +231,9 @@ enum CellAction {
     case showAudioFilePicker
     case attachSubtitleFile
 
+    // Open Settings window on a specific tab (e.g. "upload", "whisper", "analytics").
+    case openSettingsTab(String)
+
     // Navigation
     case playFullscreen
     case showInFinder

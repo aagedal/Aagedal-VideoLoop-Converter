@@ -62,18 +62,41 @@ extension VideoFileCellView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        guard Self.thumbnailAreaEnabled else { return }
-        if let existing = trackingArea {
-            thumbnailContainer.removeTrackingArea(existing)
+        if Self.thumbnailAreaEnabled {
+            if let existing = trackingArea {
+                thumbnailContainer.removeTrackingArea(existing)
+            }
+            let area = NSTrackingArea(
+                rect: thumbnailContainer.bounds,
+                options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                owner: self,
+                userInfo: ["kind": "thumbnail"]
+            )
+            thumbnailContainer.addTrackingArea(area)
+            trackingArea = area
         }
-        let area = NSTrackingArea(
-            rect: thumbnailContainer.bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        thumbnailContainer.addTrackingArea(area)
-        trackingArea = area
+
+        // Tracking area covering the duration + file-size labels so the cell can
+        // draw an underline on hover and show a pointing-hand cursor.
+        if let existing = durationSizeTracker {
+            removeTrackingArea(existing)
+            durationSizeTracker = nil
+        }
+        if !durationLabel.isHidden && !sizeLabel.isHidden {
+            let durationRect = durationLabel.convert(durationLabel.bounds, to: self)
+            let sizeRect = sizeLabel.convert(sizeLabel.bounds, to: self)
+            let unionRect = durationRect.union(sizeRect)
+            if unionRect.width > 0 && unionRect.height > 0 {
+                let area = NSTrackingArea(
+                    rect: unionRect,
+                    options: [.mouseEnteredAndExited, .activeInActiveApp],
+                    owner: self,
+                    userInfo: ["kind": "durationSize"]
+                )
+                addTrackingArea(area)
+                durationSizeTracker = area
+            }
+        }
     }
 
     private var allBadges: [BadgeView] {
@@ -81,16 +104,71 @@ extension VideoFileCellView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        overlayPlayButton.setHovered(true)
-        for badge in allBadges where !badge.isHidden {
-            badge.setHovered(true)
+        let kind = (event.trackingArea?.userInfo?["kind"] as? String) ?? "thumbnail"
+        switch kind {
+        case "durationSize":
+            setDurationSizeHovered(true)
+        default:
+            overlayPlayButton.setHovered(true)
+            for badge in allBadges where !badge.isHidden {
+                badge.setHovered(true)
+            }
         }
     }
 
     override func mouseExited(with event: NSEvent) {
-        overlayPlayButton.setHovered(false)
-        for badge in allBadges {
-            badge.setHovered(false)
+        let kind = (event.trackingArea?.userInfo?["kind"] as? String) ?? "thumbnail"
+        switch kind {
+        case "durationSize":
+            setDurationSizeHovered(false)
+        default:
+            overlayPlayButton.setHovered(false)
+            for badge in allBadges {
+                badge.setHovered(false)
+            }
+        }
+    }
+
+    // MARK: - Duration / file-size hover underline
+
+    /// Updates `durationLabel` + `sizeLabel` to show an underline on hover and
+    /// switches the cursor to the pointing hand so the text reads as clickable.
+    /// The click itself is handled in `mouseDown` in the main file — it routes
+    /// to `.showMetadata`.
+    func setDurationSizeHovered(_ hovered: Bool) {
+        guard isDurationSizeHovered != hovered else { return }
+        isDurationSizeHovered = hovered
+        applyDurationSizeUnderline(durationLabel, hovered: hovered)
+        applyDurationSizeUnderline(sizeLabel, hovered: hovered)
+        if hovered {
+            NSCursor.pointingHand.push()
+        } else {
+            NSCursor.pop()
+        }
+    }
+
+    /// Re-applies the hover underline if the cursor is still over the duration/size
+    /// area — `configure()` sets `stringValue` directly, which wipes any
+    /// `attributedStringValue` attributes.
+    func refreshDurationSizeHoverStyle() {
+        guard isDurationSizeHovered else { return }
+        applyDurationSizeUnderline(durationLabel, hovered: true)
+        applyDurationSizeUnderline(sizeLabel, hovered: true)
+    }
+
+    private func applyDurationSizeUnderline(_ label: NSTextField, hovered: Bool) {
+        let text = label.stringValue
+        guard !text.isEmpty else { return }
+        if hovered {
+            var attrs: [NSAttributedString.Key: Any] = [
+                .underlineStyle: NSUnderlineStyle.single.rawValue
+            ]
+            if let font = label.font { attrs[.font] = font }
+            if let color = label.textColor { attrs[.foregroundColor] = color }
+            label.attributedStringValue = NSAttributedString(string: text, attributes: attrs)
+        } else {
+            // Reassign stringValue clears attributedStringValue and restores default rendering.
+            label.stringValue = text
         }
     }
 

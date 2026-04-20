@@ -121,6 +121,25 @@ Recent addition (see git history) for flexible audio channel manipulation:
   - Cached metadata lookup
   - Used for merge compatibility checks
 
+#### 5. Queue Row Rendering (AppKit, not SwiftUI)
+
+**Important trap:** the main queue rows are **NOT** rendered by the SwiftUI `VideoFileRowView`. That struct exists only as a `PreviewProvider` for Xcode previews — it is never instantiated at runtime (confirmed by grepping `VideoFileRowView(` — the only call sites are inside its own `_Previews` structs).
+
+The real runtime path is an `NSTableView` backed by an AppKit `NSTableCellView` subclass:
+
+- **VideoQueueTableView** (`UI/VideoQueueViews/VideoQueueTableView.swift`): `NSViewRepresentable` wrapping an `NSTableView`. Registers and dequeues `VideoFileCellView` at line ~450.
+- **VideoFileCellView** (`UI/VideoQueueViews/VideoFileCellView.swift`, ~1445 lines): AppKit `NSTableCellView` subclass. All real click handlers, layout, NSButtons, NSTextFields, and `mouseDown` overrides live here.
+  - Extensions: `+Actions.swift` (state → UI updates for toggle buttons), `+Thumbnail.swift` (tracking areas, hover state, badges), `+Comment.swift`.
+- **CellAction** (`UI/VideoQueueViews/CellConfiguration.swift`): enum that cells raise; handled in `VideoQueueTableView.handleCellAction`. Add a new case here when adding a new interaction that needs to reach ContentView.
+
+**Rules of thumb when modifying queue-item interactions:**
+- Editing `VideoFileRowView.swift` does NOTHING at runtime. Don't be misled by the SwiftUI code — always check `VideoFileCellView.swift` first.
+- Click handlers are `@objc` methods on `VideoFileCellView` wired via `button.target = self, button.action = #selector(...)`.
+- Modifier-key detection happens inside those handlers via `NSEvent.modifierFlags`. NSTableView reserves plain Shift-click and plain Cmd-click for selection — use `Shift+Cmd` for custom modifier shortcuts (reaches the handler with flags intact).
+- For hit-testing nested labels in `mouseDown`, use `label.convert(label.bounds, to: self)` — `label.frame` is in the parent stack's coordinate space, not the cell's. Getting this wrong silently breaks click regions.
+- New inter-view callbacks must be threaded **ContentView → VideoFileListView → VideoQueueTableView → handleCellAction**. Each layer declares `var onXxx: (…) -> Void` and forwards. Swift requires call-site argument order to match the struct's declaration order.
+- Group header rows use a separate `EncodingGroupHeaderCellView` — similar pattern but distinct.
+
 ### Directory Structure
 
 ```

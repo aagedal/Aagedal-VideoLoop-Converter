@@ -318,6 +318,10 @@ struct ContentView: View {
                     }
                 )
             },
+            onOpenSettingsTab: { tab in
+                UserDefaults.standard.set(tab, forKey: AppConstants.settingsTabToOpenKey)
+                openSettings()
+            },
             disableKeyboardNavigation: anySheetOrOverlayOpen
         )
     }

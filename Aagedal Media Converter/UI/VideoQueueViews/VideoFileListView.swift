@@ -74,6 +74,9 @@ struct VideoFileListView: View {
     var onCycleGroupSort: ((UUID) -> Void)?
     /// Opens the dedicated Group Editor window for the given group (handled in ContentView).
     var onOpenGroupEditor: ((UUID) -> Void)?
+    /// Opens the Settings window on a specific tab. Triggered by Shift+Cmd-click on a
+    /// queue item's Upload/Transcription/Analytics icon (handled in ContentView).
+    var onOpenSettingsTab: ((String) -> Void)?
     var disableKeyboardNavigation: Bool = false
 
     @State private var isTargeted = false
@@ -211,7 +214,8 @@ struct VideoFileListView: View {
                         Task { @MainActor in
                             await importURLs(urls)
                         }
-                    }
+                    },
+                    onOpenSettingsTab: onOpenSettingsTab
                 )
                 .onChange(of: selection) { _, newSelection in
                     // Sync selection to metadata window state
