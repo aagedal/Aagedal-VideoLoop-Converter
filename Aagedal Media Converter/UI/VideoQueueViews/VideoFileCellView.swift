@@ -1391,8 +1391,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             return
         }
 
-        // Click on duration or file-size label → open metadata
-        if labelContains(durationLabel, point: location) || labelContains(sizeLabel, point: location) {
+        // Click anywhere on the metadata row → open metadata
+        if !infoStack.isHidden && infoStack.convert(infoStack.bounds, to: self).contains(location) {
             actionHandler?(.showMetadata)
             return
         }

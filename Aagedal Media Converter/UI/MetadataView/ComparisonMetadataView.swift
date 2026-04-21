@@ -17,9 +17,28 @@ struct ComparisonMetadataView: View {
     @State private var cameraCheckedIDs: Set<UUID> = []
     @State private var cameraLoadingIDs: Set<UUID> = []
 
+    /// The exported output file loaded for a single selected source item whose
+    /// conversion has finished. Rendered as a second column alongside the source.
+    @State private var exportedItem: VideoItem?
+    @State private var isLoadingExportedItem: Bool = false
+
     private let labelColumnWidth: CGFloat = 140
     private let valueColumnWidth: CGFloat = 200
     private let columnSpacing: CGFloat = 16
+
+    /// The items actually rendered in columns — source items plus an optional
+    /// exported output file when a single source item has a completed export.
+    private var displayItems: [VideoItem] {
+        if items.count == 1, let exportedItem {
+            return [items[0], exportedItem]
+        }
+        return items
+    }
+
+    /// True when the Source vs Output comparison mode is active.
+    private var isSourceOutputComparison: Bool {
+        items.count == 1 && exportedItem != nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -51,36 +70,51 @@ struct ComparisonMetadataView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .id(items.map(\.id)) // Force view recreation when items change
         .task(id: items.map(\.id)) {
+            await loadExportedItemIfNeeded()
             await loadC2PAIfNeeded()
         }
+        .onChange(of: exportedItem?.id) { _, _ in
+            Task { await loadC2PAIfNeeded() }
+        }
         .onChange(of: items.map(\.id)) { _, newIDs in
-            // Clear C2PA and Camera state for items no longer in the selection
-            let newIDSet = Set(newIDs)
-            c2paByID = c2paByID.filter { newIDSet.contains($0.key) }
-            c2paCheckedIDs = c2paCheckedIDs.intersection(newIDSet)
-            c2paLoadingIDs = c2paLoadingIDs.intersection(newIDSet)
-            cameraByID = cameraByID.filter { newIDSet.contains($0.key) }
-            cameraCheckedIDs = cameraCheckedIDs.intersection(newIDSet)
-            cameraLoadingIDs = cameraLoadingIDs.intersection(newIDSet)
+            // Clear C2PA and Camera state for items no longer in the selection.
+            // Keep entries for exportedItem (its id isn't in items) — it's cleared
+            // separately when the source selection changes.
+            let keepIDs = Set(newIDs).union(exportedItem.map { [$0.id] } ?? [])
+            c2paByID = c2paByID.filter { keepIDs.contains($0.key) }
+            c2paCheckedIDs = c2paCheckedIDs.intersection(keepIDs)
+            c2paLoadingIDs = c2paLoadingIDs.intersection(keepIDs)
+            cameraByID = cameraByID.filter { keepIDs.contains($0.key) }
+            cameraCheckedIDs = cameraCheckedIDs.intersection(keepIDs)
+            cameraLoadingIDs = cameraLoadingIDs.intersection(keepIDs)
+            exportedItem = nil
         }
     }
 
     private var headerView: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(items.count == 1 ? "Metadata" : "Metadata Comparison")
+            Text(headerTitle)
                 .font(.title)
                 .fontWeight(.semibold)
-            if items.count == 1, let item = items.first {
-                Text(item.name)
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            } else {
+            if items.count > 1 {
                 Text("\(items.count) files selected")
                     .font(.headline)
                     .foregroundColor(.secondary)
+            } else if isLoadingExportedItem {
+                HStack(spacing: 6) {
+                    ProgressView().scaleEffect(0.7)
+                    Text("Loading exported output…")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
             }
         }
+    }
+
+    private var headerTitle: String {
+        if isSourceOutputComparison { return "Source vs Output" }
+        if items.count > 1 { return "Metadata Comparison" }
+        return "Metadata"
     }
 
     private var fileNamesRow: some View {
@@ -88,8 +122,14 @@ struct ComparisonMetadataView: View {
             Text("")
                 .frame(width: labelColumnWidth, alignment: .leading)
 
-            ForEach(items, id: \.id) { item in
+            ForEach(Array(displayItems.enumerated()), id: \.element.id) { index, item in
                 VStack(alignment: .leading, spacing: 8) {
+                    if let role = roleLabel(for: index) {
+                        Text(role)
+                            .font(.caption.weight(.bold))
+                            .foregroundColor(.secondary)
+                    }
+
                     // Thumbnail
                     if let thumbnailData = item.thumbnailData,
                        let nsImage = NSImage(data: thumbnailData) {
@@ -115,11 +155,25 @@ struct ComparisonMetadataView: View {
                         .font(.headline)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([item.url])
+                    } label: {
+                        Label("Reveal in Finder", systemImage: "folder")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.link)
+                    .help("Show file in Finder")
                 }
                 .frame(width: valueColumnWidth, alignment: .leading)
             }
         }
         .padding(.bottom, 12)
+    }
+
+    private func roleLabel(for index: Int) -> String? {
+        guard isSourceOutputComparison else { return nil }
+        return index == 0 ? "SOURCE" : "OUTPUT"
     }
 
     // MARK: - General Section
@@ -232,7 +286,7 @@ struct ComparisonMetadataView: View {
     private var videoSection: some View {
         sectionView(title: "VIDEO") {
             // Find max number of video streams across all items
-            let maxStreams = items.compactMap { $0.metadata?.videoStreams.count }.max() ?? 0
+            let maxStreams = displayItems.compactMap { $0.metadata?.videoStreams.count }.max() ?? 0
 
             if maxStreams == 0 {
                 comparisonRow("") { _ in "No video stream detected." }
@@ -253,7 +307,7 @@ struct ComparisonMetadataView: View {
             Text("")
                 .frame(width: labelColumnWidth, alignment: .leading)
 
-            ForEach(items, id: \.id) { item in
+            ForEach(displayItems, id: \.id) { item in
                 let hasStream = (item.metadata?.videoStreams.count ?? 0) >= streamNumber
                 Text(hasStream ? "Stream \(streamNumber)" : "—")
                     .font(.body)
@@ -374,7 +428,7 @@ struct ComparisonMetadataView: View {
     private var audioSection: some View {
         sectionView(title: "AUDIO") {
             // Find max number of audio streams across all items
-            let maxStreams = items.compactMap { $0.metadata?.audioStreams.count }.max() ?? 0
+            let maxStreams = displayItems.compactMap { $0.metadata?.audioStreams.count }.max() ?? 0
 
             if maxStreams == 0 {
                 comparisonRow("") { _ in "No audio stream detected." }
@@ -395,7 +449,7 @@ struct ComparisonMetadataView: View {
             Text("")
                 .frame(width: labelColumnWidth, alignment: .leading)
 
-            ForEach(items, id: \.id) { item in
+            ForEach(displayItems, id: \.id) { item in
                 let hasStream = (item.metadata?.audioStreams.count ?? 0) >= streamNumber
                 Text(hasStream ? "Stream \(streamNumber)" : "—")
                     .font(.body)
@@ -457,7 +511,7 @@ struct ComparisonMetadataView: View {
 
     private var subtitleSection: some View {
         sectionView(title: "SUBTITLE") {
-            let maxStreams = items.compactMap { $0.metadata?.subtitleStreams.count }.max() ?? 0
+            let maxStreams = displayItems.compactMap { $0.metadata?.subtitleStreams.count }.max() ?? 0
 
             if maxStreams == 0 {
                 comparisonRow("") { _ in "No subtitle stream detected." }
@@ -478,7 +532,7 @@ struct ComparisonMetadataView: View {
             Text("")
                 .frame(width: labelColumnWidth, alignment: .leading)
 
-            ForEach(items, id: \.id) { item in
+            ForEach(displayItems, id: \.id) { item in
                 let hasStream = (item.metadata?.subtitleStreams.count ?? 0) >= streamNumber
                 Text(hasStream ? "Stream \(streamNumber)" : "—")
                     .font(.body)
@@ -563,8 +617,27 @@ struct ComparisonMetadataView: View {
         await loadCameraMetadata()
     }
 
+    /// When a single source item with a finished export is selected, probe the
+    /// exported file so it can be shown as a side-by-side comparison column.
+    private func loadExportedItemIfNeeded() async {
+        guard items.count == 1 else { return }
+        let source = items[0]
+        guard source.status == .done,
+              let outputURL = source.outputURL,
+              source.cachedOutputFileExists,
+              exportedItem == nil,
+              !isLoadingExportedItem
+        else { return }
+
+        await MainActor.run { isLoadingExportedItem = true }
+        defer { Task { @MainActor in isLoadingExportedItem = false } }
+
+        let loaded = await VideoFileUtils.createVideoItem(from: outputURL)
+        await MainActor.run { exportedItem = loaded }
+    }
+
     private func loadC2PAMetadata() async {
-        let itemsToLoad = items.filter { item in
+        let itemsToLoad = displayItems.filter { item in
             item.c2paMetadata == nil
                 && c2paByID[item.id] == nil
                 && !c2paCheckedIDs.contains(item.id)
@@ -599,7 +672,7 @@ struct ComparisonMetadataView: View {
     }
 
     private func loadCameraMetadata() async {
-        let itemsToLoad = items.filter { item in
+        let itemsToLoad = displayItems.filter { item in
             item.cameraMetadata == nil
                 && cameraByID[item.id] == nil
                 && !cameraCheckedIDs.contains(item.id)
@@ -646,7 +719,7 @@ struct ComparisonMetadataView: View {
                     .frame(width: labelColumnWidth, alignment: .leading)
 
                 // Empty cells for alignment
-                ForEach(items, id: \.id) { _ in
+                ForEach(displayItems, id: \.id) { _ in
                     Text("")
                         .frame(width: valueColumnWidth, alignment: .leading)
                 }
@@ -669,7 +742,7 @@ struct ComparisonMetadataView: View {
                 .font(.subheadline.weight(.semibold))
                 .frame(width: labelColumnWidth, alignment: .leading)
 
-            ForEach(items, id: \.id) { _ in
+            ForEach(displayItems, id: \.id) { _ in
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(links, id: \.title) { link in
                         Link(link.title, destination: link.url)
@@ -686,7 +759,7 @@ struct ComparisonMetadataView: View {
 
     @ViewBuilder
     private func comparisonRow(_ label: String, value: (VideoItem) -> String?) -> some View {
-        let values = items.map { value($0) }
+        let values = displayItems.map { value($0) }
         let hasAnyValue = values.contains { $0?.isEmpty == false }
 
         if hasAnyValue {
@@ -695,7 +768,7 @@ struct ComparisonMetadataView: View {
                     .font(.subheadline.weight(.semibold))
                     .frame(width: labelColumnWidth, alignment: .leading)
 
-                ForEach(Array(zip(items, values).enumerated()), id: \.element.0.id) { _, itemValuePair in
+                ForEach(Array(zip(displayItems, values).enumerated()), id: \.element.0.id) { _, itemValuePair in
                     let (_, itemValue) = itemValuePair
                     let displayValue = itemValue ?? "—"
 
