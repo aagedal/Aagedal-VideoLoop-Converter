@@ -798,6 +798,10 @@ actor YTDLPUpdateService {
 
         return try await withCheckedThrowingContinuation { continuation in
             let task = session.downloadTask(with: request) { tempURL, response, error in
+                // Release the session's strong reference to its delegate once the
+                // task finishes, preventing a per-download leak.
+                defer { session.finishTasksAndInvalidate() }
+
                 if let error = error {
                     continuation.resume(throwing: error)
                     return
