@@ -63,6 +63,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     let durationWarningIcon = NSImageView()
     let dotSeparator = NSTextField(labelWithString: "•")
     let sizeLabel = NSTextField(labelWithString: "")
+    // Source video format: resolution · fps · [Interlaced] shown after size.
+    let videoFormatSeparator = NSTextField(labelWithString: "•")
+    let videoFormatLabel = NSTextField(labelWithString: "")
 
     // Toggle buttons (normal mode — ordered by processing pipeline)
     let encodeButton = NSButton()
@@ -400,6 +403,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         setupButtonsRow()
         setupProgressBar()
 
+        // Slight gap between the filename row and the status capsule below it.
+        contentStack.setCustomSpacing(7, after: filenameStack)
         // A little breathing room between the status row and the duration/size row
         // so the capsule doesn't feel glued to the metadata below it.
         contentStack.setCustomSpacing(8, after: statusRow)
@@ -479,7 +484,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         downloadedFinderButton.setContentHuggingPriority(.required, for: .horizontal)
 
         // Copy file path button
-        copyPathButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy file path")
+        copyPathButton.image = NSImage(systemSymbolName: "doc.on.doc.fill", accessibilityDescription: "Copy file path")
         copyPathButton.isBordered = false
         copyPathButton.bezelStyle = .inline
         copyPathButton.target = self
@@ -568,6 +573,13 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         configureLabel(dotSeparator, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
         configureLabel(sizeLabel, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
 
+        // Source video format — resolution / fps / [Interlaced]. Hidden until
+        // probe metadata is available; separator hides in lockstep.
+        configureLabel(videoFormatSeparator, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        configureLabel(videoFormatLabel, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
+        videoFormatSeparator.isHidden = true
+        videoFormatLabel.isHidden = true
+
         // Output size (inline in metadata row, appears after size once encoding completes)
         configureLabel(outputSizeLabel, font: .systemFont(ofSize: 11), color: .secondaryLabelColor)
         outputSizeLabel.isHidden = true
@@ -576,6 +588,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         infoStack.addArrangedSubview(durationWarningIcon)
         infoStack.addArrangedSubview(dotSeparator)
         infoStack.addArrangedSubview(sizeLabel)
+        infoStack.addArrangedSubview(videoFormatSeparator)
+        infoStack.addArrangedSubview(videoFormatLabel)
         infoStack.addArrangedSubview(outputSizeLabel)
 
         contentStack.addArrangedSubview(infoStack)
@@ -670,7 +684,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         actionButtonStack.spacing = 2
 
         setupActionButton(deleteButton, symbol: "xmark.circle.fill", color: .systemRed, action: #selector(deleteButtonClicked))
-        setupActionButton(resetButton, symbol: "arrow.counterclockwise.circle", color: .systemBlue, action: #selector(resetButtonClicked))
+        setupActionButton(resetButton, symbol: "arrow.counterclockwise.circle.fill", color: .systemBlue, action: #selector(resetButtonClicked))
         setupActionButton(cancelButton, symbol: "xmark.circle", color: .systemRed, action: #selector(cancelButtonClicked))
         setupActionButton(stopDownloadButton, symbol: "stop.circle.fill", color: .systemOrange, action: #selector(stopDownloadClicked))
         setupActionButton(cancelDownloadButton, symbol: "xmark.circle.fill", color: .systemRed, action: #selector(cancelDownloadClicked))
@@ -890,6 +904,15 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         // Setting stringValue wipes any hover underline — reapply if still hovered.
         refreshDurationSizeHoverStyle()
 
+        // Source video format (resolution · fps · [Interlaced])
+        if isFirstConfigure
+            || prev?.videoResolution != config.videoResolution
+            || prev?.videoFrameRate != config.videoFrameRate
+            || prev?.videoIsInterlaced != config.videoIsInterlaced
+            || prev?.isCompactMode != config.isCompactMode {
+            updateVideoFormatLabel(config: config)
+        }
+
         // Toggle buttons — only when relevant state changes
         if isFirstConfigure
             || prev?.isCompactMode != config.isCompactMode
@@ -1068,6 +1091,48 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     private func updateSelectionBorder(isSelected: Bool) {
         selectionBorderLayer.strokeColor = NSColor.systemBlue.withAlphaComponent(0.9).cgColor
         selectionBorderLayer.lineWidth = isSelected ? 2.5 : 0
+    }
+
+    /// Builds the "1920×1080 · 25 fps · Interlaced" label shown in the metadata
+    /// row. "Interlaced" is tinted orange so the scan type reads at a glance —
+    /// users care whether their source needs deinterlacing on export. All parts
+    /// are optional; the separator and label hide together when nothing to show.
+    private func updateVideoFormatLabel(config: VideoFileCellConfiguration) {
+        var parts: [String] = []
+        if let res = config.videoResolution { parts.append(res) }
+        if let fps = config.videoFrameRate { parts.append(fps) }
+
+        let hasContent = !parts.isEmpty || config.videoIsInterlaced
+        let visible = hasContent && !config.isCompactMode
+        videoFormatSeparator.isHidden = !visible
+        videoFormatLabel.isHidden = !visible
+        guard visible else { return }
+
+        let baseText = parts.joined(separator: " · ")
+        let font = NSFont.systemFont(ofSize: 11)
+        let attributed = NSMutableAttributedString(
+            string: baseText,
+            attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+        )
+        if config.videoIsInterlaced {
+            if !baseText.isEmpty {
+                attributed.append(NSAttributedString(
+                    string: " · ",
+                    attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+                ))
+            }
+            attributed.append(NSAttributedString(
+                string: "Interlaced",
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                    .foregroundColor: NSColor.systemOrange,
+                ]
+            ))
+        }
+        videoFormatLabel.attributedStringValue = attributed
+        videoFormatLabel.toolTip = config.videoIsInterlaced
+            ? "Source is interlaced — FFMPEG will deinterlace on export when required."
+            : nil
     }
 
     private func updateProgressBar(config: VideoFileCellConfiguration) {
@@ -1446,7 +1511,11 @@ final class BadgeView: NSView {
     }
 
     func update(icon: String, text: String, color: NSColor = .white, slashed: Bool = false) {
-        iconView.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+        // Render badge glyphs with a bold symbol weight so thin outline icons
+        // (e.g. `timer`) stay legible over busy thumbnails when tinted.
+        let symbol = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+        let bold = NSImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        iconView.image = symbol?.withSymbolConfiguration(bold) ?? symbol
         iconView.contentTintColor = color
         textLabel.stringValue = text
         setIconOnly(text.isEmpty)

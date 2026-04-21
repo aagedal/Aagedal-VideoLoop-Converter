@@ -18,6 +18,12 @@ struct VideoFileCellConfiguration: Equatable {
     let duration: String
     let durationSeconds: Double
     let formattedSize: String
+    /// Pre-formatted resolution string (e.g. "1920×1080"). Nil when metadata unavailable.
+    let videoResolution: String?
+    /// Pre-formatted frame rate string (e.g. "25 fps", "29.97 fps"). Nil when metadata unavailable.
+    let videoFrameRate: String?
+    /// True only when the source video stream is confirmed interlaced.
+    let videoIsInterlaced: Bool
     let status: ConversionManager.ConversionStatus
     let progress: Double
     let eta: String?

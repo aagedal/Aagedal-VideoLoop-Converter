@@ -681,9 +681,6 @@
         }
       }
     },
-    "Add ${videos} to the encode queue" : {
-
-    },
     "Add 1 frame" : {
       "localizations" : {
         "nb" : {
@@ -2206,9 +2203,6 @@
           }
         }
       }
-    },
-    "Convert ${videos} immediately" : {
-
     },
     "Convert Scandinavian characters (æ, ø, å)" : {
       "comment" : "A toggle that lets the user choose whether to replace Scandinavian characters in filenames with their English equivalents.",

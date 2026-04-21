@@ -922,12 +922,34 @@ struct VideoQueueTableView: NSViewRepresentable {
                 cropPct = 0
             }
 
+            // Source video format summary (resolution / frame rate / scan type)
+            // for the metadata row. Each field is optional — the cell hides them
+            // independently so files with partial probes still render cleanly.
+            let videoResolution: String? = {
+                guard let v = metadata?.primaryVideoStream,
+                      let w = v.width, let h = v.height else { return nil }
+                return "\(w)×\(h)"
+            }()
+            let videoFrameRate: String? = {
+                guard let fps = metadata?.primaryVideoStream?.frameRate?.value,
+                      fps > 0, fps.isFinite else { return nil }
+                let rounded = (fps * 100).rounded() / 100
+                if rounded == rounded.rounded() {
+                    return "\(Int(rounded)) fps"
+                }
+                return String(format: "%.2f fps", rounded)
+            }()
+            let videoIsInterlaced = metadata?.primaryVideoStream?.isInterlaced == true
+
             return VideoFileCellConfiguration(
                 itemID: item.id,
                 name: item.name,
                 duration: item.duration,
                 durationSeconds: item.durationSeconds,
                 formattedSize: item.formattedSize,
+                videoResolution: videoResolution,
+                videoFrameRate: videoFrameRate,
+                videoIsInterlaced: videoIsInterlaced,
                 status: item.status,
                 progress: item.progress,
                 eta: item.eta,

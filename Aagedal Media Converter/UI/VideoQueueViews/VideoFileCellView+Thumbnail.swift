@@ -175,7 +175,10 @@ extension VideoFileCellView {
     // MARK: - Update Badges
 
     func updateBadges(config: VideoFileCellConfiguration) {
-        // Audio routing badge
+        // Audio routing badge — always visible (when the item has audio) so the
+        // routing popover is reachable from the thumbnail even for plain stereo
+        // sources with default routing. Mirrors the always-visible pattern used
+        // by the timecode and trim badges.
         if config.isMuted {
             audioRoutingBadge.update(icon: "speaker.slash.fill", text: "", color: .systemRed)
         } else if config.hasCustomAudioRouting {
@@ -188,7 +191,11 @@ extension VideoFileCellView {
             }
         } else if config.hasSurroundAudio {
             audioRoutingBadge.update(icon: "speaker.wave.3.fill", text: "", color: .systemOrange)
+        } else if config.audioStreamCount > 0 {
+            // Default stereo (or single-track) audio with no overrides.
+            audioRoutingBadge.update(icon: "speaker.wave.2.fill", text: "", color: .white)
         } else {
+            // No audio streams at all — nothing to route.
             audioRoutingBadge.hide()
         }
 
@@ -200,7 +207,7 @@ extension VideoFileCellView {
             let mins = Int(secs) / 60
             let secsRemainder = Int(secs) % 60
             let durationStr = mins > 0 ? "\(mins)m\(secsRemainder)s" : "\(secsRemainder)s"
-            trimBadge.update(icon: "scissors", text: durationStr)
+            trimBadge.update(icon: "scissors", text: durationStr, color: .systemOrange)
         } else {
             trimBadge.update(icon: "scissors", text: "")
         }
