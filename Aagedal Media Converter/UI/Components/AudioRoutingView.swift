@@ -128,7 +128,13 @@ struct AudioRoutingView: View {
             // Bottom toolbar
             bottomToolbar
         }
-        .frame(minWidth: 1000, idealWidth: 1300, minHeight: 700, idealHeight: 1400)
+        .frame(
+            minWidth: 1000,
+            idealWidth: 1300,
+            minHeight: 700,
+            idealHeight: min(1400, (NSScreen.main?.visibleFrame.height ?? 1400) * 0.85),
+            maxHeight: (NSScreen.main?.visibleFrame.height ?? 1400) * 0.85
+        )
         .onAppear {
             updateValidation()
         }
