@@ -114,6 +114,7 @@ final class PreviewPlayerController: ObservableObject {
     var playerItemStatusObserver: Any?
     var mpvEndObserver: AnyCancellable?
     var securityScopedURL: URL?
+    var imageSequenceAudioAccess: SecurityScopedAccess = .none
     weak var playerView: AVPlayerView?
     var selectedAudioTrackOrderIndex: Int = 0
     var selectedSubtitleTrackOrderIndex: Int = -1  // -1 means subtitles disabled
@@ -363,10 +364,15 @@ final class PreviewPlayerController: ObservableObject {
 
         // Set up audio player for the associated audio file
         if let audioURL = config.associatedAudioURL {
-            // Acquire security-scoped access for the audio file
-            let audioBookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: audioURL)
-            if !audioBookmarkAccess {
-                _ = audioURL.startAccessingSecurityScopedResource()
+            // Acquire security-scoped access for the audio file (bookmark-first,
+            // falling back to direct). Track which method won so teardown only
+            // releases the one we actually acquired.
+            if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: audioURL) {
+                imageSequenceAudioAccess = .bookmark(audioURL)
+            } else if audioURL.startAccessingSecurityScopedResource() {
+                imageSequenceAudioAccess = .direct(audioURL)
+            } else {
+                imageSequenceAudioAccess = .none
             }
 
             let audioAsset = AVURLAsset(url: audioURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
@@ -1261,10 +1267,8 @@ final class PreviewPlayerController: ObservableObject {
 
         // Clean up image sequence state
         stopImageSequencePlayback()
-        if let audioURL = imageSequenceConfig?.associatedAudioURL {
-            SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: audioURL)
-            audioURL.stopAccessingSecurityScopedResource()
-        }
+        SecurityScopedBookmarkManager.shared.stopAccessing(imageSequenceAudioAccess)
+        imageSequenceAudioAccess = .none
         imageSequenceAudioPlayer?.pause()
         imageSequenceAudioPlayer = nil
         useImageSequence = false
