@@ -49,7 +49,15 @@ struct FullscreenPlayerView: View {
     @State private var autoAdvanceTriggered = false
     @State private var autoPlayPending = false
 
+    // Timeline scrubbing
+    @State private var isNarrow = false
+    @State private var precisionWasActive = false
+    @State private var precisionAnchorFraction: Double = 0
+    @State private var precisionAnchorX: CGFloat = 0
+    @AppStorage("precisionScrubFactor") private var precisionScrubFactor: Double = 10.0
+
     private let rightEdgeWidth: CGFloat = 60
+    private let narrowBreakpoint: CGFloat = 620
     init(
         item: VideoItem,
         initialOverlayHidden: Bool = false,
@@ -141,8 +149,9 @@ struct FullscreenPlayerView: View {
                             }
                     )
 
-                if showOverlay || isHoveringControls || isDraggingTimeline {
-                    // Speed indicator (matches trim player)
+                // Floating speed indicator — shown when overlay is hidden so the
+                // user still sees JKL feedback during cursor-hidden playback.
+                if !showOverlay && !isHoveringControls && !isDraggingTimeline {
                     VStack {
                         HStack {
                             PlaybackSpeedIndicator(
@@ -156,7 +165,9 @@ struct FullscreenPlayerView: View {
                     }
                     .padding(16)
                     .allowsHitTesting(false)
+                }
 
+                if showOverlay || isHoveringControls || isDraggingTimeline {
                     // Overlay controls - no tap gestures, blocks clicks from reaching background
                     controlsOverlay
                         .transition(.opacity)
@@ -399,18 +410,17 @@ struct FullscreenPlayerView: View {
     }
     
     // MARK: - Controls Overlay
-    
+
     private var controlsOverlay: some View {
-        VStack {
-            // Top bar with title and close button
+        VStack(spacing: 0) {
             topBar
-            
-            Spacer()
-            
-            // Bottom bar with timeline and playback controls
+                .transition(.move(edge: .top).combined(with: .opacity))
+
+            Spacer(minLength: 0)
+
             bottomBar
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
-        .padding()
         .onHover { hovering in
             isHoveringControls = hovering
             if hovering {
@@ -422,212 +432,263 @@ struct FullscreenPlayerView: View {
             }
         }
     }
-    
+
     private var topBar: some View {
-        HStack {
-            // File name and player backend indicator
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name)
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .shadow(color: .black.opacity(0.5), radius: 3, x: 0, y: 1)
 
                 #if DEBUG
                 Text(controller.useMPV ? "MPV" : "AVPlayer")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.5))
+                    .foregroundColor(.white.opacity(0.6))
                 #endif
             }
 
             if isLowQualityPreview {
                 Text("Low quality preview")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.orange)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                     .background(
                         Capsule(style: .continuous)
-                            .fill(Color.black.opacity(0.35))
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .stroke(Color.orange.opacity(0.35), lineWidth: 1)
-                            )
+                            .fill(Color.black.opacity(0.4))
                     )
             }
 
             Spacer()
 
-            // Close button
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(.system(size: 22))
+                    .foregroundColor(.white.opacity(0.85))
+                    .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
             }
             .buttonStyle(.plain)
             .keyboardShortcut(.escape, modifiers: [])
+            .help("Close (esc)")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: 1200)
+        .padding(.leading, 20)
+        .padding(.trailing, rightEdgeWidth + 16)
+        .padding(.top, 28)
+        .padding(.bottom, 24)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.black.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+            LinearGradient(
+                colors: [Color.black.opacity(0.55), Color.clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
         )
     }
-    
+
     private var bottomBar: some View {
-        VStack(spacing: 12) {
-            // Timeline slider
+        VStack(spacing: 8) {
             timelineSlider
 
-            queueToggleRow
-
-            // Playback controls
-            HStack(spacing: 24) {
-                let currentTime = controller.currentPlaybackTime
-                let duration = observedDuration
-
-                // Timecode display with mode prefix
-                timecodeDisplay(for: currentTime)
-
-                Spacer()
-
-                // Skip backward
-                Button(action: { controller.seek(by: -10) }) {
-                    Image(systemName: "gobackward.10")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
+            if isNarrow {
+                VStack(spacing: 6) {
+                    HStack(spacing: 6) { transportButtons }
+                    HStack(spacing: 8) {
+                        speedIndicatorView
+                        Spacer()
+                        timecodeDisplay
+                    }
                 }
-                .buttonStyle(.plain)
-
-                // Play/Pause
-                Button(action: { controller.togglePlayback() }) {
-                    Image(systemName: isPlaybackActive ? "pause.fill" : "play.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(.white)
-                }
-                .buttonStyle(.plain)
-
-                // Skip forward
-                Button(action: { controller.seek(by: 10) }) {
-                    Image(systemName: "goforward.10")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                if controller.audioTrackOptions.count > 1 {
-                    audioTrackSelector
-                }
-
-                if !controller.subtitleTrackOptions.isEmpty {
-                    subtitleTrackSelector
-                }
-
-                // Speed indicator
-                if controller.isPlaying && (controller.currentPlaybackSpeed != 1.0 || controller.isReverseSimulating) {
-                    Text("\(String(format: "%.1fx", controller.currentPlaybackSpeed))")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white.opacity(0.8))
-                        .frame(width: 50, alignment: .trailing)
-                } else {
+            } else {
+                HStack(spacing: 10) {
+                    transportButtons
                     Spacer()
-                        .frame(width: 50)
+                    speedIndicatorView
+                    timecodeDisplay
                 }
-
-                // End point timecode display
-                Text(TimecodeFormatter.formatTimeForDisplayWithMode(
-                    seconds: duration,
-                    item: itemState,
-                    mode: timecodeDisplayMode
-                ))
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.9))
-                    .frame(minWidth: 90, alignment: .trailing)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
-        .frame(maxWidth: 1200)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.black.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .overlay(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { isNarrow = geo.size.width < narrowBreakpoint }
+                    .onChange(of: geo.size.width) { _, newWidth in
+                        isNarrow = newWidth < narrowBreakpoint
+                    }
+            }
+            .allowsHitTesting(false)
         )
     }
-    
+
     @ViewBuilder
-    private func timecodeDisplay(for currentTime: Double) -> some View {
-        if isEditingTimecode {
-            // Editable timecode input
-            HStack(spacing: 6) {
-                timecodeModePrefix
-                
-                TextField("00:00:00:00", text: $timecodeInput)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white)
-                    .frame(width: 100)
-                    .focused($isTimecodeFocused)
-                    .onSubmit { seekToTimecode() }
-                    .onExitCommand { cancelTimecodeEdit() }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.white.opacity(0.15))
-            )
-            .frame(minWidth: 160, alignment: .leading)
-        } else {
-            // Display timecode with mode prefix
-            HStack(spacing: 6) {
-                timecodeModePrefix
-                
-                Text(TimecodeFormatter.formatTimeForDisplayWithMode(
-                    seconds: currentTime,
-                    item: itemState,
-                    mode: timecodeDisplayMode
-                ))
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.9))
-            }
-            .frame(minWidth: 160, alignment: .leading)
-            .onTapGesture(count: 2) { startTimecodeEdit() }
-            .help("Double-click to enter timecode. Click mode label or press T to toggle mode.")
+    private var transportButtons: some View {
+        navButton(systemName: "backward.end.fill",
+                  size: 11, width: 26,
+                  enabled: canGoToPrevious,
+                  help: "Previous in queue (⌘B)") {
+            onPreviousItem?()
+        }
+
+        navButton(systemName: "gobackward.10",
+                  size: 14, width: 28,
+                  enabled: true,
+                  help: "Back 10 seconds") {
+            controller.seek(by: -10)
+        }
+
+        navButton(systemName: isPlaybackActive ? "pause.fill" : "play.fill",
+                  size: 18, width: 32,
+                  enabled: true,
+                  help: "Play/Pause (Space)") {
+            controller.togglePlayback()
+        }
+
+        navButton(systemName: "goforward.10",
+                  size: 14, width: 28,
+                  enabled: true,
+                  help: "Forward 10 seconds") {
+            controller.seek(by: 10)
+        }
+
+        navButton(systemName: "forward.end.fill",
+                  size: 11, width: 26,
+                  enabled: canGoToNext,
+                  help: "Next in queue (⌘N)") {
+            onNextItem?()
+        }
+
+        Divider().frame(height: 18)
+
+        if controller.audioTrackOptions.count > 1 {
+            audioTrackSelector
+        }
+
+        if !controller.subtitleTrackOptions.isEmpty {
+            subtitleTrackSelector
+        }
+
+        toggleButton(systemName: queueAutoAdvanceState ? "arrow.right.circle.fill" : "arrow.right.circle",
+                     isOn: queueAutoAdvanceState,
+                     enabled: true,
+                     help: queueAutoAdvanceState ? "Disable Auto Next (A)" : "Enable Auto Next (A)") {
+            toggleQueueAutoAdvance()
+        }
+
+        toggleButton(systemName: "repeat",
+                     isOn: queueLoopState,
+                     enabled: queueAutoAdvanceState,
+                     help: queueLoopState ? "Disable Loop Queue (⌘L)" : "Enable Loop Queue (⌘L)") {
+            toggleQueueLoop()
         }
     }
-    
-    private var timecodeModePrefix: some View {
-        Text(timecodeDisplayMode.prefix)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(.white.opacity(0.6))
-            .padding(.horizontal, 4)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Color.white.opacity(0.1))
-            )
-            .contentShape(Rectangle())
-            .onTapGesture { toggleTimecodeMode() }
-            .help("Click or press T to cycle: REL TC → SRC TC → FRM")
+
+    private func navButton(systemName: String,
+                           size: CGFloat,
+                           width: CGFloat,
+                           enabled: Bool,
+                           help: String,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: size))
+                .frame(width: width, height: 28)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .help(help)
     }
-    
+
+    private func toggleButton(systemName: String,
+                              isOn: Bool,
+                              enabled: Bool,
+                              help: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 14))
+                .foregroundColor(isOn ? .accentColor : .secondary)
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .help(help)
+    }
+
+    @ViewBuilder
+    private var speedIndicatorView: some View {
+        if controller.isPlaying && (controller.currentPlaybackSpeed != 1.0 || controller.isReverseSimulating) {
+            Text(controller.isReverseSimulating
+                 ? "REV \(String(format: "%.1fx", controller.currentPlaybackSpeed))"
+                 : String(format: "%.1fx", controller.currentPlaybackSpeed))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundColor(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var timecodeDisplay: some View {
+        if isEditingTimecode {
+            timecodeEditor
+        } else {
+            timecodeReadonly
+        }
+    }
+
+    private var timecodeReadonly: some View {
+        HStack(spacing: 4) {
+            Text(timecodeDisplayMode.prefix)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(.secondary)
+
+            Text(TimecodeFormatter.formatTimeForDisplayWithMode(
+                seconds: controller.currentPlaybackTime,
+                item: itemState,
+                mode: timecodeDisplayMode
+            ))
+            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .foregroundColor(.primary)
+
+            Text("/")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.secondary)
+
+            Text(TimecodeFormatter.formatTimeForDisplayWithMode(
+                seconds: observedDuration,
+                item: itemState,
+                mode: timecodeDisplayMode,
+                isDuration: true
+            ))
+            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .foregroundColor(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { toggleTimecodeMode() }
+        .onTapGesture(count: 2) { startTimecodeEdit() }
+        .help("Click to cycle mode (T), double-click or type numbers to edit")
+    }
+
+    private var timecodeEditor: some View {
+        TextField("0:00 or +10", text: $timecodeInput)
+            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .textFieldStyle(.plain)
+            .frame(width: 140)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.white.opacity(0.1))
+            .cornerRadius(4)
+            .focused($isTimecodeFocused)
+            .onSubmit { seekToTimecode() }
+            .onExitCommand { cancelTimecodeEdit() }
+    }
+
     private var timelineSlider: some View {
         GeometryReader { geo in
-            // Use observedDuration which includes MPV fallback
             let duration = observedDuration
             let progress = duration > 0 ? controller.currentPlaybackTime / duration : 0
             let width = geo.size.width
@@ -636,12 +697,10 @@ struct FullscreenPlayerView: View {
             let hasTrim = itemState.trimStart != nil || itemState.trimEnd != nil
 
             ZStack(alignment: .leading) {
-                // Track background
                 RoundedRectangle(cornerRadius: 2)
                     .fill(Color.white.opacity(0.3))
                     .frame(height: 4)
 
-                // Trim region overlay
                 if duration > 0 && hasTrim {
                     Rectangle()
                         .fill(Color.blue.opacity(0.25))
@@ -649,7 +708,6 @@ struct FullscreenPlayerView: View {
                         .offset(x: trimInFrac * width)
                 }
 
-                // Trim-in marker
                 if itemState.trimStart != nil {
                     Rectangle()
                         .fill(Color.blue.opacity(0.8))
@@ -657,7 +715,6 @@ struct FullscreenPlayerView: View {
                         .offset(x: max(0, min(width - 2, trimInFrac * width - 1)))
                 }
 
-                // Trim-out marker
                 if itemState.trimEnd != nil {
                     Rectangle()
                         .fill(Color.blue.opacity(0.8))
@@ -665,75 +722,47 @@ struct FullscreenPlayerView: View {
                         .offset(x: max(0, min(width - 2, trimOutFrac * width - 1)))
                 }
 
-                // Playhead — thin vertical line
                 Rectangle()
                     .fill(Color(red: 1.0, green: 0.071, blue: 0.361)) // #FF125C
                     .frame(width: 2, height: 14)
                     .offset(x: max(0, min(width - 2, width * CGFloat(progress) - 1)))
             }
+            .frame(height: 20)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        isDraggingTimeline = true
-                        let fraction = max(0, min(1, value.location.x / width))
-                        let targetTime = Double(fraction) * duration
-                        controller.seekTo(targetTime)
+                        if !isDraggingTimeline {
+                            isDraggingTimeline = true
+                            precisionWasActive = false
+                            let clickFraction = max(0, min(1, value.location.x / width))
+                            let target = Double(clickFraction) * duration
+                            controller.seekTo(target)
+                        }
+                        let isPrecision = NSEvent.modifierFlags.contains(.option)
+                        let targetFraction: Double
+                        if isPrecision {
+                            if !precisionWasActive {
+                                let currentFraction = duration > 0 ? controller.currentPlaybackTime / duration : 0
+                                precisionAnchorFraction = currentFraction
+                                precisionAnchorX = value.location.x
+                                precisionWasActive = true
+                            }
+                            let delta = (value.location.x - precisionAnchorX) / width
+                            targetFraction = max(0, min(1, precisionAnchorFraction + Double(delta) / precisionScrubFactor))
+                        } else {
+                            precisionWasActive = false
+                            targetFraction = max(0, min(1, Double(value.location.x / width)))
+                        }
+                        controller.seekTo(targetFraction * duration)
                     }
                     .onEnded { _ in
                         isDraggingTimeline = false
+                        precisionWasActive = false
                     }
             )
         }
         .frame(height: 20)
-    }
-
-    private var queueToggleRow: some View {
-        HStack(spacing: 12) {
-            queueToggleButton(
-                icon: "arrow.right.circle",
-                title: "Auto Next",
-                isOn: queueAutoAdvanceState,
-                isDisabled: false,
-                action: toggleQueueAutoAdvance
-            )
-
-            queueToggleButton(
-                icon: "repeat",
-                title: "Loop Queue",
-                isOn: queueLoopState,
-                isDisabled: !queueAutoAdvanceState,
-                action: toggleQueueLoop
-            )
-
-            Spacer()
-        }
-        .font(.system(size: 12, weight: .semibold))
-        .frame(maxWidth: 1200)
-    }
-
-    private func queueToggleButton(icon: String, title: String, isOn: Bool, isDisabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(title)
-            }
-            .foregroundColor(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(Color.white.opacity(isOn ? 0.25 : 0.08))
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.white.opacity(isOn ? 0.9 : 0.55), lineWidth: 1)
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled ? 0.45 : 1)
     }
 
     private func toggleQueueAutoAdvance() {
@@ -836,11 +865,12 @@ struct FullscreenPlayerView: View {
                 }
             }
         } label: {
-            Image(systemName: "speaker.wave.2.fill")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white.opacity(0.9))
+            Image(systemName: "speaker.wave.2")
+                .font(.system(size: 14))
+                .frame(width: 28, height: 28)
         }
         .menuStyle(.borderlessButton)
+        .frame(width: 28)
         .help(controller.audioTrackOptions.isEmpty ? "No alternate audio tracks" : "Select audio track")
     }
 
@@ -876,11 +906,12 @@ struct FullscreenPlayerView: View {
                 }
             }
         } label: {
-            Image(systemName: "captions.bubble.fill")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(.white.opacity(0.9))
+            Image(systemName: "captions.bubble")
+                .font(.system(size: 14))
+                .frame(width: 28, height: 28)
         }
         .menuStyle(.borderlessButton)
+        .frame(width: 28)
         .help("Select subtitle track")
     }
 
