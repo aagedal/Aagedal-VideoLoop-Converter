@@ -173,7 +173,7 @@ extension PreviewPlayerController {
         }
 
         var videoAccess: SecurityAccess = .none
-        if securityScopedURL == nil {
+        if case .none = primaryAccess {
             let sourceURL = videoItem.url
             if sourceURL.startAccessingSecurityScopedResource() {
                 videoAccess = .direct(sourceURL)
