@@ -69,11 +69,9 @@ private final class VideoQueueNSTableView: NSTableView {
 
 private final class TransparentRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
-        // No-op: SwiftUI VideoFileRowView handles its own selection border
+        // No-op: VideoFileCellView draws its own selection border
     }
 }
-
-// MARK: - Table Cell View (hosts SwiftUI via NSHostingView)
 
 // MARK: - Pasteboard type for internal reorder
 

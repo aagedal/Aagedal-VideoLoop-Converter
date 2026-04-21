@@ -6,7 +6,7 @@ import AppKit
 import OSLog
 
 /// Pure AppKit cell view for a video file queue row.
-/// Replaces the SwiftUI VideoFileRowView for smooth scrolling performance.
+/// Uses AppKit rather than SwiftUI for smooth scrolling performance.
 /// All subviews are created once in init; `configure()` updates values only.
 final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
