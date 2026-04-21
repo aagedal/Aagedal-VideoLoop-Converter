@@ -76,80 +76,89 @@ struct WaveformSettingsView: View {
         )
     }
 
+    private var selectedFFmpegStyle: Binding<WaveformStyle> {
+        Binding(
+            get: { WaveformStyle(rawValue: waveformStyleRaw) ?? .linear },
+            set: { waveformStyleRaw = $0.rawValue }
+        )
+    }
+
+    private var selectedDistribution: Binding<FrequencyDistribution> {
+        Binding(
+            get: { FrequencyDistribution(rawValue: waveformFrequencyDistributionRaw) ?? .mel },
+            set: { waveformFrequencyDistributionRaw = $0.rawValue }
+        )
+    }
+
     /// Computed resolution string for display
     private var computedResolution: String {
         let aspectRatio = AspectRatio(rawValue: waveformAspectRatioRaw) ?? .ratio16_9
         let shortEdge = waveformShortEdge
         let (width, height) = AudioWaveformPreferences.computeResolution(aspectRatio: aspectRatio, shortEdge: shortEdge)
-        return "\(width)x\(height)"
+        return "\(width)×\(height)"
     }
 
     var body: some View {
         Form {
-            waveformSection
+            defaultsSection
+            outputSection
+            rendererSection
+            colorsSection
+            resetSection
         }
         .formStyle(.grouped)
-        .onDisappear {
-            sanitizeWaveformColors()
-        }
     }
 
-    private var waveformSection: some View {
-        Section(header: Text("Audio Waveform Video")) {
-            VStack(alignment: .leading, spacing: 12) {
+    // MARK: - Sections
+
+    private var defaultsSection: some View {
+        Section(header: Text("Defaults")) {
+            VStack(alignment: .leading, spacing: 8) {
                 Toggle("Enable waveform video by default", isOn: $waveformVideoDefaultEnabled)
                     .toggleStyle(SwitchToggleStyle())
                     .help("When enabled, newly added audio-only files will generate waveform videos unless disabled per item.")
 
-                Divider()
-                    .padding(.vertical, 4)
-
                 Toggle("Normalize audio levels", isOn: $waveformNormalizeAudio)
                     .toggleStyle(SwitchToggleStyle())
                     .help("Applies dynamic normalization before rendering the waveform and exporting audio to keep amplitudes consistent.")
+            }
+            .padding(8)
+        }
+    }
 
-                Divider()
-                    .padding(.vertical, 4)
-
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Aspect Ratio")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Picker("", selection: selectedAspectRatio) {
-                            ForEach(AspectRatio.allCases.filter { $0 != .free }) { ratio in
-                                Text(ratio.displayName).tag(ratio)
-                            }
+    private var outputSection: some View {
+        Section(header: Text("Output")) {
+            VStack(alignment: .leading, spacing: 8) {
+                LabeledContent("Aspect ratio") {
+                    Picker("", selection: selectedAspectRatio) {
+                        ForEach(AspectRatio.allCases.filter { $0 != .free }) { ratio in
+                            Text(ratio.displayName).tag(ratio)
                         }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
                     }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Short Edge")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Picker("", selection: selectedShortEdge) {
-                            ForEach(ShortEdgeResolution.allCases) { resolution in
-                                Text(resolution.displayName).tag(resolution)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Output")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(computedResolution)
-                            .font(.system(.body, design: .monospaced))
-                            .foregroundColor(.primary)
-                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 160)
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker("Frame Rate", selection: Binding(
+                LabeledContent("Short edge") {
+                    Picker("", selection: selectedShortEdge) {
+                        ForEach(ShortEdgeResolution.allCases) { resolution in
+                            Text(resolution.displayName).tag(resolution)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 160)
+                }
+
+                LabeledContent("Resolution") {
+                    Text(computedResolution)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+
+                LabeledContent("Frame rate") {
+                    Picker("", selection: Binding(
                         get: { Int(waveformFrameRate.rounded()) },
                         set: { waveformFrameRate = Double($0) }
                     )) {
@@ -157,236 +166,151 @@ struct WaveformSettingsView: View {
                             Text("\(rate) fps").tag(rate)
                         }
                     }
+                    .labelsHidden()
                     .pickerStyle(.menu)
+                    .frame(maxWidth: 160)
                     .help("Controls waveform animation smoothness. Higher frame rates increase render cost.")
                 }
+            }
+            .padding(8)
+        }
+    }
 
-                Divider()
-                    .padding(.vertical, 4)
-
-                HStack {
-                    Picker("Rendering engine", selection: selectedRenderingEngine) {
+    private var rendererSection: some View {
+        Section(header: Text("Renderer")) {
+            VStack(alignment: .leading, spacing: 8) {
+                LabeledContent("Engine") {
+                    Picker("", selection: selectedRenderingEngine) {
                         ForEach(WaveformRenderingEngine.allCases) { engine in
                             Text(engine.displayName).tag(engine)
                         }
                     }
-                    .pickerStyle(MenuPickerStyle())
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 200)
                     .help("Swift renders capsule-style frequency visualizer natively. FFmpeg uses classic waveform filters.")
                 }
 
                 if isSwiftEngine {
-                    swiftEngineSettings
+                    LabeledContent("Style") {
+                        Picker("", selection: selectedSwiftStyle) {
+                            ForEach(SwiftWaveformStyle.allCases) { style in
+                                Text(style.displayName).tag(style)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 200)
+                        .help("Choose the visual appearance for the native Swift waveform renderer.")
+                    }
+
+                    LabeledContent("Bands") {
+                        Picker("", selection: $waveformBandCount) {
+                            ForEach([16, 24, 32, 48, 64], id: \.self) { count in
+                                Text("\(count)").tag(count)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 160)
+                        .help("Number of frequency bands (capsules, bars, or wire points).")
+                    }
+
+                    LabeledContent("Distribution") {
+                        Picker("", selection: selectedDistribution) {
+                            ForEach(FrequencyDistribution.allCases) { dist in
+                                Text(dist.displayName).tag(dist)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 200)
+                        .help("How frequency ranges are mapped to bands. Mel Scale matches human hearing perception.")
+                    }
+
+                    LabeledContent("Opacity") {
+                        HStack(spacing: 8) {
+                            Slider(value: $waveformOpacity, in: 0.5...1.0, step: 0.05)
+                            Text("\(Int(waveformOpacity * 100))%")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                        .help("Controls transparency of the waveform over background images. Lower values let the background show through.")
+                    }
                 } else {
-                    ffmpegEngineSettings
-                }
-
-                HStack {
-                    Spacer()
-                    Button(role: .destructive) {
-                        resetWaveformDefaults()
-                    } label: {
-                        Label("Reset to Defaults", systemImage: "arrow.counterclockwise")
+                    LabeledContent("Style") {
+                        Picker("", selection: selectedFFmpegStyle) {
+                            ForEach(WaveformStyle.allCases) { style in
+                                Text(style.displayName).tag(style)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 200)
+                        .help("Choose the visual appearance used when rendering waveform videos (FFmpeg engine only).")
                     }
-                    .buttonStyle(.bordered)
-                    .help("Restore waveform color and normalization settings to their default values.")
-                }.padding(.top, 15)
-
-                Text("These defaults control waveform video generation for audio-only media. Colors should be six-digit HEX values.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(8)
         }
     }
 
-    // MARK: - Swift Engine Settings
+    private var colorsSection: some View {
+        Section(header: Text("Colors")) {
+            VStack(alignment: .leading, spacing: 10) {
+                colorRow(title: "Foreground", binding: $waveformForegroundHex)
 
-    @ViewBuilder
-    private var swiftEngineSettings: some View {
-        HStack {
-            Picker("Visual style", selection: selectedSwiftStyle) {
-                ForEach(SwiftWaveformStyle.allCases) { style in
-                    Text(style.displayName).tag(style)
-                }
-            }
-            .pickerStyle(MenuPickerStyle())
-            .help("Choose the visual appearance for the native Swift waveform renderer.")
-        }
-
-        HStack(spacing: 16) {
-            Picker("Bands", selection: $waveformBandCount) {
-                ForEach([16, 24, 32, 48, 64], id: \.self) { count in
-                    Text("\(count)").tag(count)
-                }
-            }
-            .pickerStyle(MenuPickerStyle())
-            .help("Number of frequency bands (capsules, bars, or wire points).")
-
-            Picker("Distribution", selection: Binding(
-                get: { FrequencyDistribution(rawValue: waveformFrequencyDistributionRaw) ?? .mel },
-                set: { waveformFrequencyDistributionRaw = $0.rawValue }
-            )) {
-                ForEach(FrequencyDistribution.allCases) { dist in
-                    Text(dist.displayName).tag(dist)
-                }
-            }
-            .pickerStyle(MenuPickerStyle())
-            .help("How frequency ranges are mapped to bands. Mel Scale matches human hearing perception.")
-        }
-
-        swiftColorSettingsGroup
-
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("Waveform Opacity")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Spacer()
-                Text("\(Int(waveformOpacity * 100))%")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
-            }
-            Slider(value: $waveformOpacity, in: 0.5...1.0, step: 0.05)
-                .help("Controls transparency of the waveform over background images. Lower values let the background show through.")
-        }
-    }
-
-    // MARK: - FFmpeg Engine Settings
-
-    @ViewBuilder
-    private var ffmpegEngineSettings: some View {
-        HStack {
-            Picker(
-                "Waveform style",
-                selection: Binding(
-                    get: { WaveformStyle(rawValue: waveformStyleRaw) ?? .linear },
-                    set: { waveformStyleRaw = $0.rawValue }
-                )
-            ) {
-                ForEach(WaveformStyle.allCases) { style in
-                    Text(style.displayName).tag(style)
-                }
-            }
-            .pickerStyle(MenuPickerStyle())
-            .help("Choose the visual appearance used when rendering waveform videos (FFmpeg engine only).")
-        }
-
-        ffmpegColorSettingsGroup
-    }
-
-    // MARK: - Swift Color Settings (with gradient support)
-
-    private var swiftColorSettingsGroup: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                // Foreground color + gradient
-                colorPickerRow(
-                    title: "Foreground Color",
-                    binding: $waveformForegroundHex,
-                    placeholder: ""
-                )
-
-                HStack(spacing: 8) {
-                    Toggle("Gradient", isOn: $foregroundGradientEnabled)
+                if isSwiftEngine {
+                    Toggle("Use foreground gradient", isOn: $foregroundGradientEnabled)
                         .toggleStyle(SwitchToggleStyle())
-                        .fixedSize()
                     if foregroundGradientEnabled {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            ColorPicker(selection: Binding(
-                                get: { Color(hex: foregroundGradientEndHex) },
-                                set: { foregroundGradientEndHex = $0.toHexString(includeHash: true) }
-                            ), supportsOpacity: false) {
-                                EmptyView()
-                            }
-                            .labelsHidden()
-                            .frame(width: 36)
-                            TextField("", text: $foregroundGradientEndHex)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 100)
-                                .onSubmit(sanitizeWaveformColors)
-                        }
+                        colorRow(title: "Gradient end", binding: $foregroundGradientEndHex)
                     }
                 }
-                .padding(.leading, 20)
 
                 Divider()
+                    .padding(.vertical, 2)
 
-                // Background color + gradient
-                colorPickerRow(
-                    title: "Background Color",
-                    binding: $waveformBackgroundHex,
-                    placeholder: ""
-                )
+                colorRow(title: "Background", binding: $waveformBackgroundHex)
 
-                HStack(spacing: 8) {
-                    Toggle("Gradient", isOn: $backgroundGradientEnabled)
+                if isSwiftEngine {
+                    Toggle("Use background gradient", isOn: $backgroundGradientEnabled)
                         .toggleStyle(SwitchToggleStyle())
-                        .fixedSize()
                     if backgroundGradientEnabled {
-                        HStack(spacing: 8) {
-                            Image(systemName: "arrow.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            ColorPicker(selection: Binding(
-                                get: { Color(hex: backgroundGradientEndHex) },
-                                set: { backgroundGradientEndHex = $0.toHexString(includeHash: true) }
-                            ), supportsOpacity: false) {
-                                EmptyView()
-                            }
-                            .labelsHidden()
-                            .frame(width: 36)
-                            TextField("", text: $backgroundGradientEndHex)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 100)
-                                .onSubmit(sanitizeWaveformColors)
-                        }
+                        colorRow(title: "Gradient end", binding: $backgroundGradientEndHex)
                     }
                 }
-                .padding(.leading, 20)
+
+                Text("Colors accept six-digit HEX values (e.g. #1A2B3C).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
             }
             .padding(8)
-        } label: {
-            Label("Colors", systemImage: "paintpalette")
-        }.padding(.bottom, 5)
+        }
     }
 
-    // MARK: - FFmpeg Color Settings (solid colors only)
-
-    private var ffmpegColorSettingsGroup: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                colorPickerRow(
-                    title: "Foreground Color",
-                    binding: $waveformForegroundHex,
-                    placeholder: ""
-                )
-
-                Divider()
-
-                colorPickerRow(
-                    title: "Background Color",
-                    binding: $waveformBackgroundHex,
-                    placeholder: ""
-                )
+    private var resetSection: some View {
+        Section {
+            HStack {
+                Spacer()
+                Button(role: .destructive) {
+                    resetWaveformDefaults()
+                } label: {
+                    Label("Reset to Defaults", systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(.bordered)
+                .help("Restore all waveform settings to their default values.")
             }
             .padding(8)
-        } label: {
-            Label("Colors", systemImage: "paintpalette")
-        }.padding(.bottom, 5)
+        }
     }
 
     @ViewBuilder
-    private func colorPickerRow(title: String, binding: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-
+    private func colorRow(title: String, binding: Binding<String>) -> some View {
+        LabeledContent(title) {
             HStack(spacing: 8) {
                 ColorPicker(selection: Binding(
                     get: { Color(hex: binding.wrappedValue) },
@@ -397,14 +321,15 @@ struct WaveformSettingsView: View {
                 .labelsHidden()
                 .frame(width: 36)
 
-                TextField(placeholder, text: binding)
+                TextField("", text: binding)
                     .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 120)
                     .onSubmit(sanitizeWaveformColors)
-            }.padding(.leading, 15)
-        }.padding(.leading, 5)
+            }
+        }
     }
 
-    // MARK: - Helpers (scoped to Waveform tab)
+    // MARK: - Helpers
 
     private func sanitizeWaveformColors() {
         waveformBackgroundHex = "#" + AudioWaveformPreferences.sanitizeHex(waveformBackgroundHex, fallback: "000000")

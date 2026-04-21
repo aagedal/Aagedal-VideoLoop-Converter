@@ -452,5 +452,8 @@ struct ParakeetSettingsView: View {
 }
 
 #Preview {
-    ParakeetSettingsView()
+    Form {
+        ParakeetSettingsView()
+    }
+    .formStyle(.grouped)
 }

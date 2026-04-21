@@ -50,6 +50,7 @@ struct UpdateSettingsView: View {
             
             Section(header: Text("Updates")) {
                 Toggle("Automatically check for updates", isOn: $checkForUpdates)
+                    .toggleStyle(SwitchToggleStyle())
                 
                 if checkForUpdates {
                     Picker("Check frequency", selection: $checkFrequencyRaw) {

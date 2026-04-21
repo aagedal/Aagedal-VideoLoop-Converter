@@ -34,11 +34,13 @@ struct AnalyticsSettingsView: View {
     private var automationSection: some View {
         Section(header: Text("Automation")) {
             Toggle("Automatically run analytics after conversion", isOn: $autoRunAfterConversion)
+                .toggleStyle(SwitchToggleStyle())
             Text("When enabled, quality analytics will run on each file immediately after encoding completes.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
             Toggle("Auto-export analytics results", isOn: $autoExport)
+                .toggleStyle(SwitchToggleStyle())
 
             if autoExport {
                 Picker("Export Format", selection: $autoExportFormat) {
@@ -79,6 +81,7 @@ struct AnalyticsSettingsView: View {
             )) {
                 Text(metric.displayName)
             }
+            .toggleStyle(SwitchToggleStyle())
 
             Text(aboutText(for: metric))
                 .font(.caption)

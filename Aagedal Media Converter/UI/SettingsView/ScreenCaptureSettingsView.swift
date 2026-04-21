@@ -80,7 +80,9 @@ struct ScreenCaptureSettingsView: View {
                         .foregroundColor(.secondary)
                 }
                 Toggle("Hide cursor", isOn: $captureHideCursor)
+                    .toggleStyle(SwitchToggleStyle())
                 Toggle("Hide app window", isOn: $captureExcludeCurrentApp)
+                    .toggleStyle(SwitchToggleStyle())
             }
 
             Section(header: Text("Output Folder")) {

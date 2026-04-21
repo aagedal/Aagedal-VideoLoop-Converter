@@ -557,5 +557,8 @@ struct WhisperSettingsView: View {
 }
 
 #Preview {
-    WhisperSettingsView()
+    Form {
+        WhisperSettingsView()
+    }
+    .formStyle(.grouped)
 }

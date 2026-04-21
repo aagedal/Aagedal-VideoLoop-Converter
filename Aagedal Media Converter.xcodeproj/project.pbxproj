@@ -54,6 +54,8 @@
 		8E4DF26D2ECBACFC007B6277 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */; };
 		8E4DF26F2ECBAD35007B6277 /* PresetSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF26E2ECBAD30007B6277 /* PresetSettingsView.swift */; };
 		8E4DF2712ECBAD4B007B6277 /* WaveformSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2702ECBAD46007B6277 /* WaveformSettingsView.swift */; };
+		FILENAMESETV0000000000B1 /* FileNameSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */; };
+		SCRNSHOTSETV0000000000B1 /* ScreenshotSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCRNSHOTSETV0000000000B2 /* ScreenshotSettingsView.swift */; };
 		8E4DF2732ECBBE38007B6277 /* WatchFolderSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2722ECBBE38007B6277 /* WatchFolderSettingsView.swift */; };
 		8E4DF2752ECBD3F2007B6277 /* SoundManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */; };
 		8E501CFD2EF1807000717373 /* done.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 8E0CA7A32C34160C00EA7C37 /* done.mp3 */; };
@@ -279,6 +281,8 @@
 		8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
 		8E4DF26E2ECBAD30007B6277 /* PresetSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetSettingsView.swift; sourceTree = "<group>"; };
 		8E4DF2702ECBAD46007B6277 /* WaveformSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformSettingsView.swift; sourceTree = "<group>"; };
+		FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameSettingsView.swift; sourceTree = "<group>"; };
+		SCRNSHOTSETV0000000000B2 /* ScreenshotSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotSettingsView.swift; sourceTree = "<group>"; };
 		8E4DF2722ECBBE38007B6277 /* WatchFolderSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderSettingsView.swift; sourceTree = "<group>"; };
 		8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundManager.swift; sourceTree = "<group>"; };
 		8E501D002EF2002000717373 /* FullscreenPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FullscreenPlayerView.swift; sourceTree = "<group>"; };
@@ -825,6 +829,8 @@
 				ANALYTICSSETV0000001 /* AnalyticsSettingsView.swift */,
 				8EA260022F865E430087B1F1 /* ParakeetSettingsView.swift */,
 				8EA260032F865E430087B1F1 /* TranscriptionSettingsView.swift */,
+				FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */,
+				SCRNSHOTSETV0000000000B2 /* ScreenshotSettingsView.swift */,
 			);
 			path = SettingsView;
 			sourceTree = "<group>";
@@ -1183,6 +1189,8 @@
 				8EC9A6F72EC149010082C67F /* PreviewTrimControls.swift in Sources */,
 				8EC9A6F82EC149010082C67F /* PreviewPlayerFooter.swift in Sources */,
 				8E4DF2712ECBAD4B007B6277 /* WaveformSettingsView.swift in Sources */,
+				FILENAMESETV0000000000B1 /* FileNameSettingsView.swift in Sources */,
+				SCRNSHOTSETV0000000000B1 /* ScreenshotSettingsView.swift in Sources */,
 				8EE6EE9A2C31FC6B007B629D /* Aagedal_Media_Converter_App.swift in Sources */,
 				8E09F7442EC762C200E129CD /* AudioWaveformPreferences.swift in Sources */,
 				8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */,

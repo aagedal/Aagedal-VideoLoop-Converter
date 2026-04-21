@@ -10,17 +10,7 @@ struct GeneralSettingsView: View {
     @AppStorage(AppConstants.saveNextToOriginalSubfolderKey) private var saveNextToOriginalSubfolder = AppConstants.defaultSaveNextToOriginalSubfolder
     @AppStorage(AppConstants.saveNextToOriginalSubfolderModeKey) private var saveNextToOriginalSubfolderMode = AppConstants.defaultSaveNextToOriginalSubfolderMode
     @AppStorage(AppConstants.saveNextToOriginalSubfolderNameKey) private var saveNextToOriginalSubfolderName = AppConstants.defaultSaveNextToOriginalSubfolderName
-    @AppStorage(AppConstants.enableFileNameProcessingKey) private var enableFileNameProcessing = true
-    @AppStorage(AppConstants.fileNameReplaceSpacesKey) private var fileNameReplaceSpaces = AppConstants.defaultFileNameReplaceSpaces
-    @AppStorage(AppConstants.fileNameReplaceScandinavianCharsKey) private var fileNameReplaceScandinavianChars = AppConstants.defaultFileNameReplaceScandinavianChars
-    @AppStorage(AppConstants.fileNameRemoveSpecialCharsKey) private var fileNameRemoveSpecialChars = AppConstants.defaultFileNameRemoveSpecialChars
-    @AppStorage(AppConstants.fileNameIncludePresetSuffixKey) private var fileNameIncludePresetSuffix = AppConstants.defaultFileNameIncludePresetSuffix
-    @AppStorage(AppConstants.screenshotDirectoryKey) private var screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
     @AppStorage(AppConstants.previewCacheCleanupPolicyKey) private var previewCacheCleanupPolicyRaw = AppConstants.defaultPreviewCacheCleanupPolicyRaw
-    @AppStorage(AppConstants.screenshot8BitFormatKey) private var screenshot8BitFormat = AppConstants.defaultScreenshotFormat
-    @AppStorage(AppConstants.screenshot10BitFormatKey) private var screenshot10BitFormat = AppConstants.defaultScreenshotFormat
-    @AppStorage(AppConstants.screenshotHighBitFormatKey) private var screenshotHighBitFormat = AppConstants.defaultScreenshotFormat
-    @AppStorage(AppConstants.screenshotAlphaHandlingKey) private var screenshotAlphaHandling = AppConstants.defaultScreenshotAlphaHandling
     @AppStorage(AppConstants.autoDeleteOldEncodesKey) private var autoDeleteOldEncodes = AppConstants.defaultAutoDeleteOldEncodes
     @AppStorage(AppConstants.autoDeleteOldEncodesDaysKey) private var autoDeleteOldEncodesDays = AppConstants.defaultAutoDeleteOldEncodesDays
     @AppStorage(AppConstants.resetClearsSettingsKey) private var resetClearsSettings = AppConstants.defaultResetClearsSettings
@@ -35,12 +25,10 @@ struct GeneralSettingsView: View {
     var body: some View {
         Form {
             outputFolderSection
-            fileNameSection
             queueDisplaySection
             timecodeDisplaySection
             soundSection
             resetBehaviorSection
-            screenshotSection
             previewCacheSection
             linksSection
         }
@@ -173,47 +161,11 @@ struct GeneralSettingsView: View {
                         }
 
                         Text("Only applies to the default output folder. Files in other locations are never deleted.")
-                            .font(Font.caption.italic())
+                            .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-            }
-            .padding(8)
-        }
-    }
-
-    private var fileNameSection: some View {
-        Section(header: Text("File Names")) {
-            VStack(alignment: .leading, spacing: 8) {
-                Toggle("Enable filename processing", isOn: $enableFileNameProcessing)
-                    .toggleStyle(SwitchToggleStyle())
-                    .help("When enabled, spaces and special characters in filenames are sanitized")
-
-                if enableFileNameProcessing {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Toggle("Replace spaces with underscores", isOn: $fileNameReplaceSpaces)
-                            .toggleStyle(SwitchToggleStyle())
-                            .padding(.leading, 16)
-                        Toggle("Convert Scandinavian characters (æ, ø, å)", isOn: $fileNameReplaceScandinavianChars)
-                            .toggleStyle(SwitchToggleStyle())
-                            .padding(.leading, 16)
-                        Toggle("Remove special characters", isOn: $fileNameRemoveSpecialChars)
-                            .toggleStyle(SwitchToggleStyle())
-                            .padding(.leading, 16)
-                    }
-                }
-
-                Divider()
-                    .padding(.vertical, 4)
-
-                Toggle("Include preset suffix in filename", isOn: $fileNameIncludePresetSuffix)
-                    .toggleStyle(SwitchToggleStyle())
-                    .help("When enabled, preset suffixes like '_loop' or '_tv' are added to output filenames")
-                Text("When disabled, output filenames will not include preset-specific suffixes.")
-                    .font(Font.caption.italic())
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(8)
         }
@@ -229,7 +181,7 @@ struct GeneralSettingsView: View {
                     .toggleStyle(SwitchToggleStyle())
                     .help("Show a condensed view with smaller thumbnails and inline action buttons")
                 Text("Compact mode hides comment fields, file sizes, and duration to show more items at once. Action buttons appear in a row under each filename.")
-                    .font(Font.caption.italic())
+                    .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -251,7 +203,7 @@ struct GeneralSettingsView: View {
                     .frame(maxWidth: 250)
                 }
                 Text("Sets the initial timecode display mode when opening the trim view or fullscreen player. You can toggle modes during playback by pressing T.")
-                    .font(Font.caption.italic())
+                    .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -284,133 +236,9 @@ struct GeneralSettingsView: View {
                 Text(resetClearsSettings
                     ? "When enabled, resetting an item will clear all settings (trim points, crop, audio routing, timecode). Hold Option to only reset the encoding status."
                     : "When disabled, resetting only changes the item back to waiting status, preserving trim, crop, and audio routing settings. Hold Option to also clear all settings.")
-                    .font(Font.caption.italic())
+                    .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(8)
-        }
-    }
-
-    private var screenshotSection: some View {
-        Section(header: Text("Screenshots")) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Folder selection
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Default Screenshot Folder:")
-                        .font(.headline)
-
-                    HStack {
-                        Text(screenshotDirectoryPath)
-                            .truncationMode(.middle)
-                            .lineLimit(1)
-                            .help(screenshotDirectoryPath)
-
-                        Button(action: {
-                            let url = URL(fileURLWithPath: screenshotDirectoryPath)
-                            guard FileManager.default.fileExists(atPath: url.path) else {
-                                screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path
-                                return
-                            }
-                            NSWorkspace.shared.activateFileViewerSelecting([url])
-                        }) {
-                            Image(systemName: "arrow.right.circle.fill")
-                                .foregroundColor(.accentColor)
-                        }
-                        .buttonStyle(BorderlessButtonStyle())
-                        .help("Show in Finder")
-
-                        Button(action: { selectScreenshotDirectory() }) {
-                            Image(systemName: "camera.on.rectangle")
-                                .foregroundColor(.accentColor)
-                        }
-                        .buttonStyle(BorderlessButtonStyle())
-                        .help("Change screenshot folder")
-
-                        Button(action: { screenshotDirectoryPath = AppConstants.defaultScreenshotDirectory.path }) {
-                            Image(systemName: "arrow.counterclockwise")
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(BorderlessButtonStyle())
-                        .help("Reset to Downloads")
-                    }
-                }
-
-                Divider()
-
-                // Format settings
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Screenshot Formats:")
-                        .font(.headline)
-
-                    Text("Select the image format for screenshots based on source bit depth.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    HStack {
-                        Text("8-bit sources:")
-                            .frame(width: 120, alignment: .trailing)
-                        Picker("", selection: $screenshot8BitFormat) {
-                            ForEach(ScreenshotFormat.allCases) { format in
-                                Text(format.displayName).tag(format.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(width: 120)
-                    }
-                    
-                    Divider()
-                        .padding(.vertical, 4)
-
-                    HStack {
-                        Text("10-bit sources:")
-                            .frame(width: 120, alignment: .trailing)
-                        Picker("", selection: $screenshot10BitFormat) {
-                            ForEach(ScreenshotFormat.allCases) { format in
-                                Text(format.displayName).tag(format.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(width: 120)
-                    }
-
-                    Divider()
-                        .padding(.vertical, 4)
-                    
-                    HStack {
-                        Text(">10-bit sources:")
-                            .frame(width: 120, alignment: .trailing)
-                        Picker("", selection: $screenshotHighBitFormat) {
-                            ForEach(ScreenshotFormat.allCases) { format in
-                                Text(format.displayName).tag(format.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(width: 120)
-                    }
-
-                    Divider()
-                        .padding(.vertical, 4)
-
-                    Text("Alpha Channel Handling:")
-                        .font(.headline)
-
-                    Text("Choose how to handle screenshots with alpha transparency.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    HStack {
-                        Text("Alpha handling:")
-                            .frame(width: 120, alignment: .trailing)
-                        Picker("", selection: $screenshotAlphaHandling) {
-                            ForEach(ScreenshotAlphaHandling.allCases) { handling in
-                                Text(handling.displayName).tag(handling.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(width: 300)
-                    }
-                }
             }
             .padding(8)
         }
@@ -516,20 +344,6 @@ struct GeneralSettingsView: View {
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             outputFolder = url.path
             // Save a writable bookmark for persistent sandbox access
-            _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
-        }
-    }
-
-    private func selectScreenshotDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = URL(fileURLWithPath: screenshotDirectoryPath)
-
-        if panel.runModal() == .OK, let url = panel.url {
-            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            screenshotDirectoryPath = url.path
             _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
         }
     }

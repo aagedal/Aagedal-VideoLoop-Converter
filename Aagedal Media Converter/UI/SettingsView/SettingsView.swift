@@ -10,8 +10,10 @@ struct SettingsView: View {
 
     private enum SettingsTab: String, CaseIterable, Hashable {
         case general
+        case fileNames
         case metadata
         case presets
+        case screenshots
         case screenCapture
         case waveform
         case watchFolder
@@ -26,8 +28,10 @@ struct SettingsView: View {
         var label: String {
             switch self {
             case .general: return "General"
+            case .fileNames: return "File Names"
             case .metadata: return "Metadata"
             case .presets: return "Presets"
+            case .screenshots: return "Screenshots"
             case .screenCapture: return "Screen Capture"
             case .waveform: return "Audio Waveform"
             case .watchFolder: return "Watch Folder"
@@ -44,8 +48,10 @@ struct SettingsView: View {
         var icon: String {
             switch self {
             case .general: return "gearshape"
+            case .fileNames: return "textformat"
             case .metadata: return "info.circle"
             case .presets: return "slider.horizontal.3"
+            case .screenshots: return "camera.on.rectangle"
             case .screenCapture: return "record.circle"
             case .waveform: return "waveform"
             case .watchFolder: return "eye.fill"
@@ -69,8 +75,10 @@ struct SettingsView: View {
     private var contentView: some View {
         switch selectedTab {
         case .general: GeneralSettingsView()
+        case .fileNames: FileNameSettingsView()
         case .metadata: MetadataSettingsView()
         case .presets: PresetsSettingsView()
+        case .screenshots: ScreenshotSettingsView()
         case .screenCapture: ScreenCaptureSettingsView()
         case .waveform: WaveformSettingsView()
         case .watchFolder: WatchFolderSettingsView()
