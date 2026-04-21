@@ -114,6 +114,30 @@ private struct TrimHandlesInteractionLayer: View {
     @State private var symmetricInitialStart: Double?
     @State private var symmetricInitialEnd: Double?
 
+    // Cursor affordance for handle hover.
+    // Single-side resize shows a directional cursor; Option (symmetric scale)
+    // switches to a bidirectional cursor to signal both handles will move.
+    @State private var hoveredHandle: HandleHover = .none
+    private enum HandleHover: Equatable { case none, start, end }
+    private enum HandleCursorMode: Equatable { case arrow, resizeLeft, resizeRight, resizeBoth }
+
+    private var handleCursorMode: HandleCursorMode {
+        switch hoveredHandle {
+        case .none: return .arrow
+        case .start: return isSymmetricScalingActive ? .resizeBoth : .resizeLeft
+        case .end: return isSymmetricScalingActive ? .resizeBoth : .resizeRight
+        }
+    }
+
+    private func nsHandleCursor(for mode: HandleCursorMode) -> NSCursor {
+        switch mode {
+        case .arrow: return .arrow
+        case .resizeLeft: return .resizeLeft
+        case .resizeRight: return .resizeRight
+        case .resizeBoth: return .resizeLeftRight
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let width = max(geometry.size.width, 1)
@@ -128,6 +152,10 @@ private struct TrimHandlesInteractionLayer: View {
                 handleView(isLeading: true, isActive: isDraggingStart)
                     .frame(width: handleWidth, height: height)
                     .offset(x: clampedStartX - handleWidth / 2)
+                    .onHover { hovering in
+                        if hovering { hoveredHandle = .start }
+                        else if hoveredHandle == .start { hoveredHandle = .none }
+                    }
                     .gesture(startGesture(width: width))
                     .zIndex(isDraggingStart ? 2 : 1)
 
@@ -135,10 +163,18 @@ private struct TrimHandlesInteractionLayer: View {
                 handleView(isLeading: false, isActive: isDraggingEnd)
                     .frame(width: handleWidth, height: height)
                     .offset(x: clampedEndX - handleWidth / 2)
+                    .onHover { hovering in
+                        if hovering { hoveredHandle = .end }
+                        else if hoveredHandle == .end { hoveredHandle = .none }
+                    }
                     .gesture(endGesture(width: width))
                     .zIndex(isDraggingEnd ? 2 : 1)
             }
             .allowsHitTesting(duration > 0)
+            .onChange(of: handleCursorMode) { oldMode, newMode in
+                if oldMode != .arrow { NSCursor.pop() }
+                if newMode != .arrow { nsHandleCursor(for: newMode).push() }
+            }
         }
     }
 
@@ -791,11 +827,89 @@ private struct TimelineScrubLayer: View {
     @State private var slideInitialTrimEnd: Double?
     @State private var slideInitialClickTime: Double?
 
+    // Drag-seek throttling: coalesce rapid onChanged events so we don't flood the
+    // underlying player (MPV/VLC fallback formats are especially sensitive).
+    // Seeks stay frame-accurate; we just cap the rate.
+    @State private var lastSeekFireTime: Date = .distantPast
+    @State private var pendingSeekTime: Double?
+    @State private var pendingSeekTask: Task<Void, Never>?
+    private let seekThrottleInterval: TimeInterval = 0.04  // ~25 Hz
+
+    // Cursor affordance: push an NSCursor while hovering to signal the
+    // active trim mode (Shift = move selection, Cmd = pick range).
+    @State private var isCursorInside: Bool = false
+
+    private enum CursorMode: Equatable { case arrow, openHand, closedHand, crosshair }
+
+    private var cursorMode: CursorMode {
+        if isRangeSliding { return .closedHand }
+        if isRangeSlidingActive { return .openHand }
+        if isRangeSelecting { return .crosshair }
+        if isRangeSelectionActive { return .crosshair }
+        return .arrow
+    }
+
+    private var nsCursor: NSCursor {
+        switch cursorMode {
+        case .arrow: return .arrow
+        case .openHand: return .openHand
+        case .closedHand: return .closedHand
+        case .crosshair: return .crosshair
+        }
+    }
+
+    private func throttledSeek(_ time: Double) {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastSeekFireTime)
+        if elapsed >= seekThrottleInterval {
+            pendingSeekTask?.cancel()
+            pendingSeekTask = nil
+            pendingSeekTime = nil
+            lastSeekFireTime = now
+            onSeek(time)
+            return
+        }
+        pendingSeekTime = time
+        guard pendingSeekTask == nil else { return }
+        let delay = seekThrottleInterval - elapsed
+        pendingSeekTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let t = pendingSeekTime else { return }
+            pendingSeekTask = nil
+            pendingSeekTime = nil
+            lastSeekFireTime = Date()
+            onSeek(t)
+        }
+    }
+
+    private func flushPendingSeek() {
+        pendingSeekTask?.cancel()
+        pendingSeekTask = nil
+        if let t = pendingSeekTime {
+            pendingSeekTime = nil
+            lastSeekFireTime = Date()
+            onSeek(t)
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             Rectangle()
                 .fill(Color.clear)
                 .contentShape(Rectangle())
+                .onHover { hovering in
+                    isCursorInside = hovering
+                    if hovering {
+                        nsCursor.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .onChange(of: cursorMode) { _, _ in
+                    guard isCursorInside else { return }
+                    NSCursor.pop()
+                    nsCursor.push()
+                }
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
@@ -815,6 +929,7 @@ private struct TimelineScrubLayer: View {
                                     rangeStartTime = snapped
                                     trimStart = max(0, snapped)
                                     onSeek(trimStart)
+                                    lastSeekFireTime = Date()
                                 } else {
                                     // During range selection - update out-point preview
                                     let snapped = snap(clickTime)
@@ -827,7 +942,7 @@ private struct TimelineScrubLayer: View {
                                         trimStart = max(0, snapped)
                                         trimEnd = min(duration, start)
                                     }
-                                    onSeek(snapped)
+                                    throttledSeek(snapped)
                                 }
                                 return
                             }
@@ -877,7 +992,7 @@ private struct TimelineScrubLayer: View {
                                     trimEnd = snap(min(duration, newEnd))
 
                                     // Seek to current position within the range
-                                    onSeek(clickTime)
+                                    throttledSeek(clickTime)
                                 }
                                 return
                             }
@@ -893,9 +1008,11 @@ private struct TimelineScrubLayer: View {
                             if !isScrubbing {
                                 isScrubbing = true
                             }
-                            onSeek(clickTime)
+                            throttledSeek(clickTime)
                         }
                         .onEnded { value in
+                            flushPendingSeek()
+
                             if isRangeSelecting {
                                 // End of range selection - finalize out-point
                                 let width = geometry.size.width
