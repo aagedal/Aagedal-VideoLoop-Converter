@@ -291,45 +291,35 @@ struct UploadSettingsView: View {
 
     private var ftpServerSection: some View {
         Section(header: Text("FTP Server")) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Profile")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                HStack {
-                    Text("Profile:")
-                        .frame(width: 80, alignment: .trailing)
-                    Picker("Profile", selection: $selectedFTPProfileID) {
-                        if ftpProfiles.isEmpty {
-                            Text("No profiles").tag("")
-                        } else {
-                            ForEach(ftpProfiles) { profile in
-                                Text(profile.name.isEmpty ? "Untitled FTP" : profile.name)
-                                    .tag(profile.id.uuidString)
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledContent("Profile") {
+                    HStack {
+                        Picker("", selection: $selectedFTPProfileID) {
+                            if ftpProfiles.isEmpty {
+                                Text("No profiles").tag("")
+                            } else {
+                                ForEach(ftpProfiles) { profile in
+                                    Text(profile.name.isEmpty ? "Untitled FTP" : profile.name)
+                                        .tag(profile.id.uuidString)
+                                }
                             }
                         }
+                        .labelsHidden()
+                        Button { addFTPProfile() } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Add profile")
+                        Button { deleteSelectedFTPProfile() } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(ftpProfiles.count <= 1)
+                        .help("Delete profile")
                     }
-                    .labelsHidden()
-                    Spacer()
-                    Button {
-                        addFTPProfile()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Add profile")
-                    Button {
-                        deleteSelectedFTPProfile()
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(ftpProfiles.count <= 1)
-                    .help("Delete profile")
                 }
 
-                HStack {
-                    Text("Name:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Name") {
                     TextField(
                         "FTP Profile",
                         text: Binding(
@@ -342,62 +332,42 @@ struct UploadSettingsView: View {
 
                 Divider().padding(.vertical, 4)
 
-                Text("Settings")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                // Server hostname
-                HStack {
-                    Text("Server:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Server") {
                     TextField("", text: $server)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .server)
                         .onSubmit { focusedField = .port }
                 }
 
-                // Port
-                HStack {
-                    Text("Port:")
-                        .frame(width: 80, alignment: .trailing)
-                    TextField("", value: $port, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
-                        .focused($focusedField, equals: .port)
-                        .onSubmit { focusedField = .username }
-                    Spacer()
+                LabeledContent("Port") {
+                    HStack {
+                        TextField("", value: $port, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .focused($focusedField, equals: .port)
+                            .onSubmit { focusedField = .username }
+                        Spacer()
+                    }
                 }
 
-                // Username
-                HStack {
-                    Text("Username:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Username") {
                     TextField("", text: $username)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .username)
                         .onSubmit { focusedField = .password }
                 }
 
-                // Password
                 passwordField
 
-                // Remote path
-                HStack {
-                    Text("Path:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Path") {
                     TextField("", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .remotePath)
                         .onSubmit { focusedField = nil }
                 }
 
-                // FTPS toggle
-                HStack {
-                    Text("")
-                        .frame(width: 80, alignment: .trailing)
-                    Toggle("Use FTPS (TLS encryption)", isOn: $useFTPS)
-                        .toggleStyle(.checkbox)
-                }
+                Toggle("Use FTPS (TLS encryption)", isOn: $useFTPS)
+                    .toggleStyle(SwitchToggleStyle())
             }
             .padding(8)
         }
@@ -405,45 +375,35 @@ struct UploadSettingsView: View {
 
     private var sftpServerSection: some View {
         Section(header: Text("SFTP Server")) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Profile")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                HStack {
-                    Text("Profile:")
-                        .frame(width: 80, alignment: .trailing)
-                    Picker("Profile", selection: $selectedSFTPProfileID) {
-                        if sftpProfiles.isEmpty {
-                            Text("No profiles").tag("")
-                        } else {
-                            ForEach(sftpProfiles) { profile in
-                                Text(profile.name.isEmpty ? "Untitled SFTP" : profile.name)
-                                    .tag(profile.id.uuidString)
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledContent("Profile") {
+                    HStack {
+                        Picker("", selection: $selectedSFTPProfileID) {
+                            if sftpProfiles.isEmpty {
+                                Text("No profiles").tag("")
+                            } else {
+                                ForEach(sftpProfiles) { profile in
+                                    Text(profile.name.isEmpty ? "Untitled SFTP" : profile.name)
+                                        .tag(profile.id.uuidString)
+                                }
                             }
                         }
+                        .labelsHidden()
+                        Button { addSFTPProfile() } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Add profile")
+                        Button { deleteSelectedSFTPProfile() } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(sftpProfiles.count <= 1)
+                        .help("Delete profile")
                     }
-                    .labelsHidden()
-                    Spacer()
-                    Button {
-                        addSFTPProfile()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Add profile")
-                    Button {
-                        deleteSelectedSFTPProfile()
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(sftpProfiles.count <= 1)
-                    .help("Delete profile")
                 }
 
-                HStack {
-                    Text("Name:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Name") {
                     TextField(
                         "SFTP Profile",
                         text: Binding(
@@ -456,77 +416,60 @@ struct UploadSettingsView: View {
 
                 Divider().padding(.vertical, 4)
 
-                Text("Settings")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                // Server hostname
-                HStack {
-                    Text("Server:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Server") {
                     TextField("", text: $server)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .server)
                         .onSubmit { focusedField = .port }
                 }
 
-                // Port
-                HStack {
-                    Text("Port:")
-                        .frame(width: 80, alignment: .trailing)
-                    TextField("", value: $port, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
-                        .focused($focusedField, equals: .port)
-                        .onSubmit { focusedField = .username }
-                    Spacer()
+                LabeledContent("Port") {
+                    HStack {
+                        TextField("", value: $port, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .focused($focusedField, equals: .port)
+                            .onSubmit { focusedField = .username }
+                        Spacer()
+                    }
                 }
 
-                // Username
-                HStack {
-                    Text("Username:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Username") {
                     TextField("", text: $username)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .username)
                         .onSubmit { focusedField = useSFTPKeyAuth ? .sftpKeyFile : .password }
                 }
 
-                // Auth method toggle
-                HStack {
-                    Text("Auth:")
-                        .frame(width: 80, alignment: .trailing)
-                    Picker("Authentication", selection: $useSFTPKeyAuth) {
-                        Text("Password").tag(false)
-                        Text("SSH Key").tag(true)
+                LabeledContent("Auth") {
+                    HStack {
+                        Picker("", selection: $useSFTPKeyAuth) {
+                            Text("Password").tag(false)
+                            Text("SSH Key").tag(true)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 220)
+                        Spacer()
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 200)
-                    Spacer()
                 }
 
-                // Password or SSH key based on auth method
                 if useSFTPKeyAuth {
-                    // SSH Key file picker
-                    HStack {
-                        Text("Key File:")
-                            .frame(width: 80, alignment: .trailing)
-                        TextField("", text: $sftpKeyFilePath)
-                            .textFieldStyle(.roundedBorder)
-                            .focused($focusedField, equals: .sftpKeyFile)
-                        Button("Browse...") {
-                            selectSSHKeyFile()
+                    LabeledContent("Key File") {
+                        HStack {
+                            TextField("", text: $sftpKeyFilePath)
+                                .textFieldStyle(.roundedBorder)
+                                .focused($focusedField, equals: .sftpKeyFile)
+                            Button("Browse...") {
+                                selectSSHKeyFile()
+                            }
                         }
                     }
                 } else {
-                    // Password
                     passwordField
                 }
 
-                // Remote path
-                HStack {
-                    Text("Path:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Path") {
                     TextField("", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .remotePath)
@@ -539,45 +482,35 @@ struct UploadSettingsView: View {
 
     private var smbServerSection: some View {
         Section(header: Text("SMB Server (Windows Share)")) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Profile")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                HStack {
-                    Text("Profile:")
-                        .frame(width: 80, alignment: .trailing)
-                    Picker("Profile", selection: $selectedSMBProfileID) {
-                        if smbProfiles.isEmpty {
-                            Text("No profiles").tag("")
-                        } else {
-                            ForEach(smbProfiles) { profile in
-                                Text(profile.name.isEmpty ? "Untitled SMB" : profile.name)
-                                    .tag(profile.id.uuidString)
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledContent("Profile") {
+                    HStack {
+                        Picker("", selection: $selectedSMBProfileID) {
+                            if smbProfiles.isEmpty {
+                                Text("No profiles").tag("")
+                            } else {
+                                ForEach(smbProfiles) { profile in
+                                    Text(profile.name.isEmpty ? "Untitled SMB" : profile.name)
+                                        .tag(profile.id.uuidString)
+                                }
                             }
                         }
+                        .labelsHidden()
+                        Button { addSMBProfile() } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Add profile")
+                        Button { deleteSelectedSMBProfile() } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(smbProfiles.count <= 1)
+                        .help("Delete profile")
                     }
-                    .labelsHidden()
-                    Spacer()
-                    Button {
-                        addSMBProfile()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Add profile")
-                    Button {
-                        deleteSelectedSMBProfile()
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(smbProfiles.count <= 1)
-                    .help("Delete profile")
                 }
 
-                HStack {
-                    Text("Name:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Name") {
                     TextField(
                         "SMB Profile",
                         text: Binding(
@@ -590,69 +523,48 @@ struct UploadSettingsView: View {
 
                 Divider().padding(.vertical, 4)
 
-                Text("Settings")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                // Server hostname
-                HStack {
-                    Text("Server:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Server") {
                     TextField("", text: $server)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .server)
                         .onSubmit { focusedField = .port }
                 }
 
-                // Port
-                HStack {
-                    Text("Port:")
-                        .frame(width: 80, alignment: .trailing)
-                    TextField("", value: $port, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
-                        .focused($focusedField, equals: .port)
-                        .onSubmit { focusedField = .smbShare }
-                    Spacer()
+                LabeledContent("Port") {
+                    HStack {
+                        TextField("", value: $port, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .focused($focusedField, equals: .port)
+                            .onSubmit { focusedField = .smbShare }
+                        Spacer()
+                    }
                 }
 
-                // Share name
-                HStack {
-                    Text("Share:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Share") {
                     TextField("", text: $smbShare)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .smbShare)
                         .onSubmit { focusedField = .username }
                 }
 
-                // Domain (optional)
-                HStack {
-                    Text("Domain:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Domain") {
                     TextField("", text: $smbDomain)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .smbDomain)
                         .onSubmit { focusedField = .username }
                 }
 
-                // Username
-                HStack {
-                    Text("Username:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Username") {
                     TextField("", text: $username)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .username)
                         .onSubmit { focusedField = .password }
                 }
 
-                // Password
                 passwordField
 
-                // Remote path (within share)
-                HStack {
-                    Text("Path:")
-                        .frame(width: 80, alignment: .trailing)
+                LabeledContent("Path") {
                     TextField("", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .remotePath)
@@ -665,45 +577,35 @@ struct UploadSettingsView: View {
 
     private var s3Section: some View {
         Section(header: Text("Amazon S3 / S3-Compatible Storage")) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Profile")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                HStack {
-                    Text("Profile:")
-                        .frame(width: 100, alignment: .trailing)
-                    Picker("Profile", selection: $selectedS3ProfileID) {
-                        if s3Profiles.isEmpty {
-                            Text("No profiles").tag("")
-                        } else {
-                            ForEach(s3Profiles) { profile in
-                                Text(profile.name.isEmpty ? "Untitled S3" : profile.name)
-                                    .tag(profile.id.uuidString)
+            VStack(alignment: .leading, spacing: 10) {
+                LabeledContent("Profile") {
+                    HStack {
+                        Picker("", selection: $selectedS3ProfileID) {
+                            if s3Profiles.isEmpty {
+                                Text("No profiles").tag("")
+                            } else {
+                                ForEach(s3Profiles) { profile in
+                                    Text(profile.name.isEmpty ? "Untitled S3" : profile.name)
+                                        .tag(profile.id.uuidString)
+                                }
                             }
                         }
+                        .labelsHidden()
+                        Button { addS3Profile() } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Add profile")
+                        Button { deleteSelectedS3Profile() } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(s3Profiles.count <= 1)
+                        .help("Delete profile")
                     }
-                    .labelsHidden()
-                    Spacer()
-                    Button {
-                        addS3Profile()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Add profile")
-                    Button {
-                        deleteSelectedS3Profile()
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(s3Profiles.count <= 1)
-                    .help("Delete profile")
                 }
 
-                HStack {
-                    Text("Name:")
-                        .frame(width: 100, alignment: .trailing)
+                LabeledContent("Name") {
                     TextField(
                         "S3 Profile",
                         text: Binding(
@@ -716,46 +618,36 @@ struct UploadSettingsView: View {
 
                 Divider().padding(.vertical, 4)
 
-                Text("Settings")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                // Bucket name
-                HStack {
-                    Text("Bucket:")
-                        .frame(width: 100, alignment: .trailing)
+                LabeledContent("Bucket") {
                     TextField("", text: $s3Bucket)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .s3Bucket)
                         .onSubmit { focusedField = .s3Region }
                 }
 
-                // Region
-                HStack {
-                    Text("Region:")
-                        .frame(width: 100, alignment: .trailing)
-                    Picker("", selection: $s3Region) {
-                        Text("us-east-1 (N. Virginia)").tag("us-east-1")
-                        Text("us-east-2 (Ohio)").tag("us-east-2")
-                        Text("us-west-1 (N. California)").tag("us-west-1")
-                        Text("us-west-2 (Oregon)").tag("us-west-2")
-                        Text("eu-west-1 (Ireland)").tag("eu-west-1")
-                        Text("eu-west-2 (London)").tag("eu-west-2")
-                        Text("eu-central-1 (Frankfurt)").tag("eu-central-1")
-                        Text("eu-north-1 (Stockholm)").tag("eu-north-1")
-                        Text("ap-northeast-1 (Tokyo)").tag("ap-northeast-1")
-                        Text("ap-southeast-1 (Singapore)").tag("ap-southeast-1")
-                        Text("ap-southeast-2 (Sydney)").tag("ap-southeast-2")
+                LabeledContent("Region") {
+                    HStack {
+                        Picker("", selection: $s3Region) {
+                            Text("us-east-1 (N. Virginia)").tag("us-east-1")
+                            Text("us-east-2 (Ohio)").tag("us-east-2")
+                            Text("us-west-1 (N. California)").tag("us-west-1")
+                            Text("us-west-2 (Oregon)").tag("us-west-2")
+                            Text("eu-west-1 (Ireland)").tag("eu-west-1")
+                            Text("eu-west-2 (London)").tag("eu-west-2")
+                            Text("eu-central-1 (Frankfurt)").tag("eu-central-1")
+                            Text("eu-north-1 (Stockholm)").tag("eu-north-1")
+                            Text("ap-northeast-1 (Tokyo)").tag("ap-northeast-1")
+                            Text("ap-southeast-1 (Singapore)").tag("ap-southeast-1")
+                            Text("ap-southeast-2 (Sydney)").tag("ap-southeast-2")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: 240)
+                        Spacer()
                     }
-                    .labelsHidden()
-                    .frame(width: 200)
-                    Spacer()
                 }
 
-                // Custom endpoint (optional, for S3-compatible)
-                HStack {
-                    Text("Endpoint:")
-                        .frame(width: 100, alignment: .trailing)
+                LabeledContent("Endpoint") {
                     TextField("Leave empty for AWS (or enter custom endpoint)", text: $s3Endpoint)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .s3Endpoint)
@@ -763,41 +655,34 @@ struct UploadSettingsView: View {
 
                 Divider()
 
-                // Access Key ID
-                HStack {
-                    Text("Access Key:")
-                        .frame(width: 100, alignment: .trailing)
+                LabeledContent("Access Key") {
                     TextField("", text: $s3AccessKeyID)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .s3AccessKey)
                         .onSubmit { focusedField = .s3SecretKey }
                 }
 
-                // Secret Access Key
-                HStack {
-                    Text("Secret Key:")
-                        .frame(width: 100, alignment: .trailing)
-                    SecureField(hasStoredS3SecretKey ? "••••••••" : "Secret Access Key", text: $s3SecretKey)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($focusedField, equals: .s3SecretKey)
-                        .onChange(of: s3SecretKey) { _, newValue in
-                            if !newValue.isEmpty {
-                                saveS3SecretKey()
+                LabeledContent("Secret Key") {
+                    HStack {
+                        SecureField(hasStoredS3SecretKey ? "••••••••" : "Secret Access Key", text: $s3SecretKey)
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedField, equals: .s3SecretKey)
+                            .onChange(of: s3SecretKey) { _, newValue in
+                                if !newValue.isEmpty {
+                                    saveS3SecretKey()
+                                }
                             }
+                        if hasStoredS3SecretKey {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .help("Secret key saved in Keychain")
                         }
-                    if hasStoredS3SecretKey {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .help("Secret key saved in Keychain")
                     }
                 }
 
                 Divider()
 
-                // Remote path (prefix/folder in bucket)
-                HStack {
-                    Text("Path/Prefix:")
-                        .frame(width: 100, alignment: .trailing)
+                LabeledContent("Path/Prefix") {
                     TextField("", text: $remotePath)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .remotePath)
@@ -829,29 +714,29 @@ struct UploadSettingsView: View {
     }
 
     private var passwordField: some View {
-        HStack {
-            Text("Password:")
-                .frame(width: 80, alignment: .trailing)
-            SecureField(hasStoredPassword ? "••••••••" : "password", text: $password)
-                .textFieldStyle(.roundedBorder)
-                .focused($focusedField, equals: .password)
-                .onSubmit { focusedField = .remotePath }
-                .onChange(of: password) { _, newValue in
-                    if !newValue.isEmpty {
-                        savePassword()
+        LabeledContent("Password") {
+            HStack {
+                SecureField(hasStoredPassword ? "••••••••" : "password", text: $password)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .password)
+                    .onSubmit { focusedField = .remotePath }
+                    .onChange(of: password) { _, newValue in
+                        if !newValue.isEmpty {
+                            savePassword()
+                        }
                     }
+                if hasStoredPassword {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .help("Password saved in Keychain")
                 }
-            if hasStoredPassword {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                    .help("Password saved in Keychain")
             }
         }
     }
 
     private var uploadBehaviorSection: some View {
         Section(header: Text("Upload Behavior")) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 Toggle("Enable upload by default for new items", isOn: $uploadDefaultEnabled)
                     .toggleStyle(SwitchToggleStyle())
 
@@ -861,8 +746,7 @@ struct UploadSettingsView: View {
 
                 Divider()
 
-                HStack {
-                    Text("Retry attempts:")
+                LabeledContent("Retry attempts") {
                     Stepper("\(retryCount)", value: $retryCount, in: 0...5)
                         .frame(width: 120)
                 }

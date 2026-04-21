@@ -86,20 +86,41 @@ struct ScreenCaptureSettingsView: View {
             }
 
             Section(header: Text("Output Folder")) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(outputDirectoryURL.path)
-                        .font(.callout)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Capture Output Folder:")
+                        .font(.headline)
+
                     HStack {
-                        Button("Choose...") {
-                            selectCaptureDirectory()
-                        }
-                        Button("Reveal in Finder") {
+                        Text(outputDirectoryURL.path)
+                            .truncationMode(.middle)
+                            .lineLimit(1)
+                            .help(outputDirectoryURL.path)
+
+                        Button(action: {
                             NSWorkspace.shared.activateFileViewerSelecting([outputDirectoryURL])
+                        }) {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .foregroundColor(.accentColor)
                         }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Show in Finder")
+
+                        Button(action: { selectCaptureDirectory() }) {
+                            Image(systemName: "folder.badge.gearshape")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Change capture folder")
+
+                        Button(action: { captureDirectoryPath = AppConstants.defaultCaptureDirectory.path }) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Reset to default")
                     }
                 }
+                .padding(8)
             }
         }
         .formStyle(.grouped)

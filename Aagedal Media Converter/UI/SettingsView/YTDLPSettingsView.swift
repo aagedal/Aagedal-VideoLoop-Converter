@@ -721,37 +721,50 @@ struct YTDLPSettingsView: View {
     private var downloadDirectorySection: some View {
         Section(header: Text("Download Folder")) {
             VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Download Folder:")
+                        .font(.headline)
+
+                    HStack {
+                        Text(downloadFolder)
+                            .truncationMode(.middle)
+                            .lineLimit(1)
+                            .help(downloadFolder)
+
+                        Button(action: {
+                            let url = URL(fileURLWithPath: downloadFolder)
+                            guard FileManager.default.fileExists(atPath: url.path) else {
+                                downloadFolder = AppConstants.defaultDownloadDirectory.path
+                                NSWorkspace.shared.activateFileViewerSelecting([AppConstants.defaultDownloadDirectory])
+                                return
+                            }
+                            NSWorkspace.shared.activateFileViewerSelecting([url])
+                        }) {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Show in Finder")
+
+                        Button(action: { chooseDownloadFolder() }) {
+                            Image(systemName: "folder.badge.gearshape")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Change download folder")
+
+                        Button(action: { downloadFolder = AppConstants.defaultDownloadDirectory.path }) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Reset to default")
+                    }
+                }
+
                 Text("Downloads from yt-dlp are saved here before conversion.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(downloadFolder)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(downloadFolder)
-                        Button("Reveal in Finder") {
-                            let url = URL(fileURLWithPath: downloadFolder)
-                            NSWorkspace.shared.activateFileViewerSelecting([url])
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption2)
-                    }
-                    Spacer()
-                    VStack(spacing: 6) {
-                        Button("Select Folder…") {
-                            chooseDownloadFolder()
-                        }
-                        .buttonStyle(.bordered)
-
-                        Button("Use default") {
-                            downloadFolder = AppConstants.defaultDownloadDirectory.path
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
             }
             .padding(8)
         }

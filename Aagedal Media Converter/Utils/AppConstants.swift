@@ -194,6 +194,7 @@ enum AppConstants {
     static let defaultPresetKey = "defaultExportPreset"
     static let watchFolderModeKey = "watchFolderModeEnabled"
     static let watchFolderPathKey = "watchFolderPath"
+    static let watchFolderAutoActivateOnLaunchKey = "watchFolderAutoActivateOnLaunch"
     static let watchFolderIgnoreOlderThan24hKey = "watchFolderIgnoreOlderThan24h"
     static let watchFolderAutoDeleteOlderThanWeekKey = "watchFolderAutoDeleteOlderThanWeek"
     static let watchFolderIgnoreDurationValueKey = "watchFolderIgnoreDurationValue"

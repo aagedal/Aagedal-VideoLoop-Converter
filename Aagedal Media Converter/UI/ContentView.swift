@@ -74,6 +74,8 @@ struct ContentView: View {
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.watchFolderModeKey) private var watchFolderModeEnabled = false
     @AppStorage(AppConstants.watchFolderPathKey) private var watchFolderPath = ""
+    @AppStorage(AppConstants.watchFolderAutoActivateOnLaunchKey) private var watchFolderAutoActivateOnLaunch = false
+    @State private var hasAppliedWatchFolderLaunchActivation = false
     @StateObject private var watchFolderCoordinator = WatchFolderCoordinator()
     @State private var mergeClipsEnabled = false
     @State private var mergeClipsAvailable = false
@@ -515,6 +517,7 @@ struct ContentView: View {
                 }
                 .onAppear {
                     setupScheduledDownloads()
+                    applyWatchFolderLaunchActivationIfNeeded()
                 }
                 .toolbar {
                     conversionToolbar
@@ -1815,6 +1818,28 @@ struct ContentView: View {
                 await Task.yield()
                 self.scheduleMergeCompatibilityEvaluation()
             }
+        }
+    }
+
+    private func applyWatchFolderLaunchActivationIfNeeded() {
+        guard !hasAppliedWatchFolderLaunchActivation else { return }
+        hasAppliedWatchFolderLaunchActivation = true
+
+        let shouldActivate = watchFolderAutoActivateOnLaunch && !watchFolderPath.isEmpty
+
+        if shouldActivate {
+            if watchFolderModeEnabled {
+                // State persisted as on, but the coordinator hasn't started monitoring
+                // yet this launch. onChange won't fire for an unchanged value, so kick
+                // the coordinator directly.
+                handleWatchFolderToggle(true)
+            } else {
+                watchFolderModeEnabled = true
+            }
+        } else if watchFolderModeEnabled {
+            // Auto-activate is off (or folder is gone) — don't carry stale "on" state
+            // from a previous session into this launch.
+            watchFolderModeEnabled = false
         }
     }
 

@@ -6,6 +6,7 @@ import SwiftUI
 
 struct WatchFolderSettingsView: View {
     @AppStorage(AppConstants.watchFolderPathKey) private var watchFolderPath = ""
+    @AppStorage(AppConstants.watchFolderAutoActivateOnLaunchKey) private var watchFolderAutoActivateOnLaunch = false
     @AppStorage(AppConstants.watchFolderIgnoreOlderThan24hKey) private var watchFolderIgnoreOlderThan24h = false
     @AppStorage(AppConstants.watchFolderAutoDeleteOlderThanWeekKey) private var watchFolderAutoDeleteOlderThanWeek = false
     @AppStorage(AppConstants.watchFolderIgnoreDurationValueKey) private var watchFolderIgnoreDurationValue = AppConstants.defaultWatchFolderIgnoreDurationValue
@@ -72,6 +73,14 @@ struct WatchFolderSettingsView: View {
             Text("When Watch Folder Mode is enabled in the toolbar, the app will automatically scan this folder every 5 seconds for new video files and add them to the conversion queue.")
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+            Toggle("Activate Watch Folder on app launch", isOn: $watchFolderAutoActivateOnLaunch)
+                .toggleStyle(SwitchToggleStyle())
+                .disabled(watchFolderPath.isEmpty)
+                .help(watchFolderPath.isEmpty
+                    ? "Select a watch folder above to enable this option."
+                    : "When enabled, Watch Folder Mode starts automatically every time the app launches.")
+
             Toggle("Ignore files older than", isOn: $watchFolderIgnoreOlderThan24h)
                 .toggleStyle(SwitchToggleStyle())
                 .help("Skip files that have been in the watch folder longer than the selected duration")
