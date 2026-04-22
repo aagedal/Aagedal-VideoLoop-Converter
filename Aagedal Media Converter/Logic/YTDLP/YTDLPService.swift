@@ -111,7 +111,9 @@ actor YTDLPService {
                     arguments.append(contentsOf: ["--cookies-from-browser", cookiesBrowser])
                 }
 
-                arguments.append(contentsOf: ["-j", "--no-download", "--no-warnings", url])
+                // "--" ends flag parsing so a URL that somehow starts with "-" can't be
+                // interpreted as an option.
+                arguments.append(contentsOf: ["-j", "--no-download", "--no-warnings", "--", url])
 
                 HomebrewPythonExecutor.configureProcess(
                     process,
@@ -279,6 +281,9 @@ actor YTDLPService {
             forceOverwrite ? "--force-overwrites" : "--no-overwrites",
             "--print", "after_move:filepath",
             "-o", "%(title)s.%(ext)s",
+            // "--" ends flag parsing so a URL that somehow starts with "-" can't be
+            // interpreted as an option.
+            "--",
             url
         ])
 
@@ -413,8 +418,11 @@ actor YTDLPService {
                 parsedState.lock.unlock()
             }
 
-            // Parse output path from stdout (--print after_move:filepath)
-            if !isStderr && !trimmed.hasPrefix("[") && !trimmed.contains("%") {
+            // Parse output path from stdout (--print after_move:filepath).
+            // yt-dlp prints an absolute path here, so require a leading slash.
+            // This avoids capturing stray verbose/debug stdout (e.g. a raw title or
+            // a warning line that happens to lack a "[" prefix) as the output path.
+            if !isStderr && trimmed.hasPrefix("/") {
                 parsedState.lock.lock()
                 parsedState.outputPath = trimmed
                 parsedState.lock.unlock()
