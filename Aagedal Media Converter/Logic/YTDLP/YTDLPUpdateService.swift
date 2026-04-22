@@ -2,9 +2,10 @@
 // Copyright 2025 Truls Aagedal
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import CryptoKit
+import Darwin
 import Foundation
 import OSLog
-import Darwin
 
 /// Manages yt-dlp binary resolution with priority: custom path > downloaded > bundled
 actor YTDLPUpdateService {
@@ -515,7 +516,7 @@ actor YTDLPUpdateService {
     }
 
     /// Checks GitHub for the latest yt-dlp release version
-    func getLatestReleaseVersion() async throws -> (version: String, downloadURL: URL)? {
+    func getLatestReleaseVersion() async throws -> (version: String, downloadURL: URL, checksumURL: URL?)? {
         guard let url = URL(string: AppConstants.ytdlpGitHubReleasesURL) else {
             throw YTDLPUpdateError.invalidURL
         }
@@ -532,17 +533,25 @@ actor YTDLPUpdateService {
             throw YTDLPUpdateError.parseError
         }
 
-        // Find the macOS asset
+        // Find the macOS asset and, if present, the SHA256 checksum manifest
+        // yt-dlp publishes alongside it.
+        var binaryURL: URL?
+        var checksumURL: URL?
         for asset in assets {
-            if let name = asset["name"] as? String,
-               name == AppConstants.ytdlpMacOSAssetName,
-               let downloadURLString = asset["browser_download_url"] as? String,
-               let downloadURL = URL(string: downloadURLString) {
-                return (version: tagName, downloadURL: downloadURL)
+            guard let name = asset["name"] as? String,
+                  let downloadURLString = asset["browser_download_url"] as? String,
+                  let assetURL = URL(string: downloadURLString) else {
+                continue
+            }
+            if name == AppConstants.ytdlpMacOSAssetName {
+                binaryURL = assetURL
+            } else if name == "SHA2-256SUMS" {
+                checksumURL = assetURL
             }
         }
 
-        throw YTDLPUpdateError.assetNotFound
+        guard let binaryURL else { throw YTDLPUpdateError.assetNotFound }
+        return (version: tagName, downloadURL: binaryURL, checksumURL: checksumURL)
     }
 
     // MARK: - Deno Download
@@ -592,7 +601,22 @@ actor YTDLPUpdateService {
 
         let (tempZipURL, response) = try await downloadWithProgress(from: downloadURL, progress: progress)
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            try? FileManager.default.removeItem(at: tempZipURL)
             throw YTDLPUpdateError.downloadFailed
+        }
+
+        // Verify SHA256 against the `<asset>.sha256sum` file denoland publishes
+        // as a sibling of every release asset.
+        let checksumURL = URL(string: downloadURL.absoluteString + ".sha256sum") ?? downloadURL
+        do {
+            try await verifyChecksum(
+                of: tempZipURL,
+                expectedFilename: downloadURL.lastPathComponent,
+                checksumFileURL: checksumURL
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: tempZipURL)
+            throw error
         }
 
         let extractedBinaryURL = try await extractDenoBinary(from: tempZipURL)
@@ -657,7 +681,7 @@ actor YTDLPUpdateService {
     func checkForUpdates() async -> Bool {
         do {
             guard let currentVersion = await getCurrentVersion(),
-                  let (latestVersion, _) = try await getLatestReleaseVersion() else {
+                  let (latestVersion, _, _) = try await getLatestReleaseVersion() else {
                 return false
             }
 
@@ -678,7 +702,7 @@ actor YTDLPUpdateService {
     /// Downloads and installs the latest yt-dlp release
     /// - Parameter progress: Callback for download progress (0.0 to 1.0)
     func downloadUpdate(progress: @escaping @Sendable (Double) -> Void) async throws {
-        guard let (version, downloadURL) = try await getLatestReleaseVersion() else {
+        guard let (version, downloadURL, checksumURL) = try await getLatestReleaseVersion() else {
             throw YTDLPUpdateError.assetNotFound
         }
 
@@ -688,7 +712,26 @@ actor YTDLPUpdateService {
         let (tempURL, response) = try await downloadWithProgress(from: downloadURL, progress: progress)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            try? FileManager.default.removeItem(at: tempURL)
             throw YTDLPUpdateError.downloadFailed
+        }
+
+        // Verify SHA256 against the checksum manifest published alongside the release.
+        // If the manifest asset is absent from this release we skip (with a warning),
+        // but if it's present and the hash doesn't match we delete the download and fail.
+        if let checksumURL {
+            do {
+                try await verifyChecksum(
+                    of: tempURL,
+                    expectedFilename: AppConstants.ytdlpMacOSAssetName,
+                    checksumFileURL: checksumURL
+                )
+            } catch {
+                try? FileManager.default.removeItem(at: tempURL)
+                throw error
+            }
+        } else {
+            logger.warning("No SHA2-256SUMS asset found for yt-dlp \(version); skipping checksum verification")
         }
 
         // Move to final location
@@ -741,6 +784,62 @@ actor YTDLPUpdateService {
         UserDefaults.standard.set(version, forKey: AppConstants.ytdlpVersionKey)
 
         logger.info("Successfully installed yt-dlp \(version) at \(destinationPath.path)")
+    }
+
+    /// Verifies that the file at `fileURL` matches the SHA256 hash published for
+    /// `expectedFilename` in the checksum manifest at `checksumFileURL`.
+    ///
+    /// The manifest is expected to contain lines of the form `<hex-hash>  <filename>`
+    /// (two-space separator is the GNU coreutils convention, but we tolerate any run
+    /// of whitespace). Throws if the manifest can't be fetched/parsed, the asset
+    /// isn't listed, or the hashes don't match.
+    private func verifyChecksum(
+        of fileURL: URL,
+        expectedFilename: String,
+        checksumFileURL: URL
+    ) async throws {
+        logger.info("Fetching SHA256 manifest for \(expectedFilename) from \(checksumFileURL)")
+        let (data, response) = try await URLSession.shared.data(from: checksumFileURL)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw YTDLPUpdateError.checksumFetchFailed
+        }
+        guard let manifest = String(data: data, encoding: .utf8) else {
+            throw YTDLPUpdateError.checksumFetchFailed
+        }
+
+        var expectedHash: String?
+        for rawLine in manifest.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            // Split on the first run of whitespace
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            guard parts.count >= 2 else { continue }
+            let hash = String(parts[0]).trimmingCharacters(in: .whitespaces)
+            // File column may be prefixed with "*" (binary-mode marker from coreutils)
+            let filename = String(parts[parts.count - 1]).trimmingCharacters(in: CharacterSet(charactersIn: "* "))
+            if filename == expectedFilename {
+                expectedHash = hash
+                break
+            }
+        }
+
+        guard let expected = expectedHash else {
+            logger.error("No SHA256 entry for \(expectedFilename) in manifest")
+            throw YTDLPUpdateError.checksumNotFoundForAsset
+        }
+
+        let actual = try computeSHA256(of: fileURL)
+        guard actual.lowercased() == expected.lowercased() else {
+            logger.error("SHA256 mismatch for \(expectedFilename): expected \(expected), got \(actual)")
+            throw YTDLPUpdateError.checksumMismatch
+        }
+        logger.info("SHA256 verified for \(expectedFilename)")
+    }
+
+    /// Streams `fileURL` through SHA256 via a memory-mapped Data for efficiency.
+    private func computeSHA256(of fileURL: URL) throws -> String {
+        let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     /// Removes the quarantine extended attribute from a file
@@ -897,6 +996,9 @@ enum YTDLPUpdateError: Error, LocalizedError {
     case extractionFailed
     case binaryNotFound
     case installFailed
+    case checksumFetchFailed
+    case checksumNotFoundForAsset
+    case checksumMismatch
 
     var errorDescription: String? {
         switch self {
@@ -908,6 +1010,9 @@ enum YTDLPUpdateError: Error, LocalizedError {
         case .extractionFailed: return "Failed to extract binary from archive"
         case .binaryNotFound: return "Binary not found in archive"
         case .installFailed: return "Failed to install binary"
+        case .checksumFetchFailed: return "Could not download the SHA256 checksum manifest"
+        case .checksumNotFoundForAsset: return "The release's checksum manifest did not list this asset"
+        case .checksumMismatch: return "Downloaded binary failed SHA256 verification; refusing to install"
         }
     }
 }
