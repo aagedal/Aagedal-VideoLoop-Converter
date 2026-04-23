@@ -42,33 +42,6 @@ enum BinaryPathResolver {
         return resolveBundledFFmpegPath()
     }
 
-    // MARK: - FFprobe
-    //
-    // ffprobe is no longer bundled with the app — SwiftExif replaces it for
-    // metadata reading. A path resolver is kept for features that SwiftExif
-    // does not yet cover (currently just chapter extraction); the user opts in
-    // by installing ffprobe via Homebrew or by pointing the settings at a
-    // custom binary. When no ffprobe is reachable, `ffprobePath` is `nil` and
-    // callers must handle that gracefully.
-    static var ffprobePath: String? {
-        if let selection = selectedFFprobeSource() {
-            switch selection {
-            case .custom:
-                return resolveCustomFFprobePath()
-            case .homebrew:
-                return resolveHomebrewFFprobePath()
-            case .app:
-                // No bundled ffprobe any more — fall through to auto-detect.
-                break
-            }
-        }
-
-        if let customPath = resolveCustomFFprobePath() {
-            return customPath
-        }
-        return resolveHomebrewFFprobePath()
-    }
-
     // MARK: - BMX Tools (MXF handling)
 
     /// Resolves the path to bmxtranswrap binary (MXF transcoding)
@@ -121,26 +94,11 @@ enum BinaryPathResolver {
         return await getVersion(at: path)
     }
 
-    /// Gets ffprobe version string
-    static func getFFprobeVersion() async -> String? {
-        guard let path = ffprobePath else { return nil }
-        return await getVersion(at: path)
-    }
-
     // MARK: - Path Info
 
     /// Returns whether a custom ffmpeg path is configured
     static var isUsingCustomFFmpeg: Bool {
         guard let customPath = UserDefaults.standard.string(forKey: AppConstants.customFFmpegPathKey),
-              !customPath.isEmpty else {
-            return false
-        }
-        return FileManager.default.isExecutableFile(atPath: customPath)
-    }
-
-    /// Returns whether a custom ffprobe path is configured
-    static var isUsingCustomFFprobe: Bool {
-        guard let customPath = UserDefaults.standard.string(forKey: AppConstants.customFFprobePathKey),
               !customPath.isEmpty else {
             return false
         }
@@ -153,15 +111,6 @@ enum BinaryPathResolver {
             UserDefaults.standard.set(path, forKey: AppConstants.customFFmpegPathKey)
         } else {
             UserDefaults.standard.removeObject(forKey: AppConstants.customFFmpegPathKey)
-        }
-    }
-
-    /// Saves a custom ffprobe path
-    static func saveCustomFFprobePath(_ path: String?) {
-        if let path = path, !path.isEmpty {
-            UserDefaults.standard.set(path, forKey: AppConstants.customFFprobePathKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: AppConstants.customFFprobePathKey)
         }
     }
 
@@ -197,34 +146,6 @@ enum BinaryPathResolver {
 
     private static func resolveBundledFFmpegPath() -> String? {
         Bundle.main.path(forResource: "ffmpeg", ofType: nil)
-    }
-
-    private static func resolveCustomFFprobePath() -> String? {
-        if let customPath = UserDefaults.standard.string(forKey: AppConstants.customFFprobePathKey),
-           !customPath.isEmpty,
-           FileManager.default.isExecutableFile(atPath: customPath) {
-            return customPath
-        }
-        return nil
-    }
-
-    private static func resolveHomebrewFFprobePath() -> String? {
-        let homebrewPaths = [
-            "/opt/homebrew/bin/ffprobe",
-            "/usr/local/bin/ffprobe"
-        ]
-        for path in homebrewPaths where FileManager.default.isExecutableFile(atPath: path) {
-            return path
-        }
-        return nil
-    }
-
-    private static func selectedFFprobeSource() -> BinarySourceSelection? {
-        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.ffprobeBinarySourceKey),
-              !rawValue.isEmpty else {
-            return nil
-        }
-        return BinarySourceSelection(rawValue: rawValue)
     }
 
     // MARK: - Tesseract

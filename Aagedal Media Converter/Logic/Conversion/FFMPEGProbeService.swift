@@ -76,99 +76,42 @@ enum FFMPEGProbeService {
 
     // MARK: - Chapters
 
-    /// Fetches chapter markers for `url`.
+    /// Fetches chapter markers for `url` via SwiftExif 1.3.0's container parsers.
     ///
-    /// SwiftExif 1.2.0 does not yet expose chapters, so this currently shells out to
-    /// the bundled `ffprobe`. When SwiftExif gains chapter support, swap the
-    /// implementation here — callers should not need to change.
+    /// Supports MP4/MOV `chpl` boxes, QuickTime text-track chapters, and
+    /// Matroska `Chapters` master elements. Returns an empty array for
+    /// containers SwiftExif can't parse (e.g. FLV, raw audio) or that carry
+    /// no chapter data.
+    ///
+    /// Chapters whose duration can't be determined (Matroska open-ended
+    /// entries, Nero `chpl` boxes) get their end time inferred from the
+    /// start of the next chapter or from the container duration.
     static func fetchChapters(for url: URL) async -> [Chapter] {
-        await FFprobeChapterReader.read(url: url)
-    }
-}
+        guard SwiftExifMediaProbe.canReadVideo(url) else { return [] }
 
-// MARK: - ffprobe chapter backend
-
-/// Temporary ffprobe-backed chapter reader. Will be replaced with a SwiftExif
-/// implementation once the upstream library exposes chapter markers.
-private enum FFprobeChapterReader {
-    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ChapterProbe")
-
-    static func read(url: URL) async -> [Chapter] {
-        guard let ffprobe = BinaryPathResolver.ffprobePath else {
-            logger.debug("ffprobe unavailable; skipping chapter probe")
-            return []
-        }
-
-        // Build the process up-front so the cancellation handler can reach it.
-        let process = Process()
-        let stdout = Pipe()
-        process.executableURL = URL(fileURLWithPath: ffprobe)
-        process.arguments = [
-            "-v", "quiet",
-            "-print_format", "json",
-            "-show_chapters",
-            url.path
-        ]
-        process.standardOutput = stdout
-        process.standardError = FileHandle.nullDevice
-
-        // We run the blocking ffprobe invocation on a detached task so the main
-        // actor stays responsive, but we wrap it with a cancellation handler so
-        // a cancelled parent task terminates the live process immediately — a
-        // bare `Task.detached.value` would otherwise pin a cooperative-pool
-        // thread and a file descriptor triple until ffprobe exited on its own.
-        return await withTaskCancellationHandler {
-            await Task.detached(priority: .utility) {
-                runProbe(process: process, stdout: stdout, url: url)
-            }.value
-        } onCancel: {
-            // Sendable-safe: Process is a reference type; terminate() is thread-safe.
-            if process.isRunning {
-                process.terminate()
-            }
-        }
-    }
-
-    private static func runProbe(process: Process, stdout: Pipe, url: URL) -> [Chapter] {
-        let readHandle = stdout.fileHandleForReading
-        // Always release the read end, even on early return / throw.
-        defer { try? readHandle.close() }
-
+        let meta: SwiftExif.VideoMetadata
         do {
-            try process.run()
+            meta = try await SwiftExifMediaProbe.readVideo(url)
         } catch {
-            logger.debug("ffprobe launch failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "ChapterProbe")
+                .debug("SwiftExif chapter read failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
 
-        // Reading to end before waitUntilExit is safe here: stderr is /dev/null
-        // so the process cannot block on a full stderr pipe, and chapter JSON
-        // is tiny (well under any pipe buffer limit).
-        let data = (try? readHandle.readToEnd()) ?? Data()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0, !data.isEmpty else { return [] }
-        return parse(data)
-    }
+        let sorted = meta.chapters.sorted { $0.startTime < $1.startTime }
+        let duration = meta.duration ?? 0
 
-    private static func parse(_ data: Data) -> [Chapter] {
-        struct Payload: Decodable {
-            struct Entry: Decodable {
-                let id: Int?
-                let start_time: String?
-                let end_time: String?
-                let tags: [String: String]?
-            }
-            let chapters: [Entry]?
-        }
-        guard let payload = try? JSONDecoder().decode(Payload.self, from: data),
-              let entries = payload.chapters else { return [] }
-
-        return entries.enumerated().compactMap { index, entry in
-            guard let startString = entry.start_time, let start = Double(startString),
-                  let endString = entry.end_time, let end = Double(endString),
-                  end > start else { return nil }
-            let title = entry.tags?["title"] ?? entry.tags?["TITLE"]
-            return Chapter(id: entry.id ?? index, start: start, end: end, title: title)
+        return sorted.enumerated().compactMap { idx, chapter in
+            let start = chapter.startTime
+            let end: Double = {
+                if let e = chapter.endTime { return e }
+                // Open-ended: use the next chapter's start, else the container duration.
+                if idx + 1 < sorted.count { return sorted[idx + 1].startTime }
+                return duration > start ? duration : start
+            }()
+            guard end > start else { return nil }
+            let id = chapter.id.map { Int(truncatingIfNeeded: $0) } ?? chapter.index
+            return Chapter(id: id, start: start, end: end, title: chapter.title)
         }
     }
 }
