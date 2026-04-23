@@ -1,7 +1,7 @@
 # Aagedal Media Converter
 <img width="862" height="734" alt="SCR-20260127-hzmw" src="https://github.com/user-attachments/assets/3890d95e-0e9f-493b-8dcc-6aa76fa35258" />
 
-A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE, MPV, ExifTool, yt-dlp, rclone, whisper.cpp under the hood and written entirely in Swift / SwiftUI.
+A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE, MPV, SwiftExif, yt-dlp, rclone, whisper.cpp under the hood and written entirely in Swift / SwiftUI.
 
 Completely free and open source. Private and local. (An optional update checker is activated by default, but it can be turned off.)
 
@@ -30,7 +30,7 @@ brew install aagedal/casks/aagedal-media-converter
 - **Quick to launch and easy to use**
 - **Batch Convert** almost every video and audio file (alternative to Shutter Encoder or Handbrake)
 - **Play** in full screen with TimeCode view and JKL playback controls (alternative to IINA or VLC)
-- **View and compare metadata**, including C2PA presence check (alternative to MediaInfo and ExifTool)
+- **View and compare metadata**, including C2PA presence check (alternative to MediaInfo)
 - **Download** videos from websites, with support for scheduling and live stream download
 - **Screen recording** with system sound, and optional separate microphone track (alternative to OBS)
 - **Transcribe** video and audio files to SRT subtitles
@@ -50,7 +50,7 @@ brew install aagedal/casks/aagedal-media-converter
 - Download from YouTube, TikTok etc. (yt-dlp)
 - Transcribe to SRT (whisper.cpp)
 - Upload to FTP (rclone)
-- Check for C2PA signature (exiftool)
+- Check for C2PA signature (SwiftExif)
 - Screen recording in HDR with system sound, and optional microphone recording to separate audio track
 
 
@@ -243,15 +243,13 @@ The bundled FFmpeg binary is compiled with `--enable-gpl` and is therefore also 
 
 The bundled asdcp-wrap binary is from [asdcplib](https://github.com/cinecert/asdcplib) by John Hurst, licensed under the **BSD 3-Clause License**. See [Licenses/asdcplib-LICENSE.txt](Licenses/asdcplib-LICENSE.txt).
 
-[ExifTool](https://exiftool.org/) by Phil Harvey is used for C2PA content authenticity checking and extended metadata extraction (camera info, XMP, JUMBF). ExifTool is not bundled — it can be auto-downloaded by the app or pointed at an existing Homebrew installation. ExifTool is distributed under the **Artistic License** (Perl). See https://exiftool.org/#license.
-
 ---
 
 ## Acknowledgments
 
 The DCP (Digital Cinema Package) export feature's color processing was informed by the [DCP-o-matic](https://dcpomatic.com/) project's excellent documentation on DCI XYZ color space conversion. DCP-o-matic is a free, open-source DCP creator — check it out at https://github.com/cth103/dcpomatic.
 
-[ExifTool](https://exiftool.org/) by Phil Harvey powers the metadata inspection and C2PA content authenticity features.
+Metadata inspection and C2PA content authenticity features are powered by [SwiftExif](https://github.com/kradalby/SwiftExif).
 
 ---
 
