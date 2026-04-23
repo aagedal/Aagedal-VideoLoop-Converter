@@ -1391,10 +1391,20 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             return
         }
 
-        // Click anywhere on the metadata row → open metadata
-        if !infoStack.isHidden && infoStack.convert(infoStack.bounds, to: self).contains(location) {
-            actionHandler?(.showMetadata)
-            return
+        // Click on a metadata text label → open metadata. Restricted to the
+        // labels themselves so the gaps between them (and the rest of the row)
+        // don't become an oversized hit target.
+        if !infoStack.isHidden {
+            let metadataLabels: [NSView] = [
+                durationLabel,
+                sizeLabel,
+                videoFormatLabel,
+                outputSizeLabel,
+            ]
+            if metadataLabels.contains(where: { labelContains($0, point: location) }) {
+                actionHandler?(.showMetadata)
+                return
+            }
         }
 
         super.mouseDown(with: event)
