@@ -568,6 +568,20 @@ struct ContentView: View {
         }
     }
 
+    /// Opens the URL download overlay, but only if yt-dlp is configured.
+    /// If not, shows the not-available alert instead — avoids the dead-end
+    /// where a user types a URL into the overlay and only then learns yt-dlp
+    /// isn't installed.
+    private func openURLInputOverlay() {
+        Task {
+            if await DownloadManager.shared.isYTDLPConfigured() {
+                showURLInputOverlay = true
+            } else {
+                showYTDLPNotConfiguredAlert = true
+            }
+        }
+    }
+
     /// Handles URL download from the overlay
     private func handleURLDownload(_ urlString: String, liveFromStart: Bool) {
         Task {
@@ -667,7 +681,7 @@ struct ContentView: View {
             },
             onToggleConversion: handleConversionToggle,
             onShowURLInput: {
-                showURLInputOverlay = true
+                openURLInputOverlay()
             },
             onShowCapture: {
                 CaptureOverlayWindowController.shared.showCaptureOverlay()
@@ -1465,7 +1479,7 @@ struct ContentView: View {
             mergeClipsAvailable: mergeClipsAvailable,
             onToggleConversion: handleConversionToggle,
             onImport: { isFileImporterPresented = true },
-            onShowDownload: { showURLInputOverlay = true },
+            onShowDownload: { openURLInputOverlay() },
             onShowCapture: { CaptureOverlayWindowController.shared.showCaptureOverlay() },
             onResetAll: resetAllFiles,
             hasResettableItems: hasResettableItems,
