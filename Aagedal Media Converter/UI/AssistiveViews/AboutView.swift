@@ -11,6 +11,9 @@ import SwiftUI
 import AppKit
 
 struct AboutView: View {
+    private let homepageURL = URL(string: "https://mediaconverter.aagedal.me")!
+    private let repoURL = URL(string: "https://github.com/aagedal/Aagedal-Media-Converter")!
+
     var body: some View {
         VStack(alignment: .center, spacing: 16) {
             if let appIcon = NSImage(named: "AppIcon") {
@@ -39,9 +42,31 @@ struct AboutView: View {
             Text("FFMPEG version: 8.1")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+
+            HStack(spacing: 16) {
+                Link("Homepage", destination: homepageURL)
+                Link("GitHub Repository", destination: repoURL)
+            }
+            .font(.subheadline)
+
+            Divider()
+                .padding(.horizontal, 40)
+
+            VStack(spacing: 6) {
+                Text("Aagedal Media Converter is licensed under GPL-3.0-or-later.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                Text("Bundles FFmpeg, mpv, tesseract, asdcplib and bmx; optionally downloads yt-dlp, Deno, rclone, whisper.cpp and Parakeet at runtime. Each component is distributed under its own license — see the Licenses folder in the source repository for bundled components' full terms.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal)
         }
         .padding(24)
-        .frame(width: 420, height: 320)
+        .frame(width: 440)
     }
 }
 
