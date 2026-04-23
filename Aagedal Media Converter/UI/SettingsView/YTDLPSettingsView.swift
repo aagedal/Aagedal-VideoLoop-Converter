@@ -35,12 +35,14 @@ struct YTDLPSettingsView: View {
     @State private var isDownloading = false
     @State private var ytdlpDownloadProgress: Double = 0.0
     @State private var downloadError: String?
+    @State private var downloadInfo: String?
 
     @State private var denoStatus: DenoStatus = .checking
     @State private var denoInstallationStatus: DenoInstallationStatus = .notInstalled
     @State private var isDownloadingDeno = false
     @State private var denoDownloadProgress: Double = 0.0
     @State private var denoDownloadError: String?
+    @State private var denoDownloadInfo: String?
 
     @AppStorage(AppConstants.ytdlpBinarySourceKey) private var ytdlpBinarySource = BinarySourceSelection.app.rawValue
     @AppStorage(AppConstants.denoBinarySourceKey) private var denoBinarySource = BinarySourceSelection.app.rawValue
@@ -67,10 +69,12 @@ struct YTDLPSettingsView: View {
         }
         .onChange(of: ytdlpBinarySource) { _, _ in
             downloadError = nil
+            downloadInfo = nil
             Task { await refreshVersions() }
         }
         .onChange(of: denoBinarySource) { _, _ in
             denoDownloadError = nil
+            denoDownloadInfo = nil
             Task { await refreshVersions() }
         }
         .onChange(of: ffmpegBinarySource) { _, _ in
@@ -201,7 +205,7 @@ struct YTDLPSettingsView: View {
                         }
                     }
                 } else {
-                    HStack {
+                    HStack(spacing: 8) {
                         ProgressView(value: ytdlpDownloadProgress)
                             .progressViewStyle(.linear)
                             .frame(width: 140)
@@ -210,6 +214,14 @@ struct YTDLPSettingsView: View {
                             .foregroundColor(.secondary)
                         Text("Downloading...")
                             .foregroundColor(.secondary)
+                        Button {
+                            Task { await YTDLPUpdateService.shared.cancelDownload(.ytdlp) }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Cancel download")
                     }
                 }
 
@@ -217,6 +229,10 @@ struct YTDLPSettingsView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
+                } else if let info = downloadInfo {
+                    Text(info)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 // Show performance tip when using app-downloaded binary
@@ -441,7 +457,7 @@ struct YTDLPSettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 } else {
-                    HStack {
+                    HStack(spacing: 8) {
                         ProgressView(value: denoDownloadProgress)
                             .progressViewStyle(.linear)
                             .frame(width: 140)
@@ -450,6 +466,14 @@ struct YTDLPSettingsView: View {
                             .foregroundColor(.secondary)
                         Text("Downloading...")
                             .foregroundColor(.secondary)
+                        Button {
+                            Task { await YTDLPUpdateService.shared.cancelDownload(.deno) }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Cancel download")
                     }
                 }
 
@@ -457,6 +481,10 @@ struct YTDLPSettingsView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundColor(.red)
+                } else if let info = denoDownloadInfo {
+                    Text(info)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
 
                 Divider()
@@ -505,124 +533,96 @@ struct YTDLPSettingsView: View {
 
     private func downloadYTDLP() {
         guard selectedYTDLPSource == .app else { return }
-        isDownloading = true
-        ytdlpDownloadProgress = 0.0
-        downloadError = nil
-        Task {
-            do {
-                try await YTDLPUpdateService.shared.downloadUpdate(progress: { progress in
-                    DispatchQueue.main.async {
-                        ytdlpDownloadProgress = progress
-                    }
-                })
-                await refreshVersions()
-            } catch {
-                await MainActor.run {
-                    downloadError = error.localizedDescription
-                }
+        runDownload(
+            checkForUpdate: false,
+            progressSetter: { ytdlpDownloadProgress = $0 },
+            busySetter: { isDownloading = $0 },
+            errorSetter: { downloadError = $0 },
+            infoSetter: { downloadInfo = $0 },
+            checkForUpdates: { await YTDLPUpdateService.shared.checkForUpdates() },
+            download: { progress in
+                try await YTDLPUpdateService.shared.downloadUpdate(progress: progress)
             }
-            await MainActor.run {
-                isDownloading = false
-            }
-        }
+        )
     }
 
     private func checkAndUpdateYTDLP() {
         guard selectedYTDLPSource == .app else { return }
-        isDownloading = true
-        ytdlpDownloadProgress = 0.0
-        downloadError = nil
-        Task {
-            do {
-                let hasUpdate = await YTDLPUpdateService.shared.checkForUpdates()
-                if hasUpdate {
-                    try await YTDLPUpdateService.shared.downloadUpdate(progress: { progress in
-                        DispatchQueue.main.async {
-                            ytdlpDownloadProgress = progress
-                        }
-                    })
-                } else {
-                    await MainActor.run {
-                        downloadError = "Already up to date"
-                    }
-                    // Clear the message after a delay
-                    try? await Task.sleep(for: .seconds(3))
-                    await MainActor.run {
-                        if downloadError == "Already up to date" {
-                            downloadError = nil
-                        }
-                    }
-                }
-                await refreshVersions()
-            } catch {
-                await MainActor.run {
-                    downloadError = error.localizedDescription
-                }
+        runDownload(
+            checkForUpdate: true,
+            progressSetter: { ytdlpDownloadProgress = $0 },
+            busySetter: { isDownloading = $0 },
+            errorSetter: { downloadError = $0 },
+            infoSetter: { downloadInfo = $0 },
+            checkForUpdates: { await YTDLPUpdateService.shared.checkForUpdates() },
+            download: { progress in
+                try await YTDLPUpdateService.shared.downloadUpdate(progress: progress)
             }
-            await MainActor.run {
-                isDownloading = false
-            }
-        }
+        )
     }
 
     private func downloadDeno() {
         guard selectedDenoSource == .app else { return }
-        isDownloadingDeno = true
-        denoDownloadProgress = 0.0
-        denoDownloadError = nil
-        Task {
-            do {
-                try await YTDLPUpdateService.shared.downloadDenoUpdate(progress: { progress in
-                    DispatchQueue.main.async {
-                        denoDownloadProgress = progress
-                    }
-                })
-                await refreshVersions()
-            } catch {
-                await MainActor.run {
-                    denoDownloadError = error.localizedDescription
-                }
+        runDownload(
+            checkForUpdate: false,
+            progressSetter: { denoDownloadProgress = $0 },
+            busySetter: { isDownloadingDeno = $0 },
+            errorSetter: { denoDownloadError = $0 },
+            infoSetter: { denoDownloadInfo = $0 },
+            checkForUpdates: { await YTDLPUpdateService.shared.checkForDenoUpdates() },
+            download: { progress in
+                try await YTDLPUpdateService.shared.downloadDenoUpdate(progress: progress)
             }
-            await MainActor.run {
-                isDownloadingDeno = false
-            }
-        }
+        )
     }
 
     private func checkAndUpdateDeno() {
         guard selectedDenoSource == .app else { return }
-        isDownloadingDeno = true
-        denoDownloadProgress = 0.0
-        denoDownloadError = nil
+        runDownload(
+            checkForUpdate: true,
+            progressSetter: { denoDownloadProgress = $0 },
+            busySetter: { isDownloadingDeno = $0 },
+            errorSetter: { denoDownloadError = $0 },
+            infoSetter: { denoDownloadInfo = $0 },
+            checkForUpdates: { await YTDLPUpdateService.shared.checkForDenoUpdates() },
+            download: { progress in
+                try await YTDLPUpdateService.shared.downloadDenoUpdate(progress: progress)
+            }
+        )
+    }
+
+    private func runDownload(
+        checkForUpdate: Bool,
+        progressSetter: @MainActor @escaping (Double) -> Void,
+        busySetter: @MainActor @escaping (Bool) -> Void,
+        errorSetter: @MainActor @escaping (String?) -> Void,
+        infoSetter: @MainActor @escaping (String?) -> Void,
+        checkForUpdates: @Sendable @escaping () async -> Bool,
+        download: @Sendable @escaping (@escaping @Sendable (Double) -> Void) async throws -> Void
+    ) {
+        busySetter(true)
+        progressSetter(0.0)
+        errorSetter(nil)
+        infoSetter(nil)
         Task {
             do {
-                let hasUpdate = await YTDLPUpdateService.shared.checkForDenoUpdates()
-                if hasUpdate {
-                    try await YTDLPUpdateService.shared.downloadDenoUpdate(progress: { progress in
-                        DispatchQueue.main.async {
-                            denoDownloadProgress = progress
-                        }
-                    })
+                let shouldDownload = checkForUpdate ? await checkForUpdates() : true
+                if shouldDownload {
+                    try await download { progress in
+                        Task { @MainActor in progressSetter(progress) }
+                    }
                 } else {
-                    await MainActor.run {
-                        denoDownloadError = "Already up to date"
-                    }
+                    await MainActor.run { infoSetter("Already up to date") }
                     try? await Task.sleep(for: .seconds(3))
-                    await MainActor.run {
-                        if denoDownloadError == "Already up to date" {
-                            denoDownloadError = nil
-                        }
-                    }
+                    await MainActor.run { infoSetter(nil) }
                 }
                 await refreshVersions()
+            } catch is CancellationError {
+                // User cancelled — leave UI silent.
             } catch {
-                await MainActor.run {
-                    denoDownloadError = error.localizedDescription
-                }
+                await MainActor.run { errorSetter(error.localizedDescription) }
             }
-            await MainActor.run {
-                isDownloadingDeno = false
-            }
+            await MainActor.run { busySetter(false) }
         }
     }
 

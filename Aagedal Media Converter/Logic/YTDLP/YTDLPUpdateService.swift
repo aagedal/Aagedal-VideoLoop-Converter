@@ -14,6 +14,7 @@ actor YTDLPUpdateService {
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "YTDLPUpdate")
     private var denoInstallTask: Task<String?, Never>?
     private var cachedDenoPath: String?
+    private var activeDownloadTasks: [YTDLPDownloadKind: URLSessionDownloadTask] = [:]
 
     /// Path to bundled yt-dlp binary in app bundle
     /// Note: We don't bundle yt-dlp anymore because PyInstaller binaries
@@ -599,7 +600,7 @@ actor YTDLPUpdateService {
 
         logger.info("Auto-downloading deno \(version) from \(downloadURL)")
 
-        let (tempZipURL, response) = try await downloadWithProgress(from: downloadURL, progress: progress)
+        let (tempZipURL, response) = try await downloadWithProgress(from: downloadURL, kind: .deno, progress: progress)
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             try? FileManager.default.removeItem(at: tempZipURL)
             throw YTDLPUpdateError.downloadFailed
@@ -709,7 +710,7 @@ actor YTDLPUpdateService {
         logger.info("Downloading yt-dlp \(version) from \(downloadURL)")
 
         // Download the binary with progress tracking
-        let (tempURL, response) = try await downloadWithProgress(from: downloadURL, progress: progress)
+        let (tempURL, response) = try await downloadWithProgress(from: downloadURL, kind: .ytdlp, progress: progress)
 
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             try? FileManager.default.removeItem(at: tempURL)
@@ -885,15 +886,28 @@ actor YTDLPUpdateService {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Downloads a file with progress tracking
+    /// Cancels the active download for the given kind, if any. No-op otherwise.
+    func cancelDownload(_ kind: YTDLPDownloadKind) {
+        if let task = activeDownloadTasks[kind] {
+            task.cancel()
+            activeDownloadTasks[kind] = nil
+            logger.info("Cancelled \(String(describing: kind)) download")
+        }
+    }
+
+    /// Downloads a file with progress tracking. Registers the task for
+    /// cooperative cancellation via `cancelDownload(_:)`.
     private func downloadWithProgress(
         from url: URL,
+        kind: YTDLPDownloadKind,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> (URL, URLResponse) {
         let request = URLRequest(url: url)
 
         let delegate = YTDLPDownloadProgressDelegate(progressHandler: progress)
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+
+        defer { activeDownloadTasks[kind] = nil }
 
         return try await withCheckedThrowingContinuation { continuation in
             let task = session.downloadTask(with: request) { tempURL, response, error in
@@ -902,7 +916,11 @@ actor YTDLPUpdateService {
                 defer { session.finishTasksAndInvalidate() }
 
                 if let error = error {
-                    continuation.resume(throwing: error)
+                    if (error as? URLError)?.code == .cancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
                     return
                 }
                 guard let tempURL = tempURL, let response = response else {
@@ -920,6 +938,7 @@ actor YTDLPUpdateService {
                     continuation.resume(throwing: error)
                 }
             }
+            activeDownloadTasks[kind] = task
             task.resume()
         }
     }
@@ -985,6 +1004,12 @@ private final class YTDLPDownloadProgressDelegate: NSObject, URLSessionDownloadD
     ) {
         // Handled in the completion handler
     }
+}
+
+/// Identifies which download slot is active so callers can cancel the right one.
+enum YTDLPDownloadKind: Sendable {
+    case ytdlp
+    case deno
 }
 
 enum YTDLPUpdateError: Error, LocalizedError {
