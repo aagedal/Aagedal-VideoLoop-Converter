@@ -28,7 +28,13 @@ actor YTDLPService {
     private enum CancelReason {
         case userRequested
         case liveRecordingStop
+        case stalled
     }
+
+    /// How long yt-dlp may produce no output before the stall watchdog kills it.
+    /// Generous enough to cover slow Python startup and post-processing lulls.
+    private static let stallThresholdSeconds: TimeInterval = 300
+    private static let stallCheckIntervalNanos: UInt64 = 30_000_000_000 // 30s
 
     /// Thread-safe storage for the current process (accessible from any thread for cancellation)
     private final class ProcessHolder: @unchecked Sendable {
@@ -301,18 +307,28 @@ actor YTDLPService {
         final class ParsedState: @unchecked Sendable {
             var outputPath: String?
             var videoTitle: String = "Downloaded Video"
-            var lastError: String?
+            var firstError: String?
             var fileAlreadyExists: Bool = false
             var existingFilePath: String?
             var firstStdoutLogged: Bool = false
             var firstStderrLogged: Bool = false
             var firstProgressLogged: Bool = false
+            /// Timestamp of the last non-empty line seen on stdout/stderr.
+            /// The stall watchdog compares against this to decide whether yt-dlp
+            /// has gone silent.
+            var lastActivity: Date = Date()
             let lock = NSLock()
 
             func read<T>(_ block: (ParsedState) -> T) -> T {
                 lock.lock()
                 defer { lock.unlock() }
                 return block(self)
+            }
+
+            func markActivity() {
+                lock.lock()
+                lastActivity = Date()
+                lock.unlock()
             }
 
             func markFirstStdout() -> Bool {
@@ -354,6 +370,10 @@ actor YTDLPService {
         // Helper to process a line of output
         @Sendable func processLine(_ trimmed: String, isStderr: Bool) {
             guard !trimmed.isEmpty else { return }
+
+            // Feed the stall watchdog: any non-empty stdout/stderr line counts
+            // as activity, including fragment-download progress for live streams.
+            parsedState.markActivity()
 
             if isStderr {
                 if parsedState.markFirstStderr() {
@@ -398,10 +418,15 @@ actor YTDLPService {
                 parsedState.lock.unlock()
             }
 
-            // Check for errors
+            // Capture the FIRST error line we see — yt-dlp's initial ERROR: message
+            // is the actionable summary ("Sign in to confirm you're not a bot",
+            // "Video unavailable", etc.); subsequent lines are stack/detail that
+            // look more alarming than they are in the UI.
             if let error = YTDLPProgressParser.parseError(trimmed) {
                 parsedState.lock.lock()
-                parsedState.lastError = error
+                if parsedState.firstError == nil {
+                    parsedState.firstError = error
+                }
                 parsedState.lock.unlock()
             }
 
@@ -433,6 +458,31 @@ actor YTDLPService {
         logger.info("[TIMING] Process setup completed in \(String(format: "%.3f", processSetupElapsed))s, starting download process...")
 
         processStartBox.value = Date()
+        parsedState.markActivity()
+
+        // Stall watchdog: if yt-dlp produces no output for `stallThresholdSeconds`,
+        // terminate it so the UI isn't stuck forever on a dead connection. Fragment
+        // progress for live streams keeps feeding the watchdog, so legitimate live
+        // recordings are unaffected.
+        let stallThreshold = Self.stallThresholdSeconds
+        let stallCheckInterval = Self.stallCheckIntervalNanos
+        let watchdogHolder = processHolder
+        let watchdogState = parsedState
+        let watchdogLogger = logger
+        let watchdogTask = Task.detached {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: stallCheckInterval)
+                if Task.isCancelled { break }
+                let last = watchdogState.read { $0.lastActivity }
+                let elapsed = Date().timeIntervalSince(last)
+                if elapsed > stallThreshold {
+                    watchdogLogger.warning("yt-dlp appears stalled (no output for \(Int(elapsed))s) — terminating")
+                    _ = watchdogHolder.terminate(reason: .stalled)
+                    break
+                }
+            }
+        }
+        defer { watchdogTask.cancel() }
 
         // Run process with background pipe reading using DispatchQueue
         // This is more reliable than readabilityHandler with Swift concurrency
@@ -552,11 +602,14 @@ actor YTDLPService {
             case .liveRecordingStop:
                 logger.info("Live stream recording stopped")
                 throw YTDLPError.liveRecordingStopped
+            case .stalled:
+                logger.warning("Download terminated due to stall")
+                throw YTDLPError.stalled
             }
         }
 
         // Read final state
-        let lastError = parsedState.read { $0.lastError }
+        let firstError = parsedState.read { $0.firstError }
         let outputPath = parsedState.read { $0.outputPath }
         let videoTitle = parsedState.read { $0.videoTitle }
         let fileAlreadyExists = parsedState.read { $0.fileAlreadyExists }
@@ -571,7 +624,7 @@ actor YTDLPService {
 
         // Check exit status
         guard terminationStatus == 0 else {
-            let errorMessage = lastError ?? "Download failed with exit code \(terminationStatus)"
+            let errorMessage = firstError ?? "Download failed with exit code \(terminationStatus)"
             throw YTDLPError.downloadFailed(errorMessage)
         }
 
@@ -624,6 +677,7 @@ enum YTDLPError: Error, LocalizedError {
     case cancelled
     case liveRecordingStopped
     case fileAlreadyExists(path: String, title: String)
+    case stalled
 
     var errorDescription: String? {
         switch self {
@@ -641,6 +695,8 @@ enum YTDLPError: Error, LocalizedError {
             return "Live stream recording stopped"
         case .fileAlreadyExists(let path, _):
             return "File already exists: \(path)"
+        case .stalled:
+            return "Download stalled — no activity for several minutes"
         }
     }
 }
