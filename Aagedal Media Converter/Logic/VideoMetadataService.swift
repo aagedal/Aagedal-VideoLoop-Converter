@@ -217,9 +217,26 @@ actor VideoMetadataService {
     static let shared = VideoMetadataService()
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "VideoMetadata")
-    private let cache = NSCache<NSURL, CachedMetadata>()
-    private let essentialInfoCache = NSCache<NSURL, CachedEssentialInfo>()
-    private let hasVideoStreamCache = NSCache<NSURL, CachedBool>()
+    private let cache: NSCache<NSURL, CachedMetadata> = {
+        let c = NSCache<NSURL, CachedMetadata>()
+        c.countLimit = 256
+        return c
+    }()
+    private let essentialInfoCache: NSCache<NSURL, CachedEssentialInfo> = {
+        let c = NSCache<NSURL, CachedEssentialInfo>()
+        c.countLimit = 1024
+        return c
+    }()
+    private let hasVideoStreamCache: NSCache<NSURL, CachedBool> = {
+        let c = NSCache<NSURL, CachedBool>()
+        c.countLimit = 1024
+        return c
+    }()
+
+    // Single-flight tables: concurrent callers for the same URL await the same Task
+    // instead of each spawning a fresh SwiftExif parse (heavy for large MKV/MXF files).
+    private var inFlightMetadata: [URL: Task<VideoMetadata, Error>] = [:]
+    private var inFlightEssential: [URL: Task<EssentialVideoInfo, Error>] = [:]
 
     private final class CachedMetadata: NSObject {
         let metadata: VideoMetadata
@@ -312,7 +329,20 @@ actor VideoMetadataService {
         if let cached = essentialInfoCache.object(forKey: url as NSURL) {
             return cached.info
         }
+        if let inFlight = inFlightEssential[url] {
+            return try await inFlight.value
+        }
 
+        let task = Task { [weak self] () throws -> EssentialVideoInfo in
+            guard let self else { throw CancellationError() }
+            return try await self.performFetchEssentialInfo(for: url)
+        }
+        inFlightEssential[url] = task
+        defer { inFlightEssential.removeValue(forKey: url) }
+        return try await task.value
+    }
+
+    private func performFetchEssentialInfo(for url: URL) async throws -> EssentialVideoInfo {
         let scope = startAccess(for: url)
         defer { stopAccess(scope, for: url) }
 
@@ -366,6 +396,7 @@ actor VideoMetadataService {
         }
 
         essentialInfoCache.setObject(CachedEssentialInfo(info: info), forKey: url as NSURL)
+        hasVideoStreamCache.setObject(CachedBool(value: info.hasVideoStream), forKey: url as NSURL)
         return info
     }
 
@@ -373,7 +404,20 @@ actor VideoMetadataService {
         if let cached = cache.object(forKey: url as NSURL) {
             return cached.metadata
         }
+        if let inFlight = inFlightMetadata[url] {
+            return try await inFlight.value
+        }
 
+        let task = Task { [weak self] () throws -> VideoMetadata in
+            guard let self else { throw CancellationError() }
+            return try await self.performMetadataFetch(for: url)
+        }
+        inFlightMetadata[url] = task
+        defer { inFlightMetadata.removeValue(forKey: url) }
+        return try await task.value
+    }
+
+    private func performMetadataFetch(for url: URL) async throws -> VideoMetadata {
         let scope = startAccess(for: url)
         defer { stopAccess(scope, for: url) }
 

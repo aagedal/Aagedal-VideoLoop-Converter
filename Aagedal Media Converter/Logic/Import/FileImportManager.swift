@@ -51,9 +51,10 @@ actor FileImportManager {
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FileImportManager")
 
     // Configuration
-    private var maxConcurrentLoads: Int {
-        max(2, ProcessInfo.processInfo.activeProcessorCount / 2)
-    }
+    // SwiftExif video parsing is I/O- and memory-bound, not CPU-bound: more parallelism
+    // doesn't speed it up much but multiplies peak RAM (a single MKV parse can hold
+    // tens of GB transiently). Keep this small to avoid OOM on bulk imports of large files.
+    private let maxConcurrentLoads = 2
 
     // State tracking for deduplication across concurrent imports
     private var importingURLs: Set<URL> = []
@@ -244,31 +245,31 @@ actor FileImportManager {
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         let outputURL = VideoFileUtils.makeOutputURLPublic(for: url, outputFolder: outputFolder, preset: preset)
 
-        // Phase 1: Get duration quickly and yield immediately so the UI feels responsive.
-        // AVFoundation reads the moov atom in-process for Apple-native containers;
-        // for non-Apple containers we use the lightweight ffprobe duration query.
-        let quickDuration = await VideoFileUtils.getQuickDuration(for: url)
-        if quickDuration > 0 {
+        // Phase 1: Single SwiftExif probe that returns duration + topology in one parse,
+        // and seeds the metadata caches so Phase 2 hits cache instead of re-parsing.
+        var earlyDuration: Double = 0
+        if let essential = try? await VideoMetadataService.shared.fetchEssentialInfo(for: url) {
+            earlyDuration = essential.duration
             let earlyDetails = VideoFileUtils.VideoItemDetails(
                 size: size,
-                duration: VideoFileUtils.formatDuration(seconds: quickDuration),
-                durationSeconds: quickDuration,
+                duration: VideoFileUtils.formatDuration(seconds: essential.duration),
+                durationSeconds: essential.duration,
                 thumbnailData: nil,
                 outputURL: outputURL,
-                hasVideoStream: true // optimistic, will be corrected by full metadata
+                hasVideoStream: essential.hasVideoStream
             )
             continuation.yield(.itemDetailsLoaded(id: id, details: earlyDetails))
         }
 
-        // Phase 2: Full metadata probe (heavy — show_format + show_streams)
+        // Phase 2: Full metadata probe (cached after Phase 1 for SwiftExif-readable containers)
         do {
             let metadata = try await VideoMetadataService.shared.metadata(for: url)
 
-            let duration = metadata.duration ?? quickDuration
+            let duration = metadata.duration ?? earlyDuration
             let hasVideoStream = !metadata.videoStreams.isEmpty
 
             // Yield corrected details if duration or hasVideoStream changed
-            if quickDuration <= 0 || duration != quickDuration || !hasVideoStream {
+            if earlyDuration <= 0 || duration != earlyDuration || !hasVideoStream {
                 let details = VideoFileUtils.VideoItemDetails(
                     size: size,
                     duration: VideoFileUtils.formatDuration(seconds: duration),
@@ -285,8 +286,8 @@ actor FileImportManager {
         } catch {
             logger.error("Failed to load metadata for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
 
-            // If we didn't yield early details (quickDuration was 0), fall back to legacy loadDetails
-            if quickDuration <= 0 {
+            // If Phase 1 yielded nothing, fall back to legacy loadDetails so the row still gets duration/thumbnail.
+            if earlyDuration <= 0 {
                 let details = await VideoFileUtils.loadDetails(
                     for: url,
                     outputFolder: outputFolder,
