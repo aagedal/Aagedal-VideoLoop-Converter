@@ -695,8 +695,10 @@ class DownloadManager {
         updateItem(itemID) { item in
             item.isDownloading = false
             item.isLiveStreamRecording = false
+            item.downloadStopping = false
             item.liveRecordingFileSize = nil
             item.liveRecordingDuration = nil
+            item.downloadSpeed = nil
             item.downloadError = "Cancelled"
             item.status = .cancelled
         }
@@ -997,7 +999,10 @@ class DownloadManager {
     nonisolated static func isValidURL(_ string: String) -> Bool {
         let sanitized = sanitizeURLInput(string)
         guard !sanitized.isEmpty, let url = URL(string: sanitized) else { return false }
-        return url.scheme == "http" || url.scheme == "https"
+        // Require http/https AND a non-empty host — `https://` alone parses into a
+        // URL but yt-dlp would error out seconds later with a confusing message.
+        guard url.scheme == "http" || url.scheme == "https" else { return false }
+        return !(url.host?.isEmpty ?? true)
     }
 
     /// Sanitizes URL input by extracting the first line and trimming whitespace

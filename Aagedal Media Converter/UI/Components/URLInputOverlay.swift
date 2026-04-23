@@ -153,10 +153,6 @@ struct URLInputOverlay: View {
                 navigateHistoryBackward()
                 return .handled
             }
-            .onKeyPress(.tab) {
-                // Prevent Tab from cycling focus out of the overlay
-                return .handled
-            }
             .onChange(of: urlText) { oldValue, newValue in
                 // Reset history navigation when user types manually
                 // (but not when we're programmatically setting from history)
