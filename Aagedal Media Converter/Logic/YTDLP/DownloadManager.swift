@@ -42,8 +42,15 @@ class DownloadManager {
         logger.info("[LiveStats] Starting live recording stat updates for item: \(itemID)")
 
         let task = Task {
+            // Poll at 1s for the first minute (responsive feedback while the
+            // recording spins up), then back off to 5s. For multi-hour live
+            // recordings sub-second precision isn't useful and SwiftExif duration
+            // reads on a growing file aren't free.
+            let fastCadenceNanos: UInt64 = 1_000_000_000
+            let slowCadenceNanos: UInt64 = 5_000_000_000
+            let fastUpdateCount = 60
+
             var updateCount = 0
-            // Do updates immediately, then every 1 second
             while !Task.isCancelled {
                 updateCount += 1
 
@@ -55,7 +62,7 @@ class DownloadManager {
                     // Update file size
                     if let attrs = try? FileManager.default.attributesOfItem(atPath: partialFile.path),
                        let fileSize = attrs[.size] as? Int64 {
-                        // Log every 10 updates (every 10 seconds)
+                        // Log every 10 updates
                         if updateCount % 10 == 1 {
                             logger.info("[LiveStats] Update #\(updateCount): file size = \(fileSize) bytes")
                         }
@@ -64,7 +71,7 @@ class DownloadManager {
                         }
                     }
 
-                    // Get duration using ffprobe
+                    // Get duration from the partial file
                     let duration = await getDurationUsingFFprobe(for: partialFile)
                     if let duration = duration {
                         if updateCount % 10 == 1 {
@@ -80,8 +87,8 @@ class DownloadManager {
                     logger.info("[LiveStats] Update #\(updateCount): no partial file found yet")
                 }
 
-                // Wait 1 second before next update
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                let sleepNanos = updateCount < fastUpdateCount ? fastCadenceNanos : slowCadenceNanos
+                try? await Task.sleep(nanoseconds: sleepNanos)
                 guard !Task.isCancelled else { break }
             }
             logger.info("[LiveStats] Stat updates stopped for item: \(itemID)")
@@ -776,6 +783,11 @@ class DownloadManager {
 
     /// Performs a forced download (overwrites existing files)
     private func performForceDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool) async {
+        // Record a history entry upfront so the URL stays retry-able even if this
+        // forced run is cancelled or fails before completion. Mirrors performDownload.
+        let initialTitle = URL(string: urlString)?.host ?? "Download"
+        DownloadHistoryService.addEntry(url: urlString, title: initialTitle)
+
         do {
             // Start the actual download with force overwrite
             logger.info("Starting forced download for: \(urlString)")
@@ -917,8 +929,10 @@ class DownloadManager {
             return nil
         }
 
-        // Find video files modified in the last 60 seconds
-        let recentCutoff = Date().addingTimeInterval(-60)
+        // Find video files modified recently. 5 minutes covers downloads that stalled
+        // briefly (e.g. flaky upstream, sleep/wake) before the user hit stop — a 60s
+        // window missed those cases and reported "partial file not found".
+        let recentCutoff = Date().addingTimeInterval(-300)
 
         let recentVideoFiles = contents.compactMap { url -> (URL, Date)? in
             // Check if it's a video file or .part file
