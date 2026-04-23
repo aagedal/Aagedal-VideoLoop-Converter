@@ -258,34 +258,8 @@ enum ImageSequenceDetector {
         return nil
     }
 
-    /// Probes the duration of an audio file using ffprobe (synchronous).
+    /// Probes the duration of an audio file (synchronous — SwiftExif + AVFoundation fallback).
     private static func probeAudioDuration(_ url: URL) -> Double? {
-        guard let ffprobePath = BinaryPathResolver.ffprobePath else { return nil }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffprobePath)
-        process.arguments = [
-            "-v", "quiet",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            url.path
-        ]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  let duration = Double(output), duration > 0 else { return nil }
-            return duration
-        } catch {
-            logger.warning("Failed to probe audio duration: \(error.localizedDescription)")
-            return nil
-        }
+        SwiftExifMediaProbe.durationSync(for: url)
     }
 }

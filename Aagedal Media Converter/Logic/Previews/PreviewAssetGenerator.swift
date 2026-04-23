@@ -77,7 +77,6 @@ struct PreviewAssets: Sendable {
 
 enum PreviewAssetError: Error, LocalizedError {
     case ffmpegBinaryMissing
-    case ffprobeBinaryMissing
     case durationUnavailable
     case generationFailed(String)
 
@@ -85,8 +84,6 @@ enum PreviewAssetError: Error, LocalizedError {
         switch self {
         case .ffmpegBinaryMissing:
             return "FFmpeg binary not found in application bundle."
-        case .ffprobeBinaryMissing:
-            return "FFprobe binary not found in application bundle."
         case .durationUnavailable:
             return "Unable to determine media duration for preview generation."
         case .generationFailed(let message):
@@ -528,10 +525,6 @@ actor PreviewAssetGenerator {
             logger.error("FFmpeg binary not found")
             throw PreviewAssetError.ffmpegBinaryMissing
         }
-        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
-            logger.error("FFprobe binary not found")
-            throw PreviewAssetError.ffprobeBinaryMissing
-        }
 
         let assetDirectory = try ensureAssetDirectory(for: url)
         logger.info("Asset directory: \(assetDirectory.path, privacy: .public)")
@@ -605,12 +598,12 @@ actor PreviewAssetGenerator {
 
         logger.info("Row thumbnail missing: \(rowThumbnailMissing), filmstrip thumbnails missing: \(missingThumbnailIndices.count), waveform missing: \(waveformMissing)")
 
-        let duration = try await determineDuration(for: url, ffprobePath: ffprobePath) ?? 0
+        let duration = await determineDuration(for: url) ?? 0
         if duration <= 0 {
             throw PreviewAssetError.durationUnavailable
         }
 
-        let hdrType: HDRType = hasVideoStream ? (try await detectHDRRequirement(for: url, ffprobePath: ffprobePath)) : .none
+        let hdrType: HDRType = hasVideoStream ? (await detectHDRRequirement(for: url)) : .none
 
         if rowThumbnailMissing {
             if hasVideoStream {
@@ -846,16 +839,11 @@ actor PreviewAssetGenerator {
                 throw PreviewAssetError.ffmpegBinaryMissing
             }
 
-            guard let ffprobePath = BinaryPathResolver.ffprobePath else {
-                logger.error("FFprobe binary not found")
-                throw PreviewAssetError.ffprobeBinaryMissing
-            }
-
-            guard let duration = try await determineDuration(for: url, ffprobePath: ffprobePath) else {
+            guard let duration = await determineDuration(for: url) else {
                 throw PreviewAssetError.durationUnavailable
             }
 
-            let hdrType = try await detectHDRRequirement(for: url, ffprobePath: ffprobePath)
+            let hdrType = await detectHDRRequirement(for: url)
 
             try await generateRowThumbnail(
                 url: url,
@@ -982,10 +970,7 @@ actor PreviewAssetGenerator {
 
         // Try native rendering first (fast)
         do {
-            guard let ffprobePath = BinaryPathResolver.ffprobePath else {
-                throw PreviewAssetError.ffprobeBinaryMissing
-            }
-            guard let duration = try await determineDuration(for: url, ffprobePath: ffprobePath), duration > 0 else {
+            guard let duration = await determineDuration(for: url), duration > 0 else {
                 throw PreviewAssetError.durationUnavailable
             }
 
@@ -1070,37 +1055,11 @@ actor PreviewAssetGenerator {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func determineDuration(for url: URL, ffprobePath: String) async throws -> Double? {
-        // First check if duration is already cached (avoids redundant ffprobe calls)
+    private func determineDuration(for url: URL) async -> Double? {
         if let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url), cachedDuration > 0 {
             return cachedDuration
         }
-
-        // Fall back to FFprobe if not cached
-        if let duration = await FFMPEGConverter.getVideoDuration(url: url), duration > 0 {
-            return duration
-        }
-
-        // Fallback: use ffprobe manually (in case getVideoDuration returns nil but still accessible)
-        return try await runProcess(
-            executable: URL(fileURLWithPath: ffprobePath),
-            arguments: [
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                url.path
-            ],
-            forURL: url
-        ) { stdoutData, _ in
-            guard
-                let string = String(data: stdoutData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                let value = Double(string),
-                value > 0
-            else {
-                return nil
-            }
-            return value
-        }
+        return await SwiftExifMediaProbe.duration(for: url)
     }
 
     private func generateThumbnails(
@@ -1548,64 +1507,37 @@ actor PreviewAssetGenerator {
         case hdr10Bit       // 10-bit+ HDR content (previously tonemapped; now handled without zscale)
     }
     
-    /// Detects HDR processing requirement (ProRes RAW, 10-bit+ without color metadata)
-    private func detectHDRRequirement(for url: URL, ffprobePath: String) async throws -> HDRType {
-        return try await runProcess(
-            executable: URL(fileURLWithPath: ffprobePath),
-            arguments: [
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=codec_name,pix_fmt,color_space,color_primaries,color_transfer",
-                "-of", "default=noprint_wrappers=1",
-                url.path
-            ],
-            forURL: url
-        ) { stdoutData, _ in
-            guard let output = String(data: stdoutData, encoding: .utf8) else { return .none }
-            
-            let lines = output.components(separatedBy: .newlines)
-            var codecName = ""
-            var pixFmt = ""
-            var colorSpace = ""
-            var colorPrimaries = ""
-            var colorTransfer = ""
-            
-            for line in lines {
-                let parts = line.split(separator: "=", maxSplits: 1)
-                guard parts.count == 2 else { continue }
-                let key = String(parts[0])
-                let value = String(parts[1])
-                
-                switch key {
-                case "codec_name": codecName = value
-                case "pix_fmt": pixFmt = value
-                case "color_space": colorSpace = value
-                case "color_primaries": colorPrimaries = value
-                case "color_transfer": colorTransfer = value
-                default: break
-                }
-            }
-            
-            // ProRes RAW requires special handling (simple decode, no tonemapping)
-            if codecName.contains("prores_ks") || codecName.contains("prores") {
-                if pixFmt.contains("rgb") || pixFmt.contains("bayer") {
-                    self.logger.info("Detected ProRes RAW - using simple color conversion")
-                    return .proresRAW
-                }
-            }
-
-            // We no longer apply zscale/tonemapping. Even for HDR metadata, we will generate thumbnails
-            // using a standard output format to maximize compatibility and avoid zscale issues.
-            let hasHDRColorSpace = colorSpace.contains("bt2020") || colorPrimaries.contains("bt2020")
-            let hasHDRTransfer = colorTransfer.contains("smpte2084") || colorTransfer.contains("arib-std-b67")
-
-            if hasHDRColorSpace || hasHDRTransfer {
-                self.logger.info("Detected HDR content with explicit color metadata - proceeding without zscale")
-                return .hdr10Bit
-            }
-
+    /// Detects HDR processing requirement (ProRes RAW, 10-bit+ without color metadata).
+    /// Reads the first video stream via SwiftExif and inspects codec + pixel format + colour info.
+    private func detectHDRRequirement(for url: URL) async -> HDRType {
+        guard SwiftExifMediaProbe.canReadVideo(url),
+              let meta = try? await SwiftExifMediaProbe.readVideo(url),
+              let stream = meta.videoStreams.first(where: { $0.isAttachedPic != true }) else {
             return .none
         }
+
+        let codec = (stream.codec ?? stream.codecName ?? "").lowercased()
+        let pixFmt = (stream.pixelFormat ?? "").lowercased()
+        let primaries = SwiftExifMediaProbe.primariesString(from: stream.colorInfo?.primaries) ?? ""
+        let matrix = SwiftExifMediaProbe.matrixString(from: stream.colorInfo?.matrix) ?? ""
+        let transfer = SwiftExifMediaProbe.transferString(from: stream.colorInfo?.transfer) ?? ""
+
+        if codec.contains("prores") {
+            if pixFmt.contains("rgb") || pixFmt.contains("bayer") {
+                logger.info("Detected ProRes RAW - using simple color conversion")
+                return .proresRAW
+            }
+        }
+
+        let hasHDRColorSpace = matrix.contains("bt2020") || primaries.contains("bt2020")
+        let hasHDRTransfer = transfer.contains("smpte2084") || transfer.contains("arib-std-b67")
+
+        if hasHDRColorSpace || hasHDRTransfer {
+            logger.info("Detected HDR content with explicit color metadata - proceeding without zscale")
+            return .hdr10Bit
+        }
+
+        return .none
     }
     
     /// Generates the large row thumbnail with HDR support

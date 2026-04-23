@@ -26,6 +26,8 @@ struct TrimTimelineView: View {
     let waveformURL: URL?
     let waveformChunks: [WaveformChunk]
     let chunkTotalDuration: Double
+    let chapters: [Chapter]
+    let showChapters: Bool
     let isLoading: Bool
     let step: Double
     let hideFilmstrip: Bool
@@ -66,6 +68,8 @@ struct TrimTimelineView: View {
         waveformURL: URL?,
         waveformChunks: [WaveformChunk] = [],
         chunkTotalDuration: Double = 0,
+        chapters: [Chapter] = [],
+        showChapters: Bool = true,
         isLoading: Bool,
         step: Double = 0.1,
         hideFilmstrip: Bool = false,
@@ -85,6 +89,8 @@ struct TrimTimelineView: View {
         self.waveformURL = waveformURL
         self.waveformChunks = waveformChunks
         self.chunkTotalDuration = chunkTotalDuration
+        self.chapters = chapters
+        self.showChapters = showChapters
         self.isLoading = isLoading
         self.step = step
         self.hideFilmstrip = hideFilmstrip
@@ -359,6 +365,15 @@ private struct TrimHandlesInteractionLayer: View {
                     playbackTime: playbackTime
                 )
                 .allowsHitTesting(false)
+
+                if showChapters && !chapters.isEmpty && duration > 0 {
+                    ChapterMarkersLayer(
+                        duration: duration,
+                        chapters: chapters,
+                        compact: compactMode,
+                        onSeek: onSeek
+                    )
+                }
 
                 // Scrubbing layer (behind handles)
                 TimelineScrubLayer(
@@ -799,6 +814,145 @@ private struct TrimTimelineOverlay: View {
         guard duration > 0 else { return CGFloat(defaultValue) }
         let normalized = value / duration
         return CGFloat(min(max(normalized, 0), 1))
+    }
+}
+
+// MARK: - Chapter Markers
+
+private struct ChapterMarkersLayer: View {
+    let duration: Double
+    let chapters: [Chapter]
+    let compact: Bool
+    let onSeek: (Double) -> Void
+
+    private let tickColor = Color(red: 1.0, green: 0.85, blue: 0.2)
+    private let tickWidth: CGFloat = 1.5
+    private let hoverSlop: CGFloat = 6  // Extra hit width on each side of the tick
+    @State private var hoveredChapterID: Int?
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(geometry.size.width, 1)
+            let height = geometry.size.height
+
+            ZStack(alignment: .topLeading) {
+                // Always-visible ticks with invisible wide hit targets
+                ForEach(chapters) { chapter in
+                    chapterTick(chapter: chapter, width: width, height: height)
+                }
+
+                // Single floating label for the hovered chapter — drawn last so it
+                // sits on top of every tick without collision resolution or stacking.
+                if let hoveredID = hoveredChapterID,
+                   let hovered = chapters.first(where: { $0.id == hoveredID }) {
+                    hoverLabel(chapter: hovered, width: width)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chapterTick(chapter: Chapter, width: CGFloat, height: CGFloat) -> some View {
+        let x = position(for: chapter.start, width: width)
+        let isHovered = hoveredChapterID == chapter.id
+        let hitWidth = tickWidth + hoverSlop * 2
+
+        ZStack {
+            // Visual tick — thin, non-interactive, always on.
+            Rectangle()
+                .fill(tickColor.opacity(isHovered ? 1.0 : 0.85))
+                .frame(width: tickWidth, height: height)
+                .shadow(color: .black.opacity(0.5), radius: 1, x: 0, y: 0)
+                .allowsHitTesting(false)
+
+            // Wider invisible hit target around the tick for hover + click.
+            Color.clear
+                .frame(width: hitWidth, height: height)
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    if hovering {
+                        hoveredChapterID = chapter.id
+                    } else if hoveredChapterID == chapter.id {
+                        hoveredChapterID = nil
+                    }
+                }
+                .onTapGesture {
+                    onSeek(chapter.start)
+                }
+        }
+        .frame(width: hitWidth, height: height, alignment: .center)
+        .offset(x: x - hitWidth / 2, y: 0)
+    }
+
+    @ViewBuilder
+    private func hoverLabel(chapter: Chapter, width: CGFloat) -> some View {
+        let index = (chapters.firstIndex(where: { $0.id == chapter.id }) ?? 0) + 1
+        let title = chapter.displayTitle(fallbackIndex: index)
+        let labelText = "\(title) · \(formatTime(chapter.start))"
+        let x = position(for: chapter.start, width: width)
+
+        HoverLabelView(text: labelText, preferredX: x, containerWidth: width, compact: compact)
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
+    }
+
+    private func position(for value: Double, width: CGFloat) -> CGFloat {
+        guard duration > 0 else { return 0 }
+        let clamped = min(max(value, 0), duration)
+        return CGFloat(clamped / duration) * width
+    }
+}
+
+/// Floating label shown above the hovered chapter tick. Self-measures and clamps
+/// its horizontal position so it stays inside the timeline at the edges.
+private struct HoverLabelView: View {
+    let text: String
+    let preferredX: CGFloat
+    let containerWidth: CGFloat
+    let compact: Bool
+
+    @State private var measuredWidth: CGFloat = 0
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.black.opacity(0.85))
+            )
+            .fixedSize()
+            .padding(.top, compact ? 1 : 2)
+            .allowsHitTesting(false)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { measuredWidth = proxy.size.width }
+                        .onChange(of: proxy.size.width) { _, newValue in
+                            measuredWidth = newValue
+                        }
+                }
+            )
+            .offset(x: clampedLeadingX)
+    }
+
+    private var clampedLeadingX: CGFloat {
+        let half = measuredWidth / 2
+        let desired = preferredX - half
+        let maxX = max(0, containerWidth - measuredWidth - 2)
+        return min(max(2, desired), maxX)
     }
 }
 

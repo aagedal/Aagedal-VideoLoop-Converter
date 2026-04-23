@@ -2,6 +2,7 @@
 // Copyright © 2025 Truls Aagedal
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -17,10 +18,18 @@ struct MetadataSettingsView: View {
     @AppStorage(AppConstants.dateTagPrefixKey) private var dateTagPrefix = AppConstants.defaultDateTagPrefix
     @AppStorage(AppConstants.showCommentFieldKey) private var showCommentField = false
     @AppStorage(AppConstants.showDateTagButtonKey) private var showDateTagButton = true
+    @AppStorage(AppConstants.ffprobeBinarySourceKey) private var ffprobeBinarySource = BinarySourceSelection.homebrew.rawValue
+    @State private var ffprobeCustomPath = ""
+    @State private var ffprobeVersion: String?
+    @State private var isCheckingFFprobeVersion = false
     @State private var isValidTimecode: Bool = true
     @State private var showCommentInfoPopover = false
     @FocusState private var isTextFieldFocused: Bool
     @FocusState private var focusedCommentField: CommentField?
+
+    private var selectedFFprobeSource: BinarySourceSelection {
+        BinarySourceSelection(rawValue: ffprobeBinarySource) ?? .homebrew
+    }
 
     private enum CommentField: Hashable {
         case prefix, suffix, datePrefix
@@ -48,6 +57,7 @@ struct MetadataSettingsView: View {
 
     var body: some View {
         Form {
+            metadataReadingSection
             metadataPreservationSection
             commentSection
             queueRowDisplaySection
@@ -56,6 +66,146 @@ struct MetadataSettingsView: View {
         .formStyle(.grouped)
         .onAppear {
             isValidTimecode = validateTimecode(defaultTimecodeValue)
+            ffprobeCustomPath = UserDefaults.standard.string(forKey: AppConstants.customFFprobePathKey) ?? ""
+            Task { await refreshFFprobeVersion() }
+        }
+    }
+
+    // MARK: - Metadata Reading
+
+    private var metadataReadingSection: some View {
+        Section(header: Text("Metadata Reading")) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Metadata reading is handled in-process by SwiftExif. The app no longer bundles ffprobe. A few features (currently chapter markers) still fall back to an optional external ffprobe binary — leave this unset if you don't need them.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack {
+                    if BinaryPathResolver.ffprobePath != nil {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(ffprobeStatusColor)
+                        Text(ffprobeStatusLabel)
+                    } else {
+                        Image(systemName: "minus.circle")
+                            .foregroundColor(.secondary)
+                        Text("ffprobe: not configured")
+                    }
+
+                    Spacer()
+
+                    if let version = ffprobeVersion {
+                        Text(version)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                HStack {
+                    Text("Source:")
+                        .frame(width: 60, alignment: .trailing)
+                    Picker("Source", selection: $ffprobeBinarySource) {
+                        Text("Homebrew").tag(BinarySourceSelection.homebrew.rawValue)
+                        Text("Custom").tag(BinarySourceSelection.custom.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                    .onChange(of: ffprobeBinarySource) { _, _ in
+                        Task { await refreshFFprobeVersion() }
+                    }
+                    Spacer()
+                }
+
+                if selectedFFprobeSource == .custom {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Custom ffprobe path:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        HStack {
+                            TextField("Select ffprobe binary", text: $ffprobeCustomPath)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(.body, design: .monospaced))
+
+                            Button("Browse…") {
+                                selectFFprobeBinary()
+                            }
+
+                            if !ffprobeCustomPath.isEmpty {
+                                Button(role: .destructive) {
+                                    ffprobeCustomPath = ""
+                                    saveFFprobePath()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                    .onChange(of: ffprobeCustomPath) { _, _ in
+                        saveFFprobePath()
+                    }
+                }
+
+                if BinaryPathResolver.ffprobePath == nil {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("Install ffprobe with \"brew install ffmpeg\" to enable chapter extraction, or point at a custom binary.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    private var ffprobeStatusColor: Color {
+        switch selectedFFprobeSource {
+        case .custom: return .blue
+        case .homebrew: return .orange
+        case .app: return .green
+        }
+    }
+
+    private var ffprobeStatusLabel: String {
+        switch selectedFFprobeSource {
+        case .custom: return "ffprobe: Custom"
+        case .homebrew: return "ffprobe: Homebrew"
+        case .app: return "ffprobe: App"
+        }
+    }
+
+    private func saveFFprobePath() {
+        BinaryPathResolver.saveCustomFFprobePath(ffprobeCustomPath.isEmpty ? nil : ffprobeCustomPath)
+        Task { await refreshFFprobeVersion() }
+    }
+
+    @MainActor
+    private func refreshFFprobeVersion() async {
+        isCheckingFFprobeVersion = true
+        defer { isCheckingFFprobeVersion = false }
+        ffprobeVersion = await BinaryPathResolver.getFFprobeVersion()
+    }
+
+    private func selectFFprobeBinary() {
+        let panel = NSOpenPanel()
+        panel.title = "Select ffprobe binary"
+        panel.message = "Pick an ffprobe executable (e.g. /opt/homebrew/bin/ffprobe)."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        if FileManager.default.fileExists(atPath: "/opt/homebrew/bin") {
+            panel.directoryURL = URL(fileURLWithPath: "/opt/homebrew/bin")
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            ffprobeCustomPath = url.path
+            saveFFprobePath()
         }
     }
 

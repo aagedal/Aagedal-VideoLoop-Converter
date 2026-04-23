@@ -581,6 +581,7 @@ enum AppConstants {
     // Custom binary paths (no longer need security-scoped bookmarks without sandbox)
     static let ytdlpCustomPathKey = "ytdlpCustomPath"
     static let ffmpegBinarySourceKey = "ffmpegBinarySource"
+    static let ffprobeBinarySourceKey = "ffprobeBinarySource"
     static let customFFmpegPathKey = "customFFmpegPath"
     static let customFFprobePathKey = "customFFprobePath"
 

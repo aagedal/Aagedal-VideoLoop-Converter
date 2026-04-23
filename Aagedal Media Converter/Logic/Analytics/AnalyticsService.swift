@@ -321,8 +321,8 @@ actor AnalyticsService {
             throw AnalyticsError.ssimulacra2NotFound
         }
 
-        let duration = try getVideoDuration(for: encodedFile)
-        let resolution = try getVideoResolution(for: sourceFile)
+        let duration = try await getVideoDuration(for: encodedFile)
+        let resolution = try await getVideoResolution(for: sourceFile)
 
         let maxFrames = UserDefaults.standard.integer(forKey: AppConstants.ssimulacra2MaxFramesKey)
         let frameCount = max(1, maxFrames > 0 ? maxFrames : AppConstants.defaultSSIMULACRA2MaxFrames)
@@ -448,74 +448,23 @@ actor AnalyticsService {
         return score
     }
 
-    /// Gets video duration in seconds using ffprobe
-    private func getVideoDuration(for file: URL) throws -> Double {
-        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
-            throw AnalyticsError.ffmpegNotFound
-        }
-
-        let process = Process()
-        let stdoutPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: ffprobePath)
-        process.arguments = [
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            file.path
-        ]
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let duration = Double(output), duration > 0 else {
+    /// Gets video duration in seconds via SwiftExif (AVFoundation fallback).
+    private func getVideoDuration(for file: URL) async throws -> Double {
+        guard let duration = await SwiftExifMediaProbe.duration(for: file), duration > 0 else {
             throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video duration")
         }
-
         return duration
     }
 
-    /// Gets video resolution (width x height) using ffprobe
-    private func getVideoResolution(for file: URL) throws -> (width: Int, height: Int) {
-        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
-            throw AnalyticsError.ffmpegNotFound
-        }
-
-        let process = Process()
-        let stdoutPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: ffprobePath)
-        process.arguments = [
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "csv=s=x:p=0",
-            file.path
-        ]
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+    /// Gets video resolution (width x height) via SwiftExif.
+    private func getVideoResolution(for file: URL) async throws -> (width: Int, height: Int) {
+        guard SwiftExifMediaProbe.canReadVideo(file),
+              let meta = try? await SwiftExifMediaProbe.readVideo(file),
+              let primary = meta.videoStreams.first(where: { $0.isAttachedPic != true }),
+              let width = primary.width,
+              let height = primary.height else {
             throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video resolution")
         }
-
-        let parts = output.components(separatedBy: "x")
-        guard parts.count == 2,
-              let width = Int(parts[0]),
-              let height = Int(parts[1]) else {
-            throw AnalyticsError.metricFailed(.ssimulacra2, "Could not parse video resolution: \(output)")
-        }
-
         return (width, height)
     }
 

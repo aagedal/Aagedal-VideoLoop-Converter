@@ -140,41 +140,9 @@ class DownloadManager {
         }
     }
 
-    /// Gets the duration of a file using ffprobe
+    /// Gets the duration of a file via SwiftExif (AVFoundation fallback).
     private func getDurationUsingFFprobe(for url: URL) async -> Double? {
-        guard let ffprobePath = BinaryPathResolver.ffprobePath else { return nil }
-
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                let process = Process()
-                let pipe = Pipe()
-
-                process.executableURL = URL(fileURLWithPath: ffprobePath)
-                process.arguments = [
-                    "-v", "error",
-                    "-show_entries", "format=duration",
-                    "-of", "default=noprint_wrappers=1:nokey=1",
-                    url.path
-                ]
-                process.standardOutput = pipe
-                process.standardError = FileHandle.nullDevice
-
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-
-                    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                    if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       let duration = Double(output) {
-                        continuation.resume(returning: duration)
-                    } else {
-                        continuation.resume(returning: nil)
-                    }
-                } catch {
-                    continuation.resume(returning: nil)
-                }
-            }
-        }
+        await SwiftExifMediaProbe.duration(for: url)
     }
 
     /// Starts a download using stored videoItems and outputFolder references
@@ -242,13 +210,84 @@ class DownloadManager {
         // Register with ScheduledDownloadService
         ScheduledDownloadService.shared.registerScheduledItem(itemID: itemID, scheduledTime: scheduledTime)
 
+        // Persist so the schedule survives relaunches
+        appendPersistedSchedule(PersistedScheduledDownload(
+            itemID: itemID,
+            url: urlString,
+            scheduledTime: scheduledTime,
+            liveFromStart: liveFromStart,
+            autoEncode: item.autoEncodeAfterDownload,
+            uploadEnabled: item.uploadEnabled
+        ))
+
         return itemID
+    }
+
+    /// Cancels a scheduled (not-yet-started) download and removes it from persistence.
+    /// Callers should also remove the item from the queue.
+    func cancelScheduledDownload(itemID: UUID) {
+        ScheduledDownloadService.shared.cancelScheduledItem(itemID: itemID)
+        removePersistedSchedule(itemID: itemID)
+    }
+
+    /// Re-adds previously scheduled downloads to the queue on app launch.
+    /// Must be called after `videoItems`/`outputFolder` have been wired up.
+    func restoreScheduledDownloads(items: Binding<[VideoItem]>, outputFolder: URL) {
+        let persisted = Self.loadPersistedScheduledDownloads()
+        guard !persisted.isEmpty else { return }
+
+        self.videoItems = items
+        self.outputFolder = outputFolder
+
+        var rewritten: [PersistedScheduledDownload] = []
+        rewritten.reserveCapacity(persisted.count)
+
+        for entry in persisted {
+            let placeholderURL = URL(fileURLWithPath: "/tmp/scheduled-\(UUID().uuidString)")
+            var item = VideoItem(
+                url: placeholderURL,
+                name: "Scheduled download",
+                size: 0,
+                duration: "--:--",
+                durationSeconds: 0,
+                thumbnailData: nil,
+                status: .waiting,
+                progress: 0,
+                eta: nil,
+                outputURL: nil
+            )
+            item.sourceURL = entry.url
+            item.scheduledDownloadTime = entry.scheduledTime
+            item.autoEncodeAfterDownload = entry.autoEncode
+            item.uploadEnabled = entry.uploadEnabled
+            item.downloadLiveFromStart = entry.liveFromStart
+
+            let newItemID = item.id
+            items.wrappedValue.append(item)
+            ScheduledDownloadService.shared.registerScheduledItem(itemID: newItemID, scheduledTime: entry.scheduledTime)
+
+            rewritten.append(PersistedScheduledDownload(
+                itemID: newItemID,
+                url: entry.url,
+                scheduledTime: entry.scheduledTime,
+                liveFromStart: entry.liveFromStart,
+                autoEncode: entry.autoEncode,
+                uploadEnabled: entry.uploadEnabled
+            ))
+        }
+
+        // Rewrite persistence so the stored itemIDs match the freshly-created VideoItems.
+        Self.savePersistedScheduledDownloads(rewritten)
+        logger.info("Restored \(rewritten.count) scheduled download(s) from persistence")
     }
 
     /// Starts a previously scheduled download (called by ScheduledDownloadService when time is reached)
     func startScheduledDownload(itemID: UUID) async {
         let startTime = Date()
         logger.info("[TIMING] startScheduledDownload entered")
+
+        // The schedule has fired — drop it from persistence so it doesn't re-fire on relaunch.
+        removePersistedSchedule(itemID: itemID)
 
         guard videoItems != nil, let folder = outputFolder else {
             logger.error("Cannot start scheduled download: videoItems or outputFolder not set")
@@ -585,6 +624,18 @@ class DownloadManager {
                         item.status = .failed
                     }
                 }
+            case .cancelled:
+                logger.info("Download cancelled for item: \(itemID)")
+                updateItem(itemID) { item in
+                    item.isDownloading = false
+                    item.isLiveStreamRecording = false
+                    item.downloadStopping = false
+                    item.liveRecordingFileSize = nil
+                    item.liveRecordingDuration = nil
+                    item.downloadSpeed = nil
+                    item.downloadError = "Cancelled"
+                    item.status = .cancelled
+                }
             default:
                 logger.error("Download failed: \(error.localizedDescription)")
                 updateItem(itemID) { item in
@@ -594,6 +645,7 @@ class DownloadManager {
                     item.isLiveStreamRecording = false
                     item.liveRecordingFileSize = nil
                     item.liveRecordingDuration = nil
+                    item.downloadSpeed = nil
                 }
             }
         } catch {
@@ -609,6 +661,7 @@ class DownloadManager {
                 item.isLiveStreamRecording = false
                 item.liveRecordingFileSize = nil
                 item.liveRecordingDuration = nil
+                item.downloadSpeed = nil
             }
         }
 
@@ -812,6 +865,18 @@ class DownloadManager {
                 }
             }
 
+        } catch YTDLPError.cancelled {
+            logger.info("Force download cancelled for item: \(itemID)")
+            updateItem(itemID) { item in
+                item.isDownloading = false
+                item.isLiveStreamRecording = false
+                item.downloadStopping = false
+                item.liveRecordingFileSize = nil
+                item.liveRecordingDuration = nil
+                item.downloadSpeed = nil
+                item.downloadError = "Cancelled"
+                item.status = .cancelled
+            }
         } catch {
             logger.error("Force download failed: \(error.localizedDescription)")
 
@@ -819,6 +884,7 @@ class DownloadManager {
                 item.isDownloading = false
                 item.downloadError = error.localizedDescription
                 item.status = .failed
+                item.downloadSpeed = nil
             }
         }
 
@@ -938,6 +1004,52 @@ class DownloadManager {
 
     private func findItem(_ itemID: UUID) -> VideoItem? {
         videoItems?.wrappedValue.first { $0.id == itemID }
+    }
+
+    // MARK: - Scheduled Download Persistence
+
+    private static let persistedScheduledDownloadsKey = "persistedScheduledDownloads.v1"
+
+    private struct PersistedScheduledDownload: Codable {
+        var itemID: UUID
+        let url: String
+        let scheduledTime: Date
+        let liveFromStart: Bool
+        let autoEncode: Bool
+        let uploadEnabled: Bool
+    }
+
+    private static func loadPersistedScheduledDownloads() -> [PersistedScheduledDownload] {
+        guard let data = UserDefaults.standard.data(forKey: persistedScheduledDownloadsKey),
+              let entries = try? JSONDecoder().decode([PersistedScheduledDownload].self, from: data) else {
+            return []
+        }
+        return entries
+    }
+
+    private static func savePersistedScheduledDownloads(_ entries: [PersistedScheduledDownload]) {
+        if entries.isEmpty {
+            UserDefaults.standard.removeObject(forKey: persistedScheduledDownloadsKey)
+            return
+        }
+        if let data = try? JSONEncoder().encode(entries) {
+            UserDefaults.standard.set(data, forKey: persistedScheduledDownloadsKey)
+        }
+    }
+
+    private func appendPersistedSchedule(_ entry: PersistedScheduledDownload) {
+        var list = Self.loadPersistedScheduledDownloads()
+        list.removeAll { $0.itemID == entry.itemID }
+        list.append(entry)
+        Self.savePersistedScheduledDownloads(list)
+    }
+
+    private func removePersistedSchedule(itemID: UUID) {
+        var list = Self.loadPersistedScheduledDownloads()
+        let before = list.count
+        list.removeAll { $0.itemID == itemID }
+        guard list.count != before else { return }
+        Self.savePersistedScheduledDownloads(list)
     }
 
     private static func formatDuration(_ seconds: Double) -> String {

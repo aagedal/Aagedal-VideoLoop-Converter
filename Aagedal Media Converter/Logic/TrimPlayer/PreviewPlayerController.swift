@@ -62,6 +62,7 @@ final class PreviewPlayerController: ObservableObject {
     @Published private(set) var currentNativeWaveformImage: NSImage?
     @Published private(set) var currentChannelWaveformImages: [NSImage] = []
     @Published private(set) var currentChannelWaveformLabels: [String] = []
+    @Published private(set) var currentChapters: [Chapter] = []
     @Published private(set) var totalDuration: Double = 0  // For chunk width calculation
     @Published var currentPlaybackTime: Double = 0
     @Published private(set) var currentPlaybackSpeed: Float = 1.0
@@ -105,6 +106,8 @@ final class PreviewPlayerController: ObservableObject {
     var preparationTask: Task<Void, Never>?
     var previewAssetTask: Task<Void, Never>?
     private var previewAssetURL: URL?  // Track URL being processed to avoid redundant cancellation
+    private var chapterProbeTask: Task<Void, Never>?
+    private var chapterProbeURL: URL?
     var loopObserver: Any?
     var playbackDidFinish: (() -> Void)?
     var timeObserver: Any?
@@ -1302,6 +1305,10 @@ final class PreviewPlayerController: ObservableObject {
         currentChannelWaveformLabels = []
         channelWaveformGenerationTask?.cancel()
         channelWaveformGenerationTask = nil
+        chapterProbeTask?.cancel()
+        chapterProbeTask = nil
+        chapterProbeURL = nil
+        currentChapters = []
         totalDuration = 0
 
         // Stop asset refresh polling
@@ -1389,8 +1396,27 @@ final class PreviewPlayerController: ObservableObject {
         window?.toggleFullScreen(nil)
     }
     
+    // MARK: - Chapters
+
+    /// Probes chapter markers for `url` and publishes them on `currentChapters`.
+    /// Skips duplicate work when the URL matches an in-flight probe.
+    private func loadChapters(for url: URL) {
+        if chapterProbeURL == url, chapterProbeTask != nil { return }
+        chapterProbeTask?.cancel()
+        chapterProbeURL = url
+        if currentChapters.isEmpty == false {
+            currentChapters = []
+        }
+        chapterProbeTask = Task { [weak self] in
+            let chapters = await FFMPEGProbeService.fetchChapters(for: url)
+            guard let self, !Task.isCancelled, self.chapterProbeURL == url else { return }
+            self.currentChapters = chapters
+            self.chapterProbeTask = nil
+        }
+    }
+
     // MARK: - Preview Assets
-    
+
     private var assetRefreshTask: Task<Void, Never>?
 
     func loadPreviewAssets(for url: URL) {
@@ -1408,6 +1434,8 @@ final class PreviewPlayerController: ObservableObject {
             // Same URL and task already running - don't restart
             return
         }
+
+        loadChapters(for: url)
 
         isLoadingPreviewAssets = true
 

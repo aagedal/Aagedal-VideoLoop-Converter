@@ -55,9 +55,12 @@ struct FullscreenPlayerView: View {
     @State private var precisionAnchorFraction: Double = 0
     @State private var precisionAnchorX: CGFloat = 0
     @AppStorage("precisionScrubFactor") private var precisionScrubFactor: Double = 10.0
+    @AppStorage("showCursorHideHint") private var showCursorHideHint: Bool = true
 
     private let rightEdgeWidth: CGFloat = 60
     private let narrowBreakpoint: CGFloat = 620
+
+    private var bottomBarClearance: CGFloat { isNarrow ? 110 : 80 }
     init(
         item: VideoItem,
         initialOverlayHidden: Bool = false,
@@ -183,26 +186,50 @@ struct FullscreenPlayerView: View {
                     errorOverlay(message: error)
                 }
 
-                // Right edge cursor-hide zone - positioned at trailing edge only
-                RightEdgeCursorHideZone { hovering in
-                    isHoveringRightEdge = hovering
-                    if hovering {
-                        // Hide overlay when entering right edge
-                        if !isHoveringControls, !isDraggingTimeline {
-                            overlayHideTask?.cancel()
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                showOverlay = false
+                // Right edge cursor-hide zone - positioned at trailing edge,
+                // stops above the bottom controls so the bar doesn't swallow hovers.
+                HStack {
+                    Spacer()
+                    ZStack {
+                        RightEdgeCursorHideZone { hovering in
+                            isHoveringRightEdge = hovering
+                            if hovering {
+                                if !isHoveringControls, !isDraggingTimeline {
+                                    overlayHideTask?.cancel()
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        showOverlay = false
+                                    }
+                                    onOverlayVisibilityChanged?(true)
+                                }
+                            } else {
+                                showOverlay = true
+                                scheduleOverlayHide()
                             }
-                            onOverlayVisibilityChanged?(true)
                         }
-                    } else {
-                        // Show overlay when leaving right edge
-                        showOverlay = true
-                        scheduleOverlayHide()
+
+                        if showCursorHideHint && showOverlay && !isHoveringRightEdge {
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                                .foregroundStyle(.white.opacity(0.25))
+                                .overlay {
+                                    ZStack {
+                                        Image(systemName: "cursorarrow")
+                                            .font(.system(size: 14))
+                                        Rectangle()
+                                            .frame(width: 18, height: 1.5)
+                                            .rotationEffect(.degrees(-45))
+                                    }
+                                    .foregroundStyle(.white.opacity(0.3))
+                                }
+                                .padding(6)
+                                .animation(.easeInOut(duration: 0.3), value: showOverlay)
+                                .animation(.easeInOut(duration: 0.3), value: isHoveringRightEdge)
+                                .allowsHitTesting(false)
+                        }
                     }
+                    .frame(width: rightEdgeWidth)
                 }
-                .frame(width: rightEdgeWidth, height: geometry.size.height)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .padding(.bottom, bottomBarClearance)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .onContinuousHover { phase in
@@ -415,21 +442,25 @@ struct FullscreenPlayerView: View {
         VStack(spacing: 0) {
             topBar
                 .transition(.move(edge: .top).combined(with: .opacity))
+                .onHover(perform: handleControlsHover)
 
             Spacer(minLength: 0)
+                .allowsHitTesting(false)
 
             bottomBar
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+                .onHover(perform: handleControlsHover)
         }
-        .onHover { hovering in
-            isHoveringControls = hovering
-            if hovering {
-                showOverlay = true
-                isMouseIdle = false
-                overlayHideTask?.cancel()
-            } else {
-                scheduleOverlayHide()
-            }
+    }
+
+    private func handleControlsHover(_ hovering: Bool) {
+        isHoveringControls = hovering
+        if hovering {
+            showOverlay = true
+            isMouseIdle = false
+            overlayHideTask?.cancel()
+        } else {
+            scheduleOverlayHide()
         }
     }
 

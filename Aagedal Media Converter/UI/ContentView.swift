@@ -338,7 +338,7 @@ struct ContentView: View {
             if item.isDownloading {
                 DownloadManager.shared.cancelDownload(itemID: item.id)
             } else if let _ = item.scheduledDownloadTime {
-                ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
+                DownloadManager.shared.cancelScheduledDownload(itemID: item.id)
             }
             if item.subtitleStatus.isInProgress {
                 Task { await TesseractService.shared.cancelGeneration() }
@@ -617,6 +617,12 @@ struct ContentView: View {
                 }
             }
         }
+
+        // Re-add any scheduled downloads that were persisted from a previous launch.
+        DownloadManager.shared.restoreScheduledDownloads(
+            items: $droppedFiles,
+            outputFolder: downloadFolderURL
+        )
     }
 
     @ViewBuilder
@@ -1759,7 +1765,7 @@ struct ContentView: View {
             if item.isDownloading {
                 DownloadManager.shared.cancelDownload(itemID: item.id)
             } else if let _ = item.scheduledDownloadTime {
-                ScheduledDownloadService.shared.cancelScheduledItem(itemID: item.id)
+                DownloadManager.shared.cancelScheduledDownload(itemID: item.id)
             }
             if item.subtitleStatus.isInProgress {
                 Task { await TesseractService.shared.cancelGeneration() }

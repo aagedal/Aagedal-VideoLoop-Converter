@@ -73,3 +73,21 @@ struct UserMetadataEntry: Codable, Sendable, Equatable {
     let name: String
     let content: String
 }
+
+/// A chapter marker read from a media file's container metadata.
+struct Chapter: Identifiable, Equatable, Sendable {
+    let id: Int
+    let start: Double
+    let end: Double
+    let title: String?
+
+    var duration: Double { max(0, end - start) }
+
+    /// Fallback label when the container has no explicit title.
+    func displayTitle(fallbackIndex: Int) -> String {
+        if let t = title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+            return t
+        }
+        return "Chapter \(fallbackIndex)"
+    }
+}

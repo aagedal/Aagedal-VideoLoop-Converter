@@ -954,128 +954,75 @@ actor ConversionManager: Sendable {
     /// - Returns: true if the file is accessible, false otherwise
     private func ensureInputFileAccessible(at url: URL) -> Bool {
         let fileManager = FileManager.default
-
-        // First try: check if file is already accessible
-        if fileManager.isReadableFile(atPath: url.path) {
-            return true
+        let success = withSecurityScopedAccessFallback(at: url) {
+            fileManager.isReadableFile(atPath: url.path)
         }
-
-        // Second try: access via bookmark for this exact file
-        if let resolvedURL = SecurityScopedBookmarkManager.shared.resolveBookmark(for: url) {
-            if resolvedURL.startAccessingSecurityScopedResource() {
-                activeSecurityScopedURLs.insert(resolvedURL)
-                if fileManager.isReadableFile(atPath: url.path) {
-                    return true
-                }
-                resolvedURL.stopAccessingSecurityScopedResource()
-                activeSecurityScopedURLs.remove(resolvedURL)
-            }
+        if !success {
+            logger.error("Failed to access input file with any access method: \(url.path, privacy: .public)")
         }
-
-        // Third try: access via bookmark for parent directory
-        let parentURL = url.deletingLastPathComponent()
-        if let resolvedParent = SecurityScopedBookmarkManager.shared.resolveBookmark(for: parentURL) {
-            if resolvedParent.startAccessingSecurityScopedResource() {
-                activeSecurityScopedURLs.insert(resolvedParent)
-                if fileManager.isReadableFile(atPath: url.path) {
-                    return true
-                }
-                resolvedParent.stopAccessingSecurityScopedResource()
-                activeSecurityScopedURLs.remove(resolvedParent)
-            }
-        }
-
-        // Fourth try: try starting access on the URL directly (in case it was granted via NSOpenPanel)
-        if url.startAccessingSecurityScopedResource() {
-            activeSecurityScopedURLs.insert(url)
-            if fileManager.isReadableFile(atPath: url.path) {
-                return true
-            }
-            url.stopAccessingSecurityScopedResource()
-            activeSecurityScopedURLs.remove(url)
-        }
-
-        // Fifth try: try parent URL directly
-        if parentURL.startAccessingSecurityScopedResource() {
-            activeSecurityScopedURLs.insert(parentURL)
-            if fileManager.isReadableFile(atPath: url.path) {
-                return true
-            }
-            parentURL.stopAccessingSecurityScopedResource()
-            activeSecurityScopedURLs.remove(parentURL)
-        }
-
-        logger.error("Failed to access input file with any access method: \(url.path, privacy: .public)")
-        return false
+        return success
     }
 
     /// Ensures a directory exists and is accessible, using security-scoped bookmarks if needed.
     /// - Returns: true if the directory was created/accessible, false otherwise
     private func ensureDirectoryAccessible(at url: URL) -> Bool {
         let fileManager = FileManager.default
+        let success = withSecurityScopedAccessFallback(at: url) {
+            (try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)) != nil
+        }
+        if !success {
+            logger.error("Failed to create directory with any access method: \(url.path, privacy: .public)")
+        }
+        return success
+    }
 
-        // First try: direct access (works if we already have permission)
-        do {
-            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-            return true
-        } catch {
-            // Continue to try with bookmark access
+    /// Runs `attempt` while escalating through security-scoped access fallbacks:
+    /// direct → bookmark(url) → bookmark(parent) → startAccess(url) → startAccess(parent).
+    /// On success, any acquired access is retained in `activeSecurityScopedURLs` for
+    /// later balanced release via `releaseAllSecurityScopedAccess()`. On failure at
+    /// a given step, that step's access is stopped before trying the next.
+    private func withSecurityScopedAccessFallback(at url: URL, attempt: () -> Bool) -> Bool {
+        // First try: no access acquisition — works if we already have permission.
+        if attempt() { return true }
+
+        // Helper: given a URL on which startAccessingSecurityScopedResource() has
+        // already returned true, track it and run `attempt`. Releases on failure.
+        func runAttemptAndTrack(_ acquiredURL: URL) -> Bool {
+            activeSecurityScopedURLs.insert(acquiredURL)
+            if attempt() { return true }
+            acquiredURL.stopAccessingSecurityScopedResource()
+            activeSecurityScopedURLs.remove(acquiredURL)
+            return false
         }
 
-        // Second try: access via bookmark for this exact directory
-        if let resolvedURL = SecurityScopedBookmarkManager.shared.resolveBookmark(for: url) {
-            if resolvedURL.startAccessingSecurityScopedResource() {
-                activeSecurityScopedURLs.insert(resolvedURL)
-                do {
-                    try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-                    return true
-                } catch {
-                    resolvedURL.stopAccessingSecurityScopedResource()
-                    activeSecurityScopedURLs.remove(resolvedURL)
-                }
-            }
-        }
-
-        // Third try: access via bookmark for parent directory
         let parentURL = url.deletingLastPathComponent()
-        if let resolvedParent = SecurityScopedBookmarkManager.shared.resolveBookmark(for: parentURL) {
-            if resolvedParent.startAccessingSecurityScopedResource() {
-                activeSecurityScopedURLs.insert(resolvedParent)
-                do {
-                    try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-                    return true
-                } catch {
-                    resolvedParent.stopAccessingSecurityScopedResource()
-                    activeSecurityScopedURLs.remove(resolvedParent)
-                }
-            }
+
+        // Second try: bookmark for this exact URL.
+        if let resolvedURL = SecurityScopedBookmarkManager.shared.resolveBookmark(for: url),
+           resolvedURL.startAccessingSecurityScopedResource(),
+           runAttemptAndTrack(resolvedURL) {
+            return true
         }
 
-        // Fourth try: try starting access on the URL directly (in case it was granted via NSOpenPanel)
-        if url.startAccessingSecurityScopedResource() {
-            activeSecurityScopedURLs.insert(url)
-            do {
-                try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-                return true
-            } catch {
-                url.stopAccessingSecurityScopedResource()
-                activeSecurityScopedURLs.remove(url)
-            }
+        // Third try: bookmark for parent directory.
+        if let resolvedParent = SecurityScopedBookmarkManager.shared.resolveBookmark(for: parentURL),
+           resolvedParent.startAccessingSecurityScopedResource(),
+           runAttemptAndTrack(resolvedParent) {
+            return true
         }
 
-        // Fifth try: try parent URL directly
-        if parentURL.startAccessingSecurityScopedResource() {
-            activeSecurityScopedURLs.insert(parentURL)
-            do {
-                try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-                return true
-            } catch {
-                parentURL.stopAccessingSecurityScopedResource()
-                activeSecurityScopedURLs.remove(parentURL)
-            }
+        // Fourth try: direct access on the URL (e.g. granted via NSOpenPanel).
+        if url.startAccessingSecurityScopedResource(),
+           runAttemptAndTrack(url) {
+            return true
         }
 
-        logger.error("Failed to create directory with any access method: \(url.path, privacy: .public)")
+        // Fifth try: direct access on parent URL.
+        if parentURL.startAccessingSecurityScopedResource(),
+           runAttemptAndTrack(parentURL) {
+            return true
+        }
+
         return false
     }
 

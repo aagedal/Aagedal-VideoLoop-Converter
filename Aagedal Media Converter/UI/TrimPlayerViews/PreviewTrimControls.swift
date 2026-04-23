@@ -26,6 +26,7 @@ struct PreviewTrimControls: View {
     @State private var timecodeInput = ""
     @State private var justActivated = false
     @State private var pendingCharacter: String?
+    @State private var showChapters: Bool = true
     @FocusState private var isTimecodeFocused: Bool
 
     var body: some View {
@@ -47,6 +48,8 @@ struct PreviewTrimControls: View {
                     waveformURL: controller.currentWaveformURL,
                     waveformChunks: controller.currentWaveformChunks,
                     chunkTotalDuration: controller.totalDuration,
+                    chapters: controller.currentChapters,
+                    showChapters: showChapters,
                     isLoading: controller.isLoadingPreviewAssets,
                     step: 0.1,
                     hideFilmstrip: false,
@@ -195,6 +198,17 @@ struct PreviewTrimControls: View {
 
             audioTrackSelector
             subtitleTrackSelector
+
+            if !controller.currentChapters.isEmpty {
+                Toggle(isOn: $showChapters) {
+                    Label("Chapters", systemImage: "list.bullet.indent")
+                        .labelStyle(.iconOnly)
+                }
+                .toggleStyle(.button)
+                .help(showChapters
+                      ? "Hide chapter markers (\(controller.currentChapters.count))"
+                      : "Show chapter markers (\(controller.currentChapters.count))")
+            }
 
             Toggle(isOn: $controller.isAudioMeterEnabled) {
                 Label("Audio Meter", systemImage: "waveform")

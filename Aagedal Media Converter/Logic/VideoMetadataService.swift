@@ -1,5 +1,11 @@
+// Aagedal Media Converter
+// Copyright 2025 Truls Aagedal
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import AVFoundation
 import Foundation
 import OSLog
+import SwiftExif
 
 struct VideoMetadata: Equatable, Sendable {
     struct Ratio: Equatable, Sendable {
@@ -84,6 +90,14 @@ struct VideoMetadata: Equatable, Sendable {
             }
 
             return nil
+        }
+
+        /// Build a FrameRate from a floating-point frame rate (rounded to a rational with 1000 as denominator).
+        init?(double value: Double?) {
+            guard let value, value > 0, value.isFinite else { return nil }
+            self.numerator = Int((value * 1_000).rounded())
+            self.denominator = 1_000
+            self.stringValue = String(format: "%.3f", value)
         }
     }
 
@@ -184,13 +198,11 @@ struct VideoMetadata: Equatable, Sendable {
 }
 
 enum VideoMetadataError: Error {
-    case ffprobeMissing
-    case processFailed(String)
-    case decodingFailed(String)
-    case timeout
+    case unsupportedContainer
+    case readFailed(String)
 }
 
-/// Essential video information needed for import (obtained in a single FFprobe call)
+/// Essential video information needed for import (obtained in a single probe call)
 struct EssentialVideoInfo: Sendable {
     let duration: Double
     let hasVideoStream: Bool
@@ -233,13 +245,11 @@ actor VideoMetadataService {
     // MARK: - Cached Duration Lookup
 
     /// Returns cached duration if available from either metadata cache or essential info cache.
-    /// Returns nil if not cached (caller should fall back to FFprobe or AVFoundation).
+    /// Returns nil if not cached (caller should fall back to probing).
     func cachedDuration(for url: URL) -> Double? {
-        // Check full metadata cache first
         if let cached = cache.object(forKey: url as NSURL) {
             return cached.metadata.duration
         }
-        // Check essential info cache
         if let cached = essentialInfoCache.object(forKey: url as NSURL) {
             return cached.info.duration
         }
@@ -247,17 +257,14 @@ actor VideoMetadataService {
     }
 
     /// Returns cached hasVideoStream if available from either cache.
-    /// Returns nil if not cached (caller should use hasVideoStream(for:) which will probe).
+    /// Returns nil if not cached.
     func cachedHasVideoStream(for url: URL) -> Bool? {
-        // Check hasVideoStream cache
         if let cached = hasVideoStreamCache.object(forKey: url as NSURL) {
             return cached.value
         }
-        // Check full metadata cache
         if let cached = cache.object(forKey: url as NSURL) {
             return !cached.metadata.videoStreams.isEmpty
         }
-        // Check essential info cache
         if let cached = essentialInfoCache.object(forKey: url as NSURL) {
             return cached.info.hasVideoStream
         }
@@ -266,147 +273,99 @@ actor VideoMetadataService {
 
     // MARK: - Fast Video Stream Detection
 
-    /// Quickly checks if a file has video streams using FFprobe with -read_intervals
-    /// This reads only the first few packets, making it fast even for very large files
+    /// Checks whether the file has at least one timed video track (excluding cover art).
+    /// SwiftExif memory-maps the file so this stays fast even for multi-gigabyte inputs.
     func hasVideoStream(for url: URL) async -> Bool {
-        // Check cache first
         if let cached = hasVideoStreamCache.object(forKey: url as NSURL) {
             return cached.value
         }
 
-        // Check if we already have essential info cached (which includes hasVideoStream)
         if let cached = essentialInfoCache.object(forKey: url as NSURL) {
             hasVideoStreamCache.setObject(CachedBool(value: cached.info.hasVideoStream), forKey: url as NSURL)
             return cached.info.hasVideoStream
         }
 
-        var didStartDirectAccess = false
-        var didStartBookmarkAccess = false
-        if url.startAccessingSecurityScopedResource() {
-            didStartDirectAccess = true
-        } else if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
-            didStartBookmarkAccess = true
-        }
+        let scope = startAccess(for: url)
+        defer { stopAccess(scope, for: url) }
 
-        defer {
-            if didStartDirectAccess {
-                url.stopAccessingSecurityScopedResource()
-            } else if didStartBookmarkAccess {
-                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
-            }
-        }
-
-        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
-            logger.warning("FFprobe not available for hasVideoStream check")
+        guard SwiftExifMediaProbe.canReadVideo(url) else {
+            // Audio-only container / unsupported format — treat as "no video".
+            hasVideoStreamCache.setObject(CachedBool(value: false), forKey: url as NSURL)
             return false
         }
 
         do {
-            // Use -read_intervals to only read the first 2 packets - this is extremely fast
-            // even for very large files (50+ GB) as it doesn't need to parse the entire container
-            let data = try await runFFprobeJSON(
-                url: url,
-                ffprobePath: ffprobePath,
-                arguments: [
-                    "-v", "error",
-                    "-read_intervals", "%+#2",  // Read only first 2 packets
-                    "-show_streams",
-                    "-select_streams", "v",     // Only video streams
-                    "-of", "json"
-                ],
-                timeoutSeconds: 5  // Short timeout since this should be very fast
-            )
-
-            let response = try decodeFFprobeResponse(jsonData: data)
-
-            // Filter out cover art (attached pictures)
-            let videoStreams = response.streams.filter { stream in
-                stream.codecType == "video" && stream.disposition?.attachedPic != 1
-            }
-
-            let hasVideo = !videoStreams.isEmpty
+            let meta = try await SwiftExifMediaProbe.readVideo(url)
+            let timedVideo = meta.videoStreams.filter { $0.isAttachedPic != true }
+            let hasVideo = !timedVideo.isEmpty
             hasVideoStreamCache.setObject(CachedBool(value: hasVideo), forKey: url as NSURL)
-            logger.debug("Fast hasVideoStream check for \(url.lastPathComponent, privacy: .public): \(hasVideo)")
             return hasVideo
         } catch {
-            logger.warning("Fast hasVideoStream check failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public). Assuming video exists.")
-            // On error, assume video exists to avoid incorrectly treating video files as audio-only
+            logger.warning("SwiftExif hasVideoStream probe failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public). Assuming video exists.")
             return true
         }
     }
 
-    /// Fetches essential video info in a single FFprobe call (optimized for bulk imports)
-    /// Returns: duration, hasVideoStream, videoStreamCount, hasAudioStream, primaryCodec
+    /// Fetches essential video info in one parse (optimized for bulk imports).
+    /// Returns: duration, hasVideoStream, videoStreamCount, hasAudioStream, primaryCodec, width, height.
     func fetchEssentialInfo(for url: URL) async throws -> EssentialVideoInfo {
-        // Check cache first
         if let cached = essentialInfoCache.object(forKey: url as NSURL) {
             return cached.info
         }
 
-        var didStartDirectAccess = false
-        var didStartBookmarkAccess = false
-        if url.startAccessingSecurityScopedResource() {
-            didStartDirectAccess = true
-        } else if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
-            didStartBookmarkAccess = true
-        }
+        let scope = startAccess(for: url)
+        defer { stopAccess(scope, for: url) }
 
-        defer {
-            if didStartDirectAccess {
-                url.stopAccessingSecurityScopedResource()
-            } else if didStartBookmarkAccess {
-                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
+        let info: EssentialVideoInfo
+        if SwiftExifMediaProbe.canReadVideo(url) {
+            do {
+                let meta = try await SwiftExifMediaProbe.readVideo(url)
+                let timedVideo = meta.videoStreams.filter { $0.isAttachedPic != true }
+                let primary = timedVideo.first
+                info = EssentialVideoInfo(
+                    duration: meta.duration ?? 0,
+                    hasVideoStream: !timedVideo.isEmpty,
+                    videoStreamCount: timedVideo.count,
+                    hasAudioStream: !meta.audioStreams.isEmpty,
+                    primaryCodec: primary?.codec,
+                    width: primary?.width,
+                    height: primary?.height
+                )
+            } catch {
+                throw VideoMetadataError.readFailed(error.localizedDescription)
             }
+        } else if SwiftExifMediaProbe.canReadAudio(url) {
+            let audio = try? await SwiftExifMediaProbe.readAudio(url)
+            let audioDuration: Double
+            if let d = audio?.duration {
+                audioDuration = d
+            } else {
+                audioDuration = await SwiftExifMediaProbe.duration(for: url) ?? 0
+            }
+            info = EssentialVideoInfo(
+                duration: audioDuration,
+                hasVideoStream: false,
+                videoStreamCount: 0,
+                hasAudioStream: audio != nil,
+                primaryCodec: nil,
+                width: nil,
+                height: nil
+            )
+        } else {
+            // Formats SwiftExif doesn't parse (e.g. FLV, WAV, raw AAC): AVFoundation covers duration.
+            let duration = await SwiftExifMediaProbe.duration(for: url) ?? 0
+            info = EssentialVideoInfo(
+                duration: duration,
+                hasVideoStream: false,
+                videoStreamCount: 0,
+                hasAudioStream: false,
+                primaryCodec: nil,
+                width: nil,
+                height: nil
+            )
         }
 
-        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
-            throw VideoMetadataError.ffprobeMissing
-        }
-
-        // Single FFprobe call that gets both format and all streams
-        // Use probing limits to prevent very long scans on large files (especially MKV)
-        let response = try await fetchFFprobeResponse(
-            url: url,
-            ffprobePath: ffprobePath,
-            arguments: [
-                "-v", "error",
-                "-analyzeduration", "10000000",  // 10 seconds of data analysis
-                "-probesize", "10000000",        // 10MB probe size
-                "-show_format",
-                "-show_streams",
-                "-of", "json"
-            ],
-            allowNoStreams: true
-        )
-
-        // Parse essential info from response
-        let duration = response.format?.duration.flatMap { Double($0) } ?? 0
-
-        // Filter video streams (exclude cover art)
-        let videoStreams = response.streams.filter { stream in
-            stream.codecType == "video" && stream.disposition?.attachedPic != 1
-        }
-        let hasVideoStream = !videoStreams.isEmpty
-        let videoStreamCount = videoStreams.count
-        let primaryVideoStream = videoStreams.first
-
-        // Check for audio streams
-        let audioStreams = response.streams.filter { $0.codecType == "audio" }
-        let hasAudioStream = !audioStreams.isEmpty
-
-        let info = EssentialVideoInfo(
-            duration: duration,
-            hasVideoStream: hasVideoStream,
-            videoStreamCount: videoStreamCount,
-            hasAudioStream: hasAudioStream,
-            primaryCodec: primaryVideoStream?.codecName,
-            width: primaryVideoStream?.width,
-            height: primaryVideoStream?.height
-        )
-
-        // Cache the result
         essentialInfoCache.setObject(CachedEssentialInfo(info: info), forKey: url as NSURL)
-
         return info
     }
 
@@ -415,308 +374,95 @@ actor VideoMetadataService {
             return cached.metadata
         }
 
-        var didStartDirectAccess = false
-        var didStartBookmarkAccess = false
-        if url.startAccessingSecurityScopedResource() {
-            didStartDirectAccess = true
-        } else if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
-            didStartBookmarkAccess = true
+        let scope = startAccess(for: url)
+        defer { stopAccess(scope, for: url) }
+
+        guard SwiftExifMediaProbe.canReadVideo(url) else {
+            throw VideoMetadataError.unsupportedContainer
         }
 
-        defer {
-            if didStartDirectAccess {
-                url.stopAccessingSecurityScopedResource()
-            } else if didStartBookmarkAccess {
-                SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
-            }
+        let rawMeta: SwiftExif.VideoMetadata
+        do {
+            rawMeta = try await SwiftExifMediaProbe.readVideo(url)
+        } catch {
+            throw VideoMetadataError.readFailed(error.localizedDescription)
         }
 
-        guard let ffprobePath = BinaryPathResolver.ffprobePath else {
-            throw VideoMetadataError.ffprobeMissing
-        }
-
-        // Use probing limits to prevent very long scans on large files (especially MKV)
-        let response = try await fetchFFprobeResponse(
-            url: url,
-            ffprobePath: ffprobePath,
-            arguments: [
-                "-v", "error",
-                "-analyzeduration", "10000000",  // 10 seconds of data analysis
-                "-probesize", "10000000",        // 10MB probe size
-                "-show_format",
-                "-show_streams",
-                "-of", "json"
-            ],
-            allowNoStreams: true
-        )
-
-        let videoStreams = response.streams.filter { $0.codecType == "video" }
-        let audioStreams = response.streams.filter { $0.codecType == "audio" }
-        let subtitleStreams = response.streams.filter { $0.codecType == "subtitle" }
-
-        let metadata = try buildMetadata(
-            format: response.format,
-            videoStreams: videoStreams,
-            audioStreams: audioStreams,
-            subtitleStreams: subtitleStreams
-        )
+        let metadata = buildMetadata(from: rawMeta, url: url)
         cache.setObject(CachedMetadata(metadata: metadata), forKey: url as NSURL)
 
-        // Also populate secondary caches to prevent redundant ffprobe calls later
-        // Filter video streams to exclude cover art (same logic as fetchEssentialInfo)
-        let filteredVideoStreams = videoStreams.filter { stream in
-            stream.disposition?.attachedPic != 1
-        }
-        let hasVideoStream = !filteredVideoStreams.isEmpty
-        hasVideoStreamCache.setObject(CachedBool(value: hasVideoStream), forKey: url as NSURL)
+        // Seed the secondary caches so later callers don't re-probe.
+        let hasVideo = !metadata.videoStreams.isEmpty
+        hasVideoStreamCache.setObject(CachedBool(value: hasVideo), forKey: url as NSURL)
 
-        // Populate essential info cache
         let essentialInfo = EssentialVideoInfo(
             duration: metadata.duration ?? 0,
-            hasVideoStream: hasVideoStream,
-            videoStreamCount: filteredVideoStreams.count,
-            hasAudioStream: !audioStreams.isEmpty,
-            primaryCodec: filteredVideoStreams.first?.codecName,
-            width: filteredVideoStreams.first?.width,
-            height: filteredVideoStreams.first?.height
+            hasVideoStream: hasVideo,
+            videoStreamCount: metadata.videoStreams.count,
+            hasAudioStream: !metadata.audioStreams.isEmpty,
+            primaryCodec: metadata.primaryVideoStream?.codec,
+            width: metadata.primaryVideoStream?.width,
+            height: metadata.primaryVideoStream?.height
         )
         essentialInfoCache.setObject(CachedEssentialInfo(info: essentialInfo), forKey: url as NSURL)
 
         return metadata
     }
 
-    private func runFFprobeJSON(url: URL, ffprobePath: String, arguments: [String], timeoutSeconds: TimeInterval = 30) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            Task.detached(priority: .userInitiated) {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: ffprobePath)
-                var args = arguments
-                args.append(url.path)
-                process.arguments = args
+    // MARK: - Security Scope
 
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
+    private enum AccessScope {
+        case direct
+        case bookmark
+        case none
+    }
 
-                // IMPORTANT: Read stdout/stderr asynchronously to prevent pipe buffer deadlock.
-                // If the output exceeds the pipe buffer size (~64KB), the process will block
-                // waiting for the buffer to be drained. We must drain it while the process runs.
-                // Use thread-safe collection with NSLock for concurrent access.
-                final class DataCollector: @unchecked Sendable {
-                    private var data = Data()
-                    private let lock = NSLock()
+    private nonisolated func startAccess(for url: URL) -> AccessScope {
+        if url.startAccessingSecurityScopedResource() { return .direct }
+        if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
+            return .bookmark
+        }
+        return .none
+    }
 
-                    func append(_ newData: Data) {
-                        lock.lock()
-                        defer { lock.unlock() }
-                        data.append(newData)
-                    }
-
-                    func getData() -> Data {
-                        lock.lock()
-                        defer { lock.unlock() }
-                        return data
-                    }
-                }
-
-                let stdoutCollector = DataCollector()
-                let stderrCollector = DataCollector()
-
-                // Set up async reading from stdout
-                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                    let data = handle.availableData
-                    if !data.isEmpty {
-                        stdoutCollector.append(data)
-                    }
-                }
-
-                // Set up async reading from stderr
-                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                    let data = handle.availableData
-                    if !data.isEmpty {
-                        stderrCollector.append(data)
-                    }
-                }
-
-                do {
-                    try process.run()
-                } catch {
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                    continuation.resume(throwing: error)
-                    return
-                }
-
-                // Wait with configurable timeout (default 30 seconds for large files)
-                let checkInterval: TimeInterval = 0.5
-                var elapsed: TimeInterval = 0
-
-                while process.isRunning && elapsed < timeoutSeconds {
-                    try? await Task.sleep(for: .seconds(checkInterval))
-                    elapsed += checkInterval
-                }
-
-                // Clean up handlers before reading any remaining data
-                stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-                if process.isRunning {
-                    // Timeout - terminate the process
-                    process.terminate()
-                    try? await Task.sleep(for: .seconds(0.1))  // Give it a moment to terminate
-                    if process.isRunning {
-                        process.interrupt()  // Force kill if still running
-                    }
-                    continuation.resume(throwing: VideoMetadataError.timeout)
-                    return
-                }
-
-                // Read any remaining data that might be buffered
-                let remainingStdout = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                let remainingStderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                stdoutCollector.append(remainingStdout)
-                stderrCollector.append(remainingStderr)
-
-                if process.terminationStatus == 0 {
-                    continuation.resume(returning: stdoutCollector.getData())
-                } else {
-                    let message = String(data: stderrCollector.getData(), encoding: .utf8) ?? "Unknown ffprobe error"
-                    continuation.resume(throwing: VideoMetadataError.processFailed(message))
-                }
-            }
+    private nonisolated func stopAccess(_ scope: AccessScope, for url: URL) {
+        switch scope {
+        case .direct: url.stopAccessingSecurityScopedResource()
+        case .bookmark: SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url)
+        case .none: break
         }
     }
 
-    private func fetchFFprobeResponse(url: URL, ffprobePath: String, arguments: [String], allowNoStreams: Bool = false) async throws -> FFprobeResponse {
-        do {
-            let data = try await runFFprobeJSON(url: url, ffprobePath: ffprobePath, arguments: arguments)
-            return try decodeFFprobeResponse(jsonData: data)
-        } catch VideoMetadataError.processFailed(let message) {
-            if allowNoStreams, message.contains("Stream specifier") {
-                return FFprobeResponse(format: nil, streams: [])
-            }
-            throw VideoMetadataError.processFailed(message)
-        }
-    }
+    // MARK: - Mapping
 
-    private func decodeFFprobeResponse(jsonData: Data) throws -> FFprobeResponse {
-        do {
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            return try decoder.decode(FFprobeResponse.self, from: jsonData)
-        } catch {
-            let message = String(data: jsonData, encoding: .utf8) ?? "<non-UTF8>"
-            logger.error("Failed to decode ffprobe JSON: \(message)")
-            throw VideoMetadataError.decodingFailed(error.localizedDescription)
-        }
-    }
+    private nonisolated func buildMetadata(from meta: SwiftExif.VideoMetadata, url: URL) -> VideoMetadata {
+        let timedVideo = meta.videoStreams.filter { $0.isAttachedPic != true }
+        let primary = timedVideo.first
 
-    private func buildMetadata(format: FFprobeResponse.Format?, videoStreams: [FFprobeResponse.Stream], audioStreams: [FFprobeResponse.Stream], subtitleStreams: [FFprobeResponse.Stream]) throws -> VideoMetadata {
-        // Filter to actual video streams (exclude cover art/attached pictures)
-        let filteredVideoStreams = videoStreams.filter { stream in
-            stream.codecType == "video" && stream.disposition?.attachedPic != 1
-        }
-        let primaryVideoStream = filteredVideoStreams.first
+        let video = timedVideo.map { Self.mapVideoStream($0) }
+        let audio = meta.audioStreams.map { Self.mapAudioStream($0) }
+        let subtitles = meta.subtitleStreams.map { Self.mapSubtitleStream($0) }
 
-        let filteredAudioStreams = audioStreams.filter { $0.codecType == "audio" }
-
-        let formatComment = format?.tags?.comment ?? primaryVideoStream?.tags?.comment ?? filteredAudioStreams.first?.tags?.comment
-
-        // Extract timecode from format tags or video stream tags
-        let timecode = format?.tags?.timecode ?? primaryVideoStream?.tags?.timecode
-
-        // Extract frame count from video stream, or calculate from duration and frame rate
+        // Frame count: prefer the primary stream's frameCount, else derive from duration × fps.
         let frameCount: Int? = {
-            // First try direct nb_frames from stream
-            if let nbFrames = primaryVideoStream?.nbFrames, let count = Int(nbFrames) {
-                return count
-            }
-            // Fallback: calculate from duration and frame rate (common for MXF files)
-            if let durationStr = format?.duration,
-               let duration = Double(durationStr),
-               let frameRateStr = primaryVideoStream?.avgFrameRate ?? primaryVideoStream?.rFrameRate,
-               let frameRate = VideoMetadata.FrameRate(frameRateString: frameRateStr),
-               let fps = frameRate.value,
+            if let c = primary?.frameCount, c > 0 { return c }
+            if let d = meta.duration,
+               d > 0,
+               let fps = primary?.avgFrameRate ?? primary?.rFrameRate ?? primary?.frameRate,
                fps > 0 {
-                return Int(round(duration * fps))
+                return Int(round(d * fps))
             }
             return nil
         }()
 
-        // Map all video streams (not just primary)
-        let video = filteredVideoStreams.map { stream -> VideoMetadata.VideoStream in
-            let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
-            let hasAlpha = stream.pixFmt.map { hasAlphaChannel(pixelFormat: $0) } ?? false
-            // Use bitsPerRawSample if available, otherwise extract from pixel format
-            let bitDepth: Int? = stream.bitsPerRawSample.flatMap { Int($0) }
-                ?? stream.pixFmt.flatMap { bitDepthFromPixelFormat($0) }
-            let chromaSubsampling = stream.pixFmt.flatMap { chromaSubsamplingFromPixelFormat($0) }
-            return VideoMetadata.VideoStream(
-                codec: stream.codecName,
-                codecLongName: stream.codecLongName,
-                profile: stream.profile,
-                width: stream.width,
-                height: stream.height,
-                pixelFormat: stream.pixFmt,
-                hasAlpha: hasAlpha,
-                pixelAspectRatio: stream.sampleAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
-                displayAspectRatio: stream.displayAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
-                frameRate: frameRateString.flatMap(VideoMetadata.FrameRate.init(frameRateString:)),
-                bitDepth: bitDepth,
-                chromaSubsampling: chromaSubsampling,
-                colorPrimaries: stream.colorPrimaries,
-                colorTransfer: stream.colorTransfer,
-                colorSpace: stream.colorSpace,
-                colorRange: stream.colorRange,
-                chromaLocation: stream.chromaLocation,
-                fieldOrder: stream.fieldOrder,
-                isInterlaced: stream.fieldOrder.map {
-                    let value = $0.lowercased()
-                    return value != "progressive" && value != "unknown"
-                }
-            )
-        }
-
-        let audio = filteredAudioStreams.map { stream -> VideoMetadata.AudioStream in
-            VideoMetadata.AudioStream(
-                index: stream.index,
-                languageCode: stream.tags?.language?.lowercased(),
-                title: stream.tags?.title,
-                codec: stream.codecName,
-                codecLongName: stream.codecLongName,
-                profile: stream.profile,
-                sampleRate: stream.sampleRate.flatMap { Int($0) },
-                channels: stream.channels,
-                channelLayout: stream.channelLayout,
-                bitDepth: stream.bitsPerRawSample.flatMap { Int($0) },
-                bitRate: stream.bitRate.flatMap { Int64($0) },
-                isDefault: (stream.disposition?.defaultStream == 1)
-            )
-        }
-
-        let filteredSubtitleStreams = subtitleStreams.filter { $0.codecType == "subtitle" }
-
-        let subtitles = filteredSubtitleStreams.map { stream -> VideoMetadata.SubtitleStream in
-            VideoMetadata.SubtitleStream(
-                index: stream.index,
-                languageCode: stream.tags?.language?.lowercased(),
-                title: stream.tags?.title,
-                codec: stream.codecName,
-                codecLongName: stream.codecLongName,
-                isDefault: (stream.disposition?.defaultStream == 1),
-                isForced: (stream.disposition?.forced == 1)
-            )
-        }
-
         return VideoMetadata(
-            duration: format?.duration.flatMap { Double($0) },
-            formatName: format?.formatName,
-            containerLongName: format?.formatLongName,
-            sizeBytes: format?.size.flatMap { Int64($0) },
-            bitRate: format?.bitRate.flatMap { Int64($0) },
-            comment: formatComment,
-            timecode: timecode,
+            duration: meta.duration,
+            formatName: meta.format.rawValue,
+            containerLongName: meta.formatLongName,
+            sizeBytes: meta.fileSize,
+            bitRate: meta.bitRate.map { Int64($0) },
+            comment: meta.comment,
+            timecode: meta.timecode ?? primary?.timecode,
             frameCount: frameCount,
             videoStreams: video,
             audioStreams: audio,
@@ -724,24 +470,129 @@ actor VideoMetadataService {
         )
     }
 
+    static func mapVideoStream(_ stream: SwiftExif.VideoStream) -> VideoMetadata.VideoStream {
+        let pixelFormat = stream.pixelFormat
+        let hasAlpha = pixelFormat.map { hasAlphaChannel(pixelFormat: $0) } ?? false
+        let bitDepth = stream.bitDepth ?? pixelFormat.flatMap { bitDepthFromPixelFormat($0) }
+        let chromaSubsampling = stream.chromaSubsampling ?? pixelFormat.flatMap { chromaSubsamplingFromPixelFormat($0) }
+
+        // Frame rate: avgFrameRate preferred, then rFrameRate, then the single `frameRate` scalar.
+        let frameRate: VideoMetadata.FrameRate? = {
+            if let fr = stream.avgFrameRate, let r = VideoMetadata.FrameRate(double: fr) { return r }
+            if let fr = stream.rFrameRate, let r = VideoMetadata.FrameRate(double: fr) { return r }
+            if let fr = stream.frameRate, let r = VideoMetadata.FrameRate(double: fr) { return r }
+            return nil
+        }()
+
+        // Pixel aspect ratio as Ratio.
+        let par: VideoMetadata.Ratio? = {
+            if let (num, den) = stream.pixelAspectRatio {
+                return VideoMetadata.Ratio(numerator: num, denominator: den)
+            }
+            return nil
+        }()
+
+        // Display aspect ratio: prefer displayWidth/Height, else derive PAR × width/height.
+        let dar: VideoMetadata.Ratio? = {
+            if let dw = stream.displayWidth, let dh = stream.displayHeight, dw > 0, dh > 0 {
+                return VideoMetadata.Ratio(numerator: dw, denominator: dh)
+            }
+            if let w = stream.width, let h = stream.height,
+               let (pn, pd) = stream.pixelAspectRatio, pd > 0, h > 0 {
+                let num = w * pn
+                let den = h * pd
+                return VideoMetadata.Ratio(numerator: num, denominator: den)
+            }
+            return nil
+        }()
+
+        let fieldOrderString = SwiftExifMediaProbe.fieldOrderString(from: stream.fieldOrder)
+        let isInterlaced: Bool? = stream.fieldOrder.map { $0 != .progressive && $0 != .unknown && $0 != .mixed ? true : ($0 == .progressive ? false : nil) } ?? nil
+        // Simpler: progressive → false, unknown/mixed → nil, anything else (TFF/BFF) → true.
+        let interlaced: Bool? = {
+            guard let order = stream.fieldOrder else { return nil }
+            switch order {
+            case .progressive: return false
+            case .topFieldFirst, .bottomFieldFirst: return true
+            case .mixed, .unknown: return nil
+            }
+        }()
+        _ = isInterlaced
+
+        let color = stream.colorInfo
+        let colorPrimaries = SwiftExifMediaProbe.primariesString(from: color?.primaries)
+        let colorTransfer = SwiftExifMediaProbe.transferString(from: color?.transfer)
+        let colorSpace = SwiftExifMediaProbe.matrixString(from: color?.matrix)
+        let colorRange = SwiftExifMediaProbe.rangeString(from: color?.fullRange)
+
+        return VideoMetadata.VideoStream(
+            codec: stream.codec,
+            codecLongName: stream.codecName,
+            profile: stream.profile,
+            width: stream.width,
+            height: stream.height,
+            pixelFormat: pixelFormat,
+            hasAlpha: hasAlpha,
+            pixelAspectRatio: par,
+            displayAspectRatio: dar,
+            frameRate: frameRate,
+            bitDepth: bitDepth,
+            chromaSubsampling: chromaSubsampling,
+            colorPrimaries: colorPrimaries,
+            colorTransfer: colorTransfer,
+            colorSpace: colorSpace,
+            colorRange: colorRange,
+            chromaLocation: stream.chromaLocation,
+            fieldOrder: fieldOrderString,
+            isInterlaced: interlaced
+        )
+    }
+
+    static func mapAudioStream(_ stream: SwiftExif.AudioStream) -> VideoMetadata.AudioStream {
+        VideoMetadata.AudioStream(
+            index: stream.index,
+            languageCode: stream.language?.lowercased(),
+            title: stream.title,
+            codec: stream.codec,
+            codecLongName: stream.codecName,
+            profile: stream.profile,
+            sampleRate: stream.sampleRate,
+            channels: stream.channels,
+            channelLayout: stream.channelLayout,
+            bitDepth: stream.bitDepth,
+            bitRate: stream.bitRate.map { Int64($0) },
+            isDefault: stream.isDefault ?? false
+        )
+    }
+
+    static func mapSubtitleStream(_ stream: SwiftExif.SubtitleStream) -> VideoMetadata.SubtitleStream {
+        VideoMetadata.SubtitleStream(
+            index: stream.index,
+            languageCode: stream.language?.lowercased(),
+            title: stream.title,
+            codec: stream.codec,
+            codecLongName: stream.codecName,
+            isDefault: stream.isDefault ?? false,
+            isForced: stream.isForced ?? false
+        )
+    }
 }
+
+// MARK: - Pixel-format helpers (kept for fallback when SwiftExif already surfaces most fields)
 
 /// Extracts bit depth from pixel format string
 /// Examples: yuv420p10le -> 10, yuv422p12be -> 12, yuv420p -> 8
 private func bitDepthFromPixelFormat(_ pixelFormat: String) -> Int? {
     let format = pixelFormat.lowercased()
 
-    // Look for bit depth patterns like "10le", "12be", "10", "12", "16"
-    // Common patterns: yuv420p10le, yuv422p12be, rgb48be, gray16le
     let patterns = [
-        #"(\d{1,2})(le|be)?$"#,  // Ending with bit depth (optionally with endianness)
-        #"p(\d{1,2})(le|be)?$"#, // After 'p' for planar formats
+        #"(\d{1,2})(le|be)?$"#,
+        #"p(\d{1,2})(le|be)?$"#,
     ]
 
     for pattern in patterns {
         if let regex = try? NSRegularExpression(pattern: pattern, options: []),
            let match = regex.firstMatch(in: format, options: [], range: NSRange(format.startIndex..., in: format)) {
-            // Get the capture group with the number
             let captureRange = match.numberOfRanges > 1 ? match.range(at: 1) : match.range(at: 0)
             if let range = Range(captureRange, in: format),
                let bitDepth = Int(format[range]),
@@ -751,17 +602,14 @@ private func bitDepthFromPixelFormat(_ pixelFormat: String) -> Int? {
         }
     }
 
-    // Special cases for formats without explicit bit depth (default to 8-bit)
-    // yuv420p, yuv422p, yuv444p, rgb24, bgr24, etc. are all 8-bit
     if format.contains("24") || format.contains("32") {
-        return 8  // rgb24, bgr24, rgba32 are 8 bits per component
+        return 8
     }
 
     if format.contains("48") || format.contains("64") {
-        return 16  // rgb48, rgba64 are 16 bits per component
+        return 16
     }
 
-    // Formats like yuv420p, yuv422p without bit depth suffix are 8-bit
     let eightBitPatterns = ["yuv420p", "yuv422p", "yuv444p", "yuvj420p", "yuvj422p", "yuvj444p", "nv12", "nv21"]
     for pattern in eightBitPatterns {
         if format == pattern {
@@ -777,281 +625,54 @@ private func bitDepthFromPixelFormat(_ pixelFormat: String) -> Int? {
 private func chromaSubsamplingFromPixelFormat(_ pixelFormat: String) -> String? {
     let format = pixelFormat.lowercased()
 
-    // YUV 4:2:0 patterns
     if format.contains("420") || format.contains("nv12") || format.contains("nv21") {
         return "4:2:0"
     }
 
-    // YUV 4:2:2 patterns
     if format.contains("422") || format.contains("yuyv") || format.contains("uyvy") {
         return "4:2:2"
     }
 
-    // YUV 4:4:4 patterns
     if format.contains("444") {
         return "4:4:4"
     }
 
-    // YUV 4:1:1 patterns
     if format.contains("411") {
         return "4:1:1"
     }
 
-    // YUV 4:1:0 patterns
     if format.contains("410") {
         return "4:1:0"
     }
 
-    // RGB/RGBA formats have no chroma subsampling (4:4:4 equivalent)
     if format.hasPrefix("rgb") || format.hasPrefix("bgr") || format.hasPrefix("argb") ||
        format.hasPrefix("abgr") || format.hasPrefix("rgba") || format.hasPrefix("bgra") ||
        format.hasPrefix("gbr") {
         return "4:4:4"
     }
 
-    // Grayscale/monochrome has no chroma
     if format.hasPrefix("gray") || format.hasPrefix("mono") || format == "y" {
-        return nil  // No chroma subsampling for grayscale
+        return nil
     }
 
     return nil
 }
 
-/// Detects if a pixel format contains an alpha channel
-/// Based on common FFmpeg pixel format naming conventions
+/// Detects if a pixel format contains an alpha channel.
 private func hasAlphaChannel(pixelFormat: String) -> Bool {
     let format = pixelFormat.lowercased()
 
-    // Common patterns for alpha channel pixel formats:
-    // - Formats ending with 'a' (e.g., rgba, yuva420p, gbrap)
-    // - Formats containing 'alpha' (e.g., pal8_alpha)
-    // - Specific ProRes formats with alpha (4444, 4444xq)
-
-    // ProRes 4444 and 4444 XQ have alpha
-    if format.contains("4444") {
-        return true
-    }
-
-    // RGBA, BGRA, ARGB, ABGR formats
+    if format.contains("4444") { return true }
     if format.contains("rgba") || format.contains("bgra") ||
-       format.contains("argb") || format.contains("abgr") {
-        return true
-    }
+       format.contains("argb") || format.contains("abgr") { return true }
+    if format.hasPrefix("yuva") { return true }
+    if format.hasPrefix("gbrap") { return true }
+    if format.contains("alpha") { return true }
 
-    // YUV formats with alpha (yuva, yuv444ap, etc.)
-    if format.hasPrefix("yuva") {
-        return true
-    }
-
-    // GBRAP (planar RGB with alpha)
-    if format.hasPrefix("gbrap") {
-        return true
-    }
-
-    // Generic patterns
-    if format.contains("alpha") {
-        return true
-    }
-
-    // Formats ending with 'a' followed by bit depth or 'p' (planar)
-    // e.g., rgba64, yuva420p, etc.
     let alphaPatterns = ["rgba", "bgra", "argb", "yuva", "gbrap"]
     for pattern in alphaPatterns {
-        if format.hasPrefix(pattern) {
-            return true
-        }
+        if format.hasPrefix(pattern) { return true }
     }
 
     return false
-}
-
-private struct FFprobeResponse: Decodable {
-    enum CodingKeys: String, CodingKey {
-        case format
-        case streams
-    }
-
-    let format: Format?
-    let streams: [Stream]
-
-    init(format: Format?, streams: [Stream]) {
-        self.format = format
-        self.streams = streams
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.format = try container.decodeIfPresent(Format.self, forKey: .format)
-        self.streams = try container.decodeIfPresent([Stream].self, forKey: .streams) ?? []
-    }
-
-    struct Format: Decodable {
-        let duration: String?
-        let formatName: String?
-        let formatLongName: String?
-        let size: String?
-        let bitRate: String?
-        let tags: Tags?
-    }
-
-    struct Stream: Decodable {
-        let index: Int?
-        let codecName: String?
-        let codecLongName: String?
-        let profile: String?
-        let codecType: String?
-        let width: Int?
-        let height: Int?
-        let pixFmt: String?
-        let sampleAspectRatio: String?
-        let displayAspectRatio: String?
-        let avgFrameRate: String?
-        let rFrameRate: String?
-        let bitRate: String?
-        let bitsPerRawSample: String?
-        let sampleRate: String?
-        let channels: Int?
-        let channelLayout: String?
-        let colorPrimaries: String?
-        let colorTransfer: String?
-        let colorSpace: String?
-        let colorRange: String?
-        let chromaLocation: String?
-        let fieldOrder: String?
-        let maxBitRate: String?
-        let nbFrames: String?
-        let disposition: Disposition?
-        let tags: Tags?
-
-        struct Disposition: Decodable {
-            let defaultStream: Int?
-            let attachedPic: Int?
-            let forced: Int?
-        }
-    }
-
-    struct Tags: Decodable {
-        let comment: String?
-        let language: String?
-        let title: String?
-        let timecode: String?
-    }
-
-    func toVideoMetadata() -> VideoMetadata {
-        let formatMetadata = format
-
-        // Filter to actual video streams (exclude cover art/attached pictures)
-        let filteredVideoStreams = streams.filter { stream in
-            stream.codecType == "video" && stream.disposition?.attachedPic != 1
-        }
-        let primaryVideoStream = filteredVideoStreams.first
-
-        // Get all audio streams
-        let audioStreams = streams.filter { $0.codecType == "audio" }
-
-        let formatComment = formatMetadata?.tags?.comment ?? primaryVideoStream?.tags?.comment
-
-        // Extract timecode from format tags or video stream tags
-        let timecode = formatMetadata?.tags?.timecode ?? primaryVideoStream?.tags?.timecode
-
-        // Extract frame count from video stream, or calculate from duration and frame rate
-        let frameCount: Int? = {
-            // First try direct nb_frames from stream
-            if let nbFrames = primaryVideoStream?.nbFrames, let count = Int(nbFrames) {
-                return count
-            }
-            // Fallback: calculate from duration and frame rate (common for MXF files)
-            if let durationStr = formatMetadata?.duration,
-               let duration = Double(durationStr),
-               let frameRateStr = primaryVideoStream?.avgFrameRate ?? primaryVideoStream?.rFrameRate,
-               let frameRate = VideoMetadata.FrameRate(frameRateString: frameRateStr),
-               let fps = frameRate.value,
-               fps > 0 {
-                return Int(round(duration * fps))
-            }
-            return nil
-        }()
-
-        // Map all video streams (not just primary)
-        let video = filteredVideoStreams.map { stream -> VideoMetadata.VideoStream in
-            let frameRateString = stream.avgFrameRate ?? stream.rFrameRate
-            let hasAlpha = stream.pixFmt.map { hasAlphaChannel(pixelFormat: $0) } ?? false
-            // Use bitsPerRawSample if available, otherwise extract from pixel format
-            let bitDepth: Int? = stream.bitsPerRawSample.flatMap { Int($0) }
-                ?? stream.pixFmt.flatMap { bitDepthFromPixelFormat($0) }
-            let chromaSubsampling = stream.pixFmt.flatMap { chromaSubsamplingFromPixelFormat($0) }
-            return VideoMetadata.VideoStream(
-                codec: stream.codecName,
-                codecLongName: stream.codecLongName,
-                profile: stream.profile,
-                width: stream.width,
-                height: stream.height,
-                pixelFormat: stream.pixFmt,
-                hasAlpha: hasAlpha,
-                pixelAspectRatio: stream.sampleAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
-                displayAspectRatio: stream.displayAspectRatio.flatMap(VideoMetadata.Ratio.init(ratioString:)),
-                frameRate: frameRateString.flatMap(VideoMetadata.FrameRate.init(frameRateString:)),
-                bitDepth: bitDepth,
-                chromaSubsampling: chromaSubsampling,
-                colorPrimaries: stream.colorPrimaries,
-                colorTransfer: stream.colorTransfer,
-                colorSpace: stream.colorSpace,
-                colorRange: stream.colorRange,
-                chromaLocation: stream.chromaLocation,
-                fieldOrder: stream.fieldOrder,
-                isInterlaced: stream.fieldOrder.map {
-                    let value = $0.lowercased()
-                    // Field order values: progressive, tt (top first), bb (bottom first), tb, bt
-                    // Anything other than "progressive" or "unknown" is interlaced
-                    return value != "progressive" && value != "unknown"
-                }
-            )
-        }
-
-        let audio = audioStreams.map { stream -> VideoMetadata.AudioStream in
-            return VideoMetadata.AudioStream(
-                index: stream.index,
-                languageCode: stream.tags?.language?.lowercased(),
-                title: stream.tags?.title,
-                codec: stream.codecName,
-                codecLongName: stream.codecLongName,
-                profile: stream.profile,
-                sampleRate: stream.sampleRate.flatMap { Int($0) },
-                channels: stream.channels,
-                channelLayout: stream.channelLayout,
-                bitDepth: stream.bitsPerRawSample.flatMap { Int($0) },
-                bitRate: stream.bitRate.flatMap { Int64($0) },
-                isDefault: (stream.disposition?.defaultStream == 1)
-            )
-        }
-
-        // Get all subtitle streams
-        let subtitleStreams = streams.filter { $0.codecType == "subtitle" }
-
-        let subtitles = subtitleStreams.map { stream -> VideoMetadata.SubtitleStream in
-            return VideoMetadata.SubtitleStream(
-                index: stream.index,
-                languageCode: stream.tags?.language?.lowercased(),
-                title: stream.tags?.title,
-                codec: stream.codecName,
-                codecLongName: stream.codecLongName,
-                isDefault: (stream.disposition?.defaultStream == 1),
-                isForced: (stream.disposition?.forced == 1)
-            )
-        }
-
-        return VideoMetadata(
-            duration: formatMetadata?.duration.flatMap { Double($0) },
-            formatName: formatMetadata?.formatName,
-            containerLongName: formatMetadata?.formatLongName,
-            sizeBytes: formatMetadata?.size.flatMap { Int64($0) },
-            bitRate: formatMetadata?.bitRate.flatMap { Int64($0) },
-            comment: formatComment,
-            timecode: timecode,
-            frameCount: frameCount,
-            videoStreams: video,
-            audioStreams: audio,
-            subtitleStreams: subtitles
-        )
-    }
 }

@@ -16,131 +16,159 @@
 
 import Foundation
 import OSLog
+import SwiftExif
 
+/// Probe facade preserved for existing callers (ffprobe removed in favour of SwiftExif 1.2.0).
 enum FFMPEGProbeService {
-    struct AudioStreamInfo: Decodable, Sendable {
+    struct AudioStreamInfo: Sendable {
         let index: Int?
         let channels: Int?
         let channelLayout: String?
         let codecName: String?
 
-        private enum CodingKeys: String, CodingKey {
-            case index
-            case channels
-            case channelLayout = "channel_layout"
-            case codecName = "codec_name"
-        }
-
         /// Returns true if FFmpeg can decode this audio stream.
         /// Streams with unknown codecs (like Apple's APAC spatial audio) return false.
         var isDecodable: Bool {
             guard let codec = codecName?.lowercased() else { return false }
-            // FFmpeg reports unsupported codecs as empty string or with specific names
-            // that have no decoder available (e.g., "none" in the demuxer output)
             if codec.isEmpty { return false }
-            // Known unsupported codecs on macOS/FFmpeg
             let unsupportedCodecs = ["apac"] // Apple Positional Audio Codec (spatial audio)
             return !unsupportedCodecs.contains(codec)
         }
     }
 
-    private struct AudioStreamsResponse: Decodable {
-        let streams: [AudioStreamInfo]
-    }
-
-    /// Fetches audio stream metadata for the supplied input URL.
+    /// Fetches audio stream metadata for the supplied input URL via SwiftExif.
     static func fetchAudioStreams(for url: URL) async -> [AudioStreamInfo]? {
-        guard let ffprobePath = ffprobeExecutablePath else { return nil }
-        let process = Process()
-        let pipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: ffprobePath)
-        process.arguments = [
-            "-v", "error",
-            "-select_streams", "a",
-            "-show_entries", "stream=index,channels,channel_layout,codec_name",
-            "-of", "json",
-            url.path
-        ]
-        process.standardOutput = pipe
+        guard SwiftExifMediaProbe.canReadVideo(url) else {
+            // Audio-only containers go through readAudio — still materialise a single
+            // AudioStreamInfo so callers that expect a non-nil array keep working.
+            if SwiftExifMediaProbe.canReadAudio(url),
+               let meta = try? await SwiftExifMediaProbe.readAudio(url) {
+                return [AudioStreamInfo(
+                    index: 0,
+                    channels: meta.channels,
+                    channelLayout: meta.channelLayout,
+                    codecName: meta.codec
+                )]
+            }
+            return []
+        }
 
         do {
-            try process.run()
-
-            let outputData = try await readDataWithTimeout(
-                from: pipe.fileHandleForReading,
-                process: process,
-                timeout: 5
-            )
-
-            guard let outputData, !outputData.isEmpty else {
-                Logger().warning("FFprobe returned no audio stream data for \(url.lastPathComponent)")
-                return []
-            }
-
-            do {
-                let response = try JSONDecoder().decode(AudioStreamsResponse.self, from: outputData)
-                Logger().debug("FFprobe audio streams for \(url.lastPathComponent): \(response.streams.map { "\($0.codecName ?? "unknown"):\($0.channels ?? 0)ch" })")
-                return response.streams
-            } catch {
-                Logger().error("Failed to decode FFprobe audio stream data for \(url.lastPathComponent): \(error.localizedDescription)")
-                return nil
-            }
+            let meta = try await SwiftExifMediaProbe.readVideo(url)
+            let streams = meta.audioStreams.map { AudioStreamInfo(
+                index: $0.index,
+                channels: $0.channels,
+                channelLayout: $0.channelLayout,
+                codecName: $0.codec
+            ) }
+            Logger().debug("SwiftExif audio streams for \(url.lastPathComponent): \(streams.map { "\($0.codecName ?? "unknown"):\($0.channels ?? 0)ch" })")
+            return streams
         } catch {
-            Logger().error("FFprobe audio stream extraction failed for \(url.lastPathComponent): \(error.localizedDescription)")
+            Logger().error("SwiftExif audio stream extraction failed for \(url.lastPathComponent): \(error.localizedDescription)")
             return nil
         }
     }
 
-    /// Returns the media duration reported by ffprobe.
+    /// Returns the media duration reported by SwiftExif (or AVFoundation fallback).
     static func getVideoDuration(for url: URL) async -> Double? {
-        guard let ffprobePath = ffprobeExecutablePath else {
-            Logger().info("FFprobe not found in bundle, will use AVFoundation for duration extraction")
-            return nil
+        await SwiftExifMediaProbe.duration(for: url)
+    }
+
+    // MARK: - Chapters
+
+    /// Fetches chapter markers for `url`.
+    ///
+    /// SwiftExif 1.2.0 does not yet expose chapters, so this currently shells out to
+    /// the bundled `ffprobe`. When SwiftExif gains chapter support, swap the
+    /// implementation here — callers should not need to change.
+    static func fetchChapters(for url: URL) async -> [Chapter] {
+        await FFprobeChapterReader.read(url: url)
+    }
+}
+
+// MARK: - ffprobe chapter backend
+
+/// Temporary ffprobe-backed chapter reader. Will be replaced with a SwiftExif
+/// implementation once the upstream library exposes chapter markers.
+private enum FFprobeChapterReader {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ChapterProbe")
+
+    static func read(url: URL) async -> [Chapter] {
+        guard let ffprobe = BinaryPathResolver.ffprobePath else {
+            logger.debug("ffprobe unavailable; skipping chapter probe")
+            return []
         }
 
-        Logger().info("Attempting to get duration using ffprobe for: \(url.lastPathComponent)")
-
+        // Build the process up-front so the cancellation handler can reach it.
         let process = Process()
-        let pipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: ffprobePath)
+        let stdout = Pipe()
+        process.executableURL = URL(fileURLWithPath: ffprobe)
         process.arguments = [
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_chapters",
             url.path
         ]
-        process.standardOutput = pipe
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+
+        // We run the blocking ffprobe invocation on a detached task so the main
+        // actor stays responsive, but we wrap it with a cancellation handler so
+        // a cancelled parent task terminates the live process immediately — a
+        // bare `Task.detached.value` would otherwise pin a cooperative-pool
+        // thread and a file descriptor triple until ffprobe exited on its own.
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .utility) {
+                runProbe(process: process, stdout: stdout, url: url)
+            }.value
+        } onCancel: {
+            // Sendable-safe: Process is a reference type; terminate() is thread-safe.
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+    }
+
+    private static func runProbe(process: Process, stdout: Pipe, url: URL) -> [Chapter] {
+        let readHandle = stdout.fileHandleForReading
+        // Always release the read end, even on early return / throw.
+        defer { try? readHandle.close() }
 
         do {
             try process.run()
-
-            let outputData = try await readDataWithTimeout(
-                from: pipe.fileHandleForReading,
-                process: process,
-                timeout: 5
-            )
-
-            guard
-                let outputData,
-                let outputString = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            else {
-                Logger().error("Failed to parse duration from ffprobe output")
-                return nil
-            }
-
-            Logger().info("FFprobe raw output: \"\(outputString)\"")
-            if let duration = Double(outputString) {
-                Logger().info("Successfully parsed duration from ffprobe: \(duration) seconds")
-                return duration
-            }
-
-            Logger().error("Failed to convert ffprobe output to Double: \"\(outputString)\"")
-            return nil
         } catch {
-            Logger().error("FFprobe process failed: \(error.localizedDescription)")
-            return nil
+            logger.debug("ffprobe launch failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return []
+        }
+
+        // Reading to end before waitUntilExit is safe here: stderr is /dev/null
+        // so the process cannot block on a full stderr pipe, and chapter JSON
+        // is tiny (well under any pipe buffer limit).
+        let data = (try? readHandle.readToEnd()) ?? Data()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0, !data.isEmpty else { return [] }
+        return parse(data)
+    }
+
+    private static func parse(_ data: Data) -> [Chapter] {
+        struct Payload: Decodable {
+            struct Entry: Decodable {
+                let id: Int?
+                let start_time: String?
+                let end_time: String?
+                let tags: [String: String]?
+            }
+            let chapters: [Entry]?
+        }
+        guard let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              let entries = payload.chapters else { return [] }
+
+        return entries.enumerated().compactMap { index, entry in
+            guard let startString = entry.start_time, let start = Double(startString),
+                  let endString = entry.end_time, let end = Double(endString),
+                  end > start else { return nil }
+            let title = entry.tags?["title"] ?? entry.tags?["TITLE"]
+            return Chapter(id: entry.id ?? index, start: start, end: end, title: title)
         }
     }
 }
@@ -154,91 +182,19 @@ extension FFMPEGProbeService {
         let audioStreamCount: Int
     }
 
-    private struct VerificationStreamEntry: Decodable {
-        let codec_type: String?
-    }
-
-    private struct VerificationResponse: Decodable {
-        let streams: [VerificationStreamEntry]?
-    }
-
     /// Probes the output file to count video and audio streams.
     /// Used as a safety check after merge/concat to detect silent data loss.
     static func verifyOutputStreams(for url: URL) async -> StreamVerificationResult? {
-        guard let ffprobePath = ffprobeExecutablePath else { return nil }
-
-        let process = Process()
-        let pipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: ffprobePath)
-        process.arguments = [
-            "-v", "error",
-            "-show_entries", "stream=codec_type",
-            "-of", "json",
-            url.path
-        ]
-        process.standardOutput = pipe
-
-        do {
-            try process.run()
-
-            let outputData = try await readDataWithTimeout(
-                from: pipe.fileHandleForReading,
-                process: process,
-                timeout: 10
-            )
-
-            guard let outputData, !outputData.isEmpty else { return nil }
-
-            let response = try JSONDecoder().decode(VerificationResponse.self, from: outputData)
-            let streams = response.streams ?? []
-            let videoCount = streams.filter { $0.codec_type == "video" }.count
-            let audioCount = streams.filter { $0.codec_type == "audio" }.count
-
+        if SwiftExifMediaProbe.canReadVideo(url),
+           let meta = try? await SwiftExifMediaProbe.readVideo(url) {
+            let videoCount = meta.videoStreams.filter { $0.isAttachedPic != true }.count
+            let audioCount = meta.audioStreams.count
             return StreamVerificationResult(videoStreamCount: videoCount, audioStreamCount: audioCount)
-        } catch {
-            Logger().error("Post-export verification failed for \(url.lastPathComponent): \(error.localizedDescription)")
-            return nil
         }
-    }
-}
-
-private extension FFMPEGProbeService {
-    static var ffprobeExecutablePath: String? {
-        BinaryPathResolver.ffprobePath
-    }
-
-    static func readDataWithTimeout(
-        from handle: FileHandle,
-        process: Process,
-        timeout: TimeInterval
-    ) async throws -> Data? {
-        try await withThrowingTaskGroup(of: Data.self) { group in
-            group.addTask {
-                let data = handle.readDataToEndOfFile()
-                try? handle.close()
-                process.terminate()
-                return data
-            }
-
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                process.terminate()
-                try? handle.close()
-                throw NSError(
-                    domain: "com.aagedal.videoconverter.ffprobe",
-                    code: -2,
-                    userInfo: [NSLocalizedDescriptionKey: "FFprobe timeout"]
-                )
-            }
-
-            guard let data = try await group.next() else {
-                group.cancelAll()
-                return nil
-            }
-
-            group.cancelAll()
-            return data
+        if SwiftExifMediaProbe.canReadAudio(url),
+           (try? await SwiftExifMediaProbe.readAudio(url)) != nil {
+            return StreamVerificationResult(videoStreamCount: 0, audioStreamCount: 1)
         }
+        return nil
     }
 }

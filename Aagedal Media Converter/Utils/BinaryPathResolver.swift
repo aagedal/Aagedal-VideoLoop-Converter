@@ -43,28 +43,30 @@ enum BinaryPathResolver {
     }
 
     // MARK: - FFprobe
-
-    /// Resolves the path to ffprobe binary
-    /// Priority: custom path > bundled
+    //
+    // ffprobe is no longer bundled with the app — SwiftExif replaces it for
+    // metadata reading. A path resolver is kept for features that SwiftExif
+    // does not yet cover (currently just chapter extraction); the user opts in
+    // by installing ffprobe via Homebrew or by pointing the settings at a
+    // custom binary. When no ffprobe is reachable, `ffprobePath` is `nil` and
+    // callers must handle that gracefully.
     static var ffprobePath: String? {
-        if let selection = selectedFFmpegSource() {
+        if let selection = selectedFFprobeSource() {
             switch selection {
             case .custom:
                 return resolveCustomFFprobePath()
             case .homebrew:
                 return resolveHomebrewFFprobePath()
             case .app:
-                return resolveBundledFFprobePath()
+                // No bundled ffprobe any more — fall through to auto-detect.
+                break
             }
         }
 
-        // Check custom path first
         if let customPath = resolveCustomFFprobePath() {
             return customPath
         }
-
-        // Fall back to bundled
-        return resolveBundledFFprobePath()
+        return resolveHomebrewFFprobePath()
     }
 
     // MARK: - BMX Tools (MXF handling)
@@ -217,8 +219,12 @@ enum BinaryPathResolver {
         return nil
     }
 
-    private static func resolveBundledFFprobePath() -> String? {
-        Bundle.main.path(forResource: "ffprobe", ofType: nil)
+    private static func selectedFFprobeSource() -> BinarySourceSelection? {
+        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.ffprobeBinarySourceKey),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return BinarySourceSelection(rawValue: rawValue)
     }
 
     // MARK: - Tesseract

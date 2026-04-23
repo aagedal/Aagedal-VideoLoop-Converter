@@ -26,12 +26,10 @@ struct YTDLPSettingsView: View {
     @State private var ytdlpVersion: String?
     @State private var denoVersion: String?
     @State private var ffmpegVersion: String?
-    @State private var ffprobeVersion: String?
     @State private var isCheckingVersions = false
     @State private var ytdlpCustomPath: String = ""
     @State private var denoCustomPath: String = ""
     @State private var ffmpegCustomPath: String = ""
-    @State private var ffprobeCustomPath: String = ""
     @State private var ytdlpStatus: YTDLPStatus = .checking
     @State private var installationStatus: YTDLPInstallationStatus = .notInstalled
     @State private var isDownloading = false
@@ -114,17 +112,6 @@ struct YTDLPSettingsView: View {
             return "FFmpeg: Homebrew"
         case .app:
             return "FFmpeg: App (Bundled)"
-        }
-    }
-
-    private var ffprobeStatusLabel: String {
-        switch selectedFFmpegSource {
-        case .custom:
-            return "FFprobe: Custom"
-        case .homebrew:
-            return "FFprobe: Homebrew"
-        case .app:
-            return "FFprobe: App (Bundled)"
         }
     }
 
@@ -773,7 +760,7 @@ struct YTDLPSettingsView: View {
     // MARK: - FFmpeg Section
 
     private var ffmpegSection: some View {
-        Section(header: Text("FFmpeg / FFprobe (Conversion)")) {
+        Section(header: Text("FFmpeg (Conversion)")) {
             VStack(alignment: .leading, spacing: 12) {
                 // FFmpeg status
                 HStack {
@@ -790,28 +777,6 @@ struct YTDLPSettingsView: View {
                     Spacer()
 
                     if let version = ffmpegVersion {
-                        Text(version)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-
-                // FFprobe status
-                HStack {
-                    if BinaryPathResolver.ffprobePath != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(statusColor(for: selectedFFmpegSource))
-                        Text(ffprobeStatusLabel)
-                    } else {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.red)
-                        Text("FFprobe: Not found")
-                    }
-
-                    Spacer()
-
-                    if let version = ffprobeVersion {
                         Text(version)
                             .font(.system(.caption, design: .monospaced))
                             .foregroundColor(.secondary)
@@ -865,35 +830,6 @@ struct YTDLPSettingsView: View {
                         saveFFmpegPath()
                     }
 
-                    // Custom FFprobe path
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Custom FFprobe path:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        HStack {
-                            TextField("Select ffprobe binary", text: $ffprobeCustomPath)
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.body, design: .monospaced))
-
-                            Button("Browse...") {
-                                selectBinary(for: .ffprobe)
-                            }
-
-                            if !ffprobeCustomPath.isEmpty {
-                                Button(role: .destructive) {
-                                    ffprobeCustomPath = ""
-                                    saveFFprobePath()
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                        }
-                    }
-                    .onChange(of: ffprobeCustomPath) { _, _ in
-                        saveFFprobePath()
-                    }
                 }
 
                 Divider()
@@ -912,7 +848,7 @@ struct YTDLPSettingsView: View {
     private var aboutSection: some View {
         Section(header: Text("About")) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("The app includes bundled ffmpeg and ffprobe binaries. You can optionally use custom versions (e.g., from Homebrew) if you need specific features or codecs.")
+                Text("The app includes a bundled ffmpeg binary. You can optionally point at a Homebrew or custom ffmpeg if you need specific features or codecs. ffprobe is no longer bundled — it's only used for chapter extraction and can be configured under Metadata settings.")
                     .font(.callout)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -938,14 +874,13 @@ struct YTDLPSettingsView: View {
     // MARK: - Binary Type
 
     private enum BinaryType {
-        case ytdlp, deno, ffmpeg, ffprobe
+        case ytdlp, deno, ffmpeg
 
         var title: String {
             switch self {
             case .ytdlp: return "Select yt-dlp binary"
             case .deno: return "Select deno binary"
             case .ffmpeg: return "Select ffmpeg binary"
-            case .ffprobe: return "Select ffprobe binary"
             }
         }
 
@@ -954,7 +889,6 @@ struct YTDLPSettingsView: View {
             case .ytdlp: return "Select yt-dlp from /opt/homebrew/bin/"
             case .deno: return "Select deno from /opt/homebrew/bin/"
             case .ffmpeg: return "Select ffmpeg binary"
-            case .ffprobe: return "Select ffprobe binary"
             }
         }
 
@@ -974,7 +908,6 @@ struct YTDLPSettingsView: View {
         ytdlpCustomPath = YTDLPUpdateService.shared.getCustomPath() ?? ""
         denoCustomPath = YTDLPUpdateService.shared.getDenoCustomPath() ?? ""
         ffmpegCustomPath = UserDefaults.standard.string(forKey: AppConstants.customFFmpegPathKey) ?? ""
-        ffprobeCustomPath = UserDefaults.standard.string(forKey: AppConstants.customFFprobePathKey) ?? ""
     }
 
     private func saveYTDLPPath() {
@@ -1001,11 +934,6 @@ struct YTDLPSettingsView: View {
 
     private func saveFFmpegPath() {
         BinaryPathResolver.saveCustomFFmpegPath(ffmpegCustomPath.isEmpty ? nil : ffmpegCustomPath)
-        Task { await refreshVersions() }
-    }
-
-    private func saveFFprobePath() {
-        BinaryPathResolver.saveCustomFFprobePath(ffprobeCustomPath.isEmpty ? nil : ffprobeCustomPath)
         Task { await refreshVersions() }
     }
 
@@ -1112,8 +1040,6 @@ struct YTDLPSettingsView: View {
                 denoCustomPath = url.path
             case .ffmpeg:
                 ffmpegCustomPath = url.path
-            case .ffprobe:
-                ffprobeCustomPath = url.path
             }
         }
     }
@@ -1136,15 +1062,13 @@ struct YTDLPSettingsView: View {
         async let ytdlpVer = YTDLPUpdateService.shared.getCurrentVersion()
         async let denoVer = YTDLPUpdateService.shared.getCurrentDenoVersion()
         async let ffmpegVer = BinaryPathResolver.getFFmpegVersion()
-        async let ffprobeVer = BinaryPathResolver.getFFprobeVersion()
 
-        let (yt, deno, ff, fp) = await (ytdlpVer, denoVer, ffmpegVer, ffprobeVer)
+        let (yt, deno, ff) = await (ytdlpVer, denoVer, ffmpegVer)
 
         await MainActor.run {
             ytdlpVersion = yt
             denoVersion = deno
             ffmpegVersion = ff
-            ffprobeVersion = fp
             ytdlpStatus = status
             installationStatus = instStatus
             denoStatus = denoStatusValue

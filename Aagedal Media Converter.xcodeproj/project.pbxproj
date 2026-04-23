@@ -27,6 +27,7 @@
 		69E06BBF03A135EC5011AF14 /* RcloneProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */; };
 		6FEB07F32A610D999000F78C /* mxf2raw in Resources */ = {isa = PBXBuildFile; fileRef = D8EBD41EE1711E209C16F57C /* mxf2raw */; };
 		SE01XIF00SVC000000000001 /* SwiftExifMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE01XIF00SVC000000000002 /* SwiftExifMetadataService.swift */; };
+		SE01XIF00PRB000000000001 /* SwiftExifMediaProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE01XIF00PRB000000000002 /* SwiftExifMediaProbe.swift */; };
 		SE01XIF00TYP000000000001 /* MetadataTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE01XIF00TYP000000000002 /* MetadataTypes.swift */; };
 		METAEXPORT000000000001 /* MetadataExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = METAEXPORT000000000002 /* MetadataExporter.swift */; };
 		METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = METAEXPVIEW000000000002 /* MetadataExportView.swift */; };
@@ -131,7 +132,6 @@
 		8EEE453B2EC13E8C0049F017 /* ConversionToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE453A2EC13E840049F017 /* ConversionToolbarView.swift */; };
 		8EEE453D2EC13E960049F017 /* OverallProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE453C2EC13E8F0049F017 /* OverallProgressView.swift */; };
 		8EEE453F2EC13EA00049F017 /* WatchFolderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE453E2EC13E9E0049F017 /* WatchFolderCoordinator.swift */; };
-		8EFBDA912EA56F8E005ADDCF /* ffprobe in Resources */ = {isa = PBXBuildFile; fileRef = 8EFBDA902EA56F8E005ADDCF /* ffprobe */; };
 		8EFBDA922EA56F8E005ADDCF /* ffmpeg in Resources */ = {isa = PBXBuildFile; fileRef = 8EFBDA8F2EA56F8E005ADDCF /* ffmpeg */; };
 		978C1F6A9DF43EE4E1E9FDD4 /* WaveformPCMDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9609862A8EC6964A0A45885F /* WaveformPCMDecoder.swift */; };
 		9CB662C7C4CE637DA85D46A2 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2285544DA98D92593F5F73 /* DownloadManager.swift */; };
@@ -245,6 +245,7 @@
 		727051829930996EE4E50306 /* RcloneUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneUpdateService.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneUpdateService.swift"; sourceTree = "<group>"; };
 		74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataWindowController.swift; sourceTree = "<group>"; };
 		SE01XIF00SVC000000000002 /* SwiftExifMetadataService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwiftExifMetadataService.swift; sourceTree = "<group>"; };
+		SE01XIF00PRB000000000002 /* SwiftExifMediaProbe.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwiftExifMediaProbe.swift; sourceTree = "<group>"; };
 		SE01XIF00TYP000000000002 /* MetadataTypes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataTypes.swift; sourceTree = "<group>"; };
 		METAEXPORT000000000002 /* MetadataExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataExporter.swift; sourceTree = "<group>"; };
 		METAEXPVIEW000000000002 /* MetadataExportView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataExportView.swift; sourceTree = "<group>"; };
@@ -359,7 +360,6 @@
 		8EEE453E2EC13E9E0049F017 /* WatchFolderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchFolderCoordinator.swift; sourceTree = "<group>"; };
 		8EF6370F2E086024001F2A90 /* Aagedal_Media_Converter.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Aagedal_Media_Converter.entitlements; sourceTree = "<group>"; };
 		8EFBDA8F2EA56F8E005ADDCF /* ffmpeg */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffmpeg; sourceTree = "<group>"; };
-		8EFBDA902EA56F8E005ADDCF /* ffprobe */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = ffprobe; sourceTree = "<group>"; };
 		8EFBDA932EA58975005ADDCF /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		9609862A8EC6964A0A45885F /* WaveformPCMDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformPCMDecoder.swift; sourceTree = "<group>"; };
 		9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeWaveformVideoRenderer.swift; sourceTree = "<group>"; };
@@ -464,6 +464,7 @@
 			children = (
 				SE01XIF00TYP000000000002 /* MetadataTypes.swift */,
 				SE01XIF00SVC000000000002 /* SwiftExifMetadataService.swift */,
+				SE01XIF00PRB000000000002 /* SwiftExifMediaProbe.swift */,
 				METAEXPORT000000000002 /* MetadataExporter.swift */,
 				METAEXPVIEW000000000002 /* MetadataExportView.swift */,
 			);
@@ -508,7 +509,6 @@
 			isa = PBXGroup;
 			children = (
 				8EFBDA8F2EA56F8E005ADDCF /* ffmpeg */,
-				8EFBDA902EA56F8E005ADDCF /* ffprobe */,
 				8488177BC5403EC6637A5C25 /* bmxtranswrap */,
 				D8EBD41EE1711E209C16F57C /* mxf2raw */,
 				8EA817D32F71840E00F9F10C /* asdcp-wrap */,
@@ -1068,7 +1068,6 @@
 				8E501CFE2EF1807000717373 /* error.mp3 in Resources */,
 				8EA817D62F7184AA00F9F10C /* asdcplib-LICENSE.txt in Resources */,
 				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
-				8EFBDA912EA56F8E005ADDCF /* ffprobe in Resources */,
 				8EFBDA922EA56F8E005ADDCF /* ffmpeg in Resources */,
 				E22C3CB47572F41BA23EAF92 /* bmxtranswrap in Resources */,
 				6FEB07F32A610D999000F78C /* mxf2raw in Resources */,
@@ -1234,6 +1233,7 @@
 				DC0001A1DCP0000100000003 /* DCPService.swift in Sources */,
 				F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */,
 				SE01XIF00SVC000000000001 /* SwiftExifMetadataService.swift in Sources */,
+				SE01XIF00PRB000000000001 /* SwiftExifMediaProbe.swift in Sources */,
 				SE01XIF00TYP000000000001 /* MetadataTypes.swift in Sources */,
 				METAEXPORT000000000001 /* MetadataExporter.swift in Sources */,
 				METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */,
@@ -2897,7 +2897,7 @@
 			repositoryURL = "https://github.com/aagedal/SwiftExif.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
+				minimumVersion = 1.3.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
