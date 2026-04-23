@@ -259,12 +259,6 @@ struct VideoMetadataView: View {
 
     private var c2paSection: some View {
         section(title: "Content Authenticity (C2PA)") {
-            Text("Presence only. This app does not verify C2PA signatures.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            verificationLinksView
-
             if isLoadingC2PA {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -274,6 +268,12 @@ struct VideoMetadataView: View {
                         .foregroundColor(.secondary)
                 }
             } else if let c2pa = item.c2paMetadata, c2pa.hasContentCredentials {
+                Text("Presence only. This app does not verify C2PA signatures.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                verificationLinksView
+
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.shield.fill")
                         .foregroundColor(.green)
@@ -314,7 +314,7 @@ struct VideoMetadataView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundColor(.secondary)
-                    Text("C2PA metadata not available")
+                    Text("Content Credentials not available")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
@@ -420,6 +420,8 @@ struct VideoMetadataView: View {
                 .font(.headline)
                 .fontWeight(.bold)
                 .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 6)
             content()
         }
