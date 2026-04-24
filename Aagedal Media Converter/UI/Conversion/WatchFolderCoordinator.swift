@@ -23,6 +23,7 @@ final class WatchFolderCoordinator: ObservableObject {
     private let manager = WatchFolderManager()
     private var monitoringTask: Task<Void, Never>?
     private var autoEncodeTask: Task<Void, Never>?
+    private var powerAssertion: UUID?
 
     /// Enables watch mode, prompting the user for a folder if needed and starting monitoring.
     /// - Parameters:
@@ -57,6 +58,11 @@ final class WatchFolderCoordinator: ObservableObject {
             }
         }
 
+        if UserDefaults.standard.bool(forKey: AppConstants.watchFolderKeepAwakeKey),
+           powerAssertion == nil {
+            powerAssertion = PowerAssertion.shared.acquire(reason: "Watch folder monitoring")
+        }
+
         return true
     }
 
@@ -66,6 +72,8 @@ final class WatchFolderCoordinator: ObservableObject {
         monitoringTask = nil
         autoEncodeTask?.cancel()
         autoEncodeTask = nil
+        PowerAssertion.shared.release(powerAssertion)
+        powerAssertion = nil
         await manager.stopMonitoring()
     }
 

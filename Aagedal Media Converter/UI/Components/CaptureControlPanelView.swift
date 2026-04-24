@@ -49,6 +49,7 @@ struct CaptureControlPanelView: View {
     @State private var scheduledStart: Date?
     @State private var scheduledDuration: TimeInterval?
     @State private var scheduleCountdown: TimeInterval = 0
+    @State private var schedulePowerAssertion: UUID?
 
     private var presetBinding: Binding<CapturePreset> {
         Binding(
@@ -321,7 +322,7 @@ struct CaptureControlPanelView: View {
 
     private var bottomBar: some View {
         HStack {
-            if scheduledStart != nil {
+            if let start = scheduledStart {
                 Button(action: cancelSchedule) {
                     Text("Cancel Schedule")
                 }
@@ -332,10 +333,16 @@ struct CaptureControlPanelView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "clock.fill")
                         .foregroundColor(.orange)
-                    Text("Starts in \(scheduleCountdownText)")
-                        .font(.system(.callout, design: .monospaced))
-                        .monospacedDigit()
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text("Starts \(Self.startTimeFormatter.string(from: start))")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text("in \(scheduleCountdownText)")
+                            .font(.system(.callout, design: .monospaced))
+                            .monospacedDigit()
+                    }
                 }
+                .help("Mac will stay awake until the recording starts.")
             } else {
                 Button(action: onCancel) {
                     Text("Cancel")
@@ -747,12 +754,17 @@ struct CaptureControlPanelView: View {
             scheduledDuration = nil
         }
         scheduleCountdown = scheduleStartDate.timeIntervalSinceNow
+        if schedulePowerAssertion == nil {
+            schedulePowerAssertion = PowerAssertion.shared.acquire(reason: "Waiting for scheduled screen recording")
+        }
     }
 
     private func cancelSchedule() {
         scheduledStart = nil
         scheduledDuration = nil
         scheduleCountdown = 0
+        PowerAssertion.shared.release(schedulePowerAssertion)
+        schedulePowerAssertion = nil
     }
 
     private func fireScheduledRecording() {
@@ -760,6 +772,8 @@ struct CaptureControlPanelView: View {
         scheduledStart = nil
         scheduledDuration = nil
         scheduleCountdown = 0
+        PowerAssertion.shared.release(schedulePowerAssertion)
+        schedulePowerAssertion = nil
 
         Task {
             let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
@@ -795,6 +809,13 @@ struct CaptureControlPanelView: View {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.hour, .minute, .second]
         formatter.zeroFormattingBehavior = [.pad]
+        return formatter
+    }()
+
+    private static let startTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
         return formatter
     }()
 

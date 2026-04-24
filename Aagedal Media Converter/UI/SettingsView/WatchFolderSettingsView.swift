@@ -13,6 +13,7 @@ struct WatchFolderSettingsView: View {
     @AppStorage(AppConstants.watchFolderIgnoreDurationUnitKey) private var watchFolderIgnoreDurationUnitRaw = AppConstants.defaultWatchFolderIgnoreDurationUnitRaw
     @AppStorage(AppConstants.watchFolderDeleteDurationValueKey) private var watchFolderDeleteDurationValue = AppConstants.defaultWatchFolderDeleteDurationValue
     @AppStorage(AppConstants.watchFolderDeleteDurationUnitKey) private var watchFolderDeleteDurationUnitRaw = AppConstants.defaultWatchFolderDeleteDurationUnitRaw
+    @AppStorage(AppConstants.watchFolderKeepAwakeKey) private var watchFolderKeepAwake = AppConstants.defaultWatchFolderKeepAwake
 
     var body: some View {
         Form {
@@ -80,6 +81,11 @@ struct WatchFolderSettingsView: View {
                 .help(watchFolderPath.isEmpty
                     ? "Select a watch folder above to enable this option."
                     : "When enabled, Watch Folder Mode starts automatically every time the app launches.")
+
+            Toggle("Keep Mac awake while watching", isOn: $watchFolderKeepAwake)
+                .toggleStyle(SwitchToggleStyle())
+                .disabled(watchFolderPath.isEmpty)
+                .help("Prevent the system from going to sleep while Watch Folder Mode is active so dropped files are picked up without delay.")
 
             Toggle("Ignore files older than", isOn: $watchFolderIgnoreOlderThan24h)
                 .toggleStyle(SwitchToggleStyle())

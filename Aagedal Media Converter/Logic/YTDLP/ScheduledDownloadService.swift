@@ -29,6 +29,7 @@ class ScheduledDownloadService {
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ScheduledDownloadService")
     private var timer: Timer?
+    private var powerAssertion: UUID?
 
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -69,6 +70,9 @@ class ScheduledDownloadService {
     // MARK: - Timer Management
 
     private func startTimerIfNeeded() {
+        if powerAssertion == nil {
+            powerAssertion = PowerAssertion.shared.acquire(reason: "Waiting for scheduled download")
+        }
         guard timer == nil else { return }
         // Check every 5 seconds for due downloads.
         // Using the non-scheduling Timer init + explicit RunLoop.add so the timer
@@ -84,10 +88,14 @@ class ScheduledDownloadService {
     }
 
     private func stopTimerIfIdle() {
-        guard scheduledItems.isEmpty, let timer else { return }
-        timer.invalidate()
-        self.timer = nil
-        logger.info("Scheduled download timer stopped (no pending items)")
+        guard scheduledItems.isEmpty else { return }
+        if let timer {
+            timer.invalidate()
+            self.timer = nil
+            logger.info("Scheduled download timer stopped (no pending items)")
+        }
+        PowerAssertion.shared.release(powerAssertion)
+        powerAssertion = nil
     }
 
     private func checkForDueDownloads() {
