@@ -76,7 +76,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let metaRow = NSStackView()
     private let statusRow = NSStackView()
     private let buttonsRow = NSStackView()
-    private let presetRow = NSStackView()
     private let togglesStack = NSStackView()
     private let progressBar = NSProgressIndicator()
     private let uploadRow = NSStackView()
@@ -98,11 +97,13 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let concatCopyPathButton = NSButton()
     private let concatDragButton = DraggableFileImageView()
     private let concatWarningButton = NSButton()
-    // Action buttons live in the bottom row alongside toggles, mirroring
-    // VideoFileCellView's layout so groups read as peers of single items.
+    // Buttons row layout mirrors VideoFileCellView: add/edit + toggles sit on
+    // the leading edge, reset/delete are pushed to the trailing edge by a
+    // spacer + divider. Sort intentionally lives only in the editor window
+    // and the context menu — the bigger, multi-mode picker over there
+    // replaces the cycle button that used to be on the card.
     private let addFilesButton = NSButton()
     private let editButton = NSButton()
-    private let sortButton = NSButton()
     private let resetButton = NSButton()
     private let deleteButton = NSButton()
     private let actionButtonDivider = NSView()
@@ -372,9 +373,9 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
         // Tight row spacing keeps the card at the original 170pt height even
-        // with the extra metadata, status, and preset rows sitting between
-        // the existing top/buttons/upload rows. `applyCompactLayout` halves
-        // it again for the 120pt compact card.
+        // with the extra metadata and status rows. `applyCompactLayout` halves
+        // it again for the 120pt compact card. The codec preset shares the
+        // status row's trailing edge instead of taking its own row.
         contentStack.spacing = 4
         contentStack.distribution = .fill
         contentStack.translatesAutoresizingMaskIntoConstraints = false
@@ -383,20 +384,18 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         setupMetaRow()
         setupStatusRow()
         setupButtonsRow()
-        setupPresetRow()
         setupProgressBar()
         setupUploadRow()
 
-        // Visual order: name + concat output → clip count/duration → status capsule
-        // → progress bar → toggles + action buttons → preset popup → upload
-        // summary. Mirrors VideoFileCellView's vertical flow so single items and
-        // group headers read as siblings.
+        // Visual order: name + concat output → clip count/duration → status
+        // capsule + preset popup → progress bar → buttons row → upload summary.
+        // Mirrors VideoFileCellView's vertical flow so single items and group
+        // headers read as siblings.
         contentStack.addArrangedSubview(topRow)
         contentStack.addArrangedSubview(metaRow)
         contentStack.addArrangedSubview(statusRow)
         contentStack.addArrangedSubview(progressBar)
         contentStack.addArrangedSubview(buttonsRow)
-        contentStack.addArrangedSubview(presetRow)
         contentStack.addArrangedSubview(uploadRow)
 
         // Wrap contentStack in a padded container, matching VideoFileCellView's right column.
@@ -417,8 +416,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             statusRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             buttonsRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             buttonsRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
-            presetRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            presetRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             progressBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             progressBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             uploadRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
@@ -492,9 +489,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         configureActionButton(editButton, symbolName: "square.and.pencil", tint: .systemBlue, action: #selector(editClicked))
         editButton.toolTip = String(localized: "Edit group contents (reorder, remove, rename)")
 
-        configureActionButton(sortButton, symbolName: "arrow.up.arrow.down", tint: .secondaryLabelColor, action: #selector(sortClicked))
-        sortButton.toolTip = String(localized: "Sort items in group (cycle: filename A–Z, Z–A, date old→new, new→old)")
-
         configureActionButton(resetButton, symbolName: "arrow.counterclockwise.circle.fill", tint: .systemBlue, action: #selector(resetClicked))
         resetButton.toolTip = String(localized: "Reset all items in group")
 
@@ -523,7 +517,9 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     private func setupStatusRow() {
         // Status capsule + summary text — same shape as a single-item card so
-        // groups read at a glance ("WAITING", "ENCODING 3/8", "DONE").
+        // groups read at a glance ("WAITING", "ENCODING 35%", "DONE"). The
+        // codec preset popup shares the row's trailing edge so we can keep
+        // the card at its original 170pt height.
         statusRow.orientation = .horizontal
         statusRow.alignment = .centerY
         statusRow.spacing = 6
@@ -541,10 +537,30 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.maximumNumberOfLines = 1
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        // Hugging priority must be lower than the trailing spacer's so empty
+        // status text doesn't stretch the capsule across the row — the spacer
+        // absorbs the slack and pushes the preset popup to the trailing edge.
+        statusLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        presetPopup.translatesAutoresizingMaskIntoConstraints = false
+        presetPopup.controlSize = .small
+        presetPopup.font = .systemFont(ofSize: 11)
+        presetPopup.target = self
+        presetPopup.action = #selector(presetSelected(_:))
+        let width = presetPopup.widthAnchor.constraint(equalToConstant: 220)
+        width.isActive = true
+        presetWidthConstraint = width
+
+        let trailingSpacer = NSView()
+        trailingSpacer.translatesAutoresizingMaskIntoConstraints = false
+        trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        trailingSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         statusRow.addArrangedSubview(statusCapsule)
         statusRow.addArrangedSubview(statusLabel)
+        statusRow.addArrangedSubview(trailingSpacer)
+        statusRow.addArrangedSubview(presetPopup)
     }
 
     private func setupStatusCapsule() {
@@ -584,6 +600,10 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     }
 
     private func setupButtonsRow() {
+        // Mirrors VideoFileCellView's buttons row: leading-aligned actions
+        // (add/edit) sit next to the toggles, the trailing edge holds only
+        // the destructive reset/delete pair behind a divider, and a flexible
+        // spacer keeps them pinned right.
         buttonsRow.orientation = .horizontal
         buttonsRow.alignment = .centerY
         buttonsRow.spacing = 6
@@ -617,52 +637,31 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             actionButtonDivider.heightAnchor.constraint(equalToConstant: 26),
         ])
 
-        let actionsStack = NSStackView()
-        actionsStack.orientation = .horizontal
-        actionsStack.alignment = .centerY
-        actionsStack.spacing = 4
-        actionsStack.translatesAutoresizingMaskIntoConstraints = false
-        actionsStack.addArrangedSubview(addFilesButton)
-        actionsStack.addArrangedSubview(editButton)
-        actionsStack.addArrangedSubview(sortButton)
-        actionsStack.addArrangedSubview(resetButton)
-        actionsStack.addArrangedSubview(deleteButton)
+        let leadingActions = NSStackView()
+        leadingActions.orientation = .horizontal
+        leadingActions.alignment = .centerY
+        leadingActions.spacing = 4
+        leadingActions.translatesAutoresizingMaskIntoConstraints = false
+        leadingActions.addArrangedSubview(addFilesButton)
+        leadingActions.addArrangedSubview(editButton)
+
+        let trailingActions = NSStackView()
+        trailingActions.orientation = .horizontal
+        trailingActions.alignment = .centerY
+        trailingActions.spacing = 4
+        trailingActions.translatesAutoresizingMaskIntoConstraints = false
+        trailingActions.addArrangedSubview(resetButton)
+        trailingActions.addArrangedSubview(deleteButton)
 
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
+        buttonsRow.addArrangedSubview(leadingActions)
         buttonsRow.addArrangedSubview(togglesStack)
         buttonsRow.addArrangedSubview(spacer)
         buttonsRow.addArrangedSubview(actionButtonDivider)
-        buttonsRow.addArrangedSubview(actionsStack)
-    }
-
-    private func setupPresetRow() {
-        // Codec preset lives on its own row below the buttons so the popup has
-        // breathing room — squeezing it next to the toggles made the dropdown
-        // truncate at smaller window widths.
-        presetRow.orientation = .horizontal
-        presetRow.alignment = .centerY
-        presetRow.spacing = 8
-        presetRow.distribution = .fill
-        presetRow.translatesAutoresizingMaskIntoConstraints = false
-
-        presetPopup.translatesAutoresizingMaskIntoConstraints = false
-        presetPopup.controlSize = .small
-        presetPopup.font = .systemFont(ofSize: 11)
-        presetPopup.target = self
-        presetPopup.action = #selector(presetSelected(_:))
-        let width = presetPopup.widthAnchor.constraint(equalToConstant: 220)
-        width.isActive = true
-        presetWidthConstraint = width
-
-        let trailingSpacer = NSView()
-        trailingSpacer.translatesAutoresizingMaskIntoConstraints = false
-        trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        presetRow.addArrangedSubview(presetPopup)
-        presetRow.addArrangedSubview(trailingSpacer)
+        buttonsRow.addArrangedSubview(trailingActions)
     }
 
     private func setupProgressBar() {
@@ -1189,7 +1188,6 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     @objc private func addFilesClicked() { actionHandler?(.addFilesToGroup) }
     @objc private func editClicked() { actionHandler?(.openGroupEditor) }
-    @objc private func sortClicked() { actionHandler?(.cycleGroupSort) }
     @objc private func resetClicked() { actionHandler?(.resetGroup) }
     @objc private func deleteClicked() {
         guard let groupName = currentConfig?.name else {
