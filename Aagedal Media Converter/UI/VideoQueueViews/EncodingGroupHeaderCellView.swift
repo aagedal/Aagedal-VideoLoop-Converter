@@ -65,6 +65,10 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let stackedThumb3 = NSImageView()   // front (primary)
     private let emptyFolderIcon = NSImageView()
     private let childCountBadge = NSTextField(labelWithString: "")
+    /// Centered glass overlay shown on thumbnail hover. Opens the group editor
+    /// — mirrors VideoFileCellView's hover-to-play UX so groups read as peers.
+    private let overlayOpenButton = PlayOverlayButtonView()
+    private var thumbnailTrackingArea: NSTrackingArea?
 
     // Right side: content
     private let contentStack = NSStackView()
@@ -306,6 +310,47 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             childCountBadge.heightAnchor.constraint(equalToConstant: 20),
             childCountBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
         ])
+
+        setupOverlayButton()
+    }
+
+    // MARK: - Hover overlay
+
+    private func setupOverlayButton() {
+        overlayOpenButton.configure(
+            symbolName: "folder.fill",
+            accessibilityDescription: String(localized: "Edit group contents"),
+            iconXNudge: 0
+        )
+        overlayOpenButton.onClick = { [weak self] in self?.actionHandler?(.openGroupEditor) }
+        thumbnailContainer.addSubview(overlayOpenButton)
+        NSLayoutConstraint.activate([
+            overlayOpenButton.centerXAnchor.constraint(equalTo: thumbnailContainer.centerXAnchor),
+            overlayOpenButton.centerYAnchor.constraint(equalTo: thumbnailContainer.centerYAnchor),
+        ])
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = thumbnailTrackingArea {
+            thumbnailContainer.removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: thumbnailContainer.bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        thumbnailContainer.addTrackingArea(area)
+        thumbnailTrackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        overlayOpenButton.setHovered(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        overlayOpenButton.setHovered(false)
     }
 
     // MARK: - Content area
@@ -627,6 +672,14 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
         if isFirstConfigure || prev?.itemCount != config.itemCount {
             updateChildCountBadge(count: config.itemCount)
+        }
+
+        // Context menu — rebuild when states that change item enablement flip.
+        if isFirstConfigure
+            || prev?.status != config.status
+            || prev?.concatOutputURL != config.concatOutputURL
+            || prev?.itemCount != config.itemCount {
+            self.menu = buildContextMenu(config: config)
         }
 
         self.currentConfig = config
@@ -958,5 +1011,51 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     func controlTextDidEndEditing(_ obj: Notification) {
         nameFieldCommitted()
+    }
+
+    // MARK: - Context Menu
+
+    private func buildContextMenu(config: EncodingGroupCellConfiguration) -> NSMenu {
+        let menu = NSMenu()
+
+        let editItem = menu.addItem(withTitle: String(localized: "Edit Group Contents…"), action: #selector(ctxOpenEditor), keyEquivalent: "")
+        editItem.target = self
+
+        let addItem = menu.addItem(withTitle: String(localized: "Add Files to Group…"), action: #selector(ctxAddFiles), keyEquivalent: "")
+        addItem.target = self
+        addItem.isEnabled = config.status != .converting
+
+        let sortItem = menu.addItem(withTitle: String(localized: "Sort Items"), action: #selector(ctxSort), keyEquivalent: "")
+        sortItem.target = self
+        sortItem.isEnabled = config.itemCount > 1 && config.status != .converting
+
+        if config.concatOutputURL != nil {
+            menu.addItem(.separator())
+            let showOutput = menu.addItem(withTitle: String(localized: "Show Merged Output in Finder"), action: #selector(ctxShowConcatOutput), keyEquivalent: "")
+            showOutput.target = self
+        }
+
+        menu.addItem(.separator())
+
+        let resetItem = menu.addItem(withTitle: String(localized: "Reset Group"), action: #selector(ctxReset), keyEquivalent: "")
+        resetItem.target = self
+        resetItem.isEnabled = config.status != .converting && config.status != .waiting && config.itemCount > 0
+
+        let deleteItem = menu.addItem(withTitle: String(localized: "Delete Group…"), action: #selector(ctxDelete), keyEquivalent: "")
+        deleteItem.target = self
+        deleteItem.isEnabled = config.status != .converting
+
+        return menu
+    }
+
+    @objc private func ctxOpenEditor() { actionHandler?(.openGroupEditor) }
+    @objc private func ctxAddFiles() { actionHandler?(.addFilesToGroup) }
+    @objc private func ctxSort() { actionHandler?(.cycleGroupSort) }
+    @objc private func ctxReset() { actionHandler?(.resetGroup) }
+    @objc private func ctxDelete() { deleteClicked() }
+    @objc private func ctxShowConcatOutput() {
+        if let url = currentConfig?.concatOutputURL {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
     }
 }

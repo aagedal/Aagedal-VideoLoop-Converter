@@ -1596,6 +1596,7 @@ final class PlayOverlayButtonView: NSView {
 
     private let effectBackground = NSVisualEffectView()
     private let iconView = NSImageView()
+    private var iconXOffsetConstraint: NSLayoutConstraint?
 
     override init(frame: NSRect) {
         super.init(frame: .zero)
@@ -1621,6 +1622,11 @@ final class PlayOverlayButtonView: NSView {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(iconView)
 
+        // Nudge icon 1.5pt right so the triangular play glyph reads as centered.
+        // Non-play icons (e.g. folder) reset this via configure(iconXNudge:).
+        let iconXOffset = iconView.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 1.5)
+        self.iconXOffsetConstraint = iconXOffset
+
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 44),
             heightAnchor.constraint(equalToConstant: 44),
@@ -1630,8 +1636,7 @@ final class PlayOverlayButtonView: NSView {
             effectBackground.topAnchor.constraint(equalTo: topAnchor),
             effectBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            // Nudge icon 1.5pt right so the triangular glyph reads as centered
-            iconView.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 1.5),
+            iconXOffset,
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 22),
             iconView.heightAnchor.constraint(equalToConstant: 22),
@@ -1657,6 +1662,14 @@ final class PlayOverlayButtonView: NSView {
                 ? CATransform3DIdentity
                 : CATransform3DMakeScale(0.85, 0.85, 1)
         }
+    }
+
+    /// Overrides the default "play.fill" glyph. Used by the group header cell so
+    /// the centered overlay reads as "open container" instead of "play a file".
+    func configure(symbolName: String, accessibilityDescription: String, iconXNudge: CGFloat = 0) {
+        iconView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityDescription)
+        toolTip = accessibilityDescription
+        iconXOffsetConstraint?.constant = iconXNudge
     }
 }
 
