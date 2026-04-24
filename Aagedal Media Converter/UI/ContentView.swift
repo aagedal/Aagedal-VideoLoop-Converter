@@ -2251,6 +2251,7 @@ private struct ContentViewChangeHandlers: ViewModifier {
             updateNotificationTask?.cancel()
             updateNotificationTask = Task {
                 try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
+                guard !Task.isCancelled else { return }
                 withAnimation {
                     showUpdateNotification = false
                 }
