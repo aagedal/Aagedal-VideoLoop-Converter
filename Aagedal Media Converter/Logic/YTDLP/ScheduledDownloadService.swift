@@ -30,12 +30,17 @@ class ScheduledDownloadService {
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ScheduledDownloadService")
     private var timer: Timer?
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        f.timeZone = .current
+        return f
+    }()
+
     /// Currently scheduled downloads (itemID -> scheduledTime)
     private(set) var scheduledItems: [ScheduledDownloadItem] = []
 
-    private init() {
-        startTimer()
-    }
+    private init() {}
 
     // MARK: - Public API
 
@@ -46,12 +51,14 @@ class ScheduledDownloadService {
         scheduledItems.append(item)
         scheduledItems.sort { $0.scheduledTime < $1.scheduledTime }
         logger.info("Registered scheduled download: \(itemID) for \(scheduledTime)")
+        startTimerIfNeeded()
     }
 
     /// Cancels a scheduled download by item ID
     func cancelScheduledItem(itemID: UUID) {
         scheduledItems.removeAll { $0.itemID == itemID }
         logger.info("Cancelled scheduled download: \(itemID)")
+        stopTimerIfIdle()
     }
 
     /// Gets the count of pending scheduled downloads
@@ -61,40 +68,39 @@ class ScheduledDownloadService {
 
     // MARK: - Timer Management
 
-    private func startTimer() {
-        // Check every 5 seconds for due downloads
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+    private func startTimerIfNeeded() {
+        guard timer == nil else { return }
+        // Check every 5 seconds for due downloads.
+        // Using the non-scheduling Timer init + explicit RunLoop.add so the timer
+        // fires during UI event tracking (menus, drags) via `.common` mode.
+        let newTimer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkForDueDownloads()
             }
         }
-        // Make sure timer runs on main run loop
-        RunLoop.main.add(timer!, forMode: .common)
+        RunLoop.main.add(newTimer, forMode: .common)
+        timer = newTimer
         logger.info("Scheduled download timer started")
-        // Also check immediately
-        checkForDueDownloads()
+    }
+
+    private func stopTimerIfIdle() {
+        guard scheduledItems.isEmpty, let timer else { return }
+        timer.invalidate()
+        self.timer = nil
+        logger.info("Scheduled download timer stopped (no pending items)")
     }
 
     private func checkForDueDownloads() {
-        guard !scheduledItems.isEmpty else { return }
-
-        let now = Date()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        formatter.timeZone = .current
-
-        // Debug: Log what we're checking
-        for item in scheduledItems {
-            let timeUntil = item.scheduledTime.timeIntervalSince(now)
-            let scheduledStr = formatter.string(from: item.scheduledTime)
-            let nowStr = formatter.string(from: now)
-            logger.debug("Checking: scheduled=\(scheduledStr), now=\(nowStr), timeUntil=\(Int(timeUntil))s")
+        guard !scheduledItems.isEmpty else {
+            stopTimerIfIdle()
+            return
         }
 
+        let now = Date()
         let dueItems = scheduledItems.filter { $0.scheduledTime <= now }
 
         for item in dueItems {
-            let scheduledStr = formatter.string(from: item.scheduledTime)
+            let scheduledStr = Self.timeFormatter.string(from: item.scheduledTime)
             let delay = now.timeIntervalSince(item.scheduledTime)
             logger.info("[TIMING] Starting scheduled download: \(item.itemID) (was scheduled for \(scheduledStr), trigger delay: \(String(format: "%.1f", delay))s)")
             // Remove from scheduled list first
@@ -109,5 +115,7 @@ class ScheduledDownloadService {
                 }
             }
         }
+
+        stopTimerIfIdle()
     }
 }
