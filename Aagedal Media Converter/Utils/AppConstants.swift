@@ -603,24 +603,17 @@ enum AppConstants {
 
     // MARK: - Upload Settings
 
-    // FTP/Upload configuration
-    static let uploadServerKey = "uploadServer"
-    static let uploadPortKey = "uploadPort"
-    static let uploadUsernameKey = "uploadUsername"
-    static let uploadRemotePathKey = "uploadRemotePath"
-    static let uploadUseFTPSKey = "uploadUseFTPS"
+    // Unified profile storage (one list, each profile carries its own backend).
+    static let uploadProfilesKey = "uploadProfiles"
+    static let uploadSelectedProfileIDKey = "uploadSelectedProfileID"
+    static let uploadProfileMigrationV2Key = "uploadProfileMigrationV2"
+
     static let uploadDefaultEnabledKey = "uploadDefaultEnabled"
     static let uploadRetryCountKey = "uploadRetryCount"
-    static let uploadFTPProfilesKey = "uploadFTPProfiles"
-    static let uploadFTPSelectedProfileIDKey = "uploadFTPSelectedProfileID"
-    static let uploadSFTPProfilesKey = "uploadSFTPProfiles"
-    static let uploadSFTPSelectedProfileIDKey = "uploadSFTPSelectedProfileID"
-    static let uploadSMBProfilesKey = "uploadSMBProfiles"
-    static let uploadSMBSelectedProfileIDKey = "uploadSMBSelectedProfileID"
-    static let uploadS3ProfilesKey = "uploadS3Profiles"
-    static let uploadS3SelectedProfileIDKey = "uploadS3SelectedProfileID"
     static let defaultUploadPort = 21
     static let defaultUploadRetryCount = 3
+    static let defaultSFTPPort = 22
+    static let defaultSMBPort = 445
 
     // rclone binary management
     static let rcloneVersionKey = "rcloneInstalledVersion"
@@ -631,25 +624,6 @@ enum AppConstants {
     // C2PA (Content Authenticity) settings
     static let c2paCheckEnabledKey = "c2paCheckEnabled"
     static let defaultC2PACheckEnabled = true
-
-    // Backend type selection
-    static let uploadBackendTypeKey = "uploadBackendType"
-
-    // SFTP-specific settings
-    static let uploadSFTPKeyFileKey = "uploadSFTPKeyFile"
-    static let uploadSFTPKeyFileBookmarkKey = "uploadSFTPKeyFileBookmark"
-    static let defaultSFTPPort = 22
-
-    // SMB-specific settings
-    static let uploadSMBShareKey = "uploadSMBShare"
-    static let uploadSMBDomainKey = "uploadSMBDomain"
-    static let defaultSMBPort = 445
-
-    // S3-specific settings
-    static let uploadS3BucketKey = "uploadS3Bucket"
-    static let uploadS3RegionKey = "uploadS3Region"
-    static let uploadS3EndpointKey = "uploadS3Endpoint"
-    static let uploadS3AccessKeyKey = "uploadS3AccessKey"
 
     // Auto-delete old encodes from default output folder
     static let autoDeleteOldEncodesKey = "autoDeleteOldEncodes"

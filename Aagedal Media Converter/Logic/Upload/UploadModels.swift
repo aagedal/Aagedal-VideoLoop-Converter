@@ -103,52 +103,70 @@ struct UploadConfig: Codable, Sendable, Equatable {
     }
 }
 
-// MARK: - FTP Profiles
+// MARK: - Upload Profiles
 
-struct FTPUploadProfile: Codable, Identifiable, Equatable, Sendable {
-    var id: UUID
-    var name: String
-    var server: String
-    var port: Int
-    var username: String
-    var remotePath: String
-    var useFTPS: Bool
+/// A single upload destination. The `backend` property determines which of the
+/// backend-specific fields are meaningful; unused fields are simply ignored.
+struct UploadProfile: Codable, Identifiable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var name: String = "New Profile"
+    var backend: UploadBackendType = .ftp
 
-    init(
-        id: UUID = UUID(),
-        name: String,
-        server: String = "",
-        port: Int = AppConstants.defaultUploadPort,
-        username: String = "",
-        remotePath: String = "/",
-        useFTPS: Bool = false
-    ) {
-        self.id = id
-        self.name = name
-        self.server = server
-        self.port = port
-        self.username = username
-        self.remotePath = remotePath
-        self.useFTPS = useFTPS
+    // Shared (FTP, SFTP, SMB)
+    var server: String = ""
+    var port: Int = AppConstants.defaultUploadPort
+    var username: String = ""
+    var remotePath: String = "/"
+
+    // FTP
+    var useFTPS: Bool = false
+
+    // SFTP
+    var useKeyAuth: Bool = false
+    var keyFilePath: String = ""
+
+    // SMB
+    var smbShare: String = ""
+    var smbDomain: String = ""
+
+    // S3
+    var bucket: String = ""
+    var region: String = "us-east-1"
+    var endpoint: String = ""
+    var accessKeyID: String = ""
+
+    /// Label shown in profile pickers, e.g. "My Server (FTP)".
+    var displayLabel: String {
+        let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled" : name
+        return "\(displayName) (\(backend.displayName))"
+    }
+
+    /// A fresh profile configured for the given backend's defaults.
+    static func new(backend: UploadBackendType = .ftp) -> UploadProfile {
+        UploadProfile(
+            name: "New \(backend.displayName) Profile",
+            backend: backend,
+            port: backend.defaultPort > 0 ? backend.defaultPort : AppConstants.defaultUploadPort
+        )
     }
 }
 
-enum FTPUploadProfileStore {
-    static func loadProfiles() -> [FTPUploadProfile] {
-        guard let data = UserDefaults.standard.data(forKey: AppConstants.uploadFTPProfilesKey) else {
+enum UploadProfileStore {
+    static func loadProfiles() -> [UploadProfile] {
+        guard let data = UserDefaults.standard.data(forKey: AppConstants.uploadProfilesKey) else {
             return []
         }
-        return (try? JSONDecoder().decode([FTPUploadProfile].self, from: data)) ?? []
+        return (try? JSONDecoder().decode([UploadProfile].self, from: data)) ?? []
     }
 
-    static func saveProfiles(_ profiles: [FTPUploadProfile]) {
+    static func saveProfiles(_ profiles: [UploadProfile]) {
         guard let data = try? JSONEncoder().encode(profiles) else { return }
-        UserDefaults.standard.set(data, forKey: AppConstants.uploadFTPProfilesKey)
+        UserDefaults.standard.set(data, forKey: AppConstants.uploadProfilesKey)
     }
 
     static func loadSelectedProfileID() -> UUID? {
-        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.uploadFTPSelectedProfileIDKey),
-              let id = UUID(uuidString: rawValue) else {
+        guard let raw = UserDefaults.standard.string(forKey: AppConstants.uploadSelectedProfileIDKey),
+              let id = UUID(uuidString: raw) else {
             return nil
         }
         return id
@@ -156,13 +174,13 @@ enum FTPUploadProfileStore {
 
     static func saveSelectedProfileID(_ id: UUID?) {
         if let id {
-            UserDefaults.standard.set(id.uuidString, forKey: AppConstants.uploadFTPSelectedProfileIDKey)
+            UserDefaults.standard.set(id.uuidString, forKey: AppConstants.uploadSelectedProfileIDKey)
         } else {
-            UserDefaults.standard.removeObject(forKey: AppConstants.uploadFTPSelectedProfileIDKey)
+            UserDefaults.standard.removeObject(forKey: AppConstants.uploadSelectedProfileIDKey)
         }
     }
 
-    static func resolveSelectedProfile(from profiles: [FTPUploadProfile]) -> FTPUploadProfile? {
+    static func resolveSelectedProfile(from profiles: [UploadProfile]) -> UploadProfile? {
         guard !profiles.isEmpty else { return nil }
         if let selectedID = loadSelectedProfileID(),
            let match = profiles.first(where: { $0.id == selectedID }) {
@@ -170,218 +188,101 @@ enum FTPUploadProfileStore {
         }
         return profiles.first
     }
-}
 
-// MARK: - SFTP Profiles
+    /// One-shot migration from the pre-unified per-backend stores to a single list.
+    /// Safe to call on every launch; guarded by `uploadProfileMigrationV2Key`.
+    static func migrateLegacyProfilesIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: AppConstants.uploadProfileMigrationV2Key) else { return }
 
-struct SFTPUploadProfile: Codable, Identifiable, Equatable, Sendable {
-    var id: UUID
-    var name: String
-    var server: String
-    var port: Int
-    var username: String
-    var remotePath: String
-    var useKeyAuth: Bool
-    var keyFilePath: String
+        // Legacy schemas — kept local so the rest of the codebase can forget about them.
+        struct LegacyFTP: Codable { var id: UUID; var name: String; var server: String; var port: Int; var username: String; var remotePath: String; var useFTPS: Bool }
+        struct LegacySFTP: Codable { var id: UUID; var name: String; var server: String; var port: Int; var username: String; var remotePath: String; var useKeyAuth: Bool; var keyFilePath: String }
+        struct LegacySMB: Codable { var id: UUID; var name: String; var server: String; var port: Int; var username: String; var remotePath: String; var smbShare: String; var smbDomain: String }
+        struct LegacyS3: Codable { var id: UUID; var name: String; var bucket: String; var region: String; var endpoint: String; var accessKeyID: String; var remotePath: String }
 
-    init(
-        id: UUID = UUID(),
-        name: String,
-        server: String = "",
-        port: Int = AppConstants.defaultSFTPPort,
-        username: String = "",
-        remotePath: String = "/",
-        useKeyAuth: Bool = false,
-        keyFilePath: String = ""
-    ) {
-        self.id = id
-        self.name = name
-        self.server = server
-        self.port = port
-        self.username = username
-        self.remotePath = remotePath
-        self.useKeyAuth = useKeyAuth
-        self.keyFilePath = keyFilePath
-    }
-}
+        var unified: [UploadProfile] = []
 
-enum SFTPUploadProfileStore {
-    static func loadProfiles() -> [SFTPUploadProfile] {
-        guard let data = UserDefaults.standard.data(forKey: AppConstants.uploadSFTPProfilesKey) else {
-            return []
+        if let data = defaults.data(forKey: "uploadFTPProfiles"),
+           let legacy = try? JSONDecoder().decode([LegacyFTP].self, from: data) {
+            for l in legacy {
+                unified.append(UploadProfile(
+                    id: l.id, name: l.name, backend: .ftp,
+                    server: l.server, port: l.port, username: l.username, remotePath: l.remotePath,
+                    useFTPS: l.useFTPS
+                ))
+            }
         }
-        return (try? JSONDecoder().decode([SFTPUploadProfile].self, from: data)) ?? []
-    }
-
-    static func saveProfiles(_ profiles: [SFTPUploadProfile]) {
-        guard let data = try? JSONEncoder().encode(profiles) else { return }
-        UserDefaults.standard.set(data, forKey: AppConstants.uploadSFTPProfilesKey)
-    }
-
-    static func loadSelectedProfileID() -> UUID? {
-        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.uploadSFTPSelectedProfileIDKey),
-              let id = UUID(uuidString: rawValue) else {
-            return nil
+        if let data = defaults.data(forKey: "uploadSFTPProfiles"),
+           let legacy = try? JSONDecoder().decode([LegacySFTP].self, from: data) {
+            for l in legacy {
+                unified.append(UploadProfile(
+                    id: l.id, name: l.name, backend: .sftp,
+                    server: l.server, port: l.port, username: l.username, remotePath: l.remotePath,
+                    useKeyAuth: l.useKeyAuth, keyFilePath: l.keyFilePath
+                ))
+            }
         }
-        return id
-    }
-
-    static func saveSelectedProfileID(_ id: UUID?) {
-        if let id {
-            UserDefaults.standard.set(id.uuidString, forKey: AppConstants.uploadSFTPSelectedProfileIDKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: AppConstants.uploadSFTPSelectedProfileIDKey)
+        if let data = defaults.data(forKey: "uploadSMBProfiles"),
+           let legacy = try? JSONDecoder().decode([LegacySMB].self, from: data) {
+            for l in legacy {
+                unified.append(UploadProfile(
+                    id: l.id, name: l.name, backend: .smb,
+                    server: l.server, port: l.port, username: l.username, remotePath: l.remotePath,
+                    smbShare: l.smbShare, smbDomain: l.smbDomain
+                ))
+            }
         }
-    }
-
-    static func resolveSelectedProfile(from profiles: [SFTPUploadProfile]) -> SFTPUploadProfile? {
-        guard !profiles.isEmpty else { return nil }
-        if let selectedID = loadSelectedProfileID(),
-           let match = profiles.first(where: { $0.id == selectedID }) {
-            return match
+        if let data = defaults.data(forKey: "uploadS3Profiles"),
+           let legacy = try? JSONDecoder().decode([LegacyS3].self, from: data) {
+            for l in legacy {
+                unified.append(UploadProfile(
+                    id: l.id, name: l.name, backend: .s3,
+                    remotePath: l.remotePath,
+                    bucket: l.bucket, region: l.region, endpoint: l.endpoint, accessKeyID: l.accessKeyID
+                ))
+            }
         }
-        return profiles.first
-    }
-}
 
-// MARK: - SMB Profiles
-
-struct SMBUploadProfile: Codable, Identifiable, Equatable, Sendable {
-    var id: UUID
-    var name: String
-    var server: String
-    var port: Int
-    var username: String
-    var remotePath: String
-    var smbShare: String
-    var smbDomain: String
-
-    init(
-        id: UUID = UUID(),
-        name: String,
-        server: String = "",
-        port: Int = AppConstants.defaultSMBPort,
-        username: String = "",
-        remotePath: String = "/",
-        smbShare: String = "",
-        smbDomain: String = ""
-    ) {
-        self.id = id
-        self.name = name
-        self.server = server
-        self.port = port
-        self.username = username
-        self.remotePath = remotePath
-        self.smbShare = smbShare
-        self.smbDomain = smbDomain
-    }
-}
-
-enum SMBUploadProfileStore {
-    static func loadProfiles() -> [SMBUploadProfile] {
-        guard let data = UserDefaults.standard.data(forKey: AppConstants.uploadSMBProfilesKey) else {
-            return []
+        // Preserve previously selected profile by mapping through legacy backend → legacy selection key.
+        let legacyBackend = defaults.string(forKey: "uploadBackendType") ?? "ftp"
+        let legacySelectionKey: String = {
+            switch legacyBackend {
+            case "sftp": return "uploadSFTPSelectedProfileID"
+            case "smb":  return "uploadSMBSelectedProfileID"
+            case "s3":   return "uploadS3SelectedProfileID"
+            default:     return "uploadFTPSelectedProfileID"
+            }
+        }()
+        if let raw = defaults.string(forKey: legacySelectionKey),
+           let id = UUID(uuidString: raw),
+           unified.contains(where: { $0.id == id }) {
+            saveSelectedProfileID(id)
+        } else if let first = unified.first {
+            saveSelectedProfileID(first.id)
         }
-        return (try? JSONDecoder().decode([SMBUploadProfile].self, from: data)) ?? []
-    }
 
-    static func saveProfiles(_ profiles: [SMBUploadProfile]) {
-        guard let data = try? JSONEncoder().encode(profiles) else { return }
-        UserDefaults.standard.set(data, forKey: AppConstants.uploadSMBProfilesKey)
-    }
-
-    static func loadSelectedProfileID() -> UUID? {
-        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.uploadSMBSelectedProfileIDKey),
-              let id = UUID(uuidString: rawValue) else {
-            return nil
+        if !unified.isEmpty {
+            saveProfiles(unified)
         }
-        return id
-    }
 
-    static func saveSelectedProfileID(_ id: UUID?) {
-        if let id {
-            UserDefaults.standard.set(id.uuidString, forKey: AppConstants.uploadSMBSelectedProfileIDKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: AppConstants.uploadSMBSelectedProfileIDKey)
+        // Clear all legacy keys (profile lists, selections, and transient editing-state fields).
+        let legacyKeys = [
+            "uploadFTPProfiles", "uploadFTPSelectedProfileID",
+            "uploadSFTPProfiles", "uploadSFTPSelectedProfileID",
+            "uploadSMBProfiles", "uploadSMBSelectedProfileID",
+            "uploadS3Profiles", "uploadS3SelectedProfileID",
+            "uploadBackendType",
+            "uploadServer", "uploadPort", "uploadUsername", "uploadRemotePath", "uploadUseFTPS",
+            "uploadSFTPKeyFile", "uploadSFTPKeyFileBookmark",
+            "uploadSMBShare", "uploadSMBDomain",
+            "uploadS3Bucket", "uploadS3Region", "uploadS3Endpoint", "uploadS3AccessKey"
+        ]
+        for key in legacyKeys {
+            defaults.removeObject(forKey: key)
         }
-    }
 
-    static func resolveSelectedProfile(from profiles: [SMBUploadProfile]) -> SMBUploadProfile? {
-        guard !profiles.isEmpty else { return nil }
-        if let selectedID = loadSelectedProfileID(),
-           let match = profiles.first(where: { $0.id == selectedID }) {
-            return match
-        }
-        return profiles.first
-    }
-}
-
-// MARK: - S3 Profiles
-
-struct S3UploadProfile: Codable, Identifiable, Equatable, Sendable {
-    var id: UUID
-    var name: String
-    var bucket: String
-    var region: String
-    var endpoint: String
-    var accessKeyID: String
-    var remotePath: String
-
-    init(
-        id: UUID = UUID(),
-        name: String,
-        bucket: String = "",
-        region: String = "us-east-1",
-        endpoint: String = "",
-        accessKeyID: String = "",
-        remotePath: String = "/"
-    ) {
-        self.id = id
-        self.name = name
-        self.bucket = bucket
-        self.region = region
-        self.endpoint = endpoint
-        self.accessKeyID = accessKeyID
-        self.remotePath = remotePath
-    }
-}
-
-enum S3UploadProfileStore {
-    static func loadProfiles() -> [S3UploadProfile] {
-        guard let data = UserDefaults.standard.data(forKey: AppConstants.uploadS3ProfilesKey) else {
-            return []
-        }
-        return (try? JSONDecoder().decode([S3UploadProfile].self, from: data)) ?? []
-    }
-
-    static func saveProfiles(_ profiles: [S3UploadProfile]) {
-        guard let data = try? JSONEncoder().encode(profiles) else { return }
-        UserDefaults.standard.set(data, forKey: AppConstants.uploadS3ProfilesKey)
-    }
-
-    static func loadSelectedProfileID() -> UUID? {
-        guard let rawValue = UserDefaults.standard.string(forKey: AppConstants.uploadS3SelectedProfileIDKey),
-              let id = UUID(uuidString: rawValue) else {
-            return nil
-        }
-        return id
-    }
-
-    static func saveSelectedProfileID(_ id: UUID?) {
-        if let id {
-            UserDefaults.standard.set(id.uuidString, forKey: AppConstants.uploadS3SelectedProfileIDKey)
-        } else {
-            UserDefaults.standard.removeObject(forKey: AppConstants.uploadS3SelectedProfileIDKey)
-        }
-    }
-
-    static func resolveSelectedProfile(from profiles: [S3UploadProfile]) -> S3UploadProfile? {
-        guard !profiles.isEmpty else { return nil }
-        if let selectedID = loadSelectedProfileID(),
-           let match = profiles.first(where: { $0.id == selectedID }) {
-            return match
-        }
-        return profiles.first
+        defaults.set(true, forKey: AppConstants.uploadProfileMigrationV2Key)
     }
 }
 

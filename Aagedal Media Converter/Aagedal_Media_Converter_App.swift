@@ -52,6 +52,7 @@ struct Aagedal_Media_Converter_App: App {
         ])
 
         Self.migrateAudioPresets()
+        UploadProfileStore.migrateLegacyProfilesIfNeeded()
         applyPreviewCacheCleanupPolicy()
         OutputFolderCleanupService.shared.start()
     }

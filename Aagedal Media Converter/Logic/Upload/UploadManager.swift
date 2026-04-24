@@ -195,117 +195,37 @@ class UploadManager {
 
     // MARK: - Configuration
 
-    /// Loads the current upload configuration from UserDefaults
+    /// Loads the current upload configuration from the selected profile.
     func loadUploadConfig() -> UploadConfig? {
-        // Read backend type
-        let backendTypeRaw = UserDefaults.standard.string(forKey: AppConstants.uploadBackendTypeKey) ?? "ftp"
-        let backendType = UploadBackendType(rawValue: backendTypeRaw) ?? .ftp
-
-        switch backendType {
-        case .ftp:
-            let profiles = FTPUploadProfileStore.loadProfiles()
-            if let selectedProfile = FTPUploadProfileStore.resolveSelectedProfile(from: profiles) {
-                let resolvedPort = selectedProfile.port > 0 ? selectedProfile.port : backendType.defaultPort
-                let config = UploadConfig(
-                    server: selectedProfile.server,
-                    port: resolvedPort,
-                    username: selectedProfile.username,
-                    remotePath: selectedProfile.remotePath,
-                    useFTPS: selectedProfile.useFTPS,
-                    backendType: backendType
-                )
-                return config.isConfigured ? config : nil
-            }
-        case .sftp:
-            let profiles = SFTPUploadProfileStore.loadProfiles()
-            if let selectedProfile = SFTPUploadProfileStore.resolveSelectedProfile(from: profiles) {
-                let resolvedPort = selectedProfile.port > 0 ? selectedProfile.port : backendType.defaultPort
-                let config = UploadConfig(
-                    server: selectedProfile.server,
-                    port: resolvedPort,
-                    username: selectedProfile.username,
-                    remotePath: selectedProfile.remotePath,
-                    useFTPS: false,
-                    backendType: backendType,
-                    sftpKeyFilePath: selectedProfile.useKeyAuth ? selectedProfile.keyFilePath : nil
-                )
-                return config.isConfigured ? config : nil
-            }
-        case .smb:
-            let profiles = SMBUploadProfileStore.loadProfiles()
-            if let selectedProfile = SMBUploadProfileStore.resolveSelectedProfile(from: profiles) {
-                let resolvedPort = selectedProfile.port > 0 ? selectedProfile.port : backendType.defaultPort
-                var config = UploadConfig(
-                    server: selectedProfile.server,
-                    port: resolvedPort,
-                    username: selectedProfile.username,
-                    remotePath: selectedProfile.remotePath,
-                    useFTPS: false,
-                    backendType: backendType
-                )
-                config.smbShare = selectedProfile.smbShare
-                config.smbDomain = selectedProfile.smbDomain
-                return config.isConfigured ? config : nil
-            }
-        case .s3:
-            let profiles = S3UploadProfileStore.loadProfiles()
-            if let selectedProfile = S3UploadProfileStore.resolveSelectedProfile(from: profiles) {
-                var config = UploadConfig(
-                    server: "",
-                    port: 0,
-                    username: "",
-                    remotePath: selectedProfile.remotePath,
-                    useFTPS: false,
-                    backendType: backendType
-                )
-                config.s3Bucket = selectedProfile.bucket
-                config.s3Region = selectedProfile.region
-                config.s3Endpoint = selectedProfile.endpoint
-                config.s3AccessKeyID = selectedProfile.accessKeyID
-                return config.isConfigured ? config : nil
-            }
-        case .gdrive:
-            break
+        let profiles = UploadProfileStore.loadProfiles()
+        guard let profile = UploadProfileStore.resolveSelectedProfile(from: profiles) else {
+            return nil
         }
 
-        // Read common fields
-        let server = UserDefaults.standard.string(forKey: AppConstants.uploadServerKey) ?? ""
-        let port = UserDefaults.standard.integer(forKey: AppConstants.uploadPortKey)
-        let username = UserDefaults.standard.string(forKey: AppConstants.uploadUsernameKey) ?? ""
-        let remotePath = UserDefaults.standard.string(forKey: AppConstants.uploadRemotePathKey) ?? "/"
-        let useFTPS = UserDefaults.standard.bool(forKey: AppConstants.uploadUseFTPSKey)
-
-        // Create config with common fields
+        let resolvedPort = profile.port > 0 ? profile.port : profile.backend.defaultPort
         var config = UploadConfig(
-            server: server,
-            port: port > 0 ? port : backendType.defaultPort,
-            username: username,
-            remotePath: remotePath,
-            useFTPS: useFTPS,
-            backendType: backendType
+            server: profile.server,
+            port: resolvedPort,
+            username: profile.username,
+            remotePath: profile.remotePath,
+            useFTPS: profile.useFTPS,
+            backendType: profile.backend
         )
 
-        // Load backend-specific fields
-        switch backendType {
+        switch profile.backend {
         case .ftp:
-            // FTP uses common fields only
             break
-
         case .sftp:
-            config.sftpKeyFilePath = UserDefaults.standard.string(forKey: AppConstants.uploadSFTPKeyFileKey)
-
+            config.sftpKeyFilePath = profile.useKeyAuth ? profile.keyFilePath : nil
         case .smb:
-            config.smbShare = UserDefaults.standard.string(forKey: AppConstants.uploadSMBShareKey)
-            config.smbDomain = UserDefaults.standard.string(forKey: AppConstants.uploadSMBDomainKey)
-
+            config.smbShare = profile.smbShare
+            config.smbDomain = profile.smbDomain
         case .s3:
-            config.s3Bucket = UserDefaults.standard.string(forKey: AppConstants.uploadS3BucketKey)
-            config.s3Region = UserDefaults.standard.string(forKey: AppConstants.uploadS3RegionKey)
-            config.s3Endpoint = UserDefaults.standard.string(forKey: AppConstants.uploadS3EndpointKey)
-            config.s3AccessKeyID = UserDefaults.standard.string(forKey: AppConstants.uploadS3AccessKeyKey)
-
+            config.s3Bucket = profile.bucket
+            config.s3Region = profile.region
+            config.s3Endpoint = profile.endpoint
+            config.s3AccessKeyID = profile.accessKeyID
         case .gdrive:
-            // Not yet implemented
             break
         }
 
