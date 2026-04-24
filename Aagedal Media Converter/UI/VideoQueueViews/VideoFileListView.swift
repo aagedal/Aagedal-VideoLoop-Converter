@@ -823,36 +823,35 @@ struct VideoFileListView: View {
     }
 
     private func handleNavigateSelection(direction: MoveDirection) {
-        guard !droppedFiles.isEmpty else { return }
+        // Navigate the visible queue (`queueOrder`) — singles and group headers —
+        // not `droppedFiles`, which stays in insertion order and drifts away from
+        // the rendered order after a drag-reorder.
+        guard !queueOrder.isEmpty else { return }
 
-        // If nothing is selected, select first/last item based on direction
-        if selection.isEmpty {
+        let topLevelPositions = selection
+            .compactMap { queueOrder.firstIndex(of: $0) }
+            .sorted()
+
+        // No top-level entry selected (empty selection, or only group children
+        // selected): jump to the first/last visible row based on direction.
+        guard let currentIndex = topLevelPositions.first else {
             switch direction {
             case .down:
-                if let first = droppedFiles.first { selection = [first.id] }
+                if let firstID = queueOrder.first { selection = [firstID] }
             case .up:
-                if let last = droppedFiles.last { selection = [last.id] }
+                if let lastID = queueOrder.last { selection = [lastID] }
             }
             shouldScrollToSelection = true
             return
         }
 
-        // Get the current selection index (use first selected if multiple)
-        let selectedIndices = selection.compactMap { selectedID in
-            droppedFiles.firstIndex(where: { $0.id == selectedID })
-        }.sorted()
-
-        guard let currentIndex = selectedIndices.first else { return }
-
         switch direction {
         case .up:
-            // Move to previous item (wrap or stay at first)
             let newIndex = max(0, currentIndex - 1)
-            selection = [droppedFiles[newIndex].id]
+            selection = [queueOrder[newIndex]]
         case .down:
-            // Move to next item (wrap or stay at last)
-            let newIndex = min(droppedFiles.count - 1, currentIndex + 1)
-            selection = [droppedFiles[newIndex].id]
+            let newIndex = min(queueOrder.count - 1, currentIndex + 1)
+            selection = [queueOrder[newIndex]]
         }
         shouldScrollToSelection = true
     }
