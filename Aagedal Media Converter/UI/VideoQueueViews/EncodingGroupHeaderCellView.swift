@@ -86,13 +86,17 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let nameField = NSTextField()
     private let clipCountLabel = NSTextField(labelWithString: "")
     private let concatOutputButton = NSButton()
+    private let concatCopyPathButton = NSButton()
     private let concatDragButton = DraggableFileImageView()
     private let concatWarningButton = NSButton()
+    // Action buttons live in the bottom row alongside toggles, mirroring
+    // VideoFileCellView's layout so groups read as peers of single items.
     private let addFilesButton = NSButton()
     private let editButton = NSButton()
     private let sortButton = NSButton()
     private let resetButton = NSButton()
     private let deleteButton = NSButton()
+    private let actionButtonDivider = NSView()
 
     // Bottom row
     private let presetPopup = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -431,48 +435,49 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         clipCountLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
         clipCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        configureBorderlessButton(concatOutputButton, symbol: GroupSymbol.finderCircle, tint: .systemBlue, action: #selector(concatOutputFinderClicked))
+        configureActionButton(concatOutputButton, symbolName: "magnifyingglass.circle.fill", tint: .systemBlue, action: #selector(concatOutputFinderClicked))
         concatOutputButton.toolTip = String(localized: "Show merged output in Finder")
+
+        configureActionButton(concatCopyPathButton, symbolName: "document.on.document", tint: .systemBlue, action: #selector(concatCopyPathClicked))
+        concatCopyPathButton.toolTip = String(localized: "Copy merged output file path")
 
         concatDragButton.image = GroupSymbol.dragHandle
         concatDragButton.contentTintColor = .systemBlue
         concatDragButton.imageScaling = .scaleProportionallyUpOrDown
         concatDragButton.toolTip = String(localized: "Drag to share the merged file")
         concatDragButton.translatesAutoresizingMaskIntoConstraints = false
-        concatDragButton.widthAnchor.constraint(equalToConstant: 18).isActive = true
-        concatDragButton.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        // Match the 28pt action-button footprint so the drag handle aligns
+        // visually with its sibling buttons.
+        concatDragButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        concatDragButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
 
-        configureBorderlessButton(concatWarningButton, symbol: GroupSymbol.finderCircle, tint: .systemOrange, action: #selector(concatWarningClicked))
+        configureActionButton(concatWarningButton, symbolName: "magnifyingglass.circle.fill", tint: .systemOrange, action: #selector(concatWarningClicked))
         concatWarningButton.toolTip = String(localized: "Output file already exists and will be overwritten. Click to show in Finder.")
 
-        configureBorderlessButton(addFilesButton, symbol: GroupSymbol.plus, tint: .secondaryLabelColor, action: #selector(addFilesClicked))
+        configureActionButton(addFilesButton, symbolName: "plus", tint: .secondaryLabelColor, action: #selector(addFilesClicked))
         addFilesButton.toolTip = String(localized: "Add files to group")
 
         // Opens the standalone editor window where reorder/remove/extract happen.
         // Keeps the main queue focused on high-level queue manipulation.
-        configureBorderlessButton(editButton, symbol: NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: String(localized: "Edit group contents")), tint: .systemBlue, action: #selector(editClicked))
+        configureActionButton(editButton, symbolName: "square.and.pencil", tint: .systemBlue, action: #selector(editClicked))
         editButton.toolTip = String(localized: "Edit group contents (reorder, remove, rename)")
 
-        configureBorderlessButton(sortButton, symbol: NSImage(systemSymbolName: "arrow.up.arrow.down", accessibilityDescription: String(localized: "Sort items in group")), tint: .secondaryLabelColor, action: #selector(sortClicked))
+        configureActionButton(sortButton, symbolName: "arrow.up.arrow.down", tint: .secondaryLabelColor, action: #selector(sortClicked))
         sortButton.toolTip = String(localized: "Sort items in group (cycle: filename A–Z, Z–A, date old→new, new→old)")
 
-        configureBorderlessButton(resetButton, symbol: GroupSymbol.reset, tint: .secondaryLabelColor, action: #selector(resetClicked))
+        configureActionButton(resetButton, symbolName: "arrow.counterclockwise.circle.fill", tint: .systemBlue, action: #selector(resetClicked))
         resetButton.toolTip = String(localized: "Reset all items in group")
 
-        configureBorderlessButton(deleteButton, symbol: GroupSymbol.trash, tint: NSColor.systemRed.withAlphaComponent(0.75), action: #selector(deleteClicked))
+        configureActionButton(deleteButton, symbolName: "xmark.circle.fill", tint: .systemRed, action: #selector(deleteClicked))
         deleteButton.toolTip = String(localized: "Delete group")
 
         topRow.addArrangedSubview(folderIcon)
         topRow.addArrangedSubview(nameField)
         topRow.addArrangedSubview(clipCountLabel)
         topRow.addArrangedSubview(concatOutputButton)
+        topRow.addArrangedSubview(concatCopyPathButton)
         topRow.addArrangedSubview(concatDragButton)
         topRow.addArrangedSubview(concatWarningButton)
-        topRow.addArrangedSubview(addFilesButton)
-        topRow.addArrangedSubview(editButton)
-        topRow.addArrangedSubview(sortButton)
-        topRow.addArrangedSubview(resetButton)
-        topRow.addArrangedSubview(deleteButton)
     }
 
     private func setupBottomRow() {
@@ -508,6 +513,27 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         togglesStack.addArrangedSubview(transcriptionToggle)
         togglesStack.addArrangedSubview(analyticsToggle)
 
+        // Vertical separator between toggles and destructive actions, mirroring
+        // the divider VideoFileCellView uses for the same purpose.
+        actionButtonDivider.wantsLayer = true
+        actionButtonDivider.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        actionButtonDivider.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            actionButtonDivider.widthAnchor.constraint(equalToConstant: 2),
+            actionButtonDivider.heightAnchor.constraint(equalToConstant: 26),
+        ])
+
+        let actionsStack = NSStackView()
+        actionsStack.orientation = .horizontal
+        actionsStack.alignment = .centerY
+        actionsStack.spacing = 4
+        actionsStack.translatesAutoresizingMaskIntoConstraints = false
+        actionsStack.addArrangedSubview(addFilesButton)
+        actionsStack.addArrangedSubview(editButton)
+        actionsStack.addArrangedSubview(sortButton)
+        actionsStack.addArrangedSubview(resetButton)
+        actionsStack.addArrangedSubview(deleteButton)
+
         let spacer = NSView()
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -515,6 +541,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         bottomRow.addArrangedSubview(presetPopup)
         bottomRow.addArrangedSubview(spacer)
         bottomRow.addArrangedSubview(togglesStack)
+        bottomRow.addArrangedSubview(actionButtonDivider)
+        bottomRow.addArrangedSubview(actionsStack)
     }
 
     private func setupProgressBar() {
@@ -557,30 +585,45 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         uploadRow.isHidden = true
     }
 
-    private func configureBorderlessButton(_ button: NSButton, symbol: NSImage?, tint: NSColor, action: Selector) {
-        button.image = symbol
-        button.bezelStyle = .regularSquare
+    /// Action-button styling that matches `VideoFileCellView.setupActionButton` —
+    /// 28×28 footprint, 17pt SF Symbol, inline bezel — so group cards read as
+    /// peers of single-item cards.
+    private func configureActionButton(_ button: NSButton, symbolName: String, tint: NSColor, action: Selector) {
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        button.bezelStyle = .inline
         button.isBordered = false
         button.imagePosition = .imageOnly
         button.contentTintColor = tint
         button.target = self
         button.action = action
         button.translatesAutoresizingMaskIntoConstraints = false
-        // Match toggle button dimensions so top/bottom row icons align visually.
-        button.widthAnchor.constraint(equalToConstant: 22).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 28),
+            button.heightAnchor.constraint(equalToConstant: 28),
+        ])
     }
 
+    /// Matches `VideoFileCellView.setupToggleButton` — 28×28 with the same
+    /// circular-ring scaffolding so the active-processing indicator stays a
+    /// true circle and toggle/action buttons align in the bottom row.
     private func configureToggleButton(_ button: NSButton, onSymbol: NSImage?, offSymbol: NSImage?, action: Selector) {
         button.image = offSymbol
-        button.bezelStyle = .regularSquare
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        button.bezelStyle = .inline
         button.isBordered = false
         button.imagePosition = .imageOnly
         button.target = self
         button.action = action
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 14
+        button.layer?.borderWidth = 2
+        button.layer?.borderColor = NSColor.clear.cgColor
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 22).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 28),
+            button.heightAnchor.constraint(equalToConstant: 28),
+        ])
     }
 
     // MARK: - Configure
@@ -752,6 +795,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private func updateConcatOutputIcons(config: EncodingGroupCellConfiguration) {
         let showDone = config.concatOutputURL != nil
         concatOutputButton.isHidden = !showDone
+        concatCopyPathButton.isHidden = !showDone
         concatDragButton.isHidden = !showDone
         concatDragButton.fileURL = config.concatOutputURL
 
@@ -992,6 +1036,13 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         if let url = currentConfig?.concatOutputURL {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
+    }
+
+    @objc private func concatCopyPathClicked() {
+        guard let url = currentConfig?.concatOutputURL else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(url.path, forType: .string)
     }
 
     @objc private func concatWarningClicked() {

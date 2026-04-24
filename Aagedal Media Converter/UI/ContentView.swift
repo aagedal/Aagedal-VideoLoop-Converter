@@ -315,8 +315,38 @@ struct ContentView: View {
                     groups: $encodingGroups,
                     droppedFiles: $droppedFiles,
                     queueOrder: $queueOrder,
+                    globalPreset: selectedPreset,
                     onAddFiles: { id in
                         Task { await addFilesToGroup(groupID: id) }
+                    },
+                    onOpenTrim: { itemID in
+                        guard itemExists(id: itemID) else { return }
+                        trimSheetItemID = itemID
+                    },
+                    onPlayFullscreen: { itemID in
+                        let allItems = droppedFiles + encodingGroups.flatMap { $0.items }
+                        guard let selected = allItems.first(where: { $0.id == itemID }) else { return }
+                        if FullscreenPlayerWindowController.shared.isCurrentlyPlaying(itemID: selected.id) {
+                            return
+                        }
+                        FullscreenPlayerWindowController.shared.openFullscreenPlayer(
+                            for: selected,
+                            in: droppedFiles,
+                            onItemTrimChanged: { changedID, trimStart, trimEnd in
+                                if let idx = droppedFiles.firstIndex(where: { $0.id == changedID }) {
+                                    droppedFiles[idx].trimStart = trimStart
+                                    droppedFiles[idx].trimEnd = trimEnd
+                                }
+                            }
+                        )
+                    },
+                    onOpenMetadata: { ids in
+                        let allItems = droppedFiles + encodingGroups.flatMap { $0.items }
+                        let validIDs = ids.filter { id in allItems.contains(where: { $0.id == id }) }
+                        guard !validIDs.isEmpty else { return }
+                        MetadataWindowState.shared.selectedItemIDs = Set(validIDs)
+                        MetadataWindowState.shared.allItems = allItems
+                        MetadataWindowController.shared.showWindow()
                     }
                 )
             },

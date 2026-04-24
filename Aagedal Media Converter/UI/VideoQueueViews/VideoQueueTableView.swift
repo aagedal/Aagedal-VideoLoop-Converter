@@ -159,6 +159,11 @@ struct VideoQueueTableView: NSViewRepresentable {
     /// The NSTableView claims file drags over its bounds, so routing non-group drops
     /// through this callback preserves the "drop anywhere to add to main queue" UX.
     var onFileDropToMainQueue: (([URL]) -> Void)?
+    /// Fires while an external file drag hovers over the table but NOT over a group
+    /// header. Lets the SwiftUI parent paint the queue-area highlight border —
+    /// without this, the only visible affordance during a populated-queue drop is
+    /// the per-group blue border, leaving "drop on the queue" feeling invisible.
+    var onQueueAreaDropHover: ((Bool) -> Void)?
     /// Opens the Settings window on a specific tab (e.g. "upload", "whisper", "analytics").
     /// Triggered by Shift+Cmd-clicking a queue item's action icon.
     var onOpenSettingsTab: ((String) -> Void)?
@@ -239,6 +244,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         // without a drop — `validateDrop` isn't called in that case.
         tableView.onDragExit = { [weak coordinator = context.coordinator] in
             coordinator?.setDragHoverGroup(nil)
+            coordinator?.setQueueAreaHover(false)
         }
 
         scrollView.documentView = tableView
@@ -376,6 +382,9 @@ struct VideoQueueTableView: NSViewRepresentable {
         /// (whenever the proposed drop lands `.on` a group header) and cleared on
         /// acceptDrop or when the drag exits the table without dropping.
         var dragHoverGroupID: UUID?
+        /// True while an external file drag is over the table but NOT over a group.
+        /// Drives the queue-area highlight border via `onQueueAreaDropHover`.
+        var isQueueAreaHovered: Bool = false
 
         /// Previous snapshot for selective cell updates
         var previousDisplayRows: [FlatQueueRow] = []
@@ -551,13 +560,16 @@ struct VideoQueueTableView: NSViewRepresentable {
             if !draggingSourceIsInternal(info, tableView: tableView) {
                 guard info.draggingPasteboard.types?.contains(.fileURL) == true else {
                     setDragHoverGroup(nil)
+                    setQueueAreaHover(false)
                     return []
                 }
                 if hoverGroupID != nil {
                     setDragHoverGroup(hoverGroupID)
+                    setQueueAreaHover(false)
                     return .copy
                 }
                 setDragHoverGroup(nil)
+                setQueueAreaHover(true)
                 // Force `.above` as the visual affordance for main-queue drops so
                 // AppKit doesn't draw the "drop on row" highlight on single items.
                 tableView.setDropRow(row, dropOperation: .above)
@@ -567,10 +579,12 @@ struct VideoQueueTableView: NSViewRepresentable {
             // Dropping ON a group header → move items into that group
             if hoverGroupID != nil {
                 setDragHoverGroup(hoverGroupID)
+                setQueueAreaHover(false)
                 return .move
             }
 
             setDragHoverGroup(nil)
+            setQueueAreaHover(false)
 
             // Drop ON a non-group row is not accepted
             if dropOperation == .on { return [] }
@@ -585,7 +599,10 @@ struct VideoQueueTableView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, acceptDrop info: any NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
             // Clear any drop-target highlight as soon as we commit to a drop.
-            defer { setDragHoverGroup(nil) }
+            defer {
+                setDragHoverGroup(nil)
+                setQueueAreaHover(false)
+            }
 
             // External file drop → route URLs to either a group or the main queue
             // depending on where the drop landed.
@@ -726,6 +743,14 @@ struct VideoQueueTableView: NSViewRepresentable {
             dragHoverGroupID = groupID
             refreshGroupCell(groupID: previous)
             refreshGroupCell(groupID: groupID)
+        }
+
+        /// Toggles the queue-area drop highlight and notifies the SwiftUI parent so
+        /// it can paint the same blue dashed border the empty-state backstop uses.
+        func setQueueAreaHover(_ hovered: Bool) {
+            guard isQueueAreaHovered != hovered else { return }
+            isQueueAreaHovered = hovered
+            parent.onQueueAreaDropHover?(hovered)
         }
 
         private func refreshGroupCell(groupID: UUID?) {

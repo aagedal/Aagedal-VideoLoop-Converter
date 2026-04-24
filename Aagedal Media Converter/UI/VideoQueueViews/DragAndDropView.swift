@@ -9,92 +9,30 @@
 
 import SwiftUI
 import AppKit
-import AVFoundation
-import OSLog
+import UniformTypeIdentifiers
 
-struct DragAndDropView: NSViewRepresentable {
-    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "DragAndDropView")
-    @Binding var droppedFiles: [VideoItem]
-    
-    // Using centralized VideoFileUtils for video file handling
-    
-    class Coordinator: NSObject, NSDraggingDestination {
-        var parent: DragAndDropView
-        
-        init(parent: DragAndDropView) {
-            self.parent = parent
-        }
-        
-        func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] else {
-                return false
-            }
-            
-            Task {
-                for url in urls {
-                    if let videoItem = await VideoFileUtils.createVideoItem(from: url) {
-                        await MainActor.run {
-                            if !parent.droppedFiles.contains(where: { $0.url == url }) {
-                                parent.droppedFiles.append(videoItem)
-                            }
-                        }
-
-                        // Fetch metadata asynchronously
-                        Task(priority: .utility) {
-                            if let metadata = await VideoFileUtils.fetchMetadata(for: url) {
-                                await MainActor.run {
-                                    if let index = parent.droppedFiles.firstIndex(where: { $0.id == videoItem.id }) {
-                                        parent.droppedFiles[index].metadata = metadata
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        DragAndDropView.logger.info("Skipping unsupported file: \(url.lastPathComponent, privacy: .public)")
-                    }
-                }
-            }
-            
-            return true
-        }
-
-        func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-            return .copy
-        }
-
-        func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            return true
-        }
-
-        func concludeDragOperation(_ sender: NSDraggingInfo?) {}
-    }
+/// Always-on file-drop backstop placed at the bottom of the queue ZStack.
+///
+/// Replaces SwiftUI's `.onDrop` for the queue area: the SwiftUI version stopped
+/// firing reliably once encoding-group cells were added (the NSTableView under
+/// it claims drag events when populated, and the SwiftUI hit-test fell through
+/// in the empty state). An explicit AppKit drop view gives us a guaranteed hit
+/// shape and a hover-state callback the SwiftUI overlay can react to.
+///
+/// When the queue has rows the NSTableView sits on top and intercepts drags;
+/// this backstop only sees drops in the empty state. The "drag is over the
+/// queue (not over a group)" highlight in the populated state comes from
+/// `VideoQueueTableView`'s own callback.
+struct FileDropBackstop: NSViewRepresentable {
+    @Binding var isHovering: Bool
+    var onDropURLs: ([URL]) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
-
-    class DraggingView: NSView {
-        weak var coordinator: Coordinator?
-
-        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-            coordinator?.draggingEntered(sender) ?? []
-        }
-
-        override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            coordinator?.prepareForDragOperation(sender) ?? false
-        }
-
-        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            coordinator?.performDragOperation(sender) ?? false
-        }
-
-        override func concludeDragOperation(_ sender: NSDraggingInfo?) {
-            coordinator?.concludeDragOperation(sender)
-        }
+        Coordinator(self)
     }
 
     func makeNSView(context: Context) -> NSView {
-        let view = DraggingView()
+        let view = DropView()
         view.coordinator = context.coordinator
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
@@ -102,5 +40,58 @@ struct DragAndDropView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    final class Coordinator {
+        var parent: FileDropBackstop
+        init(_ parent: FileDropBackstop) { self.parent = parent }
+
+        @MainActor
+        func setHovering(_ value: Bool) {
+            // Avoid SwiftUI churn from repeated equal updates.
+            if parent.isHovering != value {
+                parent.isHovering = value
+            }
+        }
+    }
+
+    final class DropView: NSView {
+        weak var coordinator: Coordinator?
+
+        override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+            guard hasFileURL(sender) else { return [] }
+            DispatchQueue.main.async { [weak self] in self?.coordinator?.setHovering(true) }
+            return .copy
+        }
+
+        override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+            hasFileURL(sender) ? .copy : []
+        }
+
+        override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+            DispatchQueue.main.async { [weak self] in self?.coordinator?.setHovering(false) }
+        }
+
+        override func draggingEnded(_ sender: any NSDraggingInfo) {
+            DispatchQueue.main.async { [weak self] in self?.coordinator?.setHovering(false) }
+        }
+
+        override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+            hasFileURL(sender)
+        }
+
+        override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+            DispatchQueue.main.async { [weak self] in self?.coordinator?.setHovering(false) }
+            let urls = (sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]) ?? []
+            guard !urls.isEmpty else { return false }
+            coordinator?.parent.onDropURLs(urls)
+            return true
+        }
+
+        private func hasFileURL(_ sender: any NSDraggingInfo) -> Bool {
+            sender.draggingPasteboard.types?.contains(.fileURL) == true
+        }
+    }
 }

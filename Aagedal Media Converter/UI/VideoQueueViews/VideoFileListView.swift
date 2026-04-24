@@ -80,6 +80,14 @@ struct VideoFileListView: View {
     var disableKeyboardNavigation: Bool = false
 
     @State private var isTargeted = false
+    /// True while an external file drag hovers the queue area (not a group),
+    /// reported by the NSTableView. Combined with the empty-state backstop
+    /// hover to drive a single dashed-blue queue highlight.
+    @State private var isQueueAreaHovered = false
+    /// Hover state from the always-on FileDropBackstop NSView. Drives the
+    /// highlight in the empty state; in populated mode the table sits on
+    /// top so this stays false and `isQueueAreaHovered` takes over.
+    @State private var isBackstopHovered = false
     /// Selected row IDs (VideoItem.id) for built-in multi-selection
     @State private var selection = Set<UUID>()
     @State private var focusedCommentID: UUID?
@@ -116,12 +124,23 @@ struct VideoFileListView: View {
 
     @State private var currentTip: LocalizedStringKey = RandomTips.randomTip()
 
+    /// True when any source thinks an external file is being dragged over the
+    /// queue area: either the always-on backstop (empty state) or the table's
+    /// own validateDrop signal (populated, not over a group). Drives the
+    /// dashed-blue highlight overlay.
+    private var isDropTargetActive: Bool {
+        isTargeted || isQueueAreaHovered || isBackstopHovered
+    }
+
     var body: some View {
         ZStack {
-            // Backstop so SwiftUI's .onDrop has a reliable full-bounds hit shape.
-            // Without this, the empty state's centered VStack leaves the outer
-            // margins un-hittable and the drag-hover overlay never activates.
-            Color.clear.contentShape(Rectangle())
+            // Always-on AppKit drop target sitting behind everything. SwiftUI's
+            // `.onDrop` stopped firing reliably once the NSTableView landed, so we
+            // route external file drops through this backstop in the empty state
+            // (and rely on the table's own drop handler when populated).
+            FileDropBackstop(isHovering: $isBackstopHovered) { urls in
+                Task { @MainActor in await importURLs(urls) }
+            }
 
             if droppedFiles.isEmpty && encodingGroups.isEmpty {
                 // Empty state with drag and drop instructions
@@ -218,6 +237,9 @@ struct VideoFileListView: View {
                             await importURLs(urls)
                         }
                     },
+                    onQueueAreaDropHover: { hovered in
+                        isQueueAreaHovered = hovered
+                    },
                     onOpenSettingsTab: onOpenSettingsTab
                 )
                 .onChange(of: selection) { _, newSelection in
@@ -235,14 +257,18 @@ struct VideoFileListView: View {
                 }
             }
             
-            // Drag and drop overlay
-            if isTargeted {
+            // Drag-and-drop highlight. Drawn whenever any source — backstop,
+            // SwiftUI .onDrop, or the table's "queue area but not over a group"
+            // signal — reports an active file drag. Lets users see the drop target
+            // even in populated mode where the NSTableView normally claims the drag.
+            if isDropTargetActive {
                 Color.blue.opacity(0.1)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(style: StrokeStyle(lineWidth: 2, dash: [10]))
                             .foregroundColor(.blue)
                     )
+                    .allowsHitTesting(false)
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -291,8 +317,11 @@ struct VideoFileListView: View {
         )) {
             analyticsResultsSheetContent
         }
-        // Support file drops and URL drops on entire view (empty or populated)
-        .onDrop(of: [.fileURL, .url, .plainText, .folder], isTargeted: $isTargeted) { providers in
+        // External file drops are handled by FileDropBackstop in the empty state
+        // and by VideoQueueTableView when populated. URL/text drops (yt-dlp links,
+        // shared text) still come through SwiftUI's drop handler since the
+        // backstop only registers fileURL.
+        .onDrop(of: [.url, .plainText], isTargeted: $isTargeted) { providers in
             return handleDrop(providers: providers)
         }
         .overlay(alignment: .topLeading) {

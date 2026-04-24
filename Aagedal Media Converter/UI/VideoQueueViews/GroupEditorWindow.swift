@@ -32,7 +32,11 @@ final class GroupEditorWindowController: NSObject, NSWindowDelegate {
         groups: Binding<[EncodingGroup]>,
         droppedFiles: Binding<[VideoItem]>,
         queueOrder: Binding<[UUID]>,
-        onAddFiles: @escaping (UUID) -> Void
+        globalPreset: ExportPreset,
+        onAddFiles: @escaping (UUID) -> Void,
+        onOpenTrim: @escaping (UUID) -> Void,
+        onPlayFullscreen: @escaping (UUID) -> Void,
+        onOpenMetadata: @escaping ([UUID]) -> Void
     ) {
         let titleUpdater: (String) -> Void = { [weak self] name in
             self?.applyTitle(groupName: name)
@@ -42,7 +46,11 @@ final class GroupEditorWindowController: NSObject, NSWindowDelegate {
             groups: groups,
             droppedFiles: droppedFiles,
             queueOrder: queueOrder,
+            globalPreset: globalPreset,
             onAddFiles: onAddFiles,
+            onOpenTrim: onOpenTrim,
+            onPlayFullscreen: onPlayFullscreen,
+            onOpenMetadata: onOpenMetadata,
             onClose: { [weak self] in self?.close() },
             onTitleChange: titleUpdater
         )
@@ -54,13 +62,13 @@ final class GroupEditorWindowController: NSObject, NSWindowDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = String(localized: "Edit Group")
-        window.minSize = NSSize(width: 480, height: 360)
+        window.minSize = NSSize(width: 560, height: 400)
         window.isReleasedWhenClosed = false
         window.delegate = self
         // Persist window size/position across opens. Xcode stores the frame in
@@ -127,6 +135,52 @@ final class GroupEditorWindowController: NSObject, NSWindowDelegate {
     }
 }
 
+// MARK: - Sort Mode
+
+/// Sort mode for the group editor. Mirrors `QueueSortMode` cases plus a
+/// `manual` option (no implicit sort — user reorders by drag).
+enum GroupEditorSortMode: String, CaseIterable, Identifiable {
+    case manual
+    case nameAscending
+    case nameDescending
+    case dateOldest
+    case dateNewest
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .manual:           return String(localized: "Manual")
+        case .nameAscending:    return String(localized: "File Name (A–Z)")
+        case .nameDescending:   return String(localized: "File Name (Z–A)")
+        case .dateOldest:       return String(localized: "Date Created (Old → New)")
+        case .dateNewest:       return String(localized: "Date Created (New → Old)")
+        }
+    }
+
+    /// Maps to the existing queue sort mode used elsewhere. Returns nil for
+    /// `.manual` since manual order isn't expressible as a comparator.
+    var queueSortMode: QueueSortMode? {
+        switch self {
+        case .manual:           return nil
+        case .nameAscending:    return .filenameAscending
+        case .nameDescending:   return .filenameDescending
+        case .dateOldest:       return .dateOldest
+        case .dateNewest:       return .dateNewest
+        }
+    }
+
+    init(_ queueMode: QueueSortMode?) {
+        switch queueMode {
+        case .none:                      self = .manual
+        case .filenameAscending:         self = .nameAscending
+        case .filenameDescending:        self = .nameDescending
+        case .dateOldest:                self = .dateOldest
+        case .dateNewest:                self = .dateNewest
+        }
+    }
+}
+
 // MARK: - Window Content (root)
 
 struct GroupEditorWindowContent: View {
@@ -134,7 +188,11 @@ struct GroupEditorWindowContent: View {
     @Binding var groups: [EncodingGroup]
     @Binding var droppedFiles: [VideoItem]
     @Binding var queueOrder: [UUID]
+    let globalPreset: ExportPreset
     var onAddFiles: (UUID) -> Void
+    var onOpenTrim: (UUID) -> Void
+    var onPlayFullscreen: (UUID) -> Void
+    var onOpenMetadata: ([UUID]) -> Void
     var onClose: () -> Void
     var onTitleChange: (String) -> Void
 
@@ -144,7 +202,11 @@ struct GroupEditorWindowContent: View {
                 group: $groups[index],
                 droppedFiles: $droppedFiles,
                 queueOrder: $queueOrder,
+                globalPreset: globalPreset,
                 onAddFiles: { onAddFiles(groupID) },
+                onOpenTrim: onOpenTrim,
+                onPlayFullscreen: onPlayFullscreen,
+                onOpenMetadata: onOpenMetadata,
                 onClose: onClose,
                 onTitleChange: onTitleChange
             )
@@ -162,9 +224,22 @@ struct GroupEditorView: View {
     @Binding var group: EncodingGroup
     @Binding var droppedFiles: [VideoItem]
     @Binding var queueOrder: [UUID]
+    let globalPreset: ExportPreset
     var onAddFiles: () -> Void
+    var onOpenTrim: (UUID) -> Void
+    var onPlayFullscreen: (UUID) -> Void
+    var onOpenMetadata: ([UUID]) -> Void
     var onClose: () -> Void
     var onTitleChange: (String) -> Void
+
+    private var effectivePreset: ExportPreset { group.preset ?? globalPreset }
+
+    private var sortBinding: Binding<GroupEditorSortMode> {
+        Binding(
+            get: { GroupEditorSortMode(group.lastSortMode) },
+            set: { newMode in applySort(newMode) }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -192,6 +267,14 @@ struct GroupEditorView: View {
                         group.normalizeSequentialNaming()
                     }
                 }
+            Picker("", selection: sortBinding) {
+                ForEach(GroupEditorSortMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 220)
+            .help("Sort items in the group")
             Button {
                 onAddFiles()
             } label: {
@@ -209,8 +292,17 @@ struct GroupEditorView: View {
             ForEach(group.items) { item in
                 GroupEditorRow(
                     item: item,
+                    preset: effectivePreset,
+                    groupName: group.name,
+                    showGroupOutputName: group.concatEnabled,
+                    isFirstItem: group.items.first?.id == item.id,
                     onExtract: { extractItem(id: item.id) },
-                    onRemove: { removeItem(id: item.id) }
+                    onRemove: { removeItem(id: item.id) },
+                    onShowInFinder: { showInFinder(item: item) },
+                    onCopyPath: { copyPath(for: item) },
+                    onOpenTrim: { onOpenTrim(item.id) },
+                    onPlayFullscreen: { onPlayFullscreen(item.id) },
+                    onOpenMetadata: { onOpenMetadata([item.id]) }
                 )
                 .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             }
@@ -245,6 +337,10 @@ struct GroupEditorView: View {
 
     private func moveItems(from source: IndexSet, to destination: Int) {
         group.items.move(fromOffsets: source, toOffset: destination)
+        // Manual reorder breaks the implicit sort, so reflect that in the
+        // group's saved sort mode — otherwise the picker would still claim
+        // "Sorted by name" while items are clearly out of order.
+        group.lastSortMode = nil
         if group.sequentialNamingEnabled {
             group.normalizeSequentialNaming()
         }
@@ -274,16 +370,82 @@ struct GroupEditorView: View {
             group.normalizeSequentialNaming()
         }
     }
+
+    private func applySort(_ mode: GroupEditorSortMode) {
+        group.lastSortMode = mode.queueSortMode
+        guard let sortMode = mode.queueSortMode else { return }
+        group.items.sort(by: GroupEditorComparators.comparator(for: sortMode))
+        if group.sequentialNamingEnabled {
+            group.normalizeSequentialNaming()
+        }
+    }
+
+    private func showInFinder(item: VideoItem) {
+        let target: URL = item.outputURL ?? item.url
+        // Prefer the actual on-disk file — for unfinished items this falls back
+        // to revealing the source so the user always sees something useful.
+        let toReveal = (item.status == .done || item.outputFileExists) ? target : item.url
+        NSWorkspace.shared.activateFileViewerSelecting([toReveal])
+    }
+
+    private func copyPath(for item: VideoItem) {
+        let target: URL = (item.status == .done ? item.outputURL : nil) ?? item.url
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(target.path, forType: .string)
+    }
+}
+
+// MARK: - Comparators
+
+/// Shared sort comparators. Kept in this file so the editor is self-contained;
+/// the main-queue equivalent in `VideoFileListView` uses the same logic.
+enum GroupEditorComparators {
+    static func comparator(for mode: QueueSortMode) -> (VideoItem, VideoItem) -> Bool {
+        switch mode {
+        case .filenameAscending:
+            return { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .filenameDescending:
+            return { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+        case .dateOldest:
+            return { creationDate(for: $0.url) < creationDate(for: $1.url) }
+        case .dateNewest:
+            return { creationDate(for: $0.url) > creationDate(for: $1.url) }
+        }
+    }
+
+    private static func creationDate(for url: URL) -> Date {
+        let values = try? url.resourceValues(forKeys: [.creationDateKey])
+        return values?.creationDate ?? Date.distantPast
+    }
 }
 
 // MARK: - Row
 
 private struct GroupEditorRow: View {
     let item: VideoItem
+    let preset: ExportPreset
+    let groupName: String
+    let showGroupOutputName: Bool
+    let isFirstItem: Bool
     let onExtract: () -> Void
     let onRemove: () -> Void
+    let onShowInFinder: () -> Void
+    let onCopyPath: () -> Void
+    let onOpenTrim: () -> Void
+    let onPlayFullscreen: () -> Void
+    let onOpenMetadata: () -> Void
 
     @State private var thumb: NSImage?
+
+    /// Items are "outputable" once converted; for concat groups the merged
+    /// output lives on the first item, so only that row gets the share icons.
+    private var canShareOutput: Bool {
+        if showGroupOutputName {
+            return isFirstItem && item.status == .done
+        }
+        return item.status == .done || item.outputFileExists
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -298,12 +460,34 @@ private struct GroupEditorRow: View {
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(item.duration)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                outputPreview
+                metadataRow
             }
 
-            Spacer()
+            Spacer(minLength: 6)
+
+            shareButtons
+
+            Button(action: onOpenMetadata) {
+                Image(systemName: "info.circle")
+                    .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help("Show metadata (⌘I)")
+
+            Button(action: onPlayFullscreen) {
+                Image(systemName: "play.circle")
+                    .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help("Preview fullscreen")
+
+            Button(action: onOpenTrim) {
+                Image(systemName: "scissors")
+                    .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help("Trim clip")
 
             Button(action: onExtract) {
                 Image(systemName: "folder.badge.minus")
@@ -321,6 +505,126 @@ private struct GroupEditorRow: View {
         }
         .padding(.vertical, 4)
         .task(id: item.id) { await loadThumbnail() }
+    }
+
+    /// "source.mp4 → output.mov", with the destination styled blue when the
+    /// group merges into a single file (the merged output uses the group name,
+    /// so per-item destinations don't really apply — show the group name instead
+    /// to make the merge intent obvious).
+    private var outputPreview: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.right")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            if showGroupOutputName {
+                Text(groupOutputName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.blue)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else {
+                Text(perItemOutputName)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+    }
+
+    private var metadataRow: some View {
+        HStack(spacing: 6) {
+            Text(item.duration)
+            if let res = videoResolution {
+                Text("•")
+                Text(res)
+            }
+            if let fps = videoFrameRate {
+                Text("•")
+                Text(fps)
+            }
+            Text("•")
+            Text(item.formattedSize)
+        }
+        .font(.system(size: 10))
+        .foregroundColor(.secondary)
+    }
+
+    private var perItemOutputName: String {
+        if let override = item.outputFileNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return override + "." + preset.outputExtension(for: item.url)
+        }
+        if let outputURL = item.outputURL {
+            return outputURL.lastPathComponent
+        }
+        let base = (item.name as NSString).deletingPathExtension
+        let sanitized = FileNameProcessor.processFileName(base)
+        let suffix = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        return "\(sanitized)\(suffix).\(preset.outputExtension(for: item.url))"
+    }
+
+    private var groupOutputName: String {
+        let base = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitized = FileNameProcessor.processFileName(base.isEmpty ? "group" : base)
+        let suffix = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        return "\(sanitized)\(suffix).\(preset.outputExtension(for: item.url))"
+    }
+
+    private var videoResolution: String? {
+        guard let v = item.metadata?.primaryVideoStream,
+              let w = v.width, let h = v.height else { return nil }
+        return "\(w)×\(h)"
+    }
+
+    private var videoFrameRate: String? {
+        guard let fps = item.metadata?.primaryVideoStream?.frameRate?.value,
+              fps > 0, fps.isFinite else { return nil }
+        let rounded = (fps * 100).rounded() / 100
+        if rounded == rounded.rounded() {
+            return "\(Int(rounded)) fps"
+        }
+        return String(format: "%.2f fps", rounded)
+    }
+
+    /// Show-in-Finder, copy-path, and drag-to-share — only when the item has a
+    /// usable output (or, for non-concat groups, an existing output file). For
+    /// concat groups only the first row offers these (since the merged output
+    /// is associated with that row).
+    @ViewBuilder
+    private var shareButtons: some View {
+        if canShareOutput {
+            Button(action: onShowInFinder) {
+                Image(systemName: "magnifyingglass.circle.fill")
+                    .foregroundColor(.blue)
+            }
+            .buttonStyle(.plain)
+            .help("Show in Finder")
+
+            Button(action: onCopyPath) {
+                Image(systemName: "document.on.document")
+                    .foregroundColor(.blue)
+            }
+            .buttonStyle(.plain)
+            .help("Copy file path")
+
+            DragShareButton(fileURL: shareURL)
+                .frame(width: 18, height: 18)
+                .help("Drag to share file")
+        }
+    }
+
+    private var shareURL: URL? {
+        if showGroupOutputName, isFirstItem {
+            return item.outputURL
+        }
+        if item.status == .done, let outputURL = item.outputURL {
+            return outputURL
+        }
+        if item.outputFileExists, let outputURL = item.outputURL {
+            return outputURL
+        }
+        return nil
     }
 
     private var thumbnail: some View {
@@ -356,6 +660,28 @@ private struct GroupEditorRow: View {
         guard !Task.isCancelled, let decoded else { return }
         ThumbnailCache.shared[itemID] = decoded
         thumb = decoded
+    }
+}
+
+// MARK: - DragShareButton
+
+/// SwiftUI wrapper around `DraggableFileImageView` so the editor can use the
+/// same Finder-aware drag handle the queue cells use.
+private struct DragShareButton: NSViewRepresentable {
+    let fileURL: URL?
+
+    func makeNSView(context: Context) -> DraggableFileImageView {
+        let view = DraggableFileImageView()
+        view.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right",
+                             accessibilityDescription: String(localized: "Drag to share file"))
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.contentTintColor = .systemBlue
+        view.fileURL = fileURL
+        return view
+    }
+
+    func updateNSView(_ nsView: DraggableFileImageView, context: Context) {
+        nsView.fileURL = fileURL
     }
 }
 
