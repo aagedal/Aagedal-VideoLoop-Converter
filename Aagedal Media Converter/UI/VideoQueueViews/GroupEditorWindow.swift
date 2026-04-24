@@ -34,13 +34,17 @@ final class GroupEditorWindowController: NSObject, NSWindowDelegate {
         queueOrder: Binding<[UUID]>,
         onAddFiles: @escaping (UUID) -> Void
     ) {
+        let titleUpdater: (String) -> Void = { [weak self] name in
+            self?.applyTitle(groupName: name)
+        }
         let content = GroupEditorWindowContent(
             groupID: groupID,
             groups: groups,
             droppedFiles: droppedFiles,
             queueOrder: queueOrder,
             onAddFiles: onAddFiles,
-            onClose: { [weak self] in self?.close() }
+            onClose: { [weak self] in self?.close() },
+            onTitleChange: titleUpdater
         )
 
         if let existing = currentWindow {
@@ -55,17 +59,23 @@ final class GroupEditorWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = "Edit Group"
+        window.title = String(localized: "Edit Group")
         window.minSize = NSSize(width: 480, height: 360)
         window.isReleasedWhenClosed = false
         window.delegate = self
+        // Persist window size/position across opens. Xcode stores the frame in
+        // UserDefaults under this autosave name automatically.
+        window.setFrameAutosaveName("GroupEditorWindow")
 
         let hosting = NSHostingView(rootView: content)
         hosting.autoresizingMask = [.width, .height]
         hosting.frame = window.contentView?.bounds ?? .zero
         window.contentView = hosting
 
-        positionNextToMainWindow(window)
+        // If no autosaved frame existed, position next to the main window.
+        if !window.setFrameUsingName("GroupEditorWindow") {
+            positionNextToMainWindow(window)
+        }
 
         currentWindow = window
         hostingView = hosting
@@ -79,6 +89,18 @@ final class GroupEditorWindowController: NSObject, NSWindowDelegate {
     }
 
     var isOpen: Bool { currentWindow != nil }
+
+    private func applyTitle(groupName: String) {
+        let trimmed = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            currentWindow?.title = String(localized: "Edit Group")
+        } else {
+            currentWindow?.title = String(
+                localized: "Edit Group: \(trimmed)",
+                comment: "Title of the Group Editor window. Placeholder is the group's name."
+            )
+        }
+    }
 
     // MARK: NSWindowDelegate
 
@@ -114,6 +136,7 @@ struct GroupEditorWindowContent: View {
     @Binding var queueOrder: [UUID]
     var onAddFiles: (UUID) -> Void
     var onClose: () -> Void
+    var onTitleChange: (String) -> Void
 
     var body: some View {
         if let index = groups.firstIndex(where: { $0.id == groupID }) {
@@ -122,7 +145,8 @@ struct GroupEditorWindowContent: View {
                 droppedFiles: $droppedFiles,
                 queueOrder: $queueOrder,
                 onAddFiles: { onAddFiles(groupID) },
-                onClose: onClose
+                onClose: onClose,
+                onTitleChange: onTitleChange
             )
         } else {
             // The group was deleted while the editor was open — dismiss so the
@@ -140,6 +164,7 @@ struct GroupEditorView: View {
     @Binding var queueOrder: [UUID]
     var onAddFiles: () -> Void
     var onClose: () -> Void
+    var onTitleChange: (String) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -150,6 +175,10 @@ struct GroupEditorView: View {
             footer
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear { onTitleChange(group.name) }
+        .onChange(of: group.name) { _, newValue in
+            onTitleChange(newValue)
+        }
     }
 
     private var header: some View {
@@ -169,6 +198,8 @@ struct GroupEditorView: View {
                 Label("Add files", systemImage: "plus")
             }
             .controlSize(.regular)
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+            .help("Add files to group (⇧⌘A)")
         }
         .padding(12)
     }
@@ -202,8 +233,11 @@ struct GroupEditorView: View {
 
     private var summaryText: String {
         let count = group.items.count
-        let clips = count == 1 ? "1 clip" : "\(count) clips"
         let duration = group.formattedTotalDuration
+        let clips = String(
+            localized: "\(count) clips",
+            comment: "Clip-count summary in the group editor footer. Supports pluralization."
+        )
         return duration.isEmpty ? clips : "\(clips) · \(duration)"
     }
 
@@ -286,7 +320,7 @@ private struct GroupEditorRow: View {
             .help("Remove from queue")
         }
         .padding(.vertical, 4)
-        .task { loadThumbnail() }
+        .task(id: item.id) { await loadThumbnail() }
     }
 
     private var thumbnail: some View {
@@ -307,10 +341,21 @@ private struct GroupEditorRow: View {
         }
     }
 
-    private func loadThumbnail() {
+    /// Load from cache first; if missing, decode the raw JPEG bytes off the main
+    /// thread so newly-imported items don't stay stuck on the film placeholder.
+    private func loadThumbnail() async {
         if let cached = ThumbnailCache.shared[item.id] {
             thumb = cached
+            return
         }
+        guard let data = item.thumbnailData else { return }
+        let itemID = item.id
+        let decoded = await Task.detached(priority: .userInitiated) {
+            ThumbnailDecoder.decodeSync(data: data)
+        }.value
+        guard !Task.isCancelled, let decoded else { return }
+        ThumbnailCache.shared[itemID] = decoded
+        thumb = decoded
     }
 }
 

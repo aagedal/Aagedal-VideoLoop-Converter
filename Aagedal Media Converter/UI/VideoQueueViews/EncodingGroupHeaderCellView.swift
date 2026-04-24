@@ -25,23 +25,23 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     // MARK: - Cached SF Symbols (group-header-specific)
 
     private enum GroupSymbol {
-        static let folderFill       = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)
-        static let plus             = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
-        static let reset            = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: nil)
-        static let trash            = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
-        static let numberCircleFill = NSImage(systemSymbolName: "number.circle.fill", accessibilityDescription: nil)
-        static let numberCircle     = NSImage(systemSymbolName: "number.circle", accessibilityDescription: nil)
-        static let concat           = NSImage(systemSymbolName: "arrow.triangle.merge", accessibilityDescription: nil)
-        static let finderCircle     = NSImage(systemSymbolName: "magnifyingglass.circle.fill", accessibilityDescription: nil)
-        static let dragHandle       = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: nil)
-        static let uploadedCheck    = NSImage(systemSymbolName: "checkmark.icloud.fill", accessibilityDescription: nil)
-        static let uploadFailed     = NSImage(systemSymbolName: "exclamationmark.icloud.fill", accessibilityDescription: nil)
-        static let uploadPending    = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: nil)
-        static let playCircle       = NSImage(systemSymbolName: "play.circle.fill", accessibilityDescription: nil)
-        static let checkmarkCircle  = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
-        static let xmarkCircle      = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil)
-        static let arrowDownCircle  = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
-        static let clock            = NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
+        static let folderFill       = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: String(localized: "Group folder"))
+        static let plus             = NSImage(systemSymbolName: "plus", accessibilityDescription: String(localized: "Add files"))
+        static let reset            = NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: String(localized: "Reset group"))
+        static let trash            = NSImage(systemSymbolName: "trash", accessibilityDescription: String(localized: "Delete group"))
+        static let numberCircleFill = NSImage(systemSymbolName: "number.circle.fill", accessibilityDescription: String(localized: "Sequential naming enabled"))
+        static let numberCircle     = NSImage(systemSymbolName: "number.circle", accessibilityDescription: String(localized: "Sequential naming"))
+        static let concat           = NSImage(systemSymbolName: "arrow.triangle.merge", accessibilityDescription: String(localized: "Concatenate clips"))
+        static let finderCircle     = NSImage(systemSymbolName: "magnifyingglass.circle.fill", accessibilityDescription: String(localized: "Show in Finder"))
+        static let dragHandle       = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: String(localized: "Drag to share"))
+        static let uploadedCheck    = NSImage(systemSymbolName: "checkmark.icloud.fill", accessibilityDescription: String(localized: "Upload complete"))
+        static let uploadFailed     = NSImage(systemSymbolName: "exclamationmark.icloud.fill", accessibilityDescription: String(localized: "Upload failed"))
+        static let uploadPending    = NSImage(systemSymbolName: "clock.arrow.circlepath", accessibilityDescription: String(localized: "Upload pending"))
+        static let playCircle       = NSImage(systemSymbolName: "play.circle.fill", accessibilityDescription: String(localized: "Start"))
+        static let checkmarkCircle  = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: String(localized: "Done"))
+        static let xmarkCircle      = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: String(localized: "Cancel"))
+        static let arrowDownCircle  = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: String(localized: "Download"))
+        static let clock            = NSImage(systemSymbolName: "clock", accessibilityDescription: String(localized: "Pending"))
     }
 
     // MARK: - State
@@ -368,7 +368,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         nameField.isBordered = false
         nameField.isBezeled = false
         nameField.drawsBackground = false
-        nameField.placeholderString = "Group name"
+        nameField.placeholderString = String(localized: "Group name")
         nameField.font = .systemFont(ofSize: 13, weight: .semibold)
         nameField.textColor = .labelColor
         nameField.delegate = self
@@ -387,35 +387,35 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         clipCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         configureBorderlessButton(concatOutputButton, symbol: GroupSymbol.finderCircle, tint: .systemBlue, action: #selector(concatOutputFinderClicked))
-        concatOutputButton.toolTip = "Show merged output in Finder"
+        concatOutputButton.toolTip = String(localized: "Show merged output in Finder")
 
         concatDragButton.image = GroupSymbol.dragHandle
         concatDragButton.contentTintColor = .systemBlue
         concatDragButton.imageScaling = .scaleProportionallyUpOrDown
-        concatDragButton.toolTip = "Drag to share the merged file"
+        concatDragButton.toolTip = String(localized: "Drag to share the merged file")
         concatDragButton.translatesAutoresizingMaskIntoConstraints = false
         concatDragButton.widthAnchor.constraint(equalToConstant: 18).isActive = true
         concatDragButton.heightAnchor.constraint(equalToConstant: 18).isActive = true
 
         configureBorderlessButton(concatWarningButton, symbol: GroupSymbol.finderCircle, tint: .systemOrange, action: #selector(concatWarningClicked))
-        concatWarningButton.toolTip = "Output file already exists and will be overwritten. Click to show in Finder."
+        concatWarningButton.toolTip = String(localized: "Output file already exists and will be overwritten. Click to show in Finder.")
 
         configureBorderlessButton(addFilesButton, symbol: GroupSymbol.plus, tint: .secondaryLabelColor, action: #selector(addFilesClicked))
-        addFilesButton.toolTip = "Add files to group"
+        addFilesButton.toolTip = String(localized: "Add files to group")
 
         // Opens the standalone editor window where reorder/remove/extract happen.
         // Keeps the main queue focused on high-level queue manipulation.
-        configureBorderlessButton(editButton, symbol: NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: "Edit group contents"), tint: .systemBlue, action: #selector(editClicked))
-        editButton.toolTip = "Edit group contents (reorder, remove, rename)"
+        configureBorderlessButton(editButton, symbol: NSImage(systemSymbolName: "square.and.pencil", accessibilityDescription: String(localized: "Edit group contents")), tint: .systemBlue, action: #selector(editClicked))
+        editButton.toolTip = String(localized: "Edit group contents (reorder, remove, rename)")
 
-        configureBorderlessButton(sortButton, symbol: NSImage(systemSymbolName: "arrow.up.arrow.down", accessibilityDescription: "Sort items in group"), tint: .secondaryLabelColor, action: #selector(sortClicked))
-        sortButton.toolTip = "Sort items in group (cycle: filename A–Z, Z–A, date old→new, new→old)"
+        configureBorderlessButton(sortButton, symbol: NSImage(systemSymbolName: "arrow.up.arrow.down", accessibilityDescription: String(localized: "Sort items in group")), tint: .secondaryLabelColor, action: #selector(sortClicked))
+        sortButton.toolTip = String(localized: "Sort items in group (cycle: filename A–Z, Z–A, date old→new, new→old)")
 
         configureBorderlessButton(resetButton, symbol: GroupSymbol.reset, tint: .secondaryLabelColor, action: #selector(resetClicked))
-        resetButton.toolTip = "Reset all items in group"
+        resetButton.toolTip = String(localized: "Reset all items in group")
 
         configureBorderlessButton(deleteButton, symbol: GroupSymbol.trash, tint: NSColor.systemRed.withAlphaComponent(0.75), action: #selector(deleteClicked))
-        deleteButton.toolTip = "Delete group"
+        deleteButton.toolTip = String(localized: "Delete group")
 
         topRow.addArrangedSubview(folderIcon)
         topRow.addArrangedSubview(nameField)
@@ -521,8 +521,9 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         button.target = self
         button.action = action
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(greaterThanOrEqualToConstant: 20).isActive = true
-        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 20).isActive = true
+        // Match toggle button dimensions so top/bottom row icons align visually.
+        button.widthAnchor.constraint(equalToConstant: 22).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 22).isActive = true
     }
 
     private func configureToggleButton(_ button: NSButton, onSymbol: NSImage?, offSymbol: NSImage?, action: Selector) {
@@ -683,8 +684,14 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     // MARK: - Sub-updates
 
     private func clipCountText(count: Int, duration: String) -> String {
-        guard count > 0 else { return "Empty group" }
-        let clipText = count == 1 ? "1 clip" : "\(count) clips"
+        guard count > 0 else {
+            return String(localized: "Empty group",
+                          comment: "Shown in place of a clip count when the group has no items.")
+        }
+        let clipText = String(
+            localized: "\(count) clips",
+            comment: "Clip-count label on the group header. Supports pluralization."
+        )
         if duration.isEmpty { return clipText }
         return "\(clipText) · \(duration)"
     }
@@ -703,7 +710,10 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         let manager = PresetManager.shared
         presetPopup.removeAllItems()
 
-        let globalLabel = "Global (\(manager.displayName(for: config.globalPreset)))"
+        let globalLabel = String(
+            localized: "Global (\(manager.displayName(for: config.globalPreset)))",
+            comment: "Menu item for the default/global preset choice. Placeholder is the currently-selected global preset's display name."
+        )
         let globalItem = NSMenuItem(title: globalLabel, action: nil, keyEquivalent: "")
         globalItem.representedObject = nil as ExportPreset?
         presetPopup.menu?.addItem(globalItem)
@@ -727,16 +737,17 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         sequentialToggle.image = config.sequentialNamingEnabled ? GroupSymbol.numberCircleFill : GroupSymbol.numberCircle
         sequentialToggle.contentTintColor = config.sequentialNamingEnabled ? .systemBlue : .secondaryLabelColor
         sequentialToggle.toolTip = config.sequentialNamingEnabled
-            ? "Sequential naming enabled — files named \(config.name)_001, \(config.name)_002, …"
-            : "Enable sequential naming using group name"
+            ? String(localized: "Sequential naming enabled — files named \(config.name)_001, \(config.name)_002, …",
+                     comment: "Tooltip shown when sequential naming is enabled. Placeholder is the current group name.")
+            : String(localized: "Enable sequential naming using group name")
     }
 
     private func updateConcatToggle(config: EncodingGroupCellConfiguration) {
         concatToggle.image = GroupSymbol.concat
         concatToggle.contentTintColor = config.concatEnabled ? .systemBlue : .secondaryLabelColor
         concatToggle.toolTip = config.concatEnabled
-            ? "Concat enabled — clips will be merged into one file"
-            : "Enable concat to merge clips into one file"
+            ? String(localized: "Concat enabled — clips will be merged into one file")
+            : String(localized: "Enable concat to merge clips into one file")
     }
 
     private func updateUploadToggle(config: EncodingGroupCellConfiguration) {
@@ -746,8 +757,10 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         uploadToggle.contentTintColor = config.uploadEnabled ? .systemBlue : .secondaryLabelColor
         uploadToggle.isEnabled = config.isUploadConfigured
         uploadToggle.toolTip = config.isUploadConfigured
-            ? (config.uploadEnabled ? "Upload enabled — files will upload after encoding" : "Enable upload after encoding")
-            : "Configure upload in Settings → Upload"
+            ? (config.uploadEnabled
+                ? String(localized: "Upload enabled — files will upload after encoding")
+                : String(localized: "Enable upload after encoding"))
+            : String(localized: "Configure upload in Settings → Upload")
     }
 
     private func updateTranscriptionToggle(config: EncodingGroupCellConfiguration) {
@@ -756,8 +769,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             : VideoFileCellView.Symbol.captionsBubble
         transcriptionToggle.contentTintColor = config.transcriptionEnabled ? .systemGreen : .secondaryLabelColor
         transcriptionToggle.toolTip = config.transcriptionEnabled
-            ? "Transcription enabled — SRT will be created after encoding"
-            : "Enable transcription for subtitle generation"
+            ? String(localized: "Transcription enabled — SRT will be created after encoding")
+            : String(localized: "Enable transcription for subtitle generation")
     }
 
     private func updateAnalyticsToggle(config: EncodingGroupCellConfiguration) {
@@ -766,8 +779,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             : VideoFileCellView.Symbol.chartBase
         analyticsToggle.contentTintColor = config.analyticsEnabled ? .systemCyan : .secondaryLabelColor
         analyticsToggle.toolTip = config.analyticsEnabled
-            ? "Quality analytics enabled — will run after encoding"
-            : "Enable quality analytics after encoding"
+            ? String(localized: "Quality analytics enabled — will run after encoding")
+            : String(localized: "Enable quality analytics after encoding")
     }
 
     private func updateProgressBar(config: EncodingGroupCellConfiguration) {
@@ -790,27 +803,39 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             uploadRow.isHidden = false
             uploadIcon.image = GroupSymbol.uploadedCheck
             uploadIcon.contentTintColor = .systemGreen
-            uploadLabel.stringValue = "Uploaded \(count)/\(total)"
+            uploadLabel.stringValue = String(
+                localized: "Uploaded \(count)/\(total)",
+                comment: "Group header upload status when all uploads have finished. First placeholder is the number uploaded, second is the total."
+            )
             uploadProgress.isHidden = true
         case .failed(let count, let total):
             uploadRow.isHidden = false
             uploadIcon.image = GroupSymbol.uploadFailed
             uploadIcon.contentTintColor = .systemRed
-            uploadLabel.stringValue = "Upload failed \(count)/\(total)"
+            uploadLabel.stringValue = String(
+                localized: "Upload failed \(count)/\(total)",
+                comment: "Group header upload status when uploads have failed. First placeholder is the number failed, second is the total."
+            )
             uploadProgress.isHidden = true
         case .uploading(let completed, let total, let progress, let speed):
             uploadRow.isHidden = false
             uploadIcon.image = VideoFileCellView.Symbol.cloudArrowUp
             uploadIcon.contentTintColor = .systemOrange
             let speedText = speed.map { " · \($0)" } ?? ""
-            uploadLabel.stringValue = "Uploading \(completed + 1)/\(total)\(speedText)"
+            uploadLabel.stringValue = String(
+                localized: "Uploading \(completed + 1)/\(total)\(speedText)",
+                comment: "Group header upload status while actively uploading. Placeholders are the current item index, total, and optional speed text."
+            )
             uploadProgress.isHidden = false
             uploadProgress.doubleValue = progress
         case .pending(let uploaded, let total):
             uploadRow.isHidden = false
             uploadIcon.image = GroupSymbol.uploadPending
             uploadIcon.contentTintColor = .systemOrange
-            uploadLabel.stringValue = "Upload pending \(uploaded)/\(total)"
+            uploadLabel.stringValue = String(
+                localized: "Upload pending \(uploaded)/\(total)",
+                comment: "Group header upload status when uploads are queued but not yet started."
+            )
             uploadProgress.isHidden = false
             uploadProgress.doubleValue = total > 0 ? Double(uploaded) / Double(total) : 0
         }
@@ -866,7 +891,11 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private func updateChildCountBadge(count: Int) {
         childCountBadge.isHidden = count <= 1
         if count > 1 {
-            childCountBadge.stringValue = "  \(count) clips  "
+            let label = String(
+                localized: "\(count) clips",
+                comment: "Badge on the stacked thumbnail preview showing how many clips are in the group."
+            )
+            childCountBadge.stringValue = "  \(label)  "
         }
     }
 
@@ -882,11 +911,14 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             return
         }
         let alert = NSAlert()
-        alert.messageText = "Delete Group"
-        alert.informativeText = "This will remove the group \"\(groupName)\" and all its items from the queue."
+        alert.messageText = String(localized: "Delete Group")
+        alert.informativeText = String(
+            localized: "This will remove the group \"\(groupName)\" and all its items from the queue.",
+            comment: "Confirmation text shown before deleting an encoding group. Placeholder is the group's name."
+        )
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Delete Group")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Delete Group"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
         if alert.runModal() == .alertFirstButtonReturn {
             actionHandler?(.deleteGroup)
         }

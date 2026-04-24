@@ -369,8 +369,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         private let concatExistsCacheTTL: TimeInterval = 5
 
         /// Previous item count per group, used to auto-reapply sequential naming
-        /// when items are added to or removed from a group (mirrors the onChange
-        /// watcher in the old SwiftUI EncodingGroupHeaderView).
+        /// when items are added to or removed from a group.
         var previousGroupItemCount: [UUID: Int] = [:]
 
         /// Group currently receiving a drag-hover highlight. Updated from validateDrop

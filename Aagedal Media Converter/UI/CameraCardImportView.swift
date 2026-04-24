@@ -43,6 +43,28 @@ struct CameraCardImportView: View {
         selectedPreset == .videoLoop || selectedPreset == .videoLoopWithSound
     }
 
+    /// Characters that are unsafe in macOS file names. `/` is the path separator
+    /// and `:` is reserved (Finder converts it to `/` for display but the BSD
+    /// layer rejects it). NUL is always invalid.
+    private static let invalidFilenameCharacters = CharacterSet(charactersIn: "/:\0")
+
+    private var trimmedMasterName: String {
+        masterName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var invalidCharactersFound: String {
+        let chars = trimmedMasterName.unicodeScalars.filter {
+            Self.invalidFilenameCharacters.contains($0)
+        }
+        // De-duplicate while preserving order.
+        var seen = Set<Unicode.Scalar>()
+        return chars.filter { seen.insert($0).inserted }.map { String($0) }.joined(separator: " ")
+    }
+
+    private var isNameValid: Bool {
+        !trimmedMasterName.isEmpty && invalidCharactersFound.isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Import Camera Card")
@@ -55,7 +77,8 @@ struct CameraCardImportView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
-                Text("\(clipCount) clip\(clipCount == 1 ? "" : "s") found")
+                Text("\(clipCount) clips found",
+                     comment: "Label showing how many clips were detected on the imported camera card.")
                     .foregroundStyle(.secondary)
             }
 
@@ -66,13 +89,23 @@ struct CameraCardImportView: View {
                     .font(.body)
                 TextField("e.g. Interview_Day1", text: $masterName)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 460)
-            }
+                    .frame(minWidth: 320, idealWidth: 460, maxWidth: .infinity)
 
-            if !masterName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(namingPreview)
+                if !trimmedMasterName.isEmpty && !invalidCharactersFound.isEmpty {
+                    Label {
+                        Text("Invalid characters in name: \(invalidCharactersFound)",
+                             comment: "Inline validation error listing characters that cannot be used in the card name.")
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                    }
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                } else if !trimmedMasterName.isEmpty {
+                    Text(namingPreview)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Divider()
@@ -84,7 +117,7 @@ struct CameraCardImportView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: 220)
+                .frame(minWidth: 180, idealWidth: 220, maxWidth: 320)
             }
 
             if isVideoLoopPreset {
@@ -166,10 +199,11 @@ struct CameraCardImportView: View {
                     onImport()
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(!isNameValid)
             }
         }
         .padding(20)
-        .frame(width: 520)
+        .frame(minWidth: 460, idealWidth: 520, maxWidth: 720)
         .onAppear { loadServers() }
     }
 
@@ -214,49 +248,43 @@ struct CameraCardImportView: View {
     }
 
     private var namingPreview: String {
-        let name = masterName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmedMasterName
         let ext = selectedPreset.fileExtension
         if concatEnabled {
-            return "Output: \(name).\(ext)"
+            return String(
+                localized: "Output: \(name).\(ext)",
+                comment: "Shows the filename that will be produced for a concatenated camera-card import."
+            )
         } else if clipCount > 1 {
-            return "Output: \(name)_001.\(ext), \(name)_002.\(ext), \u{2026}"
+            return String(
+                localized: "Output: \(name)_001.\(ext), \(name)_002.\(ext), \u{2026}",
+                comment: "Shows the filename pattern that will be produced for a multi-clip camera-card import."
+            )
         } else {
-            return "Output: \(name)_001.\(ext)"
+            return String(
+                localized: "Output: \(name)_001.\(ext)",
+                comment: "Shows the filename that will be produced for a single-clip camera-card import."
+            )
         }
     }
 
     private func loadServers() {
-        var entries: [UploadServerEntry] = []
-
-        for profile in FTPUploadProfileStore.loadProfiles() where !profile.server.isEmpty {
-            entries.append(UploadServerEntry(id: profile.id, name: profile.name, backendType: .ftp))
-        }
-        for profile in SFTPUploadProfileStore.loadProfiles() where !profile.server.isEmpty {
-            entries.append(UploadServerEntry(id: profile.id, name: profile.name, backendType: .sftp))
-        }
-        for profile in SMBUploadProfileStore.loadProfiles() where !profile.server.isEmpty {
-            entries.append(UploadServerEntry(id: profile.id, name: profile.name, backendType: .smb))
-        }
-        for profile in S3UploadProfileStore.loadProfiles() where !profile.bucket.isEmpty {
-            entries.append(UploadServerEntry(id: profile.id, name: profile.name, backendType: .s3))
+        let entries: [UploadServerEntry] = UploadProfileStore.loadProfiles().compactMap { profile in
+            let hasDestination: Bool = {
+                switch profile.backend {
+                case .s3: return !profile.bucket.isEmpty
+                case .gdrive: return false
+                default: return !profile.server.isEmpty
+                }
+            }()
+            guard hasDestination else { return nil }
+            return UploadServerEntry(id: profile.id, name: profile.name, backendType: profile.backend)
         }
 
         servers = entries
 
-        // Pre-select the currently active server
-        let activeBackendRaw = UserDefaults.standard.string(forKey: AppConstants.uploadBackendTypeKey) ?? "ftp"
-        let activeBackend = UploadBackendType(rawValue: activeBackendRaw) ?? .ftp
-        let activeProfileID: UUID? = {
-            switch activeBackend {
-            case .ftp: return FTPUploadProfileStore.loadSelectedProfileID()
-            case .sftp: return SFTPUploadProfileStore.loadSelectedProfileID()
-            case .smb: return SMBUploadProfileStore.loadSelectedProfileID()
-            case .s3: return S3UploadProfileStore.loadSelectedProfileID()
-            case .gdrive: return nil
-            }
-        }()
-
-        if let activeProfileID, entries.contains(where: { $0.id == activeProfileID }) {
+        if let activeProfileID = UploadProfileStore.loadSelectedProfileID(),
+           entries.contains(where: { $0.id == activeProfileID }) {
             selectedServerID = activeProfileID
         } else {
             selectedServerID = entries.first?.id
@@ -265,17 +293,7 @@ struct CameraCardImportView: View {
 
     private func applySelectedServer() {
         guard uploadEnabled,
-              let selectedID = selectedServerID ?? servers.first?.id,
-              let server = servers.first(where: { $0.id == selectedID }) else { return }
-
-        UserDefaults.standard.set(server.backendType.rawValue, forKey: AppConstants.uploadBackendTypeKey)
-
-        switch server.backendType {
-        case .ftp: FTPUploadProfileStore.saveSelectedProfileID(server.id)
-        case .sftp: SFTPUploadProfileStore.saveSelectedProfileID(server.id)
-        case .smb: SMBUploadProfileStore.saveSelectedProfileID(server.id)
-        case .s3: S3UploadProfileStore.saveSelectedProfileID(server.id)
-        case .gdrive: break
-        }
+              let selectedID = selectedServerID ?? servers.first?.id else { return }
+        UploadProfileStore.saveSelectedProfileID(selectedID)
     }
 }

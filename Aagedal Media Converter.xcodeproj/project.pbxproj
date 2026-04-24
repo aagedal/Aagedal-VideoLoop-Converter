@@ -168,7 +168,6 @@
 		E69050ED114BBF6B493BE257 /* URLInputOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */; };
 		LQGLSTB00000001 /* LiquidGlassToolbarConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = LQGLSTB00000002 /* LiquidGlassToolbarConfigurator.swift */; };
 		ENCGRP00000000001 /* EncodingGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRP00000000002 /* EncodingGroup.swift */; };
-		ENCGRPVIEW00000001 /* EncodingGroupHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRPVIEW00000002 /* EncodingGroupHeaderView.swift */; };
 		F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */; };
 		F88CB64509DD67D585EB71E6 /* WhisperModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */; };
 		FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B862E87364609527CEEC84 /* YTDLPService.swift */; };
@@ -394,7 +393,6 @@
 		E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataSidecarGenerator.swift; sourceTree = "<group>"; };
 		E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoQueueTableView.swift; sourceTree = "<group>"; };
 		ENCGRP00000000002 /* EncodingGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingGroup.swift; sourceTree = "<group>"; };
-		ENCGRPVIEW00000002 /* EncodingGroupHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingGroupHeaderView.swift; sourceTree = "<group>"; };
 		F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafetyUtils.swift; sourceTree = "<group>"; };
 		AE61AEDA33E74EFF880B1E5C /* PowerAssertion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PowerAssertion.swift; sourceTree = "<group>"; };
 		F82CC3B9944D3DAF6B3F9C93 /* ComparisonMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparisonMetadataView.swift; sourceTree = "<group>"; };
@@ -836,7 +834,6 @@
 			isa = PBXGroup;
 			children = (
 				8E545D882C34030C0088C274 /* VideoFileListView.swift */,
-				ENCGRPVIEW00000002 /* EncodingGroupHeaderView.swift */,
 				8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */,
 				8E545D822C33FD4A0088C274 /* DragAndDropView.swift */,
 				E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */,
@@ -1151,7 +1148,6 @@
 				AA1D4C3E2F10B56789000002 /* TrackPickerSheet.swift in Sources */,
 				8E4DF26D2ECBACFC007B6277 /* GeneralSettingsView.swift in Sources */,
 				8E09F7422EC27EDA00E129CD /* PreviewCacheCleanupPolicy.swift in Sources */,
-				ENCGRPVIEW00000001 /* EncodingGroupHeaderView.swift in Sources */,
 				8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */,
 				8E824ABF2EF8AB02001A6B95 /* MPVProperty.swift in Sources */,
 				8E824AC02EF8AB02001A6B95 /* MPVMetalLayer.swift in Sources */,
