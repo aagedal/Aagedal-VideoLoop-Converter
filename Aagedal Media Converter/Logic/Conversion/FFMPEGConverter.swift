@@ -1404,12 +1404,18 @@ actor FFMPEGConverter {
                 try? errorPipe.fileHandleForReading.close()
                 let errorString = String(data: errorData, encoding: .utf8) ?? "(unknown error)"
                 Self.logger.error("Audio pre-processing failed with code \(process.terminationStatus): \(errorString)")
+                if FileManager.default.fileExists(atPath: tempURL.path) {
+                    Self.cleanupTempFile(at: tempURL, label: "AVC-Intra pre-processed audio (failed)")
+                }
                 return nil
             }
         } catch {
             try? stdoutPipe.fileHandleForReading.close()
             try? errorPipe.fileHandleForReading.close()
             Self.logger.error("Failed to run audio pre-processing: \(error.localizedDescription)")
+            if FileManager.default.fileExists(atPath: tempURL.path) {
+                Self.cleanupTempFile(at: tempURL, label: "AVC-Intra pre-processed audio (failed)")
+            }
             return nil
         }
     }
