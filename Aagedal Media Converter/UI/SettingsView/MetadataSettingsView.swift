@@ -332,7 +332,7 @@ struct MetadataSettingsView: View {
                         Text(mode.displayName).tag(mode.rawValue)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
                 .labelsHidden()
 
                 // Mode-specific content

@@ -78,7 +78,7 @@ struct GeneralSettingsView: View {
                                         Text("Custom name").tag("custom")
                                         Text("Use preset suffix").tag("presetSuffix")
                                     }
-                                    .pickerStyle(.segmented)
+                                    .pickerStyle(.menu)
                                     .padding(.top, 16)
                                     
                                 }

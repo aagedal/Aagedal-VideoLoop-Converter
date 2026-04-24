@@ -96,8 +96,8 @@ struct TesseractSettingsView: View {
                         Text("Homebrew").tag(BinarySourceSelection.homebrew.rawValue)
                         Text("Custom").tag(BinarySourceSelection.custom.rawValue)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 260)
+                    .pickerStyle(.menu)
+                    .labelsHidden()
                     Spacer()
                 }
 

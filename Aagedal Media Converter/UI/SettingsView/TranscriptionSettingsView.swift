@@ -17,7 +17,7 @@ struct TranscriptionSettingsView: View {
                         Text("Whisper (FFmpeg built-in)").tag("whisper")
                         Text("Parakeet (NeMo MLX)").tag("parakeet")
                     }
-                    .pickerStyle(.radioGroup)
+                    .pickerStyle(.menu)
 
                     Text("The default engine used when enabling transcription on new items. You can override per item in the queue.")
                         .font(.caption)
