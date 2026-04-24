@@ -52,8 +52,8 @@ actor FileImportManager {
 
     // Configuration
     // SwiftExif video parsing is I/O- and memory-bound, not CPU-bound: more parallelism
-    // doesn't speed it up much but multiplies peak RAM (a single MKV parse can hold
-    // tens of GB transiently). Keep this small to avoid OOM on bulk imports of large files.
+    // doesn't speed it up much but still multiplies peak RAM. 1.3.1 caps a single
+    // MKV parse to sub-GB, so 2 concurrent loads is a comfortable headroom margin.
     private let maxConcurrentLoads = 2
 
     // State tracking for deduplication across concurrent imports

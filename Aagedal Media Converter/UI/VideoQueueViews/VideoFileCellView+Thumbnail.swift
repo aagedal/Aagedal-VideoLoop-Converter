@@ -76,27 +76,28 @@ extension VideoFileCellView {
             trackingArea = area
         }
 
-        // Tracking area covering the duration + file-size labels so the cell can
-        // draw an underline on hover and show a pointing-hand cursor.
+        // Tracking area covering every clickable metadata label — duration,
+        // size, video format (resolution · fps), output size. Any of them
+        // opens the metadata window on click, so all should show the
+        // underline + pointing-hand cursor on hover.
+        //
+        // Attach to `infoStack` with `.inVisibleRect` so the rect auto-tracks
+        // the stack's bounds — `videoFormatLabel` and `outputSizeLabel` are
+        // hidden until their data is ready, and the stack reflows when they
+        // appear. A static rect computed at initial layout would only cover
+        // the labels that were already visible.
         if let existing = durationSizeTracker {
-            removeTrackingArea(existing)
+            infoStack.removeTrackingArea(existing)
             durationSizeTracker = nil
         }
-        if !durationLabel.isHidden && !sizeLabel.isHidden {
-            let durationRect = durationLabel.convert(durationLabel.bounds, to: self)
-            let sizeRect = sizeLabel.convert(sizeLabel.bounds, to: self)
-            let unionRect = durationRect.union(sizeRect)
-            if unionRect.width > 0 && unionRect.height > 0 {
-                let area = NSTrackingArea(
-                    rect: unionRect,
-                    options: [.mouseEnteredAndExited, .activeInActiveApp],
-                    owner: self,
-                    userInfo: ["kind": "durationSize"]
-                )
-                addTrackingArea(area)
-                durationSizeTracker = area
-            }
-        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self,
+            userInfo: ["kind": "durationSize"]
+        )
+        infoStack.addTrackingArea(area)
+        durationSizeTracker = area
     }
 
     private var allBadges: [BadgeView] {
@@ -129,17 +130,23 @@ extension VideoFileCellView {
         }
     }
 
-    // MARK: - Duration / file-size hover underline
+    // MARK: - Metadata-label hover underline
 
-    /// Updates `durationLabel` + `sizeLabel` to show an underline on hover and
-    /// switches the cursor to the pointing hand so the text reads as clickable.
-    /// The click itself is handled in `mouseDown` in the main file — it routes
-    /// to `.showMetadata`.
+    /// Labels that open the metadata window when clicked — kept in one place so
+    /// the hover style and hit-test stay in sync.
+    private var metadataHoverLabels: [NSTextField] {
+        [durationLabel, sizeLabel, videoFormatLabel, outputSizeLabel]
+    }
+
+    /// Applies an underline + pointing-hand cursor on hover to every clickable
+    /// metadata label. The click itself is handled in `mouseDown` in the main
+    /// file — it routes to `.showMetadata`.
     func setDurationSizeHovered(_ hovered: Bool) {
         guard isDurationSizeHovered != hovered else { return }
         isDurationSizeHovered = hovered
-        applyDurationSizeUnderline(durationLabel, hovered: hovered)
-        applyDurationSizeUnderline(sizeLabel, hovered: hovered)
+        for label in metadataHoverLabels {
+            applyDurationSizeUnderline(label, hovered: hovered)
+        }
         if hovered {
             NSCursor.pointingHand.push()
         } else {
@@ -147,27 +154,41 @@ extension VideoFileCellView {
         }
     }
 
-    /// Re-applies the hover underline if the cursor is still over the duration/size
-    /// area — `configure()` sets `stringValue` directly, which wipes any
-    /// `attributedStringValue` attributes.
+    /// Re-applies the hover underline if the cursor is still over the hover
+    /// area — `configure()` reassigns `stringValue` directly, which wipes any
+    /// `attributedStringValue` attributes set for the underline style.
     func refreshDurationSizeHoverStyle() {
         guard isDurationSizeHovered else { return }
-        applyDurationSizeUnderline(durationLabel, hovered: true)
-        applyDurationSizeUnderline(sizeLabel, hovered: true)
+        for label in metadataHoverLabels {
+            applyDurationSizeUnderline(label, hovered: true)
+        }
     }
 
     private func applyDurationSizeUnderline(_ label: NSTextField, hovered: Bool) {
         let text = label.stringValue
         guard !text.isEmpty else { return }
         if hovered {
-            var attrs: [NSAttributedString.Key: Any] = [
-                .underlineStyle: NSUnderlineStyle.single.rawValue
-            ]
-            if let font = label.font { attrs[.font] = font }
-            if let color = label.textColor { attrs[.foregroundColor] = color }
-            label.attributedStringValue = NSAttributedString(string: text, attributes: attrs)
+            // videoFormatLabel uses a pre-baked attributedStringValue to colour
+            // the "Interlaced" suffix; preserve all of those attributes and
+            // just overlay the underline style.
+            let base = label.attributedStringValue.length == text.count
+                ? NSMutableAttributedString(attributedString: label.attributedStringValue)
+                : {
+                    var attrs: [NSAttributedString.Key: Any] = [:]
+                    if let font = label.font { attrs[.font] = font }
+                    if let color = label.textColor { attrs[.foregroundColor] = color }
+                    return NSMutableAttributedString(string: text, attributes: attrs)
+                }()
+            base.addAttribute(
+                .underlineStyle,
+                value: NSUnderlineStyle.single.rawValue,
+                range: NSRange(location: 0, length: base.length)
+            )
+            label.attributedStringValue = base
         } else {
-            // Reassign stringValue clears attributedStringValue and restores default rendering.
+            // Reassign stringValue to drop any overlaid underline. Call sites
+            // that rely on rich attributes (e.g. updateVideoFormatLabel) will
+            // re-apply them in the next configure() pass.
             label.stringValue = text
         }
     }

@@ -37,6 +37,9 @@ struct CameraMetadata: Codable, Sendable, Equatable {
     let captureGammaEquation: String?
     let recordingModeType: String?
     let captureFps: String?
+    /// Clip creation date as reported by the camera (distinct from container or
+    /// filesystem dates — this is the camera's own clock at the time of capture).
+    let creationDate: Date?
     /// Paired `<Meta name="..." content="..."/>` entries from Sony NRT
     /// `<UserDescriptiveMetadata>` (e.g. user-supplied Creator / Description / Location).
     let userDescriptiveMetadata: [UserMetadataEntry]?
@@ -50,6 +53,7 @@ struct CameraMetadata: Codable, Sendable, Equatable {
         captureGammaEquation: nil,
         recordingModeType: nil,
         captureFps: nil,
+        creationDate: nil,
         userDescriptiveMetadata: nil
     )
 
@@ -63,7 +67,42 @@ struct CameraMetadata: Codable, Sendable, Equatable {
         captureGammaEquation != nil ||
         recordingModeType != nil ||
         captureFps != nil ||
+        creationDate != nil ||
         (userDescriptiveMetadata?.isEmpty == false)
+    }
+}
+
+/// Provenance-tagged timecode value. Containers can embed timecode in multiple
+/// independent places (QuickTime tmcd track, QT udta, XMP, MXF packages, Sony NRT);
+/// keeping each surface separate lets a reviewer spot disagreements.
+struct TimecodeEntry: Codable, Sendable, Equatable, Identifiable {
+    let value: String
+    let source: TimecodeSource
+    let frameRate: Double?
+
+    var id: String { "\(source.rawValue):\(value)" }
+}
+
+enum TimecodeSource: String, Codable, Sendable, Equatable {
+    case tmcdTrack
+    case quicktimeUdta
+    case xmpDM
+    case xmpDMAlt
+    case mxfMaterialPackage
+    case mxfFilePackage
+    case sonyNRT
+
+    /// Human-readable label for UI display.
+    var label: String {
+        switch self {
+        case .tmcdTrack: return "QuickTime Timecode Track"
+        case .quicktimeUdta: return "QuickTime User Data"
+        case .xmpDM: return "XMP Start"
+        case .xmpDMAlt: return "XMP Alternate"
+        case .mxfMaterialPackage: return "MXF Material Package"
+        case .mxfFilePackage: return "MXF File Package"
+        case .sonyNRT: return "Sony NRT"
+        }
     }
 }
 

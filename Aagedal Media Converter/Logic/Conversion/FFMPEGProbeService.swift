@@ -18,7 +18,7 @@ import Foundation
 import OSLog
 import SwiftExif
 
-/// Probe facade preserved for existing callers (ffprobe removed in favour of SwiftExif 1.2.0).
+/// Probe facade preserved for existing callers (ffprobe removed in favour of SwiftExif).
 enum FFMPEGProbeService {
     struct AudioStreamInfo: Sendable {
         let index: Int?
@@ -76,7 +76,7 @@ enum FFMPEGProbeService {
 
     // MARK: - Chapters
 
-    /// Fetches chapter markers for `url` via SwiftExif 1.3.0's container parsers.
+    /// Fetches chapter markers for `url` via SwiftExif's container parsers.
     ///
     /// Supports MP4/MOV `chpl` boxes, QuickTime text-track chapters, and
     /// Matroska `Chapters` master elements. Returns an empty array for

@@ -128,11 +128,18 @@ enum MetadataExporter {
             general["sizeBytes"] = size
             general["sizeHuman"] = ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
         }
-        if let creationDate = try? item.url.resourceValues(forKeys: [.creationDateKey]).creationDate {
-            general["creationDate"] = ISO8601DateFormatter().string(from: creationDate)
+        let formatter = ISO8601DateFormatter()
+        let creationDate = item.metadata?.containerCreationDate
+            ?? (try? item.url.resourceValues(forKeys: [.creationDateKey]).creationDate).flatMap { $0 }
+        if let creationDate {
+            general["creationDate"] = formatter.string(from: creationDate)
+            general["creationDateSource"] = item.metadata?.containerCreationDate != nil ? "container" : "filesystem"
         }
-        if let modificationDate = try? item.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate {
-            general["modificationDate"] = ISO8601DateFormatter().string(from: modificationDate)
+        let modificationDate = item.metadata?.containerModificationDate
+            ?? (try? item.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate).flatMap { $0 }
+        if let modificationDate {
+            general["modificationDate"] = formatter.string(from: modificationDate)
+            general["modificationDateSource"] = item.metadata?.containerModificationDate != nil ? "container" : "filesystem"
         }
 
         if let m = item.metadata {
@@ -141,8 +148,26 @@ enum MetadataExporter {
             if let v = m.duration { general["duration"] = v }
             if let v = m.bitRate { general["bitRate"] = v }
             if let v = m.timecode { general["timecode"] = v }
+            if !m.timecodes.isEmpty {
+                general["timecodes"] = m.timecodes.map { tc -> [String: Any] in
+                    var dict: [String: Any] = [
+                        "value": tc.value,
+                        "source": tc.source.rawValue
+                    ]
+                    if let fr = tc.frameRate { dict["frameRate"] = fr }
+                    return dict
+                }
+            }
             if let v = m.frameCount { general["frameCount"] = v }
+            if let v = m.title { general["title"] = v }
+            if let v = m.artist { general["artist"] = v }
+            if let lat = m.gpsLatitude, let lon = m.gpsLongitude {
+                var gps: [String: Any] = ["latitude": lat, "longitude": lon]
+                if let alt = m.gpsAltitude { gps["altitude"] = alt }
+                general["gps"] = gps
+            }
             if let v = m.comment { general["comment"] = v }
+            if !m.warnings.isEmpty { general["warnings"] = m.warnings }
         }
         if !general.isEmpty {
             root["general"] = general
@@ -177,12 +202,15 @@ enum MetadataExporter {
         if let v = stream.codec { dict["codec"] = v }
         if let v = stream.codecLongName { dict["codecLongName"] = v }
         if let v = stream.profile { dict["profile"] = v }
+        if let v = stream.title { dict["title"] = v }
         if let v = stream.width { dict["width"] = v }
         if let v = stream.height { dict["height"] = v }
         if let v = stream.frameRate { dict["frameRate"] = v.stringValue }
         if let v = stream.pixelAspectRatio { dict["pixelAspectRatio"] = v.stringValue }
         if let v = stream.displayAspectRatio { dict["displayAspectRatio"] = v.stringValue }
         if let v = stream.bitDepth { dict["bitDepth"] = v }
+        if let v = stream.bitRate { dict["bitRate"] = v }
+        if let v = stream.duration { dict["duration"] = v }
         if let v = stream.chromaSubsampling { dict["chromaSubsampling"] = v }
         if let v = stream.chromaLocation { dict["chromaLocation"] = v }
         if let v = stream.pixelFormat { dict["pixelFormat"] = v }
@@ -193,6 +221,8 @@ enum MetadataExporter {
         if let v = stream.fieldOrder { dict["fieldOrder"] = v }
         if let v = stream.isInterlaced { dict["isInterlaced"] = v }
         dict["hasAlpha"] = stream.hasAlpha
+        dict["isDefault"] = stream.isDefault
+        dict["isForced"] = stream.isForced
         return dict
     }
 
@@ -220,8 +250,10 @@ enum MetadataExporter {
         if let v = stream.codecLongName { dict["codecLongName"] = v }
         if let v = stream.languageCode { dict["language"] = v }
         if let v = stream.title { dict["title"] = v }
+        if let v = stream.duration { dict["duration"] = v }
         dict["isDefault"] = stream.isDefault
         dict["isForced"] = stream.isForced
+        dict["isHearingImpaired"] = stream.isHearingImpaired
         return dict
     }
 
@@ -235,6 +267,9 @@ enum MetadataExporter {
         if let v = camera.recordingModeType { dict["recordingMode"] = v }
         if let v = camera.captureFps { dict["captureFps"] = v }
         if let v = camera.timeZone { dict["timeZone"] = v }
+        if let date = camera.creationDate {
+            dict["creationDate"] = ISO8601DateFormatter().string(from: date)
+        }
         if let entries = camera.userDescriptiveMetadata, !entries.isEmpty {
             dict["userDescriptiveMetadata"] = entries.map { [
                 "name": $0.name,

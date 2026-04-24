@@ -123,8 +123,6 @@
 		8EEE451C2EBF4BFD0049F017 /* PreviewAssetGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE451B2EBF4BFD0049F017 /* PreviewAssetGenerator.swift */; };
 		8EEE451E2EBF53550049F017 /* TrimTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE451D2EBF53550049F017 /* TrimTimelineView.swift */; };
 		8EEE45202EBF81FD0049F017 /* VideoMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE451F2EBF81FD0049F017 /* VideoMetadataService.swift */; };
-		8EEE45222EBF84420049F017 /* VideoMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE45212EBF84420049F017 /* VideoMetadataView.swift */; };
-		8EEE45232EBF84430049F017 /* MetadataComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE45242EBF84430049F017 /* MetadataComparisonView.swift */; };
 		8EEE452B2EC139000049F017 /* ExportPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452A2EC138FA0049F017 /* ExportPreset.swift */; };
 		8EEE452D2EC1390F0049F017 /* FFMPEGCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */; };
 		8EEE452F2EC139190049F017 /* FFMPEGProbeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452E2EC139120049F017 /* FFMPEGProbeService.swift */; };
@@ -349,8 +347,6 @@
 		8EEE451B2EBF4BFD0049F017 /* PreviewAssetGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewAssetGenerator.swift; sourceTree = "<group>"; };
 		8EEE451D2EBF53550049F017 /* TrimTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrimTimelineView.swift; sourceTree = "<group>"; };
 		8EEE451F2EBF81FD0049F017 /* VideoMetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataService.swift; sourceTree = "<group>"; };
-		8EEE45212EBF84420049F017 /* VideoMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataView.swift; sourceTree = "<group>"; };
-		8EEE45242EBF84430049F017 /* MetadataComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataComparisonView.swift; sourceTree = "<group>"; };
 		8EEE452A2EC138FA0049F017 /* ExportPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPreset.swift; sourceTree = "<group>"; };
 		8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGCommandBuilder.swift; sourceTree = "<group>"; };
 		8EEE452E2EC139120049F017 /* FFMPEGProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGProbeService.swift; sourceTree = "<group>"; };
@@ -804,8 +800,6 @@
 				8DB61275F62951C0011F36D8 /* MetadataWindowContent.swift */,
 				F82CC3B9944D3DAF6B3F9C93 /* ComparisonMetadataView.swift */,
 				74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */,
-				8EEE45242EBF84430049F017 /* MetadataComparisonView.swift */,
-				8EEE45212EBF84420049F017 /* VideoMetadataView.swift */,
 			);
 			path = MetadataView;
 			sourceTree = "<group>";
@@ -1129,8 +1123,6 @@
 				8E545D852C33FD610088C274 /* DocumentPickerView.swift in Sources */,
 				8EEE451A2EBEBCB20049F017 /* RangeSlider.swift in Sources */,
 				8ECEBC162ED766B500F1F67C /* CropModels.swift in Sources */,
-				8EEE45222EBF84420049F017 /* VideoMetadataView.swift in Sources */,
-				8EEE45232EBF84430049F017 /* MetadataComparisonView.swift in Sources */,
 				8ECEBC182ED766D200F1F67C /* CropService.swift in Sources */,
 				8ECEBC202ED8782800F1F67C /* MetadataSettingsView.swift in Sources */,
 				8EE0BB9E2E089F520096171D /* DockProgressView.swift in Sources */,

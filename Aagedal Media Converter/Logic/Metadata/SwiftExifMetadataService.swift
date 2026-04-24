@@ -144,6 +144,7 @@ actor SwiftExifMetadataService {
                     ? String(format: "%.0f", fps)
                     : String(format: "%.3f", fps)
             },
+            creationDate: cam.creationDate,
             userDescriptiveMetadata: userMetadata
         )
     }

@@ -108,7 +108,16 @@ struct VideoMetadata: Equatable, Sendable {
     let bitRate: Int64?
     let comment: String?
     let timecode: String?
+    let timecodes: [TimecodeEntry]
     let frameCount: Int?
+    let containerCreationDate: Date?
+    let containerModificationDate: Date?
+    let title: String?
+    let artist: String?
+    let gpsLatitude: Double?
+    let gpsLongitude: Double?
+    let gpsAltitude: Double?
+    let warnings: [String]
 
     struct VideoStream: Equatable, Sendable {
         let codec: String?
@@ -122,6 +131,8 @@ struct VideoMetadata: Equatable, Sendable {
         let displayAspectRatio: Ratio?
         let frameRate: FrameRate?
         let bitDepth: Int?
+        let bitRate: Int64?
+        let duration: Double?
         let chromaSubsampling: String?
         let colorPrimaries: String?
         let colorTransfer: String?
@@ -130,6 +141,9 @@ struct VideoMetadata: Equatable, Sendable {
         let chromaLocation: String?
         let fieldOrder: String?
         let isInterlaced: Bool?
+        let title: String?
+        let isDefault: Bool
+        let isForced: Bool
 
         /// Calculates chroma channel resolution based on subsampling
         /// Returns nil for 4:4:4 (same as luma), grayscale, or unknown subsampling
@@ -179,6 +193,8 @@ struct VideoMetadata: Equatable, Sendable {
         let codecLongName: String?
         let isDefault: Bool
         let isForced: Bool
+        let isHearingImpaired: Bool
+        let duration: Double?
     }
 
     let videoStreams: [VideoStream]
@@ -499,6 +515,14 @@ actor VideoMetadataService {
             return nil
         }()
 
+        let timecodes = meta.timecodes.map { tc in
+            TimecodeEntry(
+                value: tc.value,
+                source: Self.mapTimecodeSource(tc.source),
+                frameRate: tc.frameRate
+            )
+        }
+
         return VideoMetadata(
             duration: meta.duration,
             formatName: meta.format.rawValue,
@@ -507,11 +531,32 @@ actor VideoMetadataService {
             bitRate: meta.bitRate.map { Int64($0) },
             comment: meta.comment,
             timecode: meta.timecode ?? primary?.timecode,
+            timecodes: timecodes,
             frameCount: frameCount,
+            containerCreationDate: meta.creationDate,
+            containerModificationDate: meta.modificationDate,
+            title: meta.title,
+            artist: meta.artist,
+            gpsLatitude: meta.gpsLatitude,
+            gpsLongitude: meta.gpsLongitude,
+            gpsAltitude: meta.gpsAltitude,
+            warnings: meta.warnings,
             videoStreams: video,
             audioStreams: audio,
             subtitleStreams: subtitles
         )
+    }
+
+    private static func mapTimecodeSource(_ source: SwiftExif.TimecodeSource) -> TimecodeSource {
+        switch source {
+        case .tmcdTrack: return .tmcdTrack
+        case .quicktimeUdta: return .quicktimeUdta
+        case .xmpDM: return .xmpDM
+        case .xmpDMAlt: return .xmpDMAlt
+        case .mxfMaterialPackage: return .mxfMaterialPackage
+        case .mxfFilePackage: return .mxfFilePackage
+        case .sonyNRT: return .sonyNRT
+        }
     }
 
     static func mapVideoStream(_ stream: SwiftExif.VideoStream) -> VideoMetadata.VideoStream {
@@ -581,6 +626,8 @@ actor VideoMetadataService {
             displayAspectRatio: dar,
             frameRate: frameRate,
             bitDepth: bitDepth,
+            bitRate: stream.bitRate.map { Int64($0) },
+            duration: stream.duration,
             chromaSubsampling: chromaSubsampling,
             colorPrimaries: colorPrimaries,
             colorTransfer: colorTransfer,
@@ -588,7 +635,10 @@ actor VideoMetadataService {
             colorRange: colorRange,
             chromaLocation: stream.chromaLocation,
             fieldOrder: fieldOrderString,
-            isInterlaced: interlaced
+            isInterlaced: interlaced,
+            title: stream.title,
+            isDefault: stream.isDefault ?? false,
+            isForced: stream.isForced ?? false
         )
     }
 
@@ -617,7 +667,9 @@ actor VideoMetadataService {
             codec: stream.codec,
             codecLongName: stream.codecName,
             isDefault: stream.isDefault ?? false,
-            isForced: stream.isForced ?? false
+            isForced: stream.isForced ?? false,
+            isHearingImpaired: stream.isHearingImpaired ?? false,
+            duration: stream.duration
         )
     }
 }

@@ -189,6 +189,12 @@ struct ComparisonMetadataView: View {
             comparisonRow("File Size") { item in
                 formattedSize(for: item)
             }
+            comparisonRow("Title") { item in
+                item.metadata?.title
+            }
+            comparisonRow("Artist") { item in
+                item.metadata?.artist
+            }
             comparisonRow("Date Created") { item in
                 formattedCreationDate(for: item)
             }
@@ -198,48 +204,139 @@ struct ComparisonMetadataView: View {
             comparisonRow("Bit Rate") { item in
                 formatBitRate(item.metadata?.bitRate)
             }
+            comparisonRow("GPS") { item in
+                formattedGPS(for: item)
+            }
+            comparisonRow("GPS Altitude") { item in
+                formattedGPSAltitude(for: item)
+            }
+            // Timecodes: when multiple sources carry distinct values, emit a
+            // row per source so the reader can spot disagreements.
+            let maxTimecodeSources = displayItems
+                .map { $0.metadata?.timecodes.count ?? 0 }
+                .max() ?? 0
+            if maxTimecodeSources <= 1 {
+                comparisonRow("Timecode") { item in
+                    item.metadata?.timecodes.first?.value ?? item.metadata?.timecode
+                }
+            } else {
+                let sources = uniqueTimecodeSources()
+                ForEach(sources, id: \.self) { source in
+                    comparisonRow("Timecode (\(source.label))") { item in
+                        item.metadata?.timecodes.first { $0.source == source }?.value
+                    }
+                }
+            }
             comparisonRow("Comment") { item in
                 item.metadataComment
             }
+            // Warnings: emit one row per unique warning text; items that don't
+            // carry that warning show a dash.
+            let allWarnings = uniqueWarnings()
+            ForEach(allWarnings.indices, id: \.self) { idx in
+                comparisonRow(idx == 0 ? "Warnings" : "") { item in
+                    let warning = allWarnings[idx]
+                    return item.metadata?.warnings.contains(warning) == true ? warning : nil
+                }
+            }
         }
+    }
+
+    private func uniqueTimecodeSources() -> [TimecodeSource] {
+        var seen: Set<TimecodeSource> = []
+        var ordered: [TimecodeSource] = []
+        for item in displayItems {
+            for entry in item.metadata?.timecodes ?? [] {
+                if seen.insert(entry.source).inserted {
+                    ordered.append(entry.source)
+                }
+            }
+        }
+        return ordered
+    }
+
+    private func uniqueWarnings() -> [String] {
+        var seen: Set<String> = []
+        var ordered: [String] = []
+        for item in displayItems {
+            for warning in item.metadata?.warnings ?? [] {
+                if seen.insert(warning).inserted {
+                    ordered.append(warning)
+                }
+            }
+        }
+        return ordered
     }
 
     // MARK: - C2PA Section
 
     private var c2paSection: some View {
         sectionView(title: "CONTENT AUTHENTICITY (C2PA)") {
-            comparisonRow("Note") { _ in
-                "Presence only. This app does not verify C2PA signatures."
-            }
-            verificationLinksRow
-
             comparisonRow("Content Credentials") { item in
                 c2paStatusValue(for: item)
             }
-            comparisonRow("Signature") { item in
-                guard let c2pa = c2paMetadata(for: item) else { return nil }
-                return c2pa.hasSignature ? "Present" : "Not found"
-            }
-            comparisonRow("Claim Generator Info Name") { item in
-                c2paMetadata(for: item)?.claimGeneratorInfoName
-            }
-            comparisonRow("Claim Generator") { item in
-                c2paMetadata(for: item)?.claimGenerator
-            }
-            comparisonRow("Actions Action") { item in
-                c2paMetadata(for: item)?.actionsAction
-            }
-            comparisonRow("Actions Digital Source Type") { item in
-                c2paMetadata(for: item)?.actionsDigitalSourceType
-            }
-            comparisonRow("Manifest Store") { item in
-                c2paMetadata(for: item)?.manifestStore
-            }
-            comparisonRow("Assertions") { item in
-                guard let assertions = c2paMetadata(for: item)?.assertions else { return nil }
-                return assertions.joined(separator: ", ")
+            if anyItemHasC2PA {
+                c2paDisclosureView
+                comparisonRow("Signature") { item in
+                    guard let c2pa = c2paMetadata(for: item) else { return nil }
+                    return c2pa.hasSignature ? "Present" : "Not found"
+                }
+                comparisonRow("Claim Generator Info Name") { item in
+                    c2paMetadata(for: item)?.claimGeneratorInfoName
+                }
+                comparisonRow("Claim Generator") { item in
+                    c2paMetadata(for: item)?.claimGenerator
+                }
+                comparisonRow("Actions Action") { item in
+                    c2paMetadata(for: item)?.actionsAction
+                }
+                comparisonRow("Actions Digital Source Type") { item in
+                    c2paMetadata(for: item)?.actionsDigitalSourceType
+                }
+                comparisonRow("Manifest Store") { item in
+                    c2paMetadata(for: item)?.manifestStore
+                }
+                comparisonRow("Assertions") { item in
+                    guard let assertions = c2paMetadata(for: item)?.assertions else { return nil }
+                    return assertions.joined(separator: ", ")
+                }
             }
         }
+    }
+
+    /// True when any displayed item carries C2PA content credentials.
+    private var anyItemHasC2PA: Bool {
+        displayItems.contains { c2paMetadata(for: $0)?.hasContentCredentials == true }
+    }
+
+    /// Full-width disclosure note + verification links shown only when at least
+    /// one displayed item has content credentials.
+    private var c2paDisclosureView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Presence only. This app does not verify C2PA signatures.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text("Verification Resources")
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
+
+            ForEach(verificationLinks, id: \.title) { link in
+                Link(link.title, destination: link.url)
+                    .font(.subheadline)
+                    .foregroundColor(.accentColor)
+            }
+        }
+        .frame(width: totalRowWidth, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+
+    private var verificationLinks: [(title: String, url: URL)] {
+        [
+            ("Content Credentials", URL(string: "https://verify.contentauthenticity.org/")!),
+            ("Adobe Content Authenticity", URL(string: "https://contentauthenticity.adobe.com/inspect")!),
+            ("Sony Self Checker", URL(string: "https://digitalsignatureself-checker.authenticity.sony.net")!)
+        ]
     }
 
     // MARK: - Camera Section
@@ -272,6 +369,10 @@ struct ComparisonMetadataView: View {
             }
             comparisonRow("Capture FPS") { item in
                 cameraMetadata(for: item)?.captureFps
+            }
+            comparisonRow("Clip Creation") { item in
+                guard let date = cameraMetadata(for: item)?.creationDate else { return nil }
+                return Self.dateFormatter.string(from: date)
             }
             comparisonRow("User Metadata") { item in
                 guard let entries = cameraMetadata(for: item)?.userDescriptiveMetadata,
@@ -333,6 +434,11 @@ struct ComparisonMetadataView: View {
                   streamIndex < streams.count else { return nil }
             return streams[streamIndex].profile
         }
+        comparisonRow("Track Title") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].title
+        }
         comparisonRow("Resolution") { item in
             if streamIndex == 0 {
                 return item.videoResolutionDescription
@@ -362,14 +468,16 @@ struct ComparisonMetadataView: View {
             comparisonRow("Frame Count") { item in
                 item.metadata?.frameCount.map(String.init)
             }
-            comparisonRow("Timecode") { item in
-                item.metadata?.timecode
-            }
         }
         comparisonRow("Bit Depth") { item in
             guard let streams = item.metadata?.videoStreams,
                   streamIndex < streams.count else { return nil }
             return streams[streamIndex].bitDepth.map { "\($0)-bit" }
+        }
+        comparisonRow("Bit Rate") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return formatBitRate(streams[streamIndex].bitRate)
         }
         comparisonRow("Chroma Subsampling") { item in
             guard let streams = item.metadata?.videoStreams,
@@ -420,6 +528,21 @@ struct ComparisonMetadataView: View {
             guard let streams = item.metadata?.videoStreams,
                   streamIndex < streams.count else { return nil }
             return formattedScanType(streams[streamIndex])
+        }
+        comparisonRow("Field Order") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return formattedFieldOrder(streams[streamIndex])
+        }
+        comparisonRow("Default") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].isDefault ? "Yes" : nil
+        }
+        comparisonRow("Forced") { item in
+            guard let streams = item.metadata?.videoStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].isForced ? "Yes" : nil
         }
     }
 
@@ -573,6 +696,11 @@ struct ComparisonMetadataView: View {
                   streamIndex < streams.count else { return nil }
             return streams[streamIndex].isForced ? "Yes" : nil
         }
+        comparisonRow("Hearing Impaired (SDH)") { item in
+            guard let streams = item.metadata?.subtitleStreams,
+                  streamIndex < streams.count else { return nil }
+            return streams[streamIndex].isHearingImpaired ? "Yes" : nil
+        }
     }
 
     // MARK: - C2PA Helpers
@@ -711,50 +839,28 @@ struct ComparisonMetadataView: View {
     @ViewBuilder
     private func sectionView<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: columnSpacing) {
-                Text(title)
-                    .font(.headline)
-                    .fontWeight(.bold)
-                    .foregroundColor(.primary)
-                    .frame(width: labelColumnWidth, alignment: .leading)
-
-                // Empty cells for alignment
-                ForEach(displayItems, id: \.id) { _ in
-                    Text("")
-                        .frame(width: valueColumnWidth, alignment: .leading)
-                }
-            }
-            .padding(.bottom, 6)
+            // Span the full grid width (label + all value columns) so long
+            // titles like "CONTENT AUTHENTICITY (C2PA)" don't wrap into the
+            // 140pt label column.
+            Text(title)
+                .font(.headline)
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: totalRowWidth, alignment: .leading)
+                .padding(.bottom, 6)
 
             content()
         }
     }
 
-    private var verificationLinksRow: some View {
-        let links: [(title: String, url: URL)] = [
-            ("Content Credentials", URL(string: "https://verify.contentauthenticity.org/")!),
-            ("Adobe Content Authenticity", URL(string: "https://contentauthenticity.adobe.com/inspect")!),
-            ("Sony Self Checker", URL(string: "https://digitalsignatureself-checker.authenticity.sony.net")!)
-        ]
-
-        return HStack(alignment: .top, spacing: columnSpacing) {
-            Text("Verification Resources")
-                .font(.subheadline.weight(.semibold))
-                .frame(width: labelColumnWidth, alignment: .leading)
-
-            ForEach(displayItems, id: \.id) { _ in
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(links, id: \.title) { link in
-                        Link(link.title, destination: link.url)
-                            .font(.subheadline)
-                            .foregroundColor(.accentColor)
-                    }
-                }
-                .frame(width: valueColumnWidth, alignment: .leading)
-                .padding(.vertical, 2)
-            }
-        }
-        .padding(.vertical, 2)
+    /// Total width of the aligned grid (label column + all value columns with their spacing).
+    private var totalRowWidth: CGFloat {
+        let valueCount = max(1, displayItems.count)
+        return labelColumnWidth
+            + columnSpacing
+            + (valueColumnWidth * CGFloat(valueCount))
+            + columnSpacing * CGFloat(max(0, valueCount - 1))
     }
 
     @ViewBuilder
@@ -806,6 +912,9 @@ struct ComparisonMetadataView: View {
     }
 
     private func formattedCreationDate(for item: VideoItem) -> String? {
+        if let containerDate = item.metadata?.containerCreationDate {
+            return Self.dateFormatter.string(from: containerDate)
+        }
         guard let resourceValues = try? item.url.resourceValues(forKeys: [.creationDateKey]),
               let creationDate = resourceValues.creationDate else {
             return nil
@@ -814,11 +923,24 @@ struct ComparisonMetadataView: View {
     }
 
     private func formattedModificationDate(for item: VideoItem) -> String? {
+        if let containerDate = item.metadata?.containerModificationDate {
+            return Self.dateFormatter.string(from: containerDate)
+        }
         guard let resourceValues = try? item.url.resourceValues(forKeys: [.contentModificationDateKey]),
               let modificationDate = resourceValues.contentModificationDate else {
             return nil
         }
         return Self.dateFormatter.string(from: modificationDate)
+    }
+
+    private func formattedGPS(for item: VideoItem) -> String? {
+        guard let lat = item.metadata?.gpsLatitude, let lon = item.metadata?.gpsLongitude else { return nil }
+        return String(format: "%.6f, %.6f", lat, lon)
+    }
+
+    private func formattedGPSAltitude(for item: VideoItem) -> String? {
+        guard let alt = item.metadata?.gpsAltitude else { return nil }
+        return String(format: "%.1f m", alt)
     }
 
     private func formatBitRate(_ value: Int64?) -> String? {
@@ -849,6 +971,21 @@ struct ComparisonMetadataView: View {
         guard let stream else { return nil }
         guard let isInterlaced = stream.isInterlaced else { return stream.fieldOrder }
         return isInterlaced ? "Interlaced" : "Progressive"
+    }
+
+    /// Maps the ffprobe-style `fieldOrder` string ("progressive", "tt", "bb",
+    /// "unknown") to a reader-friendly label. Returns nil for progressive
+    /// sources so the row hides — the Scan Type row already says "Progressive"
+    /// and a duplicate row adds no information.
+    private func formattedFieldOrder(_ stream: VideoMetadata.VideoStream) -> String? {
+        guard let order = stream.fieldOrder else { return nil }
+        switch order {
+        case "tt": return "Top Field First (TFF)"
+        case "bb": return "Bottom Field First (BFF)"
+        case "progressive": return nil
+        case "unknown": return nil
+        default: return order
+        }
     }
 
     private static let byteFormatter: ByteCountFormatter = {

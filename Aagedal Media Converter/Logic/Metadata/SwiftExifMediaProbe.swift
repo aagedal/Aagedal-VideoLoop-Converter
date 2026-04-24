@@ -7,13 +7,15 @@ import Foundation
 import OSLog
 import SwiftExif
 
-/// In-process probe backed by SwiftExif 1.2.0 — replaces ffprobe for duration,
+/// In-process probe backed by SwiftExif — replaces ffprobe for duration,
 /// stream topology, and full metadata. Falls back to AVFoundation for container
 /// formats SwiftExif does not parse (FLV, WAV, raw AAC).
 enum SwiftExifMediaProbe {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "SwiftExifMediaProbe")
 
-    /// Extensions SwiftExif 1.2.0 can read (video containers + standalone audio).
+    /// Extensions SwiftExif can read (video containers + standalone audio).
+    /// Kept in sync with `SwiftExif.FormatDetector.detectVideoFromExtension` /
+    /// `detectAudioFromExtension`.
     static let swiftExifVideoExtensions: Set<String> = [
         "mp4", "mov", "m4v",
         "mxf",

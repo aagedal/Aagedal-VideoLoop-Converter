@@ -901,8 +901,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         if isFirstConfigure || prev?.formattedSize != config.formattedSize {
             sizeLabel.stringValue = config.formattedSize
         }
-        // Setting stringValue wipes any hover underline — reapply if still hovered.
-        refreshDurationSizeHoverStyle()
+        // Reapplied below after video-format / status-row updates have run,
+        // since those reassign attributedStringValue / stringValue on the
+        // other hover-enabled labels and would otherwise wipe the underline.
 
         // Source video format (resolution · fps · [Interlaced])
         if isFirstConfigure
@@ -967,6 +968,11 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             || prev?.scheduledDownloadTime != config.scheduledDownloadTime {
             updateStatusRow(config: config)
         }
+
+        // Reapply the hover underline on every metadata label — each of the
+        // updates above reassigns stringValue / attributedStringValue, which
+        // drops the overlay added in setDurationSizeHovered.
+        refreshDurationSizeHoverStyle()
 
         // Status capsule — colored pill
         if isFirstConfigure
@@ -1108,7 +1114,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         videoFormatLabel.isHidden = !visible
         guard visible else { return }
 
-        let baseText = parts.joined(separator: " · ")
+        let baseText = parts.joined(separator: " • ")
         let font = NSFont.systemFont(ofSize: 11)
         let attributed = NSMutableAttributedString(
             string: baseText,
@@ -1117,7 +1123,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         if config.videoIsInterlaced {
             if !baseText.isEmpty {
                 attributed.append(NSAttributedString(
-                    string: " · ",
+                    string: " • ",
                     attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
                 ))
             }

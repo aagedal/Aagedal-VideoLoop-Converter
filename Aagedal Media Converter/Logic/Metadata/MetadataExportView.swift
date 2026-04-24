@@ -6,8 +6,8 @@ import Foundation
 import SwiftUI
 
 /// Non-interactive SwiftUI view used by `MetadataExporter` to render a PDF
-/// snapshot of a `VideoItem`'s metadata. The layout mirrors `VideoMetadataView`
-/// but drops the chrome (close button, loading indicators, links).
+/// snapshot of a `VideoItem`'s metadata. The layout mirrors `ComparisonMetadataView`
+/// but drops the chrome (comparison columns, loading indicators, links).
 struct MetadataExportView: View {
     let item: VideoItem
 
@@ -107,15 +107,43 @@ struct MetadataExportView: View {
         if let bytes = metadata?.sizeBytes ?? Optional(item.size) {
             infoRow("File Size", value: ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
         }
-        if let date = try? item.url.resourceValues(forKeys: [.creationDateKey]).creationDate {
-            infoRow("Date Created", value: Self.dateFormatter.string(from: date))
+        infoRow("Title", value: metadata?.title)
+        infoRow("Artist", value: metadata?.artist)
+        let creationDate: Date? = metadata?.containerCreationDate
+            ?? (try? item.url.resourceValues(forKeys: [.creationDateKey]).creationDate)
+        if let creationDate {
+            infoRow("Date Created", value: Self.dateFormatter.string(from: creationDate))
         }
-        if let date = try? item.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate {
-            infoRow("Date Modified", value: Self.dateFormatter.string(from: date))
+        let modificationDate: Date? = metadata?.containerModificationDate
+            ?? (try? item.url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+        if let modificationDate {
+            infoRow("Date Modified", value: Self.dateFormatter.string(from: modificationDate))
         }
         infoRow("Bit Rate", value: Self.formatBitRate(metadata?.bitRate))
+        if let lat = metadata?.gpsLatitude, let lon = metadata?.gpsLongitude {
+            infoRow("GPS", value: String(format: "%.6f, %.6f", lat, lon))
+        }
+        if let alt = metadata?.gpsAltitude {
+            infoRow("GPS Altitude", value: String(format: "%.1f m", alt))
+        }
+        if let timecodes = metadata?.timecodes, !timecodes.isEmpty {
+            if timecodes.count == 1 {
+                infoRow("Timecode", value: timecodes[0].value)
+            } else {
+                ForEach(timecodes) { tc in
+                    infoRow("Timecode (\(tc.source.label))", value: tc.value)
+                }
+            }
+        } else {
+            infoRow("Timecode", value: metadata?.timecode)
+        }
         if let comment = item.metadataComment {
             infoRow("Comment", value: comment)
+        }
+        if let warnings = metadata?.warnings, !warnings.isEmpty {
+            ForEach(warnings.indices, id: \.self) { idx in
+                infoRow("Warning", value: warnings[idx])
+            }
         }
     }
 
@@ -123,6 +151,7 @@ struct MetadataExportView: View {
     private func videoRows(_ stream: VideoMetadata.VideoStream) -> some View {
         infoRow("Codec", value: stream.codecLongName ?? stream.codec)
         infoRow("Profile", value: stream.profile)
+        infoRow("Track Title", value: stream.title)
         if let w = stream.width, let h = stream.height {
             infoRow("Resolution", value: "\(w) × \(h)")
         }
@@ -132,6 +161,7 @@ struct MetadataExportView: View {
             infoRow("Frame Rate", value: fr.value.map { String(format: "%.3f fps", $0) } ?? fr.stringValue)
         }
         infoRow("Bit Depth", value: stream.bitDepth.map { "\($0)-bit" })
+        infoRow("Bit Rate", value: Self.formatBitRate(stream.bitRate))
         infoRow("Chroma Subsampling", value: stream.chromaSubsampling)
         infoRow("Pixel Format", value: stream.pixelFormat)
         infoRow("Alpha Channel", value: stream.hasAlpha ? "Yes" : "No")
@@ -145,6 +175,9 @@ struct MetadataExportView: View {
         } else {
             infoRow("Scan Type", value: stream.fieldOrder)
         }
+        infoRow("Field Order", value: Self.formattedFieldOrder(stream))
+        if stream.isDefault { infoRow("Default", value: "Yes") }
+        if stream.isForced { infoRow("Forced", value: "Yes") }
     }
 
     @ViewBuilder
@@ -166,6 +199,7 @@ struct MetadataExportView: View {
         infoRow("Title", value: stream.title)
         if stream.isDefault { infoRow("Default", value: "Yes") }
         if stream.isForced { infoRow("Forced", value: "Yes") }
+        if stream.isHearingImpaired { infoRow("Hearing Impaired (SDH)", value: "Yes") }
     }
 
     @ViewBuilder
@@ -178,6 +212,9 @@ struct MetadataExportView: View {
         infoRow("Gamma/Color Profile", value: camera.captureGammaEquation)
         infoRow("Recording Mode", value: camera.recordingModeType)
         infoRow("Capture FPS", value: camera.captureFps)
+        if let clipDate = camera.creationDate {
+            infoRow("Clip Creation", value: Self.dateFormatter.string(from: clipDate))
+        }
         if let entries = camera.userDescriptiveMetadata, !entries.isEmpty {
             ForEach(entries.indices, id: \.self) { idx in
                 let entry = entries[idx]
@@ -241,6 +278,16 @@ struct MetadataExportView: View {
     }
 
     // MARK: - Helpers
+
+    private static func formattedFieldOrder(_ stream: VideoMetadata.VideoStream) -> String? {
+        guard let order = stream.fieldOrder else { return nil }
+        switch order {
+        case "tt": return "Top Field First (TFF)"
+        case "bb": return "Bottom Field First (BFF)"
+        case "progressive", "unknown": return nil
+        default: return order
+        }
+    }
 
     private static func formatBitRate(_ value: Int64?) -> String? {
         guard let value, value > 0 else { return nil }
