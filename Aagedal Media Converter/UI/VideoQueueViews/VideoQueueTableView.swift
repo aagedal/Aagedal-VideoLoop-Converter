@@ -361,6 +361,13 @@ struct VideoQueueTableView: NSViewRepresentable {
         /// Prevents duplicate enqueues when the same cell scrolls in/out quickly.
         var inFlightThumbnailDecodes: Set<UUID> = []
 
+        /// Memoized fileExists lookups for concat output paths. `buildGroupCellConfiguration`
+        /// runs on every SwiftUI update (including per-item progress ticks), so an uncached
+        /// check hit the disk many times per second per visible waiting group — the main
+        /// scroll-lag culprit. TTL lets externally-deleted files be picked up reasonably soon.
+        private var concatExistsCache: [String: (exists: Bool, checkedAt: Date)] = [:]
+        private let concatExistsCacheTTL: TimeInterval = 5
+
         /// Previous item count per group, used to auto-reapply sequential naming
         /// when items are added to or removed from a group (mirrors the onChange
         /// watcher in the old SwiftUI EncodingGroupHeaderView).
@@ -1034,7 +1041,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 guard group.concatEnabled, group.status == .waiting,
                       let first = group.items.first,
                       let output = first.outputURL else { return (false, nil) }
-                let exists = FileManager.default.fileExists(atPath: output.path)
+                let exists = cachedConcatFileExists(at: output)
                 return (exists, exists ? output : nil)
             }()
 
@@ -1085,6 +1092,18 @@ struct VideoQueueTableView: NSViewRepresentable {
                 concatOutputExistingURL: existingURL,
                 uploadSummary: buildGroupUploadSummary(items: group.items)
             )
+        }
+
+        private func cachedConcatFileExists(at url: URL) -> Bool {
+            let path = url.path
+            let now = Date()
+            if let entry = concatExistsCache[path],
+               now.timeIntervalSince(entry.checkedAt) < concatExistsCacheTTL {
+                return entry.exists
+            }
+            let exists = FileManager.default.fileExists(atPath: path)
+            concatExistsCache[path] = (exists, now)
+            return exists
         }
 
         /// Looks up the raw thumbnail data for an item in either `droppedFiles` or any encoding group.
