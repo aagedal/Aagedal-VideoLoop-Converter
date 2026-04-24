@@ -73,13 +73,22 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     // Right side: content
     private let contentStack = NSStackView()
     private let topRow = NSStackView()
-    private let bottomRow = NSStackView()
+    private let metaRow = NSStackView()
+    private let statusRow = NSStackView()
+    private let buttonsRow = NSStackView()
+    private let presetRow = NSStackView()
     private let togglesStack = NSStackView()
     private let progressBar = NSProgressIndicator()
     private let uploadRow = NSStackView()
     private let uploadIcon = NSImageView()
     private let uploadLabel = NSTextField(labelWithString: "")
     private let uploadProgress = NSProgressIndicator()
+
+    // Status row (mirrors VideoFileCellView's status capsule + label)
+    private let statusCapsule = NSView()
+    private let capsuleIcon = NSImageView()
+    private let capsuleLabel = NSTextField(labelWithString: "")
+    private let statusLabel = NSTextField(labelWithString: "")
 
     // Top row
     private let folderIcon = NSImageView()
@@ -362,18 +371,32 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private func setupContentArea() {
         contentStack.orientation = .vertical
         contentStack.alignment = .leading
-        contentStack.spacing = 8
+        // Tight row spacing keeps the card at the original 170pt height even
+        // with the extra metadata, status, and preset rows sitting between
+        // the existing top/buttons/upload rows. `applyCompactLayout` halves
+        // it again for the 120pt compact card.
+        contentStack.spacing = 4
         contentStack.distribution = .fill
         contentStack.translatesAutoresizingMaskIntoConstraints = false
 
         setupTopRow()
-        setupBottomRow()
+        setupMetaRow()
+        setupStatusRow()
+        setupButtonsRow()
+        setupPresetRow()
         setupProgressBar()
         setupUploadRow()
 
+        // Visual order: name + concat output → clip count/duration → status capsule
+        // → progress bar → toggles + action buttons → preset popup → upload
+        // summary. Mirrors VideoFileCellView's vertical flow so single items and
+        // group headers read as siblings.
         contentStack.addArrangedSubview(topRow)
+        contentStack.addArrangedSubview(metaRow)
+        contentStack.addArrangedSubview(statusRow)
         contentStack.addArrangedSubview(progressBar)
-        contentStack.addArrangedSubview(bottomRow)
+        contentStack.addArrangedSubview(buttonsRow)
+        contentStack.addArrangedSubview(presetRow)
         contentStack.addArrangedSubview(uploadRow)
 
         // Wrap contentStack in a padded container, matching VideoFileCellView's right column.
@@ -388,8 +411,14 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
             topRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             topRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
-            bottomRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            bottomRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            metaRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            metaRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            statusRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            statusRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            buttonsRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            buttonsRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            presetRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
+            presetRow.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             progressBar.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             progressBar.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             uploadRow.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
@@ -430,28 +459,29 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         nameField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        clipCountLabel.font = .systemFont(ofSize: 12)
+        clipCountLabel.font = .systemFont(ofSize: 11)
         clipCountLabel.textColor = .secondaryLabelColor
-        clipCountLabel.setContentHuggingPriority(.defaultHigh, for: .horizontal)
-        clipCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        clipCountLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        clipCountLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        configureActionButton(concatOutputButton, symbolName: "magnifyingglass.circle.fill", tint: .systemBlue, action: #selector(concatOutputFinderClicked))
+        // Concat output icons (finder / copy path / drag / warning) match the
+        // natural symbol size used by VideoFileCellView's `finderButton`,
+        // `copyPathButton`, and `dragButton` — those buttons have no explicit
+        // width/height, so the encoding-group versions follow suit instead of
+        // the larger 28pt action-button footprint.
+        configureNaturalIconButton(concatOutputButton, symbolName: "magnifyingglass.circle.fill", tint: .systemBlue, action: #selector(concatOutputFinderClicked))
         concatOutputButton.toolTip = String(localized: "Show merged output in Finder")
 
-        configureActionButton(concatCopyPathButton, symbolName: "document.on.document", tint: .systemBlue, action: #selector(concatCopyPathClicked))
+        configureNaturalIconButton(concatCopyPathButton, symbolName: "doc.on.doc.fill", tint: .systemBlue, action: #selector(concatCopyPathClicked))
         concatCopyPathButton.toolTip = String(localized: "Copy merged output file path")
 
         concatDragButton.image = GroupSymbol.dragHandle
         concatDragButton.contentTintColor = .systemBlue
-        concatDragButton.imageScaling = .scaleProportionallyUpOrDown
         concatDragButton.toolTip = String(localized: "Drag to share the merged file")
         concatDragButton.translatesAutoresizingMaskIntoConstraints = false
-        // Match the 28pt action-button footprint so the drag handle aligns
-        // visually with its sibling buttons.
-        concatDragButton.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        concatDragButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        concatDragButton.setContentHuggingPriority(.required, for: .horizontal)
 
-        configureActionButton(concatWarningButton, symbolName: "magnifyingglass.circle.fill", tint: .systemOrange, action: #selector(concatWarningClicked))
+        configureNaturalIconButton(concatWarningButton, symbolName: "magnifyingglass.circle.fill", tint: .systemOrange, action: #selector(concatWarningClicked))
         concatWarningButton.toolTip = String(localized: "Output file already exists and will be overwritten. Click to show in Finder.")
 
         configureActionButton(addFilesButton, symbolName: "plus", tint: .secondaryLabelColor, action: #selector(addFilesClicked))
@@ -473,28 +503,92 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
         topRow.addArrangedSubview(folderIcon)
         topRow.addArrangedSubview(nameField)
-        topRow.addArrangedSubview(clipCountLabel)
         topRow.addArrangedSubview(concatOutputButton)
         topRow.addArrangedSubview(concatCopyPathButton)
         topRow.addArrangedSubview(concatDragButton)
         topRow.addArrangedSubview(concatWarningButton)
     }
 
-    private func setupBottomRow() {
-        bottomRow.orientation = .horizontal
-        bottomRow.alignment = .centerY
-        bottomRow.spacing = 12
-        bottomRow.distribution = .fill
-        bottomRow.translatesAutoresizingMaskIntoConstraints = false
+    private func setupMetaRow() {
+        // Mirrors VideoFileCellView's metadata row: clip count + total duration
+        // sit directly under the editable name field instead of being squeezed
+        // into the top-row alongside the action buttons.
+        metaRow.orientation = .horizontal
+        metaRow.alignment = .centerY
+        metaRow.spacing = 6
+        metaRow.distribution = .fill
+        metaRow.translatesAutoresizingMaskIntoConstraints = false
+        metaRow.addArrangedSubview(clipCountLabel)
+    }
 
-        presetPopup.translatesAutoresizingMaskIntoConstraints = false
-        presetPopup.controlSize = .small
-        presetPopup.font = .systemFont(ofSize: 11)
-        presetPopup.target = self
-        presetPopup.action = #selector(presetSelected(_:))
-        let width = presetPopup.widthAnchor.constraint(equalToConstant: 220)
-        width.isActive = true
-        presetWidthConstraint = width
+    private func setupStatusRow() {
+        // Status capsule + summary text — same shape as a single-item card so
+        // groups read at a glance ("WAITING", "ENCODING 3/8", "DONE").
+        statusRow.orientation = .horizontal
+        statusRow.alignment = .centerY
+        statusRow.spacing = 6
+        statusRow.distribution = .fill
+        statusRow.translatesAutoresizingMaskIntoConstraints = false
+
+        setupStatusCapsule()
+
+        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.isBezeled = false
+        statusLabel.isEditable = false
+        statusLabel.isSelectable = false
+        statusLabel.drawsBackground = false
+        statusLabel.lineBreakMode = .byTruncatingTail
+        statusLabel.maximumNumberOfLines = 1
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        statusRow.addArrangedSubview(statusCapsule)
+        statusRow.addArrangedSubview(statusLabel)
+    }
+
+    private func setupStatusCapsule() {
+        statusCapsule.wantsLayer = true
+        statusCapsule.layer?.cornerRadius = 10
+        statusCapsule.layer?.borderWidth = 1.2
+        statusCapsule.translatesAutoresizingMaskIntoConstraints = false
+
+        capsuleIcon.translatesAutoresizingMaskIntoConstraints = false
+        capsuleIcon.contentTintColor = .secondaryLabelColor
+        statusCapsule.addSubview(capsuleIcon)
+
+        capsuleLabel.font = .systemFont(ofSize: 9, weight: .bold)
+        capsuleLabel.textColor = .secondaryLabelColor
+        capsuleLabel.isBezeled = false
+        capsuleLabel.isEditable = false
+        capsuleLabel.isSelectable = false
+        capsuleLabel.drawsBackground = false
+        capsuleLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusCapsule.addSubview(capsuleLabel)
+
+        NSLayoutConstraint.activate([
+            capsuleIcon.leadingAnchor.constraint(equalTo: statusCapsule.leadingAnchor, constant: 7),
+            capsuleIcon.centerYAnchor.constraint(equalTo: statusCapsule.centerYAnchor),
+            capsuleIcon.widthAnchor.constraint(equalToConstant: 10),
+            capsuleIcon.heightAnchor.constraint(equalToConstant: 10),
+
+            capsuleLabel.leadingAnchor.constraint(equalTo: capsuleIcon.trailingAnchor, constant: 3),
+            capsuleLabel.trailingAnchor.constraint(equalTo: statusCapsule.trailingAnchor, constant: -8),
+            capsuleLabel.centerYAnchor.constraint(equalTo: statusCapsule.centerYAnchor),
+
+            statusCapsule.heightAnchor.constraint(equalToConstant: 20),
+        ])
+
+        statusCapsule.setContentHuggingPriority(.required, for: .horizontal)
+        statusCapsule.setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    private func setupButtonsRow() {
+        buttonsRow.orientation = .horizontal
+        buttonsRow.alignment = .centerY
+        buttonsRow.spacing = 6
+        buttonsRow.distribution = .fill
+        buttonsRow.translatesAutoresizingMaskIntoConstraints = false
 
         togglesStack.orientation = .horizontal
         togglesStack.alignment = .centerY
@@ -538,11 +632,37 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         spacer.translatesAutoresizingMaskIntoConstraints = false
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        bottomRow.addArrangedSubview(presetPopup)
-        bottomRow.addArrangedSubview(spacer)
-        bottomRow.addArrangedSubview(togglesStack)
-        bottomRow.addArrangedSubview(actionButtonDivider)
-        bottomRow.addArrangedSubview(actionsStack)
+        buttonsRow.addArrangedSubview(togglesStack)
+        buttonsRow.addArrangedSubview(spacer)
+        buttonsRow.addArrangedSubview(actionButtonDivider)
+        buttonsRow.addArrangedSubview(actionsStack)
+    }
+
+    private func setupPresetRow() {
+        // Codec preset lives on its own row below the buttons so the popup has
+        // breathing room — squeezing it next to the toggles made the dropdown
+        // truncate at smaller window widths.
+        presetRow.orientation = .horizontal
+        presetRow.alignment = .centerY
+        presetRow.spacing = 8
+        presetRow.distribution = .fill
+        presetRow.translatesAutoresizingMaskIntoConstraints = false
+
+        presetPopup.translatesAutoresizingMaskIntoConstraints = false
+        presetPopup.controlSize = .small
+        presetPopup.font = .systemFont(ofSize: 11)
+        presetPopup.target = self
+        presetPopup.action = #selector(presetSelected(_:))
+        let width = presetPopup.widthAnchor.constraint(equalToConstant: 220)
+        width.isActive = true
+        presetWidthConstraint = width
+
+        let trailingSpacer = NSView()
+        trailingSpacer.translatesAutoresizingMaskIntoConstraints = false
+        trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        presetRow.addArrangedSubview(presetPopup)
+        presetRow.addArrangedSubview(trailingSpacer)
     }
 
     private func setupProgressBar() {
@@ -583,6 +703,22 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         uploadRow.addArrangedSubview(uploadLabel)
         uploadRow.addArrangedSubview(uploadProgress)
         uploadRow.isHidden = true
+    }
+
+    /// Compact icon used for the concat output buttons (Finder / copy path /
+    /// warning) — matches VideoFileCellView's `finderButton` / `copyPathButton`
+    /// which use the SF Symbol's natural intrinsic size with no explicit
+    /// width/height, instead of the larger 28pt action-button footprint.
+    private func configureNaturalIconButton(_ button: NSButton, symbolName: String, tint: NSColor, action: Selector) {
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.contentTintColor = tint
+        button.target = self
+        button.action = action
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setContentHuggingPriority(.required, for: .horizontal)
     }
 
     /// Action-button styling that matches `VideoFileCellView.setupActionButton` —
@@ -651,6 +787,15 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
         if isFirstConfigure || prev?.itemCount != config.itemCount || prev?.totalDuration != config.totalDuration {
             clipCountLabel.stringValue = clipCountText(count: config.itemCount, duration: config.totalDuration)
+            metaRow.isHidden = config.itemCount == 0 && config.totalDuration.isEmpty
+        }
+
+        if isFirstConfigure
+            || prev?.status != config.status
+            || prev?.progress != config.progress
+            || prev?.itemCount != config.itemCount
+            || prev?.isCompactMode != config.isCompactMode {
+            updateStatusCapsuleAndLabel(config: config)
         }
 
         if isFirstConfigure
@@ -770,7 +915,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     }
 
     private func applyCompactLayout(_ compact: Bool) {
-        contentStack.spacing = compact ? 4 : 8
+        contentStack.spacing = compact ? 2 : 4
         presetWidthConstraint?.constant = compact ? 140 : 220
         let baseHeight = (compact ? Self.baseCompactRowHeight : Self.baseRowHeight) - 12
         thumbnailHeightConstraint?.constant = baseHeight
@@ -885,6 +1030,50 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         progressBar.isHidden = !active
         if active {
             progressBar.doubleValue = config.progress
+        }
+    }
+
+    /// Mirrors VideoFileCellView's status capsule. Hidden in compact mode so
+    /// the row stays terse, otherwise shows the same WAITING/ENCODING/DONE/
+    /// FAILED/CANCELLED pill with a numeric "X/Y" companion label when
+    /// encoding so users can see how many of the group's clips are done.
+    private func updateStatusCapsuleAndLabel(config: EncodingGroupCellConfiguration) {
+        statusRow.isHidden = config.isCompactMode
+        guard !config.isCompactMode else { return }
+
+        let (text, icon, color): (String, String, NSColor) = {
+            switch config.status {
+            case .waiting:    return ("WAITING", "clock", .secondaryLabelColor)
+            case .converting: return ("ENCODING", "arrow.trianglehead.2.clockwise", .systemBlue)
+            case .done:       return ("DONE", "checkmark.circle", .systemGreen)
+            case .failed:     return ("FAILED", "exclamationmark.circle", .systemRed)
+            case .cancelled:  return ("CANCELLED", "xmark.circle", .secondaryLabelColor)
+            @unknown default: return ("", "questionmark", .secondaryLabelColor)
+            }
+        }()
+
+        capsuleLabel.stringValue = text
+        capsuleLabel.textColor = color
+        capsuleIcon.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
+        capsuleIcon.contentTintColor = color
+        statusCapsule.layer?.borderColor = color.withAlphaComponent(0.6).cgColor
+
+        statusLabel.stringValue = statusSummary(config: config)
+        statusLabel.textColor = .secondaryLabelColor
+    }
+
+    /// Right-of-capsule summary text — overall progress while encoding, plus a
+    /// running "done/total" so groups feel as informative as a single item's
+    /// status row.
+    private func statusSummary(config: EncodingGroupCellConfiguration) -> String {
+        switch config.status {
+        case .converting:
+            let pct = Int(config.progress * 100)
+            return "\(pct)%"
+        case .waiting, .done, .failed, .cancelled:
+            return ""
+        @unknown default:
+            return ""
         }
     }
 
