@@ -134,6 +134,20 @@ struct ContentView: View {
             encodingGroups.contains(where: { $0.items.contains(where: { $0.id == id }) })
     }
 
+    /// Brings the main app window to the front so a SwiftUI `.sheet` attached to
+    /// ContentView is actually visible when triggered from a secondary window
+    /// (e.g. the Group Editor). The Group Editor uses `setFrameAutosaveName`
+    /// "GroupEditorWindow" so we exclude it explicitly; any other titled,
+    /// canBecomeMain window is treated as the host.
+    private func bringMainWindowForward() {
+        let main = NSApp.windows.first { window in
+            guard window.canBecomeMain, window.isVisible else { return false }
+            if window.frameAutosaveName == "GroupEditorWindow" { return false }
+            return window.styleMask.contains(.titled)
+        }
+        main?.makeKeyAndOrderFront(nil)
+    }
+
     /// Whether any modal sheet or overlay is currently presented.
     private var anySheetOrOverlayOpen: Bool {
         trimSheetItemID != nil ||
@@ -321,6 +335,11 @@ struct ContentView: View {
                     },
                     onOpenTrim: { itemID in
                         guard itemExists(id: itemID) else { return }
+                        // Trim is presented as a SwiftUI .sheet on ContentView
+                        // (the main window). When invoked from the editor window
+                        // the sheet would open behind it — bring the main window
+                        // forward so the sheet is actually visible.
+                        bringMainWindowForward()
                         trimSheetItemID = itemID
                     },
                     onPlayFullscreen: { itemID in
@@ -413,6 +432,7 @@ struct ContentView: View {
             .frame(minWidth: 860)
             .modifier(ContentViewSheets(
                 droppedFiles: $droppedFiles,
+                encodingGroups: $encodingGroups,
                 trimSheetItemID: $trimSheetItemID,
                 trimWithCropSheetItemID: $trimWithCropSheetItemID,
                 timecodeSheetItemID: $timecodeSheetItemID,
@@ -2116,6 +2136,7 @@ private struct GlobalKeyboardShortcutHandler: NSViewRepresentable {
 /// ViewModifier for all sheet presentations
 private struct ContentViewSheets: ViewModifier {
     @Binding var droppedFiles: [VideoItem]
+    @Binding var encodingGroups: [EncodingGroup]
     @Binding var trimSheetItemID: UUID?
     @Binding var trimWithCropSheetItemID: UUID?
     @Binding var timecodeSheetItemID: UUID?
@@ -2140,35 +2161,47 @@ private struct ContentViewSheets: ViewModifier {
             // Capture mode now uses CaptureOverlayWindowController instead of a sheet
     }
 
+    /// Returns a SwiftUI binding into `droppedFiles` or any `encodingGroups[*].items`
+    /// for the given ID. Sheets opened from the Group Editor window can target items
+    /// that live inside a group, not only ungrouped singles — without this lookup the
+    /// sheet renders blank because the original `droppedFiles.firstIndex` returns nil.
+    private func itemBinding(id: UUID) -> Binding<VideoItem>? {
+        if let idx = droppedFiles.firstIndex(where: { $0.id == id }) {
+            return $droppedFiles[idx]
+        }
+        for gIdx in encodingGroups.indices {
+            if let iIdx = encodingGroups[gIdx].items.firstIndex(where: { $0.id == id }) {
+                return $encodingGroups[gIdx].items[iIdx]
+            }
+        }
+        return nil
+    }
+
     @ViewBuilder
     private var trimSheetContent: some View {
-        if let id = trimSheetItemID,
-           let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-            PreviewPlayerView(item: $droppedFiles[index])
+        if let id = trimSheetItemID, let binding = itemBinding(id: id) {
+            PreviewPlayerView(item: binding)
         }
     }
 
     @ViewBuilder
     private var trimWithCropSheetContent: some View {
-        if let id = trimWithCropSheetItemID,
-           let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-            PreviewPlayerView(item: $droppedFiles[index], initialCropExpanded: true)
+        if let id = trimWithCropSheetItemID, let binding = itemBinding(id: id) {
+            PreviewPlayerView(item: binding, initialCropExpanded: true)
         }
     }
 
     @ViewBuilder
     private var timecodeSheetContent: some View {
-        if let id = timecodeSheetItemID,
-           let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-            TimecodeView(item: $droppedFiles[index])
+        if let id = timecodeSheetItemID, let binding = itemBinding(id: id) {
+            TimecodeView(item: binding)
         }
     }
 
     @ViewBuilder
     private var audioConfigSheetContent: some View {
-        if let id = audioConfigSheetItemID,
-           let index = droppedFiles.firstIndex(where: { $0.id == id }) {
-            AudioRoutingView(item: $droppedFiles[index], preset: selectedPreset)
+        if let id = audioConfigSheetItemID, let binding = itemBinding(id: id) {
+            AudioRoutingView(item: binding, preset: selectedPreset)
         }
     }
 

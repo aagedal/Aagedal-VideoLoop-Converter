@@ -267,14 +267,6 @@ struct GroupEditorView: View {
                         group.normalizeSequentialNaming()
                     }
                 }
-            Picker("", selection: sortBinding) {
-                ForEach(GroupEditorSortMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: 220)
-            .help("Sort items in the group")
             Button {
                 onAddFiles()
             } label: {
@@ -312,11 +304,19 @@ struct GroupEditorView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: 12) {
             Text(summaryText)
                 .font(.caption)
                 .foregroundColor(.secondary)
             Spacer()
+            Picker("", selection: sortBinding) {
+                ForEach(GroupEditorSortMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 220)
+            .help("Sort items in the group")
             Button("Done", action: onClose)
                 .keyboardShortcut(.defaultAction)
         }
