@@ -205,26 +205,33 @@ struct VideoFileUtils: Sendable {
         // Compute size (cheap, but ensures we have up-to-date info)
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
 
-        var durationSec: Double = 0.0
+        // Resolve duration + hasVideoStream together. Both come from the same SwiftExif read,
+        // so when either cache misses we route through `fetchEssentialInfo` to:
+        //   1. parse the container only once instead of twice,
+        //   2. dedup concurrent imports of the same URL via the service's in-flight tracker,
+        //   3. populate `essentialInfoCache` so subsequent loadDetails / hasVideoStream lookups
+        //      return without touching the disk.
+        let durationSec: Double
+        let hasVideoStream: Bool
 
-        if let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url), cachedDuration > 0 {
+        let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url)
+        let cachedHasVideo = await VideoMetadataService.shared.cachedHasVideoStream(for: url)
+
+        if let cachedDuration, cachedDuration > 0, let cachedHasVideo {
             durationSec = cachedDuration
-            logger.debug("Using cached duration: \(durationSec, privacy: .public)s for \(fileName, privacy: .public)")
-        } else if let probed = await SwiftExifMediaProbe.duration(for: url), probed > 0 {
-            durationSec = probed
+            hasVideoStream = cachedHasVideo
+            logger.debug("Using cached metadata: \(cachedDuration, privacy: .public)s, hasVideo=\(cachedHasVideo) for \(fileName, privacy: .public)")
+        } else if let info = try? await VideoMetadataService.shared.fetchEssentialInfo(for: url) {
+            durationSec = info.duration
+            hasVideoStream = info.hasVideoStream
+        } else {
+            // Probe failed — preserve the legacy defensive fallback (assume video exists when
+            // SwiftExif can't read the container) so downstream UI doesn't silently drop the row.
+            durationSec = (await SwiftExifMediaProbe.duration(for: url)) ?? 0
+            hasVideoStream = await VideoMetadataService.shared.hasVideoStream(for: url)
         }
 
         let durationString = formatDuration(seconds: durationSec)
-
-        // Check cached hasVideoStream first (avoids redundant ffprobe calls)
-        let hasVideoStream: Bool
-        if let cached = await VideoMetadataService.shared.cachedHasVideoStream(for: url) {
-            hasVideoStream = cached
-            logger.debug("Using cached hasVideoStream: \(hasVideoStream) for \(fileName, privacy: .public)")
-        } else {
-            // Fall back to fast hasVideoStream check which uses -read_intervals
-            hasVideoStream = await VideoMetadataService.shared.hasVideoStream(for: url)
-        }
 
         let thumbnailData = await getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generateRowThumbnailIfMissing)
 
