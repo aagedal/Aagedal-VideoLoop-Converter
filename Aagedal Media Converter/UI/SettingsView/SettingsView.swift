@@ -10,6 +10,7 @@ struct SettingsView: View {
 
     private enum SettingsTab: String, CaseIterable, Hashable {
         case general
+        case encoding
         case fileNames
         case metadata
         case presets
@@ -28,6 +29,7 @@ struct SettingsView: View {
         var label: String {
             switch self {
             case .general: return "General"
+            case .encoding: return "Encoding Groups"
             case .fileNames: return "File Names"
             case .metadata: return "Metadata"
             case .presets: return "Presets"
@@ -48,6 +50,7 @@ struct SettingsView: View {
         var icon: String {
             switch self {
             case .general: return "gearshape"
+            case .encoding: return "rectangle.stack"
             case .fileNames: return "textformat"
             case .metadata: return "info.circle"
             case .presets: return "slider.horizontal.3"
@@ -75,6 +78,7 @@ struct SettingsView: View {
     private var contentView: some View {
         switch selectedTab {
         case .general: GeneralSettingsView()
+        case .encoding: EncodingSettingsView()
         case .fileNames: FileNameSettingsView()
         case .metadata: MetadataSettingsView()
         case .presets: PresetsSettingsView()

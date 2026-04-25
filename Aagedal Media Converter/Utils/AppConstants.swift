@@ -176,6 +176,14 @@ enum AppConstants {
     static let defaultFileNameReplaceScandinavianChars = true
     static let defaultFileNameRemoveSpecialChars = true
     static let defaultFileNameIncludePresetSuffix = true
+
+    // Encoding-group defaults applied when a new group is created.
+    // Merge and sequential naming are mutually exclusive — the settings UI and
+    // toggle handlers enforce that only one can be on at a time.
+    static let defaultGroupMergeEnabledKey = "defaultGroupMergeEnabled"
+    static let defaultGroupSequentialNamingEnabledKey = "defaultGroupSequentialNamingEnabled"
+    static let defaultGroupMergeEnabled = true
+    static let defaultGroupSequentialNamingEnabled = false
     static let customPresetCommandKey = "customPresetFFmpegCommand"
     static let customPresetSuffixKey = "customPresetFileSuffix"
     static let customPresetExtensionKey = "customPresetFileExtension"

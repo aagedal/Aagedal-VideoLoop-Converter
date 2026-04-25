@@ -490,7 +490,21 @@ struct ContentView: View {
                 Task { await handleCameraCardFolderSelection() }
             }
             .onReceive(NotificationCenter.default.publisher(for: .createEncodingGroup)) { _ in
-                let group = EncodingGroup(name: "New Group")
+                let defaultMerge = UserDefaults.standard.object(forKey: AppConstants.defaultGroupMergeEnabledKey) as? Bool
+                    ?? AppConstants.defaultGroupMergeEnabled
+                let defaultSequential = UserDefaults.standard.object(forKey: AppConstants.defaultGroupSequentialNamingEnabledKey) as? Bool
+                    ?? AppConstants.defaultGroupSequentialNamingEnabled
+                // Mutual exclusion: if both flags somehow ended up true (e.g. from
+                // an older defaults plist), prefer merge — matches the historical
+                // behavior where new groups were merge-on by default.
+                let mergeEnabled = defaultMerge && !(defaultMerge && defaultSequential)
+                let sequentialEnabled = defaultSequential && !mergeEnabled
+                var group = EncodingGroup(
+                    name: "New Group",
+                    concatEnabled: mergeEnabled,
+                    sequentialNamingEnabled: sequentialEnabled
+                )
+                if sequentialEnabled { group.normalizeSequentialNaming() }
                 encodingGroups.append(group)
                 queueOrder.append(group.id)
                 // Let the list view show a "group created" toast + scroll affordance,

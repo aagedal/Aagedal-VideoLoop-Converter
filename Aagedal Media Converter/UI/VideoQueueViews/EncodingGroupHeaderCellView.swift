@@ -1012,20 +1012,35 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     }
 
     private func updateSequentialToggle(config: EncodingGroupCellConfiguration) {
+        // Mutual exclusion: sequential naming is disabled while merge is on.
+        // The two settings can't be on simultaneously — see toggle handlers in
+        // VideoQueueTableView and the Encoding tab in Settings.
+        let blockedByMerge = config.concatEnabled && !config.sequentialNamingEnabled
         sequentialToggle.image = config.sequentialNamingEnabled ? GroupSymbol.numberCircleFill : GroupSymbol.numberCircle
         sequentialToggle.contentTintColor = config.sequentialNamingEnabled ? .systemBlue : .secondaryLabelColor
-        sequentialToggle.toolTip = config.sequentialNamingEnabled
-            ? String(localized: "Sequential naming enabled — files named \(config.name)_001, \(config.name)_002, …",
-                     comment: "Tooltip shown when sequential naming is enabled. Placeholder is the current group name.")
-            : String(localized: "Enable sequential naming using group name")
+        sequentialToggle.isEnabled = !blockedByMerge
+        sequentialToggle.alphaValue = blockedByMerge ? 0.4 : 1.0
+        sequentialToggle.toolTip = blockedByMerge
+            ? String(localized: "Disabled while Merge is on — turn off Merge to enable sequential naming")
+            : (config.sequentialNamingEnabled
+                ? String(localized: "Sequential naming enabled — files named \(config.name)_001, \(config.name)_002, …",
+                         comment: "Tooltip shown when sequential naming is enabled. Placeholder is the current group name.")
+                : String(localized: "Enable sequential naming using group name"))
     }
 
     private func updateConcatToggle(config: EncodingGroupCellConfiguration) {
+        // Mutual exclusion mirror of updateSequentialToggle — merge is disabled
+        // while sequential naming is on.
+        let blockedBySequential = config.sequentialNamingEnabled && !config.concatEnabled
         concatToggle.image = GroupSymbol.concat
         concatToggle.contentTintColor = config.concatEnabled ? .systemBlue : .secondaryLabelColor
-        concatToggle.toolTip = config.concatEnabled
-            ? String(localized: "Concat enabled — clips will be merged into one file")
-            : String(localized: "Enable concat to merge clips into one file")
+        concatToggle.isEnabled = !blockedBySequential
+        concatToggle.alphaValue = blockedBySequential ? 0.4 : 1.0
+        concatToggle.toolTip = blockedBySequential
+            ? String(localized: "Disabled while Sequential naming is on — turn it off to enable Merge")
+            : (config.concatEnabled
+                ? String(localized: "Concat enabled — clips will be merged into one file")
+                : String(localized: "Enable concat to merge clips into one file"))
     }
 
     private func updateUploadToggle(config: EncodingGroupCellConfiguration) {

@@ -1187,6 +1187,13 @@ struct VideoQueueTableView: NSViewRepresentable {
                 }
             case .toggleConcat:
                 parent.encodingGroups[idx].concatEnabled.toggle()
+                // Merge and sequential naming are mutually exclusive — turning
+                // merge on must clear sequential naming (and its filename overrides).
+                if parent.encodingGroups[idx].concatEnabled,
+                   parent.encodingGroups[idx].sequentialNamingEnabled {
+                    parent.encodingGroups[idx].sequentialNamingEnabled = false
+                    parent.encodingGroups[idx].normalizeSequentialNaming()
+                }
             case .toggleGroupUpload:
                 parent.encodingGroups[idx].uploadEnabled.toggle()
             case .toggleGroupTranscription:
@@ -1195,6 +1202,11 @@ struct VideoQueueTableView: NSViewRepresentable {
                 parent.encodingGroups[idx].analyticsEnabled.toggle()
             case .toggleSequentialNaming:
                 parent.encodingGroups[idx].sequentialNamingEnabled.toggle()
+                // Mutual exclusion with merge — see .toggleConcat above.
+                if parent.encodingGroups[idx].sequentialNamingEnabled,
+                   parent.encodingGroups[idx].concatEnabled {
+                    parent.encodingGroups[idx].concatEnabled = false
+                }
                 parent.encodingGroups[idx].normalizeSequentialNaming()
             case .setGroupPreset(let preset):
                 parent.encodingGroups[idx].preset = preset
