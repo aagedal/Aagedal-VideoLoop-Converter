@@ -30,7 +30,6 @@ struct GeneralSettingsView: View {
             soundSection
             resetBehaviorSection
             previewCacheSection
-            linksSection
         }
         .formStyle(.grouped)
         .onChange(of: previewCacheCleanupPolicyRaw) { _, newValue in
@@ -288,22 +287,6 @@ struct GeneralSettingsView: View {
                 }.padding(.top, 8)
             }
             .padding(8)
-        }
-    }
-
-    private var linksSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Source code and author website", systemImage: "questionmark.circle")
-                    .font(.headline)
-                HStack {
-                    Link("GitHub Repository", destination: URL(string: "https://github.com/aagedal/Aagedal-Media-Converter/tree/main")!)
-                    Spacer()
-                    Link("Developer Website", destination: URL(string: "https://aagedal.me/about")!)
-                }
-                .padding(8)
-            }
-            .padding(.vertical, 4)
         }
     }
 

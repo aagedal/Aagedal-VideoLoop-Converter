@@ -89,6 +89,20 @@ struct UpdateSettingsView: View {
                     }
                 }
             }
+
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Source code and author website", systemImage: "questionmark.circle")
+                        .font(.headline)
+                    HStack {
+                        Link("GitHub Repository", destination: URL(string: "https://github.com/aagedal/Aagedal-Media-Converter/tree/main")!)
+                        Spacer()
+                        Link("Developer Website", destination: URL(string: "https://aagedal.me/about")!)
+                    }
+                    .padding(8)
+                }
+                .padding(.vertical, 4)
+            }
         }
         .formStyle(.grouped)
     }
