@@ -2597,7 +2597,8 @@ actor ConversionManager: Sendable {
         }
 
         let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
+        let templatedBaseName = FileNameProcessor.applyCustomTemplate(sourceName: sanitizedBaseName, counter: item.customCounterValue)
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
-        return sanitizedBaseName + suffixPart
+        return templatedBaseName + suffixPart
     }
 }

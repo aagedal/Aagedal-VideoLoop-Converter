@@ -71,4 +71,57 @@ struct FileNameProcessor {
     static var includePresetSuffix: Bool {
         UserDefaults.standard.object(forKey: AppConstants.fileNameIncludePresetSuffixKey) as? Bool ?? AppConstants.defaultFileNameIncludePresetSuffix
     }
+
+    /// Whether the custom filename template is enabled.
+    static var customTemplateEnabled: Bool {
+        UserDefaults.standard.object(forKey: AppConstants.enableCustomFileNameTemplateKey) as? Bool ?? AppConstants.defaultEnableCustomFileNameTemplate
+    }
+
+    /// Whether the configured template references the `{counter}` variable.
+    static var customTemplateUsesCounter: Bool {
+        guard customTemplateEnabled else { return false }
+        let template = UserDefaults.standard.string(forKey: AppConstants.customFileNameTemplateKey)
+            ?? AppConstants.defaultCustomFileNameTemplate
+        return template.contains("{counter}")
+    }
+
+    /// Atomically reads and increments the persisted counter value, returning the value before increment.
+    static func nextCounterValue() -> Int {
+        let stored = UserDefaults.standard.object(forKey: AppConstants.customFileNameCounterValueKey) as? Int
+            ?? AppConstants.defaultCustomFileNameCounterValue
+        UserDefaults.standard.set(stored + 1, forKey: AppConstants.customFileNameCounterValueKey)
+        return stored
+    }
+
+    /// Applies the user's custom filename template to a sanitized source name.
+    /// - Parameters:
+    ///   - sourceName: The already-sanitized base name (output of `processFileName`).
+    ///   - counter: Counter value baked at queue-add time. If nil, `{counter}` resolves to "1".
+    /// - Returns: The templated name, re-sanitized through the active filename rules.
+    static func applyCustomTemplate(sourceName: String, counter: Int? = nil) -> String {
+        guard customTemplateEnabled else { return sourceName }
+
+        let template = UserDefaults.standard.string(forKey: AppConstants.customFileNameTemplateKey)
+            ?? AppConstants.defaultCustomFileNameTemplate
+        guard !template.isEmpty else { return sourceName }
+
+        let dateFormat = UserDefaults.standard.string(forKey: AppConstants.customFileNameDateFormatKey)
+            ?? AppConstants.defaultCustomFileNameDateFormat
+        let padding = UserDefaults.standard.object(forKey: AppConstants.customFileNameCounterPaddingKey) as? Int
+            ?? AppConstants.defaultCustomFileNameCounterPadding
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = dateFormat
+        let dateString = formatter.string(from: Date())
+
+        let counterString = String(format: "%0\(max(1, padding))d", counter ?? 1)
+
+        let substituted = template
+            .replacingOccurrences(of: "{sourceName}", with: sourceName)
+            .replacingOccurrences(of: "{date}", with: dateString)
+            .replacingOccurrences(of: "{counter}", with: counterString)
+
+        return processFileName(substituted)
+    }
 }

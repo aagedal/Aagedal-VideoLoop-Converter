@@ -146,7 +146,7 @@ actor FileImportManager {
         var duplicateCount = 0
         var skippedCount = 0
         var newItems: [VideoItem] = []
-        var itemsToProcess: [(UUID, URL)] = []
+        var itemsToProcess: [(UUID, URL, Int?)] = []
 
         // Combine existing URLs with currently importing URLs for deduplication
         let allKnownURLs = existingURLs.union(knownURLs).union(importingURLs)
@@ -179,7 +179,7 @@ actor FileImportManager {
             }
 
             newItems.append(placeholder)
-            itemsToProcess.append((placeholder.id, url))
+            itemsToProcess.append((placeholder.id, url, placeholder.customCounterValue))
         }
 
         guard !newItems.isEmpty else {
@@ -202,13 +202,14 @@ actor FileImportManager {
             let maxConcurrent = self.maxConcurrentLoads
 
             func enqueueNext() {
-                guard let (id, url) = iterator.next() else { return }
+                guard let (id, url, counter) = iterator.next() else { return }
                 group.addTask {
                     await self.loadItemDetails(
                         id: id,
                         url: url,
                         outputFolder: outputFolder,
                         preset: preset,
+                        counter: counter,
                         continuation: continuation
                     )
                 }
@@ -226,7 +227,7 @@ actor FileImportManager {
         }
 
         // 4. Clean up importing state
-        for (_, url) in itemsToProcess {
+        for (_, url, _) in itemsToProcess {
             importingURLs.remove(url)
         }
 
@@ -240,10 +241,11 @@ actor FileImportManager {
         url: URL,
         outputFolder: String,
         preset: ExportPreset,
+        counter: Int?,
         continuation: AsyncStream<ImportUpdate>.Continuation
     ) async {
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-        let outputURL = VideoFileUtils.makeOutputURLPublic(for: url, outputFolder: outputFolder, preset: preset)
+        let outputURL = VideoFileUtils.makeOutputURLPublic(for: url, outputFolder: outputFolder, preset: preset, counter: counter)
 
         // Phase 1: Single SwiftExif probe that returns duration + topology in one parse,
         // and seeds the metadata caches so Phase 2 hits cache instead of re-parsing.
@@ -292,7 +294,8 @@ actor FileImportManager {
                     for: url,
                     outputFolder: outputFolder,
                     preset: preset,
-                    generateRowThumbnailIfMissing: false
+                    generateRowThumbnailIfMissing: false,
+                    counter: counter
                 )
                 continuation.yield(.itemDetailsLoaded(id: id, details: details))
             }
@@ -314,10 +317,11 @@ actor FileImportManager {
 
 extension VideoFileUtils {
     /// Public wrapper for makeOutputURL (used by FileImportManager)
-    static func makeOutputURLPublic(for url: URL, outputFolder: String?, preset: ExportPreset) -> URL? {
+    static func makeOutputURLPublic(for url: URL, outputFolder: String?, preset: ExportPreset, counter: Int? = nil) -> URL? {
         let resolvedOutputFolder = resolveOutputFolder(for: url, defaultOutputFolder: outputFolder, preset: preset)
         guard let resolvedOutputFolder else { return nil }
         let sanitizedBaseName = FileNameProcessor.processFileName(url.deletingPathExtension().lastPathComponent)
+        let templatedBaseName = FileNameProcessor.applyCustomTemplate(sourceName: sanitizedBaseName, counter: counter)
         let resolvedExtension = preset.outputExtension(for: url)
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
 
@@ -325,7 +329,7 @@ extension VideoFileUtils {
         return FileSafetyUtils.safeOutputURL(
             inputURL: url,
             outputFolder: outputFolderURL,
-            baseName: sanitizedBaseName,
+            baseName: templatedBaseName,
             suffix: suffixPart,
             fileExtension: resolvedExtension
         )

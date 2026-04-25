@@ -33,7 +33,7 @@ struct VideoFileUtils: Sendable {
             return nil
         }
 
-        let details = await loadDetails(for: url, outputFolder: outputFolder, preset: preset)
+        let details = await loadDetails(for: url, outputFolder: outputFolder, preset: preset, counter: placeholder.customCounterValue)
         placeholder.apply(details: details)
         placeholder.detailsLoaded = true
         logger.debug("[createVideoItem] VideoItem created successfully: \(placeholder.name, privacy: .public)")
@@ -52,6 +52,8 @@ struct VideoFileUtils: Sendable {
         // Initialize timecode config based on user defaults
         let defaultTimecodeConfig = getDefaultTimecodeConfig()
 
+        let counter = FileNameProcessor.customTemplateUsesCounter ? FileNameProcessor.nextCounterValue() : nil
+
         var placeholder = VideoItem(
             url: url,
             name: name,
@@ -62,7 +64,7 @@ struct VideoFileUtils: Sendable {
             status: .waiting,
             progress: 0.0,
             eta: nil,
-            outputURL: makeOutputURL(for: url, outputFolder: outputFolder, preset: preset),
+            outputURL: makeOutputURL(for: url, outputFolder: outputFolder, preset: preset, counter: counter),
             comment: comment,
             includeDateTag: includeDateTagByDefault,
             metadata: nil,
@@ -70,6 +72,7 @@ struct VideoFileUtils: Sendable {
             waveformVideoEnabled: waveformEnabledDefault,
             timecodeConfig: defaultTimecodeConfig
         )
+        placeholder.customCounterValue = counter
         placeholder.refreshOutputFileCache()
 
         return placeholder
@@ -94,7 +97,8 @@ struct VideoFileUtils: Sendable {
         let firstFrameURL = firstFrameURL(for: config)
         let thumbnailData = generateImageSequenceThumbnail(from: firstFrameURL)
 
-        let outputURL = makeOutputURL(for: config.directory, outputFolder: outputFolder, preset: preset)
+        let counter = FileNameProcessor.customTemplateUsesCounter ? FileNameProcessor.nextCounterValue() : nil
+        let outputURL = makeOutputURL(for: config.directory, outputFolder: outputFolder, preset: preset, counter: counter)
 
         var item = VideoItem(
             url: config.directory,
@@ -113,6 +117,7 @@ struct VideoFileUtils: Sendable {
             timecodeConfig: defaultTimecodeConfig,
             imageSequenceConfig: config
         )
+        item.customCounterValue = counter
         item.refreshOutputFileCache()
         return item
     }
@@ -180,7 +185,8 @@ struct VideoFileUtils: Sendable {
         for url: URL,
         outputFolder: String? = nil,
         preset: ExportPreset = .videoLoop,
-        generateRowThumbnailIfMissing: Bool = true
+        generateRowThumbnailIfMissing: Bool = true,
+        counter: Int? = nil
     ) async -> VideoItemDetails {
         let fileName = url.lastPathComponent
 
@@ -222,7 +228,7 @@ struct VideoFileUtils: Sendable {
 
         let thumbnailData = await getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generateRowThumbnailIfMissing)
 
-        let outputURL = makeOutputURL(for: url, outputFolder: outputFolder, preset: preset)
+        let outputURL = makeOutputURL(for: url, outputFolder: outputFolder, preset: preset, counter: counter)
 
         return VideoItemDetails(
             size: size,
@@ -246,10 +252,11 @@ struct VideoFileUtils: Sendable {
         }
     }
 
-    private static func makeOutputURL(for url: URL, outputFolder: String?, preset: ExportPreset) -> URL? {
+    private static func makeOutputURL(for url: URL, outputFolder: String?, preset: ExportPreset, counter: Int? = nil) -> URL? {
         let resolvedOutputFolder = resolveOutputFolder(for: url, defaultOutputFolder: outputFolder, preset: preset)
         guard let resolvedOutputFolder else { return nil }
         let sanitizedBaseName = FileNameProcessor.processFileName(url.deletingPathExtension().lastPathComponent)
+        let templatedBaseName = FileNameProcessor.applyCustomTemplate(sourceName: sanitizedBaseName, counter: counter)
         let resolvedExtension = preset.outputExtension(for: url)
         let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
 
@@ -258,7 +265,7 @@ struct VideoFileUtils: Sendable {
         return FileSafetyUtils.safeOutputURL(
             inputURL: url,
             outputFolder: outputFolderURL,
-            baseName: sanitizedBaseName,
+            baseName: templatedBaseName,
             suffix: suffixPart,
             fileExtension: resolvedExtension
         )
@@ -664,6 +671,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var isMuted: Bool = false
     /// Image sequence configuration (nil for regular video/audio files)
     var imageSequenceConfig: ImageSequenceConfig? = nil
+    /// Counter value baked at queue-add time when the custom filename template uses `{counter}`.
+    var customCounterValue: Int? = nil
     /// DCP metadata (title, content kind, etc.) for DCP export
     var dcpMetadata: DCPItemMetadata? = nil
 

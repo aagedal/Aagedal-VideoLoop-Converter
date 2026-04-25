@@ -177,6 +177,18 @@ enum AppConstants {
     static let defaultFileNameRemoveSpecialChars = true
     static let defaultFileNameIncludePresetSuffix = true
 
+    // Custom file name template
+    static let enableCustomFileNameTemplateKey = "enableCustomFileNameTemplate"
+    static let customFileNameTemplateKey = "customFileNameTemplate"
+    static let customFileNameDateFormatKey = "customFileNameDateFormat"
+    static let customFileNameCounterPaddingKey = "customFileNameCounterPadding"
+    static let customFileNameCounterValueKey = "customFileNameCounterValue"
+    static let defaultEnableCustomFileNameTemplate = false
+    static let defaultCustomFileNameTemplate = "{sourceName}_{date}"
+    static let defaultCustomFileNameDateFormat = "yyyyMMdd"
+    static let defaultCustomFileNameCounterPadding = 3
+    static let defaultCustomFileNameCounterValue = 1
+
     // Encoding-group defaults applied when a new group is created.
     // Merge and sequential naming are mutually exclusive — the settings UI and
     // toggle handlers enforce that only one can be on at a time.
