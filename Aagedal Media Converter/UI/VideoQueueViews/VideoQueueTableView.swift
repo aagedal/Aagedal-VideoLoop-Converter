@@ -134,6 +134,9 @@ struct VideoQueueTableView: NSViewRepresentable {
     var onPlayFullscreen: ((UUID) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)?
     var encodeOnly: ((UUID) async -> Void)?
+    /// Option-click on a group's encode button → encode that group's items
+    /// immediately. Mirrors `encodeOnly` for single items.
+    var encodeOnlyGroup: ((UUID) async -> Void)?
     var transcribeOnly: ((UUID, SubtitleConversionMethod) async -> Void)?
     var analyzeOnly: ((UUID) async -> Void)?
     var analyzeMetrics: ((UUID, [QualityMetric]) async -> Void)?
@@ -1205,6 +1208,13 @@ struct VideoQueueTableView: NSViewRepresentable {
                 parent.onCycleGroupSort?(groupID)
             case .openGroupEditor:
                 parent.onOpenGroupEditor?(groupID)
+            case .encodeNow(let optionPressed):
+                if optionPressed {
+                    let callback = parent.encodeOnlyGroup
+                    Task { @MainActor in
+                        await callback?(groupID)
+                    }
+                }
             default:
                 break
             }

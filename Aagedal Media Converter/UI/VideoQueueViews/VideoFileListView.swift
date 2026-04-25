@@ -61,6 +61,9 @@ struct VideoFileListView: View {
     var onURLDrop: ((String) -> Void)?
     var onRenameOutputFileName: ((UUID, String?) -> Void)? = nil
     var encodeOnly: ((UUID) async -> Void)?
+    /// Encodes a single group immediately (Option-click on the group's encode
+    /// button). Mirrors `encodeOnly` for items.
+    var encodeOnlyGroup: ((UUID) async -> Void)?
     var onDeleteGroup: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
@@ -210,6 +213,9 @@ struct VideoFileListView: View {
                     onRenameOutputFileName: onRenameOutputFileName,
                     encodeOnly: { itemID in
                         await encodeOnly?(itemID)
+                    },
+                    encodeOnlyGroup: { groupID in
+                        await encodeOnlyGroup?(groupID)
                     },
                     transcribeOnly: { itemID, method in
                         await transcribeOnly(itemID: itemID, method: method)

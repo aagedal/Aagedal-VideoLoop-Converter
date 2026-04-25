@@ -107,11 +107,20 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let resetButton = NSButton()
     private let deleteButton = NSButton()
     private let actionButtonDivider = NSView()
+    /// Vertical separator between the group-specific toggles (sequential
+    /// naming, concat) and the encode/post-processing pipeline that mirrors
+    /// VideoFileCellView's button order.
+    private let groupSpecificDivider = NSView()
+    /// Vertical separator between the encode button and the post-processing
+    /// toggles (transcribe, analytics, upload). Mirrors `encodeDivider` on
+    /// VideoFileCellView so groups read as peers of single-item cards.
+    private let encodeDivider = NSView()
 
     // Bottom row
     private let presetPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let sequentialToggle = NSButton()
     private let concatToggle = NSButton()
+    private let encodeButton = NSButton()
     private let uploadToggle = NSButton()
     private let transcriptionToggle = NSButton()
     private let analyticsToggle = NSButton()
@@ -617,15 +626,37 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
         configureToggleButton(sequentialToggle, onSymbol: GroupSymbol.numberCircleFill, offSymbol: GroupSymbol.numberCircle, action: #selector(sequentialClicked))
         configureToggleButton(concatToggle, onSymbol: GroupSymbol.concat, offSymbol: GroupSymbol.concat, action: #selector(concatClicked))
-        configureToggleButton(uploadToggle, onSymbol: VideoFileCellView.Symbol.cloudArrowUpFill, offSymbol: VideoFileCellView.Symbol.cloudArrowUp, action: #selector(uploadClicked))
+        configureToggleButton(encodeButton, onSymbol: VideoFileCellView.Symbol.playFill, offSymbol: VideoFileCellView.Symbol.playFill, action: #selector(encodeClicked))
+        encodeButton.contentTintColor = .secondaryLabelColor
+        encodeButton.toolTip = String(localized: "Option-click to encode this group immediately")
         configureToggleButton(transcriptionToggle, onSymbol: VideoFileCellView.Symbol.captionsBubbleFill, offSymbol: VideoFileCellView.Symbol.captionsBubble, action: #selector(transcriptionClicked))
         configureToggleButton(analyticsToggle, onSymbol: VideoFileCellView.Symbol.chartAscending, offSymbol: VideoFileCellView.Symbol.chartBase, action: #selector(analyticsClicked))
+        configureToggleButton(uploadToggle, onSymbol: VideoFileCellView.Symbol.cloudArrowUpFill, offSymbol: VideoFileCellView.Symbol.cloudArrowUp, action: #selector(uploadClicked))
+
+        // togglesStack mirrors VideoFileCellView's buttons row:
+        // [group-specific] | divider | encode | divider | [post-processing]
+        // Group-specific toggles (sequential naming, concat) are unique to
+        // group cards. The encode button + post-processing trio (transcribe,
+        // analytics, upload) match the order on single-item cards so the two
+        // card types read as peers.
+        for divider in [groupSpecificDivider, encodeDivider] {
+            divider.wantsLayer = true
+            divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
+            divider.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                divider.widthAnchor.constraint(equalToConstant: 2),
+                divider.heightAnchor.constraint(equalToConstant: 26),
+            ])
+        }
 
         togglesStack.addArrangedSubview(sequentialToggle)
         togglesStack.addArrangedSubview(concatToggle)
-        togglesStack.addArrangedSubview(uploadToggle)
+        togglesStack.addArrangedSubview(groupSpecificDivider)
+        togglesStack.addArrangedSubview(encodeButton)
+        togglesStack.addArrangedSubview(encodeDivider)
         togglesStack.addArrangedSubview(transcriptionToggle)
         togglesStack.addArrangedSubview(analyticsToggle)
+        togglesStack.addArrangedSubview(uploadToggle)
 
         // Vertical separator between toggles and destructive actions, mirroring
         // the divider VideoFileCellView uses for the same purpose.
@@ -842,6 +873,12 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         }
 
         if isFirstConfigure
+            || prev?.status != config.status
+            || prev?.itemCount != config.itemCount {
+            updateEncodeButton(config: config)
+        }
+
+        if isFirstConfigure
             || prev?.uploadSummary != config.uploadSummary
             || prev?.isCompactMode != config.isCompactMode {
             updateUploadSummary(config: config)
@@ -1022,6 +1059,19 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         analyticsToggle.toolTip = config.analyticsEnabled
             ? String(localized: "Quality analytics enabled — will run after encoding")
             : String(localized: "Enable quality analytics after encoding")
+    }
+
+    private func updateEncodeButton(config: EncodingGroupCellConfiguration) {
+        let isEncoding = config.status == .converting
+        let hasItems = config.itemCount > 0
+        encodeButton.image = VideoFileCellView.Symbol.playFill
+        encodeButton.contentTintColor = isEncoding
+            ? .systemGreen
+            : .systemGreen.withAlphaComponent(hasItems ? 0.5 : 0.25)
+        encodeButton.isEnabled = hasItems && (config.status == .waiting || config.status == .done || config.status == .failed)
+        encodeButton.toolTip = isEncoding
+            ? String(localized: "Encoding in progress")
+            : String(localized: "Option-click to encode this group immediately")
     }
 
     private func updateProgressBar(config: EncodingGroupCellConfiguration) {
@@ -1213,6 +1263,10 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     @objc private func uploadClicked() { actionHandler?(.toggleGroupUpload) }
     @objc private func transcriptionClicked() { actionHandler?(.toggleGroupTranscription) }
     @objc private func analyticsClicked() { actionHandler?(.toggleGroupAnalytics) }
+    @objc private func encodeClicked() {
+        let opt = NSEvent.modifierFlags.contains(.option)
+        actionHandler?(.encodeNow(optionPressed: opt))
+    }
 
     @objc private func presetSelected(_ sender: NSPopUpButton) {
         let preset = sender.selectedItem?.representedObject as? ExportPreset

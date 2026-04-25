@@ -296,6 +296,9 @@ struct ContentView: View {
             encodeOnly: { itemID in
                 await encodeOnlyItem(itemID: itemID)
             },
+            encodeOnlyGroup: { groupID in
+                await encodeOnlyGroup(groupID: groupID)
+            },
             onDeleteGroup: { groupID in
                 encodingGroups.removeAll { $0.id == groupID }
                 queueOrder.removeAll { $0 == groupID }
@@ -1396,6 +1399,54 @@ struct ContentView: View {
             mergeClipsEnabled: false,
             limitToIDs: [itemID]
         )
+        isConverting = false
+        SoundManager.shared.playSuccess()
+    }
+
+    /// Encodes all waiting items in a single group immediately (Option+click on the
+    /// group's encode button). Mirrors `encodeOnlyItem` but routes through
+    /// `convertGroup` so concat/sequential-naming/conformance settings are honoured.
+    @MainActor
+    private func encodeOnlyGroup(groupID: UUID) async {
+        guard !isConverting else { return }
+        guard let groupIndex = encodingGroups.firstIndex(where: { $0.id == groupID }) else { return }
+        guard encodingGroups[groupIndex].items.contains(where: { $0.status == .waiting }) else { return }
+
+        isConverting = true
+        dockProgressUpdater.updateProgress(0.0)
+
+        let group = encodingGroups[groupIndex]
+        if group.sequentialNamingEnabled {
+            let processedName = FileNameProcessor.processFileName(group.name)
+            for itemIndex in encodingGroups[groupIndex].items.indices {
+                let sequenceName = String(format: "%@_%03d", processedName, itemIndex + 1)
+                encodingGroups[groupIndex].items[itemIndex].outputFileNameOverride = sequenceName
+            }
+        }
+        let groupPreset = group.preset ?? selectedPreset
+        var conformanceMeta: [UUID: VideoMetadata]?
+        if group.conformanceMergeEnabled, group.conformanceReferenceItemID != nil {
+            var metaMap: [UUID: VideoMetadata] = [:]
+            for item in encodingGroups[groupIndex].items {
+                if let m = item.metadata { metaMap[item.id] = m }
+            }
+            conformanceMeta = metaMap
+        }
+
+        await ConversionManager.shared.convertGroup(
+            items: $encodingGroups[groupIndex].items,
+            outputFolder: currentOutputFolder.path,
+            preset: groupPreset,
+            concatEnabled: group.concatEnabled,
+            groupName: group.name,
+            transcriptionEnabled: group.transcriptionEnabled,
+            uploadEnabled: group.uploadEnabled,
+            analyticsEnabled: group.analyticsEnabled,
+            conformanceMergeEnabled: group.conformanceMergeEnabled,
+            conformanceReferenceItemID: group.conformanceReferenceItemID,
+            conformanceMetadata: conformanceMeta
+        )
+
         isConverting = false
         SoundManager.shared.playSuccess()
     }
