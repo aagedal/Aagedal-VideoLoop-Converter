@@ -161,8 +161,9 @@ struct FileNameSettingsView: View {
 
     private var templatePreview: String {
         let counterString = String(format: "%0\(max(1, customCounterPadding))d", customCounterValue)
+        let sampleSourceName = FileNameProcessor.processFileName("My Sømmer Vidéo æø!")
         let substituted = customTemplate
-            .replacingOccurrences(of: "{sourceName}", with: "MyVideo")
+            .replacingOccurrences(of: "{sourceName}", with: sampleSourceName)
             .replacingOccurrences(of: "{date}", with: datePreview)
             .replacingOccurrences(of: "{counter}", with: counterString)
         return FileNameProcessor.processFileName(substituted)
