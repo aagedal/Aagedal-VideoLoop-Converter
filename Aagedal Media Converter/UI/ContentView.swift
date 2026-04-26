@@ -1538,8 +1538,10 @@ struct ContentView: View {
         }
 
         let sanitizedBaseName = FileNameProcessor.processFileName(item.url.deletingPathExtension().lastPathComponent)
-        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
-        return sanitizedBaseName + suffixPart
+        let templatedBaseName = FileNameProcessor.applyCustomTemplate(sourceName: sanitizedBaseName, counter: item.customCounterValue, preset: preset)
+        let suppressAutoSuffix = FileNameProcessor.customTemplateUsesPresetSuffix
+        let suffixPart = (FileNameProcessor.includePresetSuffix && !suppressAutoSuffix) ? preset.fileSuffix : ""
+        return templatedBaseName + suffixPart
     }
 
     private func handleOutputFileNameOverride(itemID: UUID, newName: String?) {

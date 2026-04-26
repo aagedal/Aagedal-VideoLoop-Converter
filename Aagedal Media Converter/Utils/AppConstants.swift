@@ -170,11 +170,15 @@ enum AppConstants {
     static let enableFileNameProcessingKey = "enableFileNameProcessing"
     static let fileNameReplaceSpacesKey = "fileNameReplaceSpaces"
     static let fileNameReplaceScandinavianCharsKey = "fileNameReplaceScandinavianChars"
+    // Legacy boolean toggle, retained for migration. New code should use fileNameSpecialCharRemovalModeKey.
     static let fileNameRemoveSpecialCharsKey = "fileNameRemoveSpecialChars"
+    static let fileNameSpecialCharRemovalModeKey = "fileNameSpecialCharRemovalMode"
     static let fileNameIncludePresetSuffixKey = "fileNameIncludePresetSuffix"
     static let defaultFileNameReplaceSpaces = true
     static let defaultFileNameReplaceScandinavianChars = true
     static let defaultFileNameRemoveSpecialChars = true
+    // Default for new installs: only strip filesystem-unsafe punctuation, preserve Unicode letters.
+    static let defaultFileNameSpecialCharRemovalMode = "loose"
     static let defaultFileNameIncludePresetSuffix = true
 
     // Custom file name template

@@ -8,7 +8,7 @@ struct FileNameSettingsView: View {
     @AppStorage(AppConstants.enableFileNameProcessingKey) private var enableFileNameProcessing = true
     @AppStorage(AppConstants.fileNameReplaceSpacesKey) private var fileNameReplaceSpaces = AppConstants.defaultFileNameReplaceSpaces
     @AppStorage(AppConstants.fileNameReplaceScandinavianCharsKey) private var fileNameReplaceScandinavianChars = AppConstants.defaultFileNameReplaceScandinavianChars
-    @AppStorage(AppConstants.fileNameRemoveSpecialCharsKey) private var fileNameRemoveSpecialChars = AppConstants.defaultFileNameRemoveSpecialChars
+    @AppStorage(AppConstants.fileNameSpecialCharRemovalModeKey) private var specialCharRemovalModeRaw = AppConstants.defaultFileNameSpecialCharRemovalMode
     @AppStorage(AppConstants.fileNameIncludePresetSuffixKey) private var fileNameIncludePresetSuffix = AppConstants.defaultFileNameIncludePresetSuffix
 
     @AppStorage(AppConstants.enableCustomFileNameTemplateKey) private var enableCustomTemplate = AppConstants.defaultEnableCustomFileNameTemplate
@@ -23,6 +23,13 @@ struct FileNameSettingsView: View {
             customTemplateSection
         }
         .formStyle(.grouped)
+    }
+
+    private var specialCharRemovalMode: Binding<SpecialCharacterRemovalMode> {
+        Binding(
+            get: { SpecialCharacterRemovalMode(rawValue: specialCharRemovalModeRaw) ?? .loose },
+            set: { specialCharRemovalModeRaw = $0.rawValue }
+        )
     }
 
     private var fileNameSection: some View {
@@ -40,8 +47,24 @@ struct FileNameSettingsView: View {
                         Toggle("Convert Scandinavian characters (æ, ø, å)", isOn: $fileNameReplaceScandinavianChars)
                             .toggleStyle(SwitchToggleStyle())
                             .padding(.leading, 16)
-                        Toggle("Remove special characters", isOn: $fileNameRemoveSpecialChars)
-                            .toggleStyle(SwitchToggleStyle())
+
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("Remove special characters:")
+                            Picker("", selection: specialCharRemovalMode) {
+                                ForEach(SpecialCharacterRemovalMode.allCases) { mode in
+                                    Text(mode.displayName).tag(mode)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(maxWidth: 360)
+                            Spacer()
+                        }
+                        .padding(.leading, 16)
+
+                        Text(specialCharExplanation)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.leading, 16)
                     }
                 }
@@ -127,6 +150,9 @@ struct FileNameSettingsView: View {
                             Text("{sourceName} — original file name (sanitized)")
                             Text("{date} — current date using the format above")
                             Text("{counter} — sequence number, allocated per imported file")
+                            Text("{presetSuffix} — preset's suffix (e.g. _h264, _tv); suppresses auto-append")
+                            Text("{resolution} — preset's target resolution (e.g. 1080p), empty if unlimited")
+                            Text("{framerate} — preset's target framerate (e.g. 50p, 24), empty if source")
                         }
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -135,6 +161,18 @@ struct FileNameSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .padding(.top, 4)
+
+                        Divider()
+                            .padding(.vertical, 2)
+
+                        Text("Per-item overrides")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                        Text("You can still rename individual files in the queue by double-clicking the output filename. Manual overrides take precedence over this template.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.leading, 16)
                 }
@@ -159,13 +197,28 @@ struct FileNameSettingsView: View {
         return formatter.string(from: Date())
     }
 
+    private var specialCharExplanation: String {
+        switch SpecialCharacterRemovalMode(rawValue: specialCharRemovalModeRaw) ?? .loose {
+        case .off:
+            return "Filenames are kept as-is (after space and Scandinavian conversion above)."
+        case .loose:
+            return "Strips only the characters Finder/Windows reject. Accented and Nordic letters survive even when conversion above is off."
+        case .strict:
+            return "Strips everything except A–Z, 0–9, underscores, and hyphens. Maximum cross-platform safety."
+        }
+    }
+
     private var templatePreview: String {
         let counterString = String(format: "%0\(max(1, customCounterPadding))d", customCounterValue)
         let sampleSourceName = FileNameProcessor.processFileName("My Sømmer Vidéo æø!")
+        // Sample stand-in values for preset-derived variables — actual values come from the active preset at conversion time.
         let substituted = customTemplate
             .replacingOccurrences(of: "{sourceName}", with: sampleSourceName)
             .replacingOccurrences(of: "{date}", with: datePreview)
             .replacingOccurrences(of: "{counter}", with: counterString)
+            .replacingOccurrences(of: "{presetSuffix}", with: "_h264")
+            .replacingOccurrences(of: "{resolution}", with: "1080p")
+            .replacingOccurrences(of: "{framerate}", with: "25p")
         return FileNameProcessor.processFileName(substituted)
     }
 }

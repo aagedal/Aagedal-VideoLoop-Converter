@@ -858,7 +858,107 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return Self.customFileSuffix(for: slot)
         }
     }
-    
+
+    /// Short, filename-safe label describing the preset's target resolution, or nil if
+    /// the preset has no notion of a fixed resolution (e.g. Stream Copy, Audio Only).
+    /// Used by the custom filename template's `{resolution}` variable.
+    var resolutionLabel: String? {
+        switch self {
+        case .h264:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.h264ResolutionLimitKey) ?? AppConstants.defaultH264ResolutionLimit
+            return CodecResolutionLimit(rawValue: raw).flatMap(Self.label(for:))
+        case .h265:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.h265ResolutionLimitKey) ?? AppConstants.defaultH265ResolutionLimit
+            return CodecResolutionLimit(rawValue: raw).flatMap(Self.label(for:))
+        case .av1:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.av1ResolutionLimitKey) ?? AppConstants.defaultAV1ResolutionLimit
+            return CodecResolutionLimit(rawValue: raw).flatMap(Self.label(for:))
+        case .tvHEVC, .tvAVCIntra:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.tvResolutionLimitKey) ?? AppConstants.defaultTVResolutionLimit
+            guard let limit = TVResolutionLimit(rawValue: raw),
+                  let height = Self.heightForLabel(limit) else { return nil }
+            // Combine the height with the chosen framerate mode's scan format so the label
+            // reads "1080i" when the user picked 50i / 59.94i, "1080p" for progressive modes,
+            // or just "1080" when the framerate inherits the source.
+            let frameRaw = UserDefaults.standard.string(forKey: AppConstants.tvFramerateModeKey) ?? AppConstants.defaultTVFramerateMode
+            let mode = TVFramerateMode(rawValue: frameRaw) ?? .p50
+            switch mode {
+            case .source: return height
+            case .i50, .i5994: return height + "i"
+            case .p25, .p50, .p2997, .p5994: return height + "p"
+            }
+        case .proxy:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.proxyResolutionLimitKey) ?? AppConstants.defaultProxyResolutionLimit
+            return ProxyResolutionLimit(rawValue: raw).flatMap(Self.label(for:))
+        case .dcp:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.dcpResolutionKey) ?? AppConstants.defaultDCPResolution
+            return Self.dcpResolutionLabel(from: raw)
+        default:
+            return nil
+        }
+    }
+
+    /// Short, filename-safe label describing the preset's target framerate, or nil if
+    /// the preset preserves source framerate or doesn't apply.
+    /// Used by the custom filename template's `{framerate}` variable.
+    var framerateLabel: String? {
+        switch self {
+        case .tvHEVC, .tvAVCIntra:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.tvFramerateModeKey) ?? AppConstants.defaultTVFramerateMode
+            guard let mode = TVFramerateMode(rawValue: raw), mode != .source else { return nil }
+            return mode.rawValue
+        case .dcp:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.dcpFrameRateKey) ?? AppConstants.defaultDCPFrameRate
+            // Stored as e.g. "24 fps" — strip the unit so it's filename-clean.
+            return raw.replacingOccurrences(of: " fps", with: "")
+        case .imageSequence:
+            let value = UserDefaults.standard.object(forKey: AppConstants.imageSequenceFrameRateKey) as? Double
+                ?? AppConstants.defaultImageSequenceFrameRate
+            return Self.cleanFramerateLabel(value)
+        default:
+            return nil
+        }
+    }
+
+    private static func label(for limit: CodecResolutionLimit) -> String? {
+        switch limit {
+        case .r720, .r1080, .r1440: return limit.rawValue
+        case .r2160: return "2160p"
+        case .unlimited: return nil
+        }
+    }
+
+    /// Bare height string for a TV resolution limit, used when combining with a scan-format suffix.
+    private static func heightForLabel(_ limit: TVResolutionLimit) -> String? {
+        switch limit {
+        case .r720: return "720"
+        case .r1080: return "1080"
+        case .r2160: return "2160"
+        case .unlimited: return nil
+        }
+    }
+
+    private static func label(for limit: ProxyResolutionLimit) -> String? {
+        switch limit {
+        case .r480, .r720, .r1080: return limit.rawValue
+        case .source: return nil
+        }
+    }
+
+    private static func dcpResolutionLabel(from raw: String) -> String? {
+        // DCP raw values look like "2K Full (2048x1080)" — extract the leading token (e.g. "2K", "4K").
+        guard let firstWord = raw.split(separator: " ").first else { return nil }
+        return String(firstWord)
+    }
+
+    private static func cleanFramerateLabel(_ value: Double) -> String {
+        // Render integer framerates without a decimal: 24.0 → "24", 23.976 → "23.976".
+        if value.rounded() == value {
+            return String(Int(value))
+        }
+        return String(format: "%g", value)
+    }
+
     var ffmpegArguments: [String] {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyyMMdd"

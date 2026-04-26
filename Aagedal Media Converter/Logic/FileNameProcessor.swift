@@ -9,35 +9,62 @@
 
 import Foundation
 
+/// How aggressively to strip "special" characters when sanitizing a filename.
+enum SpecialCharacterRemovalMode: String, CaseIterable, Identifiable {
+    /// Preserve every character — no removal step at all.
+    case off
+    /// Strip only filesystem-unsafe punctuation (`/ \ : * ? " < > |`) and control characters.
+    /// Letters with diacritics (é, ü), Nordic letters (æ, ø, å), and other Unicode letters survive.
+    case loose
+    /// Keep only ASCII letters, digits, underscore, hyphen, and space. Drops everything else.
+    case strict
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .off: return "Don't remove any characters"
+        case .loose: return "Only filesystem-unsafe characters (/ \\ : * ? \" < > |)"
+        case .strict: return "All non-ASCII (only A–Z, 0–9, _, -)"
+        }
+    }
+}
+
 /// Utility for processing and sanitizing file names.
 struct FileNameProcessor {
+    /// Resolves the user's current special-character removal mode, falling back to the legacy
+    /// boolean toggle if the new key has not been set yet.
+    static var specialCharRemovalMode: SpecialCharacterRemovalMode {
+        if let raw = UserDefaults.standard.string(forKey: AppConstants.fileNameSpecialCharRemovalModeKey),
+           let mode = SpecialCharacterRemovalMode(rawValue: raw) {
+            return mode
+        }
+        // Migration from old toggle: true → strict (preserve prior behavior), false → off.
+        if let legacy = UserDefaults.standard.object(forKey: AppConstants.fileNameRemoveSpecialCharsKey) as? Bool {
+            return legacy ? .strict : .off
+        }
+        return SpecialCharacterRemovalMode(rawValue: AppConstants.defaultFileNameSpecialCharRemovalMode) ?? .loose
+    }
+
     /// Processes a file name to ensure it's safe for use in file systems.
     /// - Parameter input: The input file name to process
     /// - Returns: A sanitized version of the input string with spaces replaced by underscores,
     ///   special characters removed, and other sanitization applied. If filename processing is disabled
     ///   in user preferences, returns the input unchanged.
     static func processFileName(_ input: String) -> String {
-        // Check if filename processing is enabled in user preferences
         let isEnabled = UserDefaults.standard.object(forKey: AppConstants.enableFileNameProcessingKey) as? Bool ?? true
+        guard isEnabled else { return input }
 
-        // If disabled, return the original input
-        guard isEnabled else {
-            return input
-        }
-
-        // Check individual processing options
         let replaceSpaces = UserDefaults.standard.object(forKey: AppConstants.fileNameReplaceSpacesKey) as? Bool ?? AppConstants.defaultFileNameReplaceSpaces
         let replaceScandinavianChars = UserDefaults.standard.object(forKey: AppConstants.fileNameReplaceScandinavianCharsKey) as? Bool ?? AppConstants.defaultFileNameReplaceScandinavianChars
-        let removeSpecialChars = UserDefaults.standard.object(forKey: AppConstants.fileNameRemoveSpecialCharsKey) as? Bool ?? AppConstants.defaultFileNameRemoveSpecialChars
+        let mode = specialCharRemovalMode
 
         var cleanedName = input
 
-        // Replace spaces with underscores
         if replaceSpaces {
             cleanedName = cleanedName.replacingOccurrences(of: " ", with: "_")
         }
 
-        // Replace Scandinavian characters
         if replaceScandinavianChars {
             cleanedName = cleanedName
                 .replacingOccurrences(of: "æ", with: "ae")
@@ -48,8 +75,14 @@ struct FileNameProcessor {
                 .replacingOccurrences(of: "Å", with: "AA")
         }
 
-        // Remove special characters but keep letters, numbers, underscores, and hyphens
-        if removeSpecialChars {
+        switch mode {
+        case .off:
+            break
+        case .loose:
+            let unsafe = CharacterSet(charactersIn: "/\\:*?\"<>|").union(.controlCharacters)
+            cleanedName = cleanedName.components(separatedBy: unsafe).joined()
+            cleanedName = cleanedName.trimmingCharacters(in: CharacterSet(charactersIn: "_- "))
+        case .strict:
             let pattern = "[^a-zA-Z0-9_\\- ]"
             if let regex = try? NSRegularExpression(pattern: pattern) {
                 let range = NSRange(cleanedName.startIndex..<cleanedName.endIndex, in: cleanedName)
@@ -59,8 +92,6 @@ struct FileNameProcessor {
                     withTemplate: ""
                 )
             }
-
-            // Remove any leading/trailing special characters
             cleanedName = cleanedName.trimmingCharacters(in: CharacterSet(charactersIn: "_-"))
         }
 
@@ -85,6 +116,16 @@ struct FileNameProcessor {
         return template.contains("{counter}")
     }
 
+    /// Whether the configured template explicitly includes the preset suffix variable.
+    /// When true, callers should suppress the global "include preset suffix" auto-append to avoid
+    /// duplicating the suffix.
+    static var customTemplateUsesPresetSuffix: Bool {
+        guard customTemplateEnabled else { return false }
+        let template = UserDefaults.standard.string(forKey: AppConstants.customFileNameTemplateKey)
+            ?? AppConstants.defaultCustomFileNameTemplate
+        return template.contains("{presetSuffix}")
+    }
+
     /// Atomically reads and increments the persisted counter value, returning the value before increment.
     static func nextCounterValue() -> Int {
         let stored = UserDefaults.standard.object(forKey: AppConstants.customFileNameCounterValueKey) as? Int
@@ -97,8 +138,10 @@ struct FileNameProcessor {
     /// - Parameters:
     ///   - sourceName: The already-sanitized base name (output of `processFileName`).
     ///   - counter: Counter value baked at queue-add time. If nil, `{counter}` resolves to "1".
+    ///   - preset: Active export preset, used to resolve `{presetSuffix}`, `{resolution}`, `{framerate}`.
+    ///     Pass nil to substitute those variables with empty strings.
     /// - Returns: The templated name, re-sanitized through the active filename rules.
-    static func applyCustomTemplate(sourceName: String, counter: Int? = nil) -> String {
+    static func applyCustomTemplate(sourceName: String, counter: Int? = nil, preset: ExportPreset? = nil) -> String {
         guard customTemplateEnabled else { return sourceName }
 
         let template = UserDefaults.standard.string(forKey: AppConstants.customFileNameTemplateKey)
@@ -117,10 +160,17 @@ struct FileNameProcessor {
 
         let counterString = String(format: "%0\(max(1, padding))d", counter ?? 1)
 
+        let presetSuffix = preset?.fileSuffix ?? ""
+        let resolution = preset?.resolutionLabel ?? ""
+        let framerate = preset?.framerateLabel ?? ""
+
         let substituted = template
             .replacingOccurrences(of: "{sourceName}", with: sourceName)
             .replacingOccurrences(of: "{date}", with: dateString)
             .replacingOccurrences(of: "{counter}", with: counterString)
+            .replacingOccurrences(of: "{presetSuffix}", with: presetSuffix)
+            .replacingOccurrences(of: "{resolution}", with: resolution)
+            .replacingOccurrences(of: "{framerate}", with: framerate)
 
         return processFileName(substituted)
     }

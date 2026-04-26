@@ -2597,8 +2597,11 @@ actor ConversionManager: Sendable {
         }
 
         let sanitizedBaseName = FileNameProcessor.processFileName(inputURL.deletingPathExtension().lastPathComponent)
-        let templatedBaseName = FileNameProcessor.applyCustomTemplate(sourceName: sanitizedBaseName, counter: item.customCounterValue)
-        let suffixPart = FileNameProcessor.includePresetSuffix ? preset.fileSuffix : ""
+        let templatedBaseName = FileNameProcessor.applyCustomTemplate(sourceName: sanitizedBaseName, counter: item.customCounterValue, preset: preset)
+        // Suppress the auto-appended suffix when the template already injected it via {presetSuffix},
+        // otherwise users would see "_h264_h264".
+        let suppressAutoSuffix = FileNameProcessor.customTemplateUsesPresetSuffix
+        let suffixPart = (FileNameProcessor.includePresetSuffix && !suppressAutoSuffix) ? preset.fileSuffix : ""
         return templatedBaseName + suffixPart
     }
 }
