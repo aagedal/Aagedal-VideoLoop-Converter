@@ -665,23 +665,23 @@ private struct GroupEditorRow: View {
 
 // MARK: - DragShareButton
 
-/// SwiftUI wrapper around `DraggableFileImageView` so the editor can use the
-/// same Finder-aware drag handle the queue cells use.
-private struct DragShareButton: NSViewRepresentable {
+/// Drag-to-share icon for a row in the group editor. Uses SwiftUI's `.onDrag`
+/// so the drag is registered at the SwiftUI layer — the surrounding `List`
+/// with `.onMove` swallows mouseDown before it reaches an embedded NSView,
+/// so the queue's `DraggableFileImageView` + table-view-mouseDown trick
+/// can't be reused here.
+private struct DragShareButton: View {
     let fileURL: URL?
 
-    func makeNSView(context: Context) -> DraggableFileImageView {
-        let view = DraggableFileImageView()
-        view.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right",
-                             accessibilityDescription: String(localized: "Drag to share file"))
-        view.imageScaling = .scaleProportionallyUpOrDown
-        view.contentTintColor = .systemBlue
-        view.fileURL = fileURL
-        return view
-    }
-
-    func updateNSView(_ nsView: DraggableFileImageView, context: Context) {
-        nsView.fileURL = fileURL
+    var body: some View {
+        Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .foregroundColor(.blue)
+            .onDrag {
+                guard let url = fileURL else { return NSItemProvider() }
+                return NSItemProvider(object: url as NSURL)
+            }
     }
 }
 
