@@ -12,19 +12,21 @@ import OSLog
 
 /// Manages watch folder monitoring with file growth detection
 actor WatchFolderManager {
+    private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "WatchFolder")
+
     private var monitorTask: Task<Void, Never>?
     private var trackedFiles: [URL: Int64] = [:] // URL -> file size
     private var isMonitoring = false
-    
+
     /// Start monitoring the specified folder
     func startMonitoring(
         folderPath: String,
         onNewFiles: @escaping @Sendable ([URL]) -> Void
     ) {
         guard !isMonitoring else { return }
-        
+
         isMonitoring = true
-        Logger().info("Starting watch folder monitoring: \(folderPath)")
+        Self.logger.info("Starting watch folder monitoring: \(folderPath, privacy: .public)")
         
         monitorTask = Task { [weak self] in
             guard let self else { return }
@@ -40,7 +42,7 @@ actor WatchFolderManager {
     
     /// Stop monitoring
     func stopMonitoring() {
-        Logger().info("Stopping watch folder monitoring")
+        Self.logger.info("Stopping watch folder monitoring")
         isMonitoring = false
         monitorTask?.cancel()
         monitorTask = nil
@@ -56,7 +58,7 @@ actor WatchFolderManager {
         
         // Check if folder exists
         guard FileManager.default.fileExists(atPath: folderURL.path) else {
-            Logger().warning("Watch folder does not exist: \(folderPath)")
+            Self.logger.warning("Watch folder does not exist: \(folderPath, privacy: .public)")
             return
         }
         
@@ -73,7 +75,7 @@ actor WatchFolderManager {
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .creationDateKey, .contentModificationDateKey, .addedToDirectoryDateKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else {
-            Logger().error("Failed to create file enumerator for: \(folderPath)")
+            Self.logger.error("Failed to create file enumerator for: \(folderPath, privacy: .public)")
             return
         }
 
@@ -104,12 +106,12 @@ actor WatchFolderManager {
                     // Use trash instead of permanent delete for safety (recoverable)
                     try FileSafetyUtils.trashWatchFolderItem(fileURL)
                     if let description = settings.deleteDescription {
-                        Logger().info("Trashed watch folder file older than \(description): \(fileURL.lastPathComponent)")
+                        Self.logger.info("Trashed watch folder file older than \(description, privacy: .public): \(fileURL.lastPathComponent, privacy: .public)")
                     } else {
-                        Logger().info("Trashed watch folder file exceeding delete threshold: \(fileURL.lastPathComponent)")
+                        Self.logger.info("Trashed watch folder file exceeding delete threshold: \(fileURL.lastPathComponent, privacy: .public)")
                     }
                 } catch {
-                    Logger().error("Failed to trash old watch folder file \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                    Self.logger.error("Failed to trash old watch folder file \(fileURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
                 trackedFiles.removeValue(forKey: fileURL)
                 continue
@@ -117,9 +119,9 @@ actor WatchFolderManager {
 
             if settings.ignoreEnabled, let ignoreThreshold = settings.ignoreThreshold, fileAge > ignoreThreshold {
                 if let description = settings.ignoreDescription {
-                    Logger().info("Ignoring watch folder file older than \(description): \(fileURL.lastPathComponent)")
+                    Self.logger.info("Ignoring watch folder file older than \(description, privacy: .public): \(fileURL.lastPathComponent, privacy: .public)")
                 } else {
-                    Logger().info("Ignoring watch folder file exceeding ignore threshold: \(fileURL.lastPathComponent)")
+                    Self.logger.info("Ignoring watch folder file exceeding ignore threshold: \(fileURL.lastPathComponent, privacy: .public)")
                 }
                 trackedFiles.removeValue(forKey: fileURL)
                 continue
@@ -130,12 +132,12 @@ actor WatchFolderManager {
             if let previousSize = trackedFiles[fileURL] {
                 if fileSize == previousSize && fileSize > 0 {
                     stableFiles.append(fileURL)
-                    Logger().info("File stable and ready: \(fileURL.lastPathComponent) (\(fileSize) bytes)")
+                    Self.logger.info("File stable and ready: \(fileURL.lastPathComponent, privacy: .public) (\(fileSize) bytes)")
                 } else if fileSize > previousSize {
-                    Logger().info("File still growing: \(fileURL.lastPathComponent) (\(previousSize) -> \(fileSize) bytes)")
+                    Self.logger.info("File still growing: \(fileURL.lastPathComponent, privacy: .public) (\(previousSize) -> \(fileSize) bytes)")
                 }
             } else {
-                Logger().info("New file detected (tracking): \(fileURL.lastPathComponent) (\(fileSize) bytes)")
+                Self.logger.info("New file detected (tracking): \(fileURL.lastPathComponent, privacy: .public) (\(fileSize) bytes)")
             }
         }
         
@@ -144,7 +146,7 @@ actor WatchFolderManager {
         
         // Report stable files
         if !stableFiles.isEmpty {
-            Logger().info("Reporting \(stableFiles.count) stable file(s)")
+            Self.logger.info("Reporting \(stableFiles.count) stable file(s)")
             onNewFiles(stableFiles)
             
             // Remove reported files from tracking
