@@ -290,14 +290,13 @@ struct VideoQueueTableView: NSViewRepresentable {
         let newIDs = displayRows.map(\.id)
         let oldIDs = coordinator.previousIDs
 
-        // Handle compact mode changes - notify table about row height changes
-        // Must happen before updateVisibleCells so cells get reconfigured
-        if isCompactMode != coordinator.previousCompactMode {
-            coordinator.previousCompactMode = isCompactMode
-            if tableView.numberOfRows > 0 {
-                let allRows = IndexSet(integersIn: 0..<tableView.numberOfRows)
-                tableView.noteHeightOfRows(withIndexesChanged: allRows)
-            }
+        // Handle compact mode changes - notify table about row height changes.
+        // `previousCompactMode` is updated at the end of `updateVisibleCells` so the
+        // globalChanged check there sees the difference and reconfigures every visible cell.
+        if isCompactMode != coordinator.previousCompactMode,
+           tableView.numberOfRows > 0 {
+            let allRows = IndexSet(integersIn: 0..<tableView.numberOfRows)
+            tableView.noteHeightOfRows(withIndexesChanged: allRows)
         }
 
         if newIDs == oldIDs {
@@ -860,6 +859,7 @@ struct VideoQueueTableView: NSViewRepresentable {
             previousMergeAvailable = parent.mergeClipsAvailable
             previousShowComment = parent.showCommentField
             previousShowDateTag = parent.showDateTagButton
+            previousCompactMode = parent.isCompactMode
         }
 
         // MARK: - Thumbnail Resolution

@@ -158,6 +158,33 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     private var thumbnailHeight: CGFloat { isCompact ? 100 : 150 }
     private var isCompact = false
 
+    // Compact mode reuses the same buttons but at a smaller hit area so they fit
+    // in the shorter row without overflowing. Sizes here are paired (button size /
+    // symbol point size / corner radius / divider height) so they stay visually
+    // consistent across modes. EncodingGroupHeaderCellView reads from the same
+    // constants so single-item cards and group cards stay in lockstep.
+    static let normalButtonSize: CGFloat = 28
+    static let compactButtonSize: CGFloat = 22
+    static let normalSymbolPointSize: CGFloat = 17
+    static let compactSymbolPointSize: CGFloat = 13
+    static let normalDividerHeight: CGFloat = 26
+    static let compactDividerHeight: CGFloat = 18
+    static let normalCapsuleHeight: CGFloat = 20
+    static let compactCapsuleHeight: CGFloat = 16
+
+    private var buttonSize: CGFloat { isCompact ? Self.compactButtonSize : Self.normalButtonSize }
+    private var buttonSymbolPointSize: CGFloat { isCompact ? Self.compactSymbolPointSize : Self.normalSymbolPointSize }
+    private var buttonCornerRadius: CGFloat { buttonSize / 2 }
+    private var dividerHeight: CGFloat { isCompact ? Self.compactDividerHeight : Self.normalDividerHeight }
+    private var capsuleHeight: CGFloat { isCompact ? Self.compactCapsuleHeight : Self.normalCapsuleHeight }
+
+    // Constraints captured at setup so applyCompactSizing() can flip them when
+    // the user toggles compact mode without rebuilding the cell.
+    private var compactSizedButtons: [NSButton] = []
+    private var buttonSizeConstraints: [NSLayoutConstraint] = []
+    private var dividerHeightConstraints: [NSLayoutConstraint] = []
+    private var capsuleHeightConstraint: NSLayoutConstraint?
+
     // MARK: - Cached SF Symbols
     // Resolved once and shared across all cells. NSImage from systemSymbolName is
     // immutable after creation, so reusing the instance is safe on the main thread.
@@ -646,10 +673,12 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             divider.wantsLayer = true
             divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
             divider.translatesAutoresizingMaskIntoConstraints = false
+            let heightConstraint = divider.heightAnchor.constraint(equalToConstant: Self.normalDividerHeight)
             NSLayoutConstraint.activate([
                 divider.widthAnchor.constraint(equalToConstant: 2),
-                divider.heightAnchor.constraint(equalToConstant: 26),
+                heightConstraint,
             ])
+            dividerHeightConstraints.append(heightConstraint)
         }
 
         setupActionButtons()
@@ -725,6 +754,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         capsuleLabel.translatesAutoresizingMaskIntoConstraints = false
         statusCapsule.addSubview(capsuleLabel)
 
+        let capsuleHeightConstraint = statusCapsule.heightAnchor.constraint(equalToConstant: Self.normalCapsuleHeight)
+        self.capsuleHeightConstraint = capsuleHeightConstraint
         NSLayoutConstraint.activate([
             capsuleIcon.leadingAnchor.constraint(equalTo: statusCapsule.leadingAnchor, constant: 7),
             capsuleIcon.centerYAnchor.constraint(equalTo: statusCapsule.centerYAnchor),
@@ -735,7 +766,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             capsuleLabel.trailingAnchor.constraint(equalTo: statusCapsule.trailingAnchor, constant: -8),
             capsuleLabel.centerYAnchor.constraint(equalTo: statusCapsule.centerYAnchor),
 
-            statusCapsule.heightAnchor.constraint(equalToConstant: 20),
+            capsuleHeightConstraint,
         ])
 
         statusCapsule.setContentHuggingPriority(.required, for: .horizontal)
@@ -760,28 +791,33 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         // Applied on the button (not the image) so it survives the state-driven
         // reassignments in +Actions.swift (`uploadButton.image = Symbol.named(...)`).
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: Self.normalSymbolPointSize, weight: .regular)
         button.isBordered = false
         button.bezelStyle = .inline
         button.target = self
         button.action = action
         button.wantsLayer = true
-        button.layer?.cornerRadius = 14
+        button.layer?.cornerRadius = Self.normalButtonSize / 2
         button.layer?.borderWidth = 2
         button.layer?.borderColor = NSColor.clear.cgColor
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setContentHuggingPriority(.required, for: .horizontal)
         button.setContentCompressionResistancePriority(.required, for: .vertical)
+        let widthConstraint = button.widthAnchor.constraint(equalToConstant: Self.normalButtonSize)
+        let heightConstraint = button.heightAnchor.constraint(equalToConstant: Self.normalButtonSize)
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 28),
-            button.heightAnchor.constraint(equalToConstant: 28),
+            widthConstraint,
+            heightConstraint,
             button.widthAnchor.constraint(equalTo: button.heightAnchor), // guarantee 1:1
         ])
+        buttonSizeConstraints.append(widthConstraint)
+        buttonSizeConstraints.append(heightConstraint)
+        compactSizedButtons.append(button)
     }
 
     private func setupActionButton(_ button: NSButton, symbol: String, color: NSColor, action: Selector) {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: Self.normalSymbolPointSize, weight: .regular)
         button.contentTintColor = color
         button.isBordered = false
         button.bezelStyle = .inline
@@ -789,10 +825,12 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         button.action = action
         button.isHidden = true
         button.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 28),
-            button.heightAnchor.constraint(equalToConstant: 28),
-        ])
+        let widthConstraint = button.widthAnchor.constraint(equalToConstant: Self.normalButtonSize)
+        let heightConstraint = button.heightAnchor.constraint(equalToConstant: Self.normalButtonSize)
+        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
+        buttonSizeConstraints.append(widthConstraint)
+        buttonSizeConstraints.append(heightConstraint)
+        compactSizedButtons.append(button)
     }
 
     // MARK: - Configure
@@ -815,13 +853,14 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         let isFirstConfigure = prev == nil || prev?.itemID != config.itemID
         self.currentItemID = config.itemID
 
-        // Compact mode change — update thumbnail size
+        // Compact mode change — update thumbnail size, button sizes, capsule height, etc.
         if isFirstConfigure || prev?.isCompactMode != config.isCompactMode {
             self.isCompact = config.isCompactMode
             if Self.thumbnailAreaEnabled { updateThumbnailSize() }
             durationLabel.isHidden = config.isCompactMode
             dotSeparator.isHidden = config.isCompactMode
             sizeLabel.isHidden = config.isCompactMode
+            applyCompactSizing()
         }
 
         // Group child background — trigger layer update when membership changes
@@ -1092,6 +1131,31 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
                 constraint.constant = thumbnailWidth
             }
         }
+    }
+
+    /// Pushes the current compact / normal sizing through every cached constraint
+    /// and layer property. Called from `configure()` whenever isCompactMode flips.
+    private func applyCompactSizing() {
+        let size = buttonSize
+        let pointSize = buttonSymbolPointSize
+        let cornerRadius = buttonCornerRadius
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
+
+        for constraint in buttonSizeConstraints {
+            constraint.constant = size
+        }
+        for button in compactSizedButtons {
+            button.symbolConfiguration = symbolConfig
+            // Toggle buttons are hosted in a layer (wantsLayer = true) for the
+            // processing-ring border; action buttons aren't, but setting cornerRadius
+            // on a nil layer is a no-op so this is safe to apply unconditionally.
+            button.layer?.cornerRadius = cornerRadius
+        }
+        for constraint in dividerHeightConstraints {
+            constraint.constant = dividerHeight
+        }
+        capsuleHeightConstraint?.constant = capsuleHeight
+        statusCapsule.layer?.cornerRadius = capsuleHeight / 2
     }
 
     private func updateSelectionBorder(isSelected: Bool) {

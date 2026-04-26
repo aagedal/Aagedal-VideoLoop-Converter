@@ -137,6 +137,20 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     private var thumbnailWidth: CGFloat { isCompact ? 160 : 240 }
 
+    // Sizing pulled from VideoFileCellView so single-item and group cards stay
+    // visually paired in normal vs. compact mode.
+    private var buttonSize: CGFloat { isCompact ? VideoFileCellView.compactButtonSize : VideoFileCellView.normalButtonSize }
+    private var buttonSymbolPointSize: CGFloat { isCompact ? VideoFileCellView.compactSymbolPointSize : VideoFileCellView.normalSymbolPointSize }
+    private var buttonCornerRadius: CGFloat { buttonSize / 2 }
+    private var dividerHeight: CGFloat { isCompact ? VideoFileCellView.compactDividerHeight : VideoFileCellView.normalDividerHeight }
+    private var capsuleHeight: CGFloat { isCompact ? VideoFileCellView.compactCapsuleHeight : VideoFileCellView.normalCapsuleHeight }
+
+    // Captured at setup so applyCompactLayout can flip them on toggle.
+    private var compactSizedButtons: [NSButton] = []
+    private var buttonSizeConstraints: [NSLayoutConstraint] = []
+    private var dividerHeightConstraints: [NSLayoutConstraint] = []
+    private var capsuleHeightConstraint: NSLayoutConstraint?
+
     // MARK: - Init
 
     override init(frame frameRect: NSRect) {
@@ -574,7 +588,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     private func setupStatusCapsule() {
         statusCapsule.wantsLayer = true
-        statusCapsule.layer?.cornerRadius = 10
+        statusCapsule.layer?.cornerRadius = VideoFileCellView.normalCapsuleHeight / 2
         statusCapsule.layer?.borderWidth = 1.2
         statusCapsule.translatesAutoresizingMaskIntoConstraints = false
 
@@ -591,6 +605,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         capsuleLabel.translatesAutoresizingMaskIntoConstraints = false
         statusCapsule.addSubview(capsuleLabel)
 
+        let capsuleHeightConstraint = statusCapsule.heightAnchor.constraint(equalToConstant: VideoFileCellView.normalCapsuleHeight)
+        self.capsuleHeightConstraint = capsuleHeightConstraint
         NSLayoutConstraint.activate([
             capsuleIcon.leadingAnchor.constraint(equalTo: statusCapsule.leadingAnchor, constant: 7),
             capsuleIcon.centerYAnchor.constraint(equalTo: statusCapsule.centerYAnchor),
@@ -601,7 +617,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             capsuleLabel.trailingAnchor.constraint(equalTo: statusCapsule.trailingAnchor, constant: -8),
             capsuleLabel.centerYAnchor.constraint(equalTo: statusCapsule.centerYAnchor),
 
-            statusCapsule.heightAnchor.constraint(equalToConstant: 20),
+            capsuleHeightConstraint,
         ])
 
         statusCapsule.setContentHuggingPriority(.required, for: .horizontal)
@@ -643,10 +659,12 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             divider.wantsLayer = true
             divider.layer?.backgroundColor = NSColor.separatorColor.cgColor
             divider.translatesAutoresizingMaskIntoConstraints = false
+            let heightConstraint = divider.heightAnchor.constraint(equalToConstant: VideoFileCellView.normalDividerHeight)
             NSLayoutConstraint.activate([
                 divider.widthAnchor.constraint(equalToConstant: 2),
-                divider.heightAnchor.constraint(equalToConstant: 26),
+                heightConstraint,
             ])
+            dividerHeightConstraints.append(heightConstraint)
         }
 
         togglesStack.addArrangedSubview(sequentialToggle)
@@ -663,10 +681,12 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         actionButtonDivider.wantsLayer = true
         actionButtonDivider.layer?.backgroundColor = NSColor.separatorColor.cgColor
         actionButtonDivider.translatesAutoresizingMaskIntoConstraints = false
+        let actionDividerHeight = actionButtonDivider.heightAnchor.constraint(equalToConstant: VideoFileCellView.normalDividerHeight)
         NSLayoutConstraint.activate([
             actionButtonDivider.widthAnchor.constraint(equalToConstant: 2),
-            actionButtonDivider.heightAnchor.constraint(equalToConstant: 26),
+            actionDividerHeight,
         ])
+        dividerHeightConstraints.append(actionDividerHeight)
 
         let leadingActions = NSStackView()
         leadingActions.orientation = .horizontal
@@ -752,11 +772,11 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     }
 
     /// Action-button styling that matches `VideoFileCellView.setupActionButton` —
-    /// 28×28 footprint, 17pt SF Symbol, inline bezel — so group cards read as
-    /// peers of single-item cards.
+    /// shared sizing constants so group cards read as peers of single-item cards
+    /// and shrink in lockstep when compact mode is enabled.
     private func configureActionButton(_ button: NSButton, symbolName: String, tint: NSColor, action: Selector) {
         button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: VideoFileCellView.normalSymbolPointSize, weight: .regular)
         button.bezelStyle = .inline
         button.isBordered = false
         button.imagePosition = .imageOnly
@@ -764,32 +784,36 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         button.target = self
         button.action = action
         button.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 28),
-            button.heightAnchor.constraint(equalToConstant: 28),
-        ])
+        let widthConstraint = button.widthAnchor.constraint(equalToConstant: VideoFileCellView.normalButtonSize)
+        let heightConstraint = button.heightAnchor.constraint(equalToConstant: VideoFileCellView.normalButtonSize)
+        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
+        buttonSizeConstraints.append(widthConstraint)
+        buttonSizeConstraints.append(heightConstraint)
+        compactSizedButtons.append(button)
     }
 
-    /// Matches `VideoFileCellView.setupToggleButton` — 28×28 with the same
-    /// circular-ring scaffolding so the active-processing indicator stays a
-    /// true circle and toggle/action buttons align in the bottom row.
+    /// Matches `VideoFileCellView.setupToggleButton` — same circular-ring
+    /// scaffolding so the active-processing indicator stays a true circle
+    /// and shrinks together when compact mode is enabled.
     private func configureToggleButton(_ button: NSButton, onSymbol: NSImage?, offSymbol: NSImage?, action: Selector) {
         button.image = offSymbol
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: VideoFileCellView.normalSymbolPointSize, weight: .regular)
         button.bezelStyle = .inline
         button.isBordered = false
         button.imagePosition = .imageOnly
         button.target = self
         button.action = action
         button.wantsLayer = true
-        button.layer?.cornerRadius = 14
+        button.layer?.cornerRadius = VideoFileCellView.normalButtonSize / 2
         button.layer?.borderWidth = 2
         button.layer?.borderColor = NSColor.clear.cgColor
         button.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 28),
-            button.heightAnchor.constraint(equalToConstant: 28),
-        ])
+        let widthConstraint = button.widthAnchor.constraint(equalToConstant: VideoFileCellView.normalButtonSize)
+        let heightConstraint = button.heightAnchor.constraint(equalToConstant: VideoFileCellView.normalButtonSize)
+        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
+        buttonSizeConstraints.append(widthConstraint)
+        buttonSizeConstraints.append(heightConstraint)
+        compactSizedButtons.append(button)
     }
 
     // MARK: - Configure
@@ -956,6 +980,24 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         let baseHeight = (compact ? Self.baseCompactRowHeight : Self.baseRowHeight) - 12
         thumbnailHeightConstraint?.constant = baseHeight
         checkerHeightConstraint?.constant = baseHeight
+
+        // Shrink toggles, action buttons, dividers, and the status capsule in
+        // lockstep with VideoFileCellView so the two card types stay paired.
+        let size = buttonSize
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: buttonSymbolPointSize, weight: .regular)
+        let cornerRadius = buttonCornerRadius
+        for constraint in buttonSizeConstraints {
+            constraint.constant = size
+        }
+        for button in compactSizedButtons {
+            button.symbolConfiguration = symbolConfig
+            button.layer?.cornerRadius = cornerRadius
+        }
+        for constraint in dividerHeightConstraints {
+            constraint.constant = dividerHeight
+        }
+        capsuleHeightConstraint?.constant = capsuleHeight
+        statusCapsule.layer?.cornerRadius = capsuleHeight / 2
     }
 
     // MARK: - Sub-updates

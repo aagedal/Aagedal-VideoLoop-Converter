@@ -66,14 +66,14 @@ extension VideoFileCellView {
     // MARK: - Comment Section Update
 
     func updateCommentSection(config: VideoFileCellConfiguration) {
-        // Compact mode hides all of these controls; in normal mode each button has its
-        // own visibility rule based on what the item actually supports.
-        let compact = config.isCompactMode
+        // Each button has its own visibility rule based on what the item actually
+        // supports. Compact mode keeps the same buttons visible — VideoFileCellView's
+        // applyCompactSizing() shrinks them so they still fit in the shorter row.
 
         // Comment toggle — only shown when the output container can actually carry
         // a comment tag. Hides the button for DCP (which has its own metadata
         // sheet), image sequences, animated stills, and MXF-based presets.
-        let commentsAvailable = !compact && config.preset.supportsMetadataComment
+        let commentsAvailable = config.preset.supportsMetadataComment
         commentToggleButton.isHidden = !commentsAvailable
         if commentsAvailable {
             let hasComment = !config.comment.isEmpty
@@ -85,7 +85,7 @@ extension VideoFileCellView {
         }
 
         // Date tag button — respects the "show date tag" preference.
-        let showDateTag = !compact && config.showDateTagButton
+        let showDateTag = config.showDateTagButton
         dateTagButton.isHidden = !showDateTag
         if showDateTag {
             let isActive = config.includeDateTag
@@ -94,7 +94,7 @@ extension VideoFileCellView {
         }
 
         // Waveform controls only apply to audio-only items.
-        let showWaveform = !compact && !config.hasVideoStream
+        let showWaveform = !config.hasVideoStream
         waveformButton.isHidden = !showWaveform
         waveformBgButton.isHidden = !showWaveform
         if showWaveform {

@@ -17,7 +17,7 @@ extension VideoFileCellView {
 
     func updateToggleButtons(config: VideoFileCellConfiguration) {
         // --- Encode button (green play icon) ---
-        encodeButton.isHidden = config.isCompactMode
+        encodeButton.isHidden = false
         let isEncoding = config.status == .converting
         encodeButton.image = VideoFileCellView.Symbol.playFill
         encodeButton.contentTintColor = isEncoding ? .systemGreen : .systemGreen.withAlphaComponent(0.5)
@@ -27,7 +27,7 @@ extension VideoFileCellView {
 
         // Auto-encode button (only during download)
         let showAutoEncode = config.isDownloading || config.scheduledDownloadTime != nil
-        autoEncodeButton.isHidden = !showAutoEncode || config.isCompactMode
+        autoEncodeButton.isHidden = !showAutoEncode
         if showAutoEncode {
             autoEncodeButton.image = config.autoEncodeAfterDownload ? VideoFileCellView.Symbol.playFill : VideoFileCellView.Symbol.play
             autoEncodeButton.contentTintColor = config.autoEncodeAfterDownload ? .systemGreen : .secondaryLabelColor
@@ -35,7 +35,7 @@ extension VideoFileCellView {
         }
 
         // --- Transcription button (yellow) ---
-        transcriptionButton.isHidden = config.isCompactMode
+        transcriptionButton.isHidden = false
         let isTranscriptionEnabled = config.subtitleEnabled && (config.subtitleMethod == .whisper || config.subtitleMethod == .parakeet)
         let isTranscribing = config.subtitleStatus.isInProgress
         transcriptionButton.image = isTranscriptionEnabled ? VideoFileCellView.Symbol.captionsBubbleFill : VideoFileCellView.Symbol.captionsBubble
@@ -53,7 +53,7 @@ extension VideoFileCellView {
         applyProcessingRing(to: transcriptionButton, active: isTranscribing, color: .systemYellow)
 
         // OCR button
-        let showOCR = config.hasBitmapSubtitles && !config.isCompactMode
+        let showOCR = config.hasBitmapSubtitles
         ocrButton.isHidden = !showOCR
         if showOCR {
             let isOCREnabled = config.subtitleEnabled && config.subtitleMethod == .ocr
@@ -64,7 +64,7 @@ extension VideoFileCellView {
         }
 
         // --- Analytics button (cyan) ---
-        let showAnalytics = config.hasVideoStream && !config.isCompactMode
+        let showAnalytics = config.hasVideoStream
         analyticsButton.isHidden = !showAnalytics
         let isAnalyzing = config.analyticsStatus.isInProgress
         if showAnalytics {
@@ -93,7 +93,7 @@ extension VideoFileCellView {
         applyProcessingRing(to: analyticsButton, active: isAnalyzing, color: .systemCyan)
 
         // --- Upload button (blue) ---
-        uploadButton.isHidden = config.isCompactMode
+        uploadButton.isHidden = false
         let isUploading = config.uploadStatus == .uploading
         let uploadIcon: String
         let uploadColor: NSColor
@@ -117,9 +117,10 @@ extension VideoFileCellView {
         uploadButton.isEnabled = config.isUploadConfigured
         applyProcessingRing(to: uploadButton, active: isUploading, color: .systemBlue)
 
-        // Divider visibility (hide when toggle buttons are hidden)
-        buttonDivider.isHidden = config.isCompactMode
-        metaDivider.isHidden = config.isCompactMode
+        // Divider visibility tracks the toggle buttons themselves; both are now
+        // visible in compact mode too, so the dividers stay shown.
+        buttonDivider.isHidden = false
+        metaDivider.isHidden = false
     }
 
     /// Shows or hides a circular ring around a button to indicate active processing.
