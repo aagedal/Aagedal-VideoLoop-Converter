@@ -1139,13 +1139,12 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         }
     }
 
-    /// Mirrors VideoFileCellView's status capsule. Hidden in compact mode so
-    /// the row stays terse, otherwise shows the same WAITING/ENCODING/DONE/
-    /// FAILED/CANCELLED pill with a numeric "X/Y" companion label when
-    /// encoding so users can see how many of the group's clips are done.
+    /// Mirrors VideoFileCellView's status capsule. Stays visible in compact
+    /// mode now that the row also hosts the preset popup and status label —
+    /// the smaller compact button sizes free up enough vertical space for
+    /// the row to remain.
     private func updateStatusCapsuleAndLabel(config: EncodingGroupCellConfiguration) {
-        statusRow.isHidden = config.isCompactMode
-        guard !config.isCompactMode else { return }
+        statusRow.isHidden = false
 
         let (text, icon, color): (String, String, NSColor) = {
             switch config.status {
