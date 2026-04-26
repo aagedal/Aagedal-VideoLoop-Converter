@@ -16,11 +16,11 @@ Note that most of this app is vibe-coded.
 
 ### Homebrew
 ```bash
-brew install aagedal/casks/aagedal-media-converter
+brew tap aagedal/tap && brew install --cask aagedal-media-converter
 ```
 
 ### Manual download
-[Latest version (3.8.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/v.3.8.0/Aagedal-Media-Converter_3-8-0.zip)
+[Latest version (4.0.0)](https://github.com/aagedal/Aagedal-Media-Converter/releases/download/4.0.0/Aagedal_Media_Converter_4.0.0.zip)
 
 
 ---
