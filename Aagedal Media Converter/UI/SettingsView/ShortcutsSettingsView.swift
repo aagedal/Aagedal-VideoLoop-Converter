@@ -11,6 +11,7 @@ import SwiftUI
 
 struct ShortcutsSettingsView: View {
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
 
     private var filteredGroups: [ShortcutGroup] {
         guard !searchText.isEmpty else { return [] }
@@ -18,44 +19,60 @@ struct ShortcutsSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Filter shortcuts…", text: $searchText)
-                        .textFieldStyle(.plain)
-                    if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Filter shortcuts…", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
                     }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(NSColor.textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
+            )
+            .contentShape(Rectangle())
+            .onTapGesture { searchFocused = true }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
 
-            if !searchText.isEmpty && filteredGroups.isEmpty {
-                Section {
-                    Text("No shortcuts match \"\(searchText)\"")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 20)
-                }
-            } else {
-                ForEach(groupsToDisplay, id: \.title) { group in
-                    Section(header: Text(group.title)) {
-                        VStack(spacing: 8) {
-                            ForEach(group.shortcuts) { shortcut in
-                                ShortcutRow(shortcut: shortcut)
+            Form {
+                if !searchText.isEmpty && filteredGroups.isEmpty {
+                    Section {
+                        Text("No shortcuts match \"\(searchText)\"")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 20)
+                    }
+                } else {
+                    ForEach(groupsToDisplay, id: \.title) { group in
+                        Section(header: Text(group.title)) {
+                            VStack(spacing: 8) {
+                                ForEach(group.shortcuts) { shortcut in
+                                    ShortcutRow(shortcut: shortcut)
+                                }
                             }
+                            .padding(8)
                         }
-                        .padding(8)
                     }
                 }
             }
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
     }
 
     private var groupsToDisplay: [ShortcutGroup] {
