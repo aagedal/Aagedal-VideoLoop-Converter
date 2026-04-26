@@ -139,6 +139,15 @@ struct WhisperSettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
 
+                        Button {
+                            revealModelsInFinder()
+                        } label: {
+                            Image(systemName: "arrow.right.circle.fill")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        .help("Show in Finder")
+
                         Spacer()
 
                         Button(role: .destructive) {
@@ -442,6 +451,19 @@ struct WhisperSettingsView: View {
             total += model.fileSizeBytes
         }
         return total
+    }
+
+    private func revealModelsInFinder() {
+        let directory = AppConstants.whisperModelsDirectory
+        let urls = downloadedModels
+            .map { WhisperModelManager.shared.modelPath(for: $0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+
+        if urls.isEmpty {
+            NSWorkspace.shared.activateFileViewerSelecting([directory])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting(urls)
+        }
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
