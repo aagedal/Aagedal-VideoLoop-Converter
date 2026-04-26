@@ -51,6 +51,7 @@ struct YTDLPSettingsView: View {
     @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
     @AppStorage(AppConstants.ytdlpCookiesBrowserKey) private var cookiesBrowser = ""
     @AppStorage(AppConstants.downloadFolderKey) private var downloadFolder = AppConstants.defaultDownloadDirectory.path
+    @AppStorage(AppConstants.ytdlpFilenameRestrictionModeKey) private var filenameRestrictionRaw = AppConstants.defaultYTDLPFilenameRestrictionMode
 
     var body: some View {
         Form {
@@ -752,8 +753,45 @@ struct YTDLPSettingsView: View {
                 Text("Downloads from yt-dlp are saved here before conversion.")
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                Divider()
+
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Filename restrictions:")
+                    Picker("", selection: filenameRestrictionMode) {
+                        ForEach(YTDLPFilenameRestrictionMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: 360)
+                    Spacer()
+                }
+
+                Text(filenameRestrictionExplanation)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(8)
+        }
+    }
+
+    private var filenameRestrictionMode: Binding<YTDLPFilenameRestrictionMode> {
+        Binding(
+            get: { YTDLPFilenameRestrictionMode(rawValue: filenameRestrictionRaw) ?? .off },
+            set: { filenameRestrictionRaw = $0.rawValue }
+        )
+    }
+
+    private var filenameRestrictionExplanation: String {
+        switch YTDLPFilenameRestrictionMode(rawValue: filenameRestrictionRaw) ?? .off {
+        case .off:
+            return "yt-dlp only strips characters illegal on macOS (just '/' and NUL). Filenames may still break on Windows or NTFS drives."
+        case .windowsSafe:
+            return "Strips characters Windows rejects (< > : \" / \\ | ? *) and trailing space/period. Unicode letters, including æ, ø, å, and CJK scripts, are preserved."
+        case .asciiOnly:
+            return "Keeps only ASCII letters, digits, underscore, hyphen, and period. Non-Latin scripts and many accented letters are dropped (e.g. ø → empty, é → e)."
         }
     }
 

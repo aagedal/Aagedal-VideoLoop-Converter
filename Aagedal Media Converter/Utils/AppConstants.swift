@@ -625,6 +625,10 @@ enum AppConstants {
     static let ytdlpCookiesBrowserKey = "ytdlpCookiesBrowser"
     static let ytdlpLiveFromStartKey = "ytdlpLiveFromStart"
 
+    // Filename restriction mode for yt-dlp downloads. See YTDLPFilenameRestrictionMode.
+    static let ytdlpFilenameRestrictionModeKey = "ytdlpFilenameRestrictionMode"
+    static let defaultYTDLPFilenameRestrictionMode = "off"
+
     // MARK: - Upload Settings
 
     // Unified profile storage (one list, each profile carries its own backend).

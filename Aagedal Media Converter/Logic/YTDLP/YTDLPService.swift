@@ -20,6 +20,33 @@ struct YTDLPDownloadResult: Sendable {
     let title: String
 }
 
+/// How aggressively yt-dlp should sanitize downloaded filenames.
+enum YTDLPFilenameRestrictionMode: String, CaseIterable, Identifiable {
+    /// Default — yt-dlp only strips characters illegal on the current OS (just `/` and NUL on macOS).
+    case off
+    /// Adds `--windows-filenames` so filenames are also safe on Windows / NTFS / cloud sync.
+    /// Strips `< > : " / \ | ? *`, control chars, and trailing space/period. Keeps Unicode letters.
+    case windowsSafe = "windows_safe"
+    /// Adds `--restrict-filenames` — ASCII letters/digits/`_.-` only. Drops non-Latin scripts and many accents.
+    case asciiOnly = "ascii_only"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .windowsSafe: return "Windows-safe (keeps Unicode letters)"
+        case .asciiOnly: return "ASCII only (strips non-Latin scripts)"
+        }
+    }
+
+    static var current: YTDLPFilenameRestrictionMode {
+        let raw = UserDefaults.standard.string(forKey: AppConstants.ytdlpFilenameRestrictionModeKey)
+            ?? AppConstants.defaultYTDLPFilenameRestrictionMode
+        return YTDLPFilenameRestrictionMode(rawValue: raw) ?? .off
+    }
+}
+
 /// Service for executing yt-dlp downloads
 actor YTDLPService {
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "YTDLPService")
@@ -275,6 +302,17 @@ actor YTDLPService {
         if liveFromStart {
             args.append(contentsOf: ["--live-from-start", "--no-part"])
             logger.info("[YTDLPService] Downloading live stream from start (no-part)")
+        }
+
+        switch YTDLPFilenameRestrictionMode.current {
+        case .off:
+            break
+        case .windowsSafe:
+            args.append("--windows-filenames")
+            logger.info("[YTDLPService] Filename restriction: windows-safe")
+        case .asciiOnly:
+            args.append("--restrict-filenames")
+            logger.info("[YTDLPService] Filename restriction: ASCII only")
         }
 
         args.append(contentsOf: [
