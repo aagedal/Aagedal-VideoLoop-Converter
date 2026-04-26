@@ -43,7 +43,9 @@ final class RegionSelectionWindowController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.level = .screenSaver
+        // .statusBar (25) sits above other apps but below system permission/TCC dialogs,
+        // so a screen-recording-permission prompt remains clickable on top of this overlay.
+        panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.delegate = self

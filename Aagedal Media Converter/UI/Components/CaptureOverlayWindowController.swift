@@ -153,7 +153,9 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.level = .screenSaver
+        // .statusBar (25) sits above other apps but below system permission/TCC dialogs.
+        // Using .screenSaver here would block clicks to the screen-recording-permission prompt.
+        panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
@@ -186,7 +188,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
 
         // Ensure control panel stays above the overlay
-        controlPanel?.level = .init(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+        controlPanel?.level = .init(rawValue: NSWindow.Level.statusBar.rawValue + 1)
     }
 
     func hideRegionOverlay() {
@@ -251,7 +253,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.level = overlayPanel != nil ? .init(rawValue: NSWindow.Level.screenSaver.rawValue + 1) : .floating
+        panel.level = overlayPanel != nil ? .init(rawValue: NSWindow.Level.statusBar.rawValue + 1) : .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.isMovableByWindowBackground = true
