@@ -20,6 +20,8 @@
 		4A82CAA45E362E122405B09C /* WhisperModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A661B3187048E83E24FB0AB /* WhisperModels.swift */; };
 		515A407918750E4E62409DA5 /* BinaryPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */; };
 		59050FF1288247E2E02A60CA /* UploadModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BBC06DAF3F395A5C54B3064 /* UploadModels.swift */; };
+		F12A11220000111111111112 /* FileZillaImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12A11220000111111111111 /* FileZillaImporter.swift */; };
+		F12A11220000111111111114 /* FileZillaImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12A11220000111111111113 /* FileZillaImportSheet.swift */; };
 		5DA60AEC78445845148F3FFA /* VideoQueueTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */; };
 		6400227984B060FA08D0B79C /* WhisperUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F741F78E5BA1732D892656E /* WhisperUpdateService.swift */; };
 		64B1D5EAD4079C022166DF40 /* VideoFileCellView+Actions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B28D978311204AF28106F84 /* VideoFileCellView+Actions.swift */; };
@@ -159,12 +161,12 @@
 		E69050ED114BBF6B493BE257 /* URLInputOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */; };
 		ENCGRP00000000001 /* EncodingGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRP00000000002 /* EncodingGroup.swift */; };
 		ENCGRPCELL00000001 /* EncodingGroupHeaderCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRPCELL00000002 /* EncodingGroupHeaderCellView.swift */; };
+		ENCSETV000000001 /* EncodingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCSETV000000002 /* EncodingSettingsView.swift */; };
 		F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */; };
 		F88CB64509DD67D585EB71E6 /* WhisperModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */; };
 		FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B862E87364609527CEEC84 /* YTDLPService.swift */; };
 		FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPCRD00000002 /* FileImportCoordinator.swift */; };
 		FILEIMPMGR00000001 /* FileImportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPMGR00000002 /* FileImportManager.swift */; };
-		ENCSETV000000001 /* EncodingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCSETV000000002 /* EncodingSettingsView.swift */; };
 		FILENAMESETV0000000000B1 /* FileNameSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */; };
 		GRPEDITWIN000002 /* GroupEditorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPEDITWIN000001 /* GroupEditorWindow.swift */; };
 		IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGSEQDET00000001 /* ImageSequenceDetector.swift */; };
@@ -232,6 +234,8 @@
 		2FAC27FC4405A72BB163575D /* VideoFileCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoFileCellView.swift; sourceTree = "<group>"; };
 		45B40739097F270F27C5045E /* RcloneService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneService.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneService.swift"; sourceTree = "<group>"; };
 		4BBC06DAF3F395A5C54B3064 /* UploadModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UploadModels.swift; path = "Aagedal Media Converter/Logic/Upload/UploadModels.swift"; sourceTree = "<group>"; };
+		F12A11220000111111111111 /* FileZillaImporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FileZillaImporter.swift; path = "Aagedal Media Converter/Logic/Upload/FileZillaImporter.swift"; sourceTree = "<group>"; };
+		F12A11220000111111111113 /* FileZillaImportSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileZillaImportSheet.swift; sourceTree = "<group>"; };
 		4F741F78E5BA1732D892656E /* WhisperUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperUpdateService.swift; sourceTree = "<group>"; };
 		5443D834E6673C963291692B /* UploadManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UploadManager.swift; path = "Aagedal Media Converter/Logic/Upload/UploadManager.swift"; sourceTree = "<group>"; };
 		596BC21F86AEFDA304EF948F /* MetadataWindowState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataWindowState.swift; sourceTree = "<group>"; };
@@ -386,13 +390,13 @@
 		E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoQueueTableView.swift; sourceTree = "<group>"; };
 		ENCGRP00000000002 /* EncodingGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingGroup.swift; sourceTree = "<group>"; };
 		ENCGRPCELL00000002 /* EncodingGroupHeaderCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EncodingGroupHeaderCellView.swift; sourceTree = "<group>"; };
+		ENCSETV000000002 /* EncodingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingSettingsView.swift; sourceTree = "<group>"; };
 		F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FileSafetyUtils.swift; sourceTree = "<group>"; };
 		F82CC3B9944D3DAF6B3F9C93 /* ComparisonMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparisonMetadataView.swift; sourceTree = "<group>"; };
 		FB97784F4F5459DC7E6D8CD3 /* AudioFrequencyAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFrequencyAnalyzer.swift; sourceTree = "<group>"; };
 		FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPUpdateService.swift; path = YTDLP/YTDLPUpdateService.swift; sourceTree = "<group>"; };
 		FILEIMPCRD00000002 /* FileImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportCoordinator.swift; sourceTree = "<group>"; };
 		FILEIMPMGR00000002 /* FileImportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportManager.swift; sourceTree = "<group>"; };
-		ENCSETV000000002 /* EncodingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingSettingsView.swift; sourceTree = "<group>"; };
 		FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameSettingsView.swift; sourceTree = "<group>"; };
 		GRPEDITWIN000001 /* GroupEditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorWindow.swift; sourceTree = "<group>"; };
 		IMGSEQDET00000001 /* ImageSequenceDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceDetector.swift; sourceTree = "<group>"; };
@@ -823,6 +827,7 @@
 				07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */,
 				6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */,
 				8EA25DC12F7AC9A80087B1F1 /* UploadSettingsView.swift */,
+				F12A11220000111111111113 /* FileZillaImportSheet.swift */,
 				ANALYTICSSETV0000001 /* AnalyticsSettingsView.swift */,
 				8EA260022F865E430087B1F1 /* ParakeetSettingsView.swift */,
 				8EA260032F865E430087B1F1 /* TranscriptionSettingsView.swift */,
@@ -918,6 +923,7 @@
 				BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */,
 				45B40739097F270F27C5045E /* RcloneService.swift */,
 				5443D834E6673C963291692B /* UploadManager.swift */,
+				F12A11220000111111111111 /* FileZillaImporter.swift */,
 			);
 			name = Upload;
 			sourceTree = "<group>";
@@ -1214,6 +1220,8 @@
 				515A407918750E4E62409DA5 /* BinaryPathResolver.swift in Sources */,
 				8EA25DC22F7AC9A80087B1F1 /* UploadSettingsView.swift in Sources */,
 				59050FF1288247E2E02A60CA /* UploadModels.swift in Sources */,
+				F12A11220000111111111112 /* FileZillaImporter.swift in Sources */,
+				F12A11220000111111111114 /* FileZillaImportSheet.swift in Sources */,
 				17B524B2559B24713433EF64 /* RcloneUpdateService.swift in Sources */,
 				69E06BBF03A135EC5011AF14 /* RcloneProgressParser.swift in Sources */,
 				A14336D5FE72B1741AE6C2E2 /* RcloneService.swift in Sources */,
@@ -1456,7 +1464,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 487;
+				CURRENT_PROJECT_VERSION = 492;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2117,7 +2125,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 487;
+				CURRENT_PROJECT_VERSION = 492;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;

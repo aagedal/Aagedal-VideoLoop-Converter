@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct UploadSettingsView: View {
     // MARK: - State
@@ -30,6 +31,12 @@ struct UploadSettingsView: View {
     @State private var hasStoredPassword = false
     @State private var s3SecretKey = ""
     @State private var hasStoredS3SecretKey = false
+
+    // FileZilla import
+    @State private var fileZillaSites: [FileZillaSite] = []
+    @State private var isFileZillaSheetPresented = false
+    @State private var fileZillaImportError: String?
+    @State private var fileZillaImportSummary: String?
 
     private enum Field: Hashable {
         case name, server, port, username, password, remotePath
@@ -72,6 +79,40 @@ struct UploadSettingsView: View {
             refreshCredentialState()
             UploadManager.shared.refreshConfiguredStatus()
             testResult = nil
+        }
+        .sheet(isPresented: $isFileZillaSheetPresented) {
+            FileZillaImportSheet(
+                sites: fileZillaSites,
+                onCancel: { isFileZillaSheetPresented = false },
+                onImport: { selected in
+                    isFileZillaSheetPresented = false
+                    completeFileZillaImport(selected)
+                }
+            )
+        }
+        .alert(
+            "Could Not Import FileZilla File",
+            isPresented: Binding(
+                get: { fileZillaImportError != nil },
+                set: { if !$0 { fileZillaImportError = nil } }
+            ),
+            presenting: fileZillaImportError
+        ) { _ in
+            Button("OK") { fileZillaImportError = nil }
+        } message: { error in
+            Text(error)
+        }
+        .alert(
+            "FileZilla Import",
+            isPresented: Binding(
+                get: { fileZillaImportSummary != nil },
+                set: { if !$0 { fileZillaImportSummary = nil } }
+            ),
+            presenting: fileZillaImportSummary
+        ) { _ in
+            Button("OK") { fileZillaImportSummary = nil }
+        } message: { summary in
+            Text(summary)
         }
     }
 
@@ -140,8 +181,8 @@ struct UploadSettingsView: View {
                 if selectedProfile != nil {
                     Divider().padding(.vertical, 4)
 
-                    LabeledContent("Name") {
-                        TextField("Profile name", text: binding(\.name, default: ""))
+                    LabeledContent("Profile Name") {
+                        TextField("", text: binding(\.name, default: ""))
                             .textFieldStyle(.roundedBorder)
                             .focused($focusedField, equals: .name)
                     }
@@ -194,6 +235,10 @@ struct UploadSettingsView: View {
                         Button("New \(backend.displayName) Profile") {
                             addProfile(backend: backend)
                         }
+                    }
+                    Divider()
+                    Button("Import from FileZilla…") {
+                        beginFileZillaImport()
                     }
                 } label: {
                     Image(systemName: "plus")
@@ -427,7 +472,7 @@ struct UploadSettingsView: View {
     private var passwordField: some View {
         LabeledContent("Password") {
             HStack {
-                SecureField(hasStoredPassword ? "••••••••" : "password", text: $password)
+                SecureField(hasStoredPassword ? "" : "", text: $password)
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedField, equals: .password)
                     .onSubmit { focusedField = .remotePath }
@@ -610,6 +655,82 @@ struct UploadSettingsView: View {
         UploadProfileStore.saveProfiles(profiles)
         selectedProfileID = profile.id.uuidString
         refreshCredentialState()
+    }
+
+    private func beginFileZillaImport() {
+        let panel = NSOpenPanel()
+        panel.title = "Select FileZilla Site Manager File"
+        panel.message = "Choose your FileZilla sitemanager.xml or an exported sites file."
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.xml]
+        // FileZilla's config lives at ~/.config/filezilla/sitemanager.xml on macOS.
+        let homeURL = FileManager.default.homeDirectoryForCurrentUser
+        panel.directoryURL = homeURL.appendingPathComponent(".config/filezilla", isDirectory: true)
+        panel.showsHiddenFiles = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let sites = try FileZillaImporter.parse(url: url)
+            if sites.isEmpty {
+                fileZillaImportError = "No site entries were found in the selected file."
+                return
+            }
+            fileZillaSites = sites
+            isFileZillaSheetPresented = true
+        } catch {
+            fileZillaImportError = error.localizedDescription
+        }
+    }
+
+    private func completeFileZillaImport(_ sitesToImport: [FileZillaSite]) {
+        guard !sitesToImport.isEmpty else { return }
+
+        var importedCount = 0
+        var passwordsSavedCount = 0
+        var firstImportedID: UUID?
+
+        for site in sitesToImport {
+            var profile = UploadProfile.from(fileZillaSite: site)
+            profile.name = uniqueProfileName(from: profile.name)
+            profiles.append(profile)
+            importedCount += 1
+            if firstImportedID == nil { firstImportedID = profile.id }
+
+            // Save the password to the Keychain when we have one and the site is fully importable.
+            if case .importable = site.status,
+               let plain = site.plainPassword,
+               !plain.isEmpty,
+               !profile.server.isEmpty,
+               !profile.username.isEmpty {
+                do {
+                    try KeychainCredentialManager.shared.saveCredential(
+                        server: profile.server,
+                        username: profile.username,
+                        password: plain
+                    )
+                    passwordsSavedCount += 1
+                } catch {
+                    // Keychain failures are non-fatal; the user can re-enter the password manually.
+                }
+            }
+        }
+
+        UploadProfileStore.saveProfiles(profiles)
+        if let id = firstImportedID {
+            selectedProfileID = id.uuidString
+        }
+        refreshCredentialState()
+        UploadManager.shared.refreshConfiguredStatus()
+
+        let pieces = [
+            "Imported \(importedCount) profile\(importedCount == 1 ? "" : "s").",
+            passwordsSavedCount > 0 ? "Saved \(passwordsSavedCount) password\(passwordsSavedCount == 1 ? "" : "s") to the Keychain." : nil,
+            (importedCount - passwordsSavedCount) > 0 ? "You'll need to enter passwords for the remaining \(importedCount - passwordsSavedCount) profile\(importedCount - passwordsSavedCount == 1 ? "" : "s")." : nil
+        ].compactMap { $0 }
+        fileZillaImportSummary = pieces.joined(separator: " ")
     }
 
     private func deleteSelectedProfile() {
