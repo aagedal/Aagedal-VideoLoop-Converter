@@ -50,6 +50,11 @@ struct TrimTimelineView: View {
     @State private var isShiftKeyPressed: Bool = false
     @State private var isOptionKeyPressed: Bool = false
 
+    // Mirrored from TrimHandlesInteractionLayer so the cursor overlay can hold
+    // the resize cursor while a handle is being dragged.
+    @State private var isDraggingStartHandle: Bool = false
+    @State private var isDraggingEndHandle: Bool = false
+
     private let filmstripHeight: CGFloat = 72
     private let waveformHeight: CGFloat = 66
     private let combinedHeight: CGFloat = 138
@@ -108,41 +113,21 @@ private struct TrimHandlesInteractionLayer: View {
     let step: Double
     let isSymmetricScalingActive: Bool
     let onEditingChanged: (Bool) -> Void
+    @Binding var isDraggingStart: Bool
+    @Binding var isDraggingEnd: Bool
 
-    private let handleWidth: CGFloat = 12  // Reduced from 16 for thinner handles
+    // Visual bar is 2px wide (see handleView); this is the hit-test/drag width
+    // around it — wide enough that clicks aimed at the handle don't slip
+    // through to the scrub layer below.
+    static let handleWidth: CGFloat = 30
+    private var handleWidth: CGFloat { Self.handleWidth }
 
     @State private var startInitialValue: Double?
     @State private var endInitialValue: Double?
-    @State private var isDraggingStart = false
-    @State private var isDraggingEnd = false
 
     // For symmetric scaling, we need to store both initial values
     @State private var symmetricInitialStart: Double?
     @State private var symmetricInitialEnd: Double?
-
-    // Cursor affordance for handle hover.
-    // Single-side resize shows a directional cursor; Option (symmetric scale)
-    // switches to a bidirectional cursor to signal both handles will move.
-    @State private var hoveredHandle: HandleHover = .none
-    private enum HandleHover: Equatable { case none, start, end }
-    private enum HandleCursorMode: Equatable { case arrow, resizeLeft, resizeRight, resizeBoth }
-
-    private var handleCursorMode: HandleCursorMode {
-        switch hoveredHandle {
-        case .none: return .arrow
-        case .start: return isSymmetricScalingActive ? .resizeBoth : .resizeLeft
-        case .end: return isSymmetricScalingActive ? .resizeBoth : .resizeRight
-        }
-    }
-
-    private func nsHandleCursor(for mode: HandleCursorMode) -> NSCursor {
-        switch mode {
-        case .arrow: return .arrow
-        case .resizeLeft: return .resizeLeft
-        case .resizeRight: return .resizeRight
-        case .resizeBoth: return .resizeLeftRight
-        }
-    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -158,10 +143,6 @@ private struct TrimHandlesInteractionLayer: View {
                 handleView(isLeading: true, isActive: isDraggingStart)
                     .frame(width: handleWidth, height: height)
                     .offset(x: clampedStartX - handleWidth / 2)
-                    .onHover { hovering in
-                        if hovering { hoveredHandle = .start }
-                        else if hoveredHandle == .start { hoveredHandle = .none }
-                    }
                     .gesture(startGesture(width: width))
                     .zIndex(isDraggingStart ? 2 : 1)
 
@@ -169,18 +150,10 @@ private struct TrimHandlesInteractionLayer: View {
                 handleView(isLeading: false, isActive: isDraggingEnd)
                     .frame(width: handleWidth, height: height)
                     .offset(x: clampedEndX - handleWidth / 2)
-                    .onHover { hovering in
-                        if hovering { hoveredHandle = .end }
-                        else if hoveredHandle == .end { hoveredHandle = .none }
-                    }
                     .gesture(endGesture(width: width))
                     .zIndex(isDraggingEnd ? 2 : 1)
             }
             .allowsHitTesting(duration > 0)
-            .onChange(of: handleCursorMode) { oldMode, newMode in
-                if oldMode != .arrow { NSCursor.pop() }
-                if newMode != .arrow { nsHandleCursor(for: newMode).push() }
-            }
         }
     }
 
@@ -327,6 +300,167 @@ private struct TrimHandlesInteractionLayer: View {
     }
 }
 
+// MARK: - Timeline Cursor Overlay
+
+/// Single NSTrackingArea-based cursor manager for the entire trim timeline.
+/// Centralizes cursor decisions so the trim handles, the scrub layer, and the
+/// modifier-key states (Cmd/Shift/Option) can never push competing cursors
+/// onto the global NSCursor stack. Uses `NSCursor.set()` rather than
+/// `push()`/`pop()` so there is no shared stack to get out of sync.
+private struct TimelineCursorOverlay: NSViewRepresentable {
+    let startX: CGFloat
+    let endX: CGFloat
+    let cursorHitWidth: CGFloat          // Tighter than handle drag zone so the
+                                         // cursor only changes when near the
+                                         // visible handle line.
+    let isSymmetricScalingActive: Bool   // Option held
+    let isRangeSelectionActive: Bool     // Cmd held
+    let isRangeSlidingActive: Bool       // Shift held
+    let isDraggingStart: Bool
+    let isDraggingEnd: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = TrackingNSView()
+        applyState(to: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? TrackingNSView else { return }
+        applyState(to: view)
+    }
+
+    private func applyState(to view: TrackingNSView) {
+        view.update(
+            startX: startX,
+            endX: endX,
+            cursorHitWidth: cursorHitWidth,
+            isSymmetric: isSymmetricScalingActive,
+            isRangeSelectionActive: isRangeSelectionActive,
+            isRangeSlidingActive: isRangeSlidingActive,
+            isDraggingStart: isDraggingStart,
+            isDraggingEnd: isDraggingEnd
+        )
+    }
+
+    final class TrackingNSView: NSView {
+        private var startX: CGFloat = 0
+        private var endX: CGFloat = 0
+        private var cursorHitWidth: CGFloat = 12
+        private var isSymmetric: Bool = false
+        private var isRangeSelectionActive: Bool = false
+        private var isRangeSlidingActive: Bool = false
+        private var isDraggingStart: Bool = false
+        private var isDraggingEnd: Bool = false
+        private var trackingArea: NSTrackingArea?
+        private var lastMouseLocation: CGPoint?
+        private var isInside: Bool = false
+
+        func update(startX: CGFloat, endX: CGFloat, cursorHitWidth: CGFloat,
+                    isSymmetric: Bool,
+                    isRangeSelectionActive: Bool, isRangeSlidingActive: Bool,
+                    isDraggingStart: Bool, isDraggingEnd: Bool) {
+            self.startX = startX
+            self.endX = endX
+            self.cursorHitWidth = cursorHitWidth
+            self.isSymmetric = isSymmetric
+            self.isRangeSelectionActive = isRangeSelectionActive
+            self.isRangeSlidingActive = isRangeSlidingActive
+            self.isDraggingStart = isDraggingStart
+            self.isDraggingEnd = isDraggingEnd
+            applyCursor()
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let existing = trackingArea {
+                removeTrackingArea(existing)
+            }
+            let options: NSTrackingArea.Options = [
+                .mouseEnteredAndExited,
+                .mouseMoved,
+                .activeInKeyWindow,
+                .inVisibleRect
+            ]
+            let area = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+            addTrackingArea(area)
+            trackingArea = area
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            isInside = true
+            lastMouseLocation = convert(event.locationInWindow, from: nil)
+            applyCursor()
+        }
+
+        override func mouseMoved(with event: NSEvent) {
+            isInside = true
+            lastMouseLocation = convert(event.locationInWindow, from: nil)
+            applyCursor()
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            isInside = false
+            lastMouseLocation = nil
+            // Don't reset during an active drag — the gesture keeps the
+            // pointer "captured" and we want the resize cursor to persist.
+            if !isDraggingStart && !isDraggingEnd {
+                NSCursor.arrow.set()
+            }
+        }
+
+        /// Compute the right cursor for the current state and apply it. Only
+        /// touches the cursor when the pointer is inside our bounds (or a
+        /// drag is active) so we don't fight neighbouring views for the
+        /// cursor when the user mouses off the timeline.
+        private func applyCursor() {
+            if isDraggingStart {
+                (isSymmetric ? NSCursor.resizeLeftRight : NSCursor.resizeLeft).set()
+                return
+            }
+            if isDraggingEnd {
+                (isSymmetric ? NSCursor.resizeLeftRight : NSCursor.resizeRight).set()
+                return
+            }
+            guard isInside, let loc = lastMouseLocation else { return }
+
+            let half = cursorHitWidth / 2
+            let startDist = abs(loc.x - startX)
+            let endDist = abs(loc.x - endX)
+            let withinStart = startDist <= half
+            let withinEnd = endDist <= half
+
+            // Hover over a handle wins over modifier-key cursors.
+            if withinStart && (!withinEnd || startDist <= endDist) {
+                (isSymmetric ? NSCursor.resizeLeftRight : NSCursor.resizeLeft).set()
+                return
+            }
+            if withinEnd {
+                (isSymmetric ? NSCursor.resizeLeftRight : NSCursor.resizeRight).set()
+                return
+            }
+            if isRangeSelectionActive {
+                NSCursor.crosshair.set()
+                return
+            }
+            if isRangeSlidingActive {
+                NSCursor.openHand.set()
+                return
+            }
+            NSCursor.arrow.set()
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            if newWindow == nil {
+                isInside = false
+                lastMouseLocation = nil
+                NSCursor.arrow.set()
+            }
+        }
+    }
+}
+
     var body: some View {
         let effectiveHeight = compactMode ? compactHeight : combinedHeight
 
@@ -393,8 +527,33 @@ private struct TrimHandlesInteractionLayer: View {
                     duration: duration,
                     step: step,
                     isSymmetricScalingActive: isOptionKeyPressed,
-                    onEditingChanged: onEditingChanged
+                    onEditingChanged: onEditingChanged,
+                    isDraggingStart: $isDraggingStartHandle,
+                    isDraggingEnd: $isDraggingEndHandle
                 )
+
+                // Unified cursor overlay: drives the resize / crosshair /
+                // open-hand cursors for the whole timeline from one place,
+                // so the trim handles and scrub layer never push competing
+                // cursors onto the global stack.
+                let width = max(geometry.size.width, 1)
+                let rawStartX = duration > 0 ? CGFloat(trimStart / duration) * width : 0
+                let rawEndX = duration > 0 ? CGFloat(trimEnd / duration) * width : width
+                TimelineCursorOverlay(
+                    startX: max(0, min(width, rawStartX)),
+                    endX: max(0, min(width, rawEndX)),
+                    // Cursor zone is intentionally narrower than the drag
+                    // hit zone so the resize cursor only appears when the
+                    // pointer is right on the handle, while the drag
+                    // gesture stays forgiving.
+                    cursorHitWidth: 7,
+                    isSymmetricScalingActive: isOptionKeyPressed,
+                    isRangeSelectionActive: isCommandKeyPressed,
+                    isRangeSlidingActive: isShiftKeyPressed,
+                    isDraggingStart: isDraggingStartHandle,
+                    isDraggingEnd: isDraggingEndHandle
+                )
+                .allowsHitTesting(false)
             }
         }
         .frame(height: effectiveHeight)
@@ -989,29 +1148,6 @@ private struct TimelineScrubLayer: View {
     @State private var pendingSeekTask: Task<Void, Never>?
     private let seekThrottleInterval: TimeInterval = 0.04  // ~25 Hz
 
-    // Cursor affordance: push an NSCursor while hovering to signal the
-    // active trim mode (Shift = move selection, Cmd = pick range).
-    @State private var isCursorInside: Bool = false
-
-    private enum CursorMode: Equatable { case arrow, openHand, closedHand, crosshair }
-
-    private var cursorMode: CursorMode {
-        if isRangeSliding { return .closedHand }
-        if isRangeSlidingActive { return .openHand }
-        if isRangeSelecting { return .crosshair }
-        if isRangeSelectionActive { return .crosshair }
-        return .arrow
-    }
-
-    private var nsCursor: NSCursor {
-        switch cursorMode {
-        case .arrow: return .arrow
-        case .openHand: return .openHand
-        case .closedHand: return .closedHand
-        case .crosshair: return .crosshair
-        }
-    }
-
     private func throttledSeek(_ time: Double) {
         let now = Date()
         let elapsed = now.timeIntervalSince(lastSeekFireTime)
@@ -1051,19 +1187,6 @@ private struct TimelineScrubLayer: View {
             Rectangle()
                 .fill(Color.clear)
                 .contentShape(Rectangle())
-                .onHover { hovering in
-                    isCursorInside = hovering
-                    if hovering {
-                        nsCursor.push()
-                    } else {
-                        NSCursor.pop()
-                    }
-                }
-                .onChange(of: cursorMode) { _, _ in
-                    guard isCursorInside else { return }
-                    NSCursor.pop()
-                    nsCursor.push()
-                }
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
