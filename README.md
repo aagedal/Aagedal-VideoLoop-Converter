@@ -1,5 +1,8 @@
 # Aagedal Media Converter
-<img width="862" height="734" alt="SCR-20260127-hzmw" src="https://github.com/user-attachments/assets/3890d95e-0e9f-493b-8dcc-6aa76fa35258" />
+
+<img width="1576" height="1026" alt="SCR-20260426-ugrc" src="https://github.com/user-attachments/assets/213e64a6-f382-4562-b4cf-797ad1e0f368" />
+
+
 
 A lightweight minimalist macOS application that is simple on the surface, but with powerful features baked in. Powered by FFMPEG, FFPROBE, MPV, SwiftExif, yt-dlp, rclone, whisper.cpp under the hood and written entirely in Swift / SwiftUI.
 
@@ -179,7 +182,7 @@ Ten custom presets (C1–C10) let you supply your own output arguments, suffixes
 ## Screenshots
 
 #### Trim View
-![SCR-20251217-npls](https://github.com/user-attachments/assets/fb6bf721-66d9-445d-97eb-ffd1334deadc)
+<img width="2304" height="1704" alt="SCR-20260426-ulyb-2" src="https://github.com/user-attachments/assets/0a48088d-e770-402a-a989-dc93d9fcb2c8" />
 
 
 #### Crop view
@@ -191,11 +194,11 @@ Ten custom presets (C1–C10) let you supply your own output arguments, suffixes
 
 
 #### Download view
-<img width="862" height="734" alt="SCR-20260127-ihuc" src="https://github.com/user-attachments/assets/48df405a-3970-4bc7-8cb3-ea6d941d3589" />
+<img width="1300" height="1062" alt="SCR-20260426-umjw" src="https://github.com/user-attachments/assets/b2704580-464a-473d-9cac-9f1991ba4bb5" />
 
 
 #### Metadata view
-<img width="1800" height="1169" alt="SCR-20260127-iier" src="https://github.com/user-attachments/assets/0c95a06d-0c8a-44f2-9707-6b1eb08802fb" />
+<img width="3600" height="2338" alt="SCR-20260426-unem" src="https://github.com/user-attachments/assets/77f2c209-bc92-4cca-8e6c-36414bb0ecf3" />
 
 
 #### Timecode override view
@@ -203,10 +206,12 @@ Ten custom presets (C1–C10) let you supply your own output arguments, suffixes
 
 
 #### Settings view
-<img width="642" height="650" alt="SCR-20251217-nokk" src="https://github.com/user-attachments/assets/e5dd5a16-a052-45a5-8a12-8b529ecbe1b5" />
+<img width="900" height="632" alt="SCR-20260426-uoiq" src="https://github.com/user-attachments/assets/26b71bfa-e947-42c8-bc0c-4e3e66e81099" />
+
 
 #### Full screen player
-![SCR-20260127-iine](https://github.com/user-attachments/assets/8e200905-9e84-4ea8-8e28-9cfb00223363)
+<img width="3600" height="2338" alt="SCR-20260426-uomf" src="https://github.com/user-attachments/assets/c9af806f-279e-4a1c-a2ee-a4cae8572911" />
+
 
 
 
