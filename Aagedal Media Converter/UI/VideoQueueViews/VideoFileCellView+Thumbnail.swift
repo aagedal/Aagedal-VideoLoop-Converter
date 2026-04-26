@@ -184,6 +184,19 @@ extension VideoFileCellView {
                 value: NSUnderlineStyle.single.rawValue,
                 range: NSRange(location: 0, length: base.length)
             )
+            // Break the underline at any inline " • " separators so labels that
+            // bake multiple fields into one string (e.g. videoFormatLabel's
+            // "1920×1080 • 25 fps") visually match the gap shown between
+            // separate labels like duration and size.
+            let nsText = text as NSString
+            var searchRange = NSRange(location: 0, length: nsText.length)
+            while searchRange.length > 0 {
+                let found = nsText.range(of: " • ", options: [], range: searchRange)
+                if found.location == NSNotFound { break }
+                base.removeAttribute(.underlineStyle, range: found)
+                let next = found.location + found.length
+                searchRange = NSRange(location: next, length: nsText.length - next)
+            }
             label.attributedStringValue = base
         } else {
             // Reassign stringValue to drop any overlaid underline. Call sites
