@@ -49,6 +49,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     private let mergeIndicator = NSImageView()
     private let finderButton = NSButton()
     private let downloadedFinderButton = NSButton()
+    private let downloadedCopyPathButton = NSButton()
+    private let downloadedDragButton = DraggableFileImageView()
     private let copyPathButton = NSButton()
     private let dragButton = DraggableFileImageView()
     private let liveRecordingBadge = NSView()
@@ -499,16 +501,40 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         finderButton.isHidden = true
         finderButton.setContentHuggingPriority(.required, for: .horizontal)
 
-        // Downloaded source file Finder button (shows original downloaded file)
-        downloadedFinderButton.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: "Show downloaded file in Finder")
+        // Downloaded source file Finder button (shows original downloaded file).
+        // Uses the same magnifying-glass glyph as the encoded-output finder button
+        // but tinted purple to match the DOWNLOADING status capsule color, so the
+        // two finder buttons are visually distinguishable when both are on.
+        downloadedFinderButton.image = NSImage(systemSymbolName: "magnifyingglass.circle.fill", accessibilityDescription: "Show downloaded file in Finder")
         downloadedFinderButton.isBordered = false
         downloadedFinderButton.bezelStyle = .inline
         downloadedFinderButton.target = self
         downloadedFinderButton.action = #selector(downloadedFinderButtonClicked)
         downloadedFinderButton.isHidden = true
-        downloadedFinderButton.contentTintColor = .secondaryLabelColor
+        downloadedFinderButton.contentTintColor = .systemPurple
         downloadedFinderButton.toolTip = "Show downloaded source file in Finder"
         downloadedFinderButton.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Copy-path for the downloaded source file.
+        downloadedCopyPathButton.image = NSImage(systemSymbolName: "doc.on.doc.fill", accessibilityDescription: "Copy downloaded file path")
+        downloadedCopyPathButton.isBordered = false
+        downloadedCopyPathButton.bezelStyle = .inline
+        downloadedCopyPathButton.target = self
+        downloadedCopyPathButton.action = #selector(downloadedCopyPathButtonClicked)
+        downloadedCopyPathButton.isHidden = true
+        downloadedCopyPathButton.contentTintColor = .systemPurple
+        downloadedCopyPathButton.toolTip = "Copy downloaded source file path"
+        downloadedCopyPathButton.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Drag-to-share for the downloaded source file. VideoQueueNSTableView's
+        // mouseDown hit-tests for any DraggableFileImageView, so this works the
+        // same way as the encoded-output drag handle in the trailing stack.
+        downloadedDragButton.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: "Drag downloaded source file")
+        downloadedDragButton.translatesAutoresizingMaskIntoConstraints = false
+        downloadedDragButton.contentTintColor = .systemPurple
+        downloadedDragButton.isHidden = true
+        downloadedDragButton.toolTip = "Drag this icon to share the downloaded source file with other apps."
+        downloadedDragButton.setContentHuggingPriority(.required, for: .horizontal)
 
         // Copy file path button
         copyPathButton.image = NSImage(systemSymbolName: "doc.on.doc.fill", accessibilityDescription: "Copy file path")
@@ -546,7 +572,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         // keep their natural width instead of being force-equalized (which created a
         // big gap when one filename was much longer than the other).
         filenameStack.setViews(
-            [inputNameLabel, downloadedFinderButton, arrowLabel, outputNameLabel, outputNameField, mergeIndicator],
+            [inputNameLabel, arrowLabel, outputNameLabel, outputNameField, mergeIndicator],
             in: .leading
         )
         filenameStack.setViews(
@@ -559,6 +585,10 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         NSLayoutConstraint.activate([
             filenameStack.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
             filenameStack.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            // Cap the input filename at half the available width so a long YouTube
+            // title can't push the renamed output filename out of view; the label's
+            // .byTruncatingMiddle line break mode handles the visual fallback.
+            inputNameLabel.widthAnchor.constraint(lessThanOrEqualTo: filenameStack.widthAnchor, multiplier: 0.5),
         ])
     }
 
@@ -641,9 +671,11 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         overwriteWarningLabel.stringValue = "Existing file will be overwritten"
         overwriteWarningLabel.isHidden = true
 
-        statusRow.addArrangedSubview(statusCapsule)
-        statusRow.addArrangedSubview(statusLabel)
-        statusRow.addArrangedSubview(overwriteWarningLabel)
+        // Status capsule and message stay left-aligned. Downloaded-source reveal /
+        // copy-path / drag buttons sit on the trailing edge of the same row, out of
+        // the way of long YouTube titles on the filename row above.
+        statusRow.setViews([statusCapsule, statusLabel, overwriteWarningLabel], in: .leading)
+        statusRow.setViews([downloadedFinderButton, downloadedCopyPathButton, downloadedDragButton], in: .trailing)
 
         contentStack.addArrangedSubview(statusRow)
         statusRow.translatesAutoresizingMaskIntoConstraints = false
@@ -891,10 +923,13 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             outputNameLabel.textColor = (config.status == .waiting && config.outputFileExists) ? .systemOrange : .labelColor
         }
 
-        // Downloaded source file Finder button (for yt-dlp items)
-        if isFirstConfigure || prev?.sourceURL != config.sourceURL || prev?.isDownloading != config.isDownloading || prev?.status != config.status {
+        // Downloaded source file Finder + copy-path + drag buttons (for yt-dlp items)
+        if isFirstConfigure || prev?.sourceURL != config.sourceURL || prev?.isDownloading != config.isDownloading || prev?.status != config.status || prev?.url != config.url {
             let showDownloadedButton = config.sourceURL != nil && !config.isDownloading && config.downloadError == nil
             downloadedFinderButton.isHidden = !showDownloadedButton
+            downloadedCopyPathButton.isHidden = !showDownloadedButton
+            downloadedDragButton.isHidden = !showDownloadedButton
+            downloadedDragButton.fileURL = showDownloadedButton ? config.url : nil
         }
 
         // Merge
@@ -1330,6 +1365,13 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(url.path, forType: .string)
+    }
+
+    @objc private func downloadedCopyPathButtonClicked() {
+        guard let config = currentConfig else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(config.url.path, forType: .string)
     }
 
     /// Shift+Cmd is used instead of plain Shift because NSTableView reserves
