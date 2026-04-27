@@ -605,10 +605,12 @@ struct ContentView: View {
             if showURLInputOverlay {
                 URLInputOverlay(
                     isPresented: $showURLInputOverlay,
-                    onSubmit: { urlString, liveFromStart, audioOnly in
-                        handleURLDownload(urlString, liveFromStart: liveFromStart, audioOnly: audioOnly)
+                    onSubmit: { urlString, liveFromStart, audioOnly, wholePlaylist in
+                        handleURLDownload(urlString, liveFromStart: liveFromStart, audioOnly: audioOnly, wholePlaylist: wholePlaylist)
                     },
-                    onSchedule: { urlString, scheduledDate, liveFromStart, audioOnly in
+                    onSchedule: { urlString, scheduledDate, liveFromStart, audioOnly, _ in
+                        // Scheduling for whole-playlist isn't supported yet — submit() in
+                        // URLInputOverlay routes the playlist case through onSubmit instead.
                         handleScheduledDownload(urlString, at: scheduledDate, liveFromStart: liveFromStart, audioOnly: audioOnly)
                     }
                 )
@@ -650,7 +652,7 @@ struct ContentView: View {
     }
 
     /// Handles URL download from the overlay
-    private func handleURLDownload(_ urlString: String, liveFromStart: Bool, audioOnly: Bool) {
+    private func handleURLDownload(_ urlString: String, liveFromStart: Bool, audioOnly: Bool, wholePlaylist: Bool = false) {
         Task {
             // Check if yt-dlp is configured
             guard await DownloadManager.shared.isYTDLPConfigured() else {
@@ -658,13 +660,22 @@ struct ContentView: View {
                 return
             }
 
-            await DownloadManager.shared.startDownload(
-                url: urlString,
-                items: $droppedFiles,
-                outputFolder: downloadFolderURL,
-                liveFromStart: liveFromStart,
-                audioOnly: audioOnly
-            )
+            if wholePlaylist {
+                await DownloadManager.shared.startPlaylistDownload(
+                    url: urlString,
+                    items: $droppedFiles,
+                    outputFolder: downloadFolderURL,
+                    audioOnly: audioOnly
+                )
+            } else {
+                await DownloadManager.shared.startDownload(
+                    url: urlString,
+                    items: $droppedFiles,
+                    outputFolder: downloadFolderURL,
+                    liveFromStart: liveFromStart,
+                    audioOnly: audioOnly
+                )
+            }
         }
     }
 

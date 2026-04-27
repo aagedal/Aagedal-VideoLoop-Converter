@@ -409,6 +409,110 @@ class DownloadManager {
         return itemID
     }
 
+    /// Probes a playlist/channel URL and adds one queue item per entry, then
+    /// downloads each sequentially. Single-video URLs work too — the probe
+    /// returns one entry and you get the same result as `startDownload`.
+    /// - Returns: IDs of every queue item that was created (in playlist order).
+    @discardableResult
+    func startPlaylistDownload(
+        url urlString: String,
+        items: Binding<[VideoItem]>,
+        outputFolder: URL,
+        audioOnly: Bool = false
+    ) async -> [UUID] {
+        guard await isYTDLPConfigured() else {
+            logger.error("yt-dlp not configured. Please configure in Settings > General > Video Downloads.")
+            return []
+        }
+
+        self.videoItems = items
+        self.outputFolder = outputFolder
+
+        // Probe the playlist before touching the queue. If this fails we don't
+        // want to leave a stray placeholder behind.
+        let entries: [YTDLPPlaylistEntry]
+        do {
+            entries = try await ytdlpService.fetchPlaylistEntries(url: urlString)
+        } catch {
+            logger.error("Failed to fetch playlist entries: \(error.localizedDescription)")
+            return []
+        }
+
+        guard !entries.isEmpty else {
+            logger.warning("Playlist probe returned no entries for: \(urlString)")
+            return []
+        }
+
+        logger.info("Spawning \(entries.count) queue item(s) from playlist")
+
+        // Snap the automation defaults once so every spawned item shares the same
+        // value — toggling "Encode" mid-playlist shouldn't affect already-queued items.
+        let autoEncode = UserDefaults.standard.bool(forKey: AppConstants.autoEncodeAfterDownloadKey)
+        let uploadEnabled = UserDefaults.standard.bool(forKey: AppConstants.autoUploadAfterDownloadKey)
+
+        var itemIDs: [UUID] = []
+        for entry in entries {
+            let placeholderURL = URL(fileURLWithPath: "/tmp/downloading-\(UUID().uuidString)")
+            var item = VideoItem(
+                url: placeholderURL,
+                name: entry.title,
+                size: 0,
+                duration: Self.formatDuration(entry.duration),
+                durationSeconds: entry.duration ?? 0,
+                thumbnailData: nil,
+                status: .waiting,
+                progress: 0,
+                eta: nil,
+                outputURL: nil
+            )
+            item.sourceURL = entry.url
+            item.downloadAudioOnly = audioOnly
+            item.autoEncodeAfterDownload = autoEncode
+            item.uploadEnabled = uploadEnabled
+            item.isDownloading = false
+            item.downloadProgress = 0
+            item.downloadHasProgress = false
+
+            items.wrappedValue.append(item)
+            itemIDs.append(item.id)
+        }
+
+        // Run downloads sequentially. yt-dlp uses a single shared process slot
+        // (see ProcessHolder), so concurrent downloads aren't supported anyway.
+        // Cancelling a single item terminates only that yt-dlp run; the loop
+        // moves on to the next item. To stop a playlist mid-run, remove the
+        // remaining items from the queue.
+        for itemID in itemIDs {
+            guard let item = self.findItem(itemID), let sourceURL = item.sourceURL else { continue }
+
+            self.updateItem(itemID) { $0.isDownloading = true }
+
+            // performDownload kicks off its own thumbnail fetch — don't double-probe.
+            await self.performDownload(
+                itemID: itemID,
+                urlString: sourceURL,
+                outputFolder: outputFolder,
+                liveFromStart: false,
+                audioOnly: item.downloadAudioOnly
+            )
+        }
+
+        return itemIDs
+    }
+
+    /// Formats a duration in seconds for `VideoItem.duration` display ("h:mm:ss" or "m:ss").
+    private static func formatDuration(_ seconds: Double?) -> String {
+        guard let seconds, seconds > 0 else { return "--:--" }
+        let total = Int(seconds.rounded())
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
+    }
+
     /// Performs the actual download
     private func performDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool, audioOnly: Bool) async {
         let downloadStartTime = Date()

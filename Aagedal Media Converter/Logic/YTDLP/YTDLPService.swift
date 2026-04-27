@@ -20,6 +20,16 @@ struct YTDLPDownloadResult: Sendable {
     let title: String
 }
 
+/// One entry from a flat-playlist probe — enough to populate a queue row before
+/// the actual video is downloaded. Fields beyond `url` are best-effort: yt-dlp
+/// often omits duration/thumbnail in flat-playlist mode for performance.
+struct YTDLPPlaylistEntry: Sendable {
+    let url: String
+    let title: String
+    let duration: Double?
+    let thumbnailURL: URL?
+}
+
 /// How aggressively yt-dlp should sanitize downloaded filenames.
 enum YTDLPFilenameRestrictionMode: String, CaseIterable, Identifiable {
     /// Default — yt-dlp only strips characters illegal on the current OS (just `/` and NUL on macOS).
@@ -228,6 +238,124 @@ actor YTDLPService {
             uploader: uploader,
             description: description
         )
+    }
+
+    /// Probes a URL with `--flat-playlist -J` and returns its entries. Works for
+    /// playlists, channels, and single-video URLs (the latter returns a single entry).
+    func fetchPlaylistEntries(url: String) async throws -> [YTDLPPlaylistEntry] {
+        guard let ytdlpPath = await updateService.resolveYTDLPPath() else {
+            throw YTDLPError.binaryNotFound
+        }
+        let denoPath = await updateService.ensureDenoInstalled()
+
+        let result: (data: Data, error: String?, exitCode: Int32) = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global().async {
+                let process = Process()
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+
+                var arguments = [
+                    "--ignore-config",
+                    "--remote-components", "ejs:github",
+                    "--cache-dir", AppConstants.ytdlpCacheDirectory.path
+                ]
+                if let denoPath {
+                    arguments.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
+                }
+
+                let cookiesBrowser = UserDefaults.standard.string(forKey: AppConstants.ytdlpCookiesBrowserKey) ?? ""
+                if !cookiesBrowser.isEmpty {
+                    arguments.append(contentsOf: ["--cookies-from-browser", cookiesBrowser])
+                }
+
+                arguments.append(contentsOf: ["--flat-playlist", "-J", "--no-warnings", "--", url])
+
+                HomebrewPythonExecutor.configureProcess(
+                    process,
+                    scriptPath: ytdlpPath,
+                    arguments: arguments
+                )
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+                process.standardInput = FileHandle.nullDevice
+
+                final class DataContainer: @unchecked Sendable {
+                    var stdout = Data()
+                    var stderr = Data()
+                    let lock = NSLock()
+                }
+                let container = DataContainer()
+                let group = DispatchGroup()
+
+                group.enter()
+                DispatchQueue.global().async {
+                    let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    container.lock.lock(); container.stdout = data; container.lock.unlock()
+                    group.leave()
+                }
+
+                group.enter()
+                DispatchQueue.global().async {
+                    let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    container.lock.lock(); container.stderr = data; container.lock.unlock()
+                    group.leave()
+                }
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    group.wait()
+                    let errorStr = String(data: container.stderr, encoding: .utf8)
+                    continuation.resume(returning: (container.stdout, errorStr, process.terminationStatus))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        guard result.exitCode == 0 else {
+            throw YTDLPError.metadataFetchFailed(result.error ?? "Unknown error")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any] else {
+            throw YTDLPError.metadataFetchFailed("Failed to parse playlist JSON")
+        }
+
+        // Pull a single entry's url/title/duration/thumbnail from a JSON object.
+        // yt-dlp's flat-playlist sometimes uses `url` and sometimes `webpage_url`
+        // depending on the extractor; fall back across both.
+        func makeEntry(from obj: [String: Any]) -> YTDLPPlaylistEntry? {
+            let entryURL = (obj["webpage_url"] as? String) ?? (obj["url"] as? String)
+            guard let entryURL else { return nil }
+            let title = (obj["title"] as? String) ?? "Untitled"
+            let duration = obj["duration"] as? Double
+            let thumbnailURL: URL? = {
+                if let thumbStr = obj["thumbnail"] as? String,
+                   let u = URL(string: thumbStr) {
+                    return u
+                }
+                if let thumbnails = obj["thumbnails"] as? [[String: Any]],
+                   let last = thumbnails.last,
+                   let thumbStr = last["url"] as? String {
+                    return URL(string: thumbStr)
+                }
+                return nil
+            }()
+            return YTDLPPlaylistEntry(url: entryURL, title: title, duration: duration, thumbnailURL: thumbnailURL)
+        }
+
+        if let entries = json["entries"] as? [[String: Any]] {
+            let parsed = entries.compactMap { makeEntry(from: $0) }
+            logger.info("[YTDLPService] Playlist probe returned \(parsed.count) entries")
+            return parsed
+        }
+
+        // Single video — return as a one-element list so the caller can handle
+        // both shapes the same way.
+        if let entry = makeEntry(from: json) {
+            return [entry]
+        }
+        return []
     }
 
     /// Downloads a video using yt-dlp

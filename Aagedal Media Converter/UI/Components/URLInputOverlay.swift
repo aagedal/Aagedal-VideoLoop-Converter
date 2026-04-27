@@ -10,8 +10,8 @@ struct URLInputOverlay: View {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "URLInput")
 
     @Binding var isPresented: Bool
-    var onSubmit: (String, Bool, Bool) -> Void
-    var onSchedule: ((String, Date, Bool, Bool) -> Void)?
+    var onSubmit: (String, Bool, Bool, Bool) -> Void
+    var onSchedule: ((String, Date, Bool, Bool, Bool) -> Void)?
 
     @State private var urlText = ""
     @State private var history: [DownloadHistoryEntry] = []
@@ -20,6 +20,7 @@ struct URLInputOverlay: View {
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage(AppConstants.ytdlpLiveFromStartKey) private var downloadLiveFromStart = false
     @AppStorage(AppConstants.ytdlpAudioOnlyKey) private var downloadAudioOnly = false
+    @AppStorage(AppConstants.ytdlpDownloadPlaylistKey) private var downloadWholePlaylist = false
     @AppStorage(AppConstants.autoEncodeAfterDownloadKey) private var autoEncodeAfterDownload = false
     @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
 
@@ -263,6 +264,15 @@ struct URLInputOverlay: View {
             )
 
             toggleButton(
+                isOn: $downloadWholePlaylist,
+                iconOn: "list.bullet.rectangle.fill",
+                iconOff: "list.bullet.rectangle",
+                label: "Whole playlist",
+                color: .orange,
+                help: "Add every video from the playlist or channel as separate queue items (downloads run sequentially)"
+            )
+
+            toggleButton(
                 isOn: $autoEncodeAfterDownload,
                 iconOn: "play.circle.fill",
                 iconOff: "play.circle",
@@ -418,19 +428,23 @@ struct URLInputOverlay: View {
         guard !sanitized.isEmpty, DownloadManager.isValidURL(sanitized) else { return }
         let trimmed = sanitized
 
-        if isScheduled, let onSchedule = onSchedule {
+        // Scheduling and "whole playlist" don't compose yet — the schedule
+        // persistence model is single-item, while a playlist expands to N items
+        // at submission time. When both are on, prefer the playlist path and
+        // start it immediately.
+        if isScheduled, !downloadWholePlaylist, let onSchedule = onSchedule {
             // Round to the start of the minute (remove seconds)
             let calendar = Calendar.current
             let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: scheduledDate)
             let roundedDate = calendar.date(from: components) ?? scheduledDate
-            onSchedule(trimmed, roundedDate, downloadLiveFromStart, downloadAudioOnly)
+            onSchedule(trimmed, roundedDate, downloadLiveFromStart, downloadAudioOnly, downloadWholePlaylist)
         } else {
-            onSubmit(trimmed, downloadLiveFromStart, downloadAudioOnly)
+            onSubmit(trimmed, downloadLiveFromStart, downloadAudioOnly, downloadWholePlaylist)
         }
         isPresented = false
     }
 }
 
 #Preview {
-    URLInputOverlay(isPresented: .constant(true)) { _, _, _ in }
+    URLInputOverlay(isPresented: .constant(true)) { _, _, _, _ in }
 }
