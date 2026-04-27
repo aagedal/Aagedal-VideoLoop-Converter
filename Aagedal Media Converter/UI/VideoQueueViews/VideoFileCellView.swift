@@ -916,7 +916,10 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             }
             inputNameLabel.toolTip = tip
         }
-        if isFirstConfigure || prev?.outputURL != config.outputURL || prev?.outputFileNameOverride != config.outputFileNameOverride || prev?.status != config.status || prev?.outputFileExists != config.outputFileExists {
+        // Also re-render when name changes — for yt-dlp downloads the output name
+        // is derived from item.name (e.g. "Fetching info..." → YouTube title), so
+        // it'd otherwise stay stuck on the placeholder until download completes.
+        if isFirstConfigure || prev?.outputURL != config.outputURL || prev?.outputFileNameOverride != config.outputFileNameOverride || prev?.status != config.status || prev?.outputFileExists != config.outputFileExists || prev?.name != config.name {
             let outputName = displayOutputFilename(config: config)
             outputNameLabel.stringValue = outputName
             outputNameLabel.toolTip = outputName
