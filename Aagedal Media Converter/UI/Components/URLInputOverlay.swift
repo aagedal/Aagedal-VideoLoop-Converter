@@ -432,7 +432,5 @@ struct URLInputOverlay: View {
 }
 
 #Preview {
-    URLInputOverlay(isPresented: .constant(true)) { url, liveFromStart, audioOnly in
-        print("Download: \(url), liveFromStart: \(liveFromStart), audioOnly: \(audioOnly)")
-    }
+    URLInputOverlay(isPresented: .constant(true)) { _, _, _ in }
 }

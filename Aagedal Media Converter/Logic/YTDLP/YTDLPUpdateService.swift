@@ -718,21 +718,22 @@ actor YTDLPUpdateService {
         }
 
         // Verify SHA256 against the checksum manifest published alongside the release.
-        // If the manifest asset is absent from this release we skip (with a warning),
-        // but if it's present and the hash doesn't match we delete the download and fail.
-        if let checksumURL {
-            do {
-                try await verifyChecksum(
-                    of: tempURL,
-                    expectedFilename: AppConstants.ytdlpMacOSAssetName,
-                    checksumFileURL: checksumURL
-                )
-            } catch {
-                try? FileManager.default.removeItem(at: tempURL)
-                throw error
-            }
-        } else {
-            logger.warning("No SHA2-256SUMS asset found for yt-dlp \(version); skipping checksum verification")
+        // If the manifest is missing we fail closed rather than installing an unverified
+        // binary — running unverified yt-dlp is the worst outcome we can avoid here.
+        guard let checksumURL else {
+            logger.error("No SHA2-256SUMS asset found for yt-dlp \(version); refusing to install unverified binary")
+            try? FileManager.default.removeItem(at: tempURL)
+            throw YTDLPUpdateError.checksumNotFoundForAsset
+        }
+        do {
+            try await verifyChecksum(
+                of: tempURL,
+                expectedFilename: AppConstants.ytdlpMacOSAssetName,
+                checksumFileURL: checksumURL
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
         }
 
         // Move to final location

@@ -413,6 +413,12 @@ class DownloadManager {
         let downloadStartTime = Date()
         logger.info("[TIMING] performDownload started at \(downloadStartTime)")
 
+        // Hold a security-scoped resource on the output folder for the duration of
+        // the subprocess. Required when the folder was restored from a bookmark
+        // (relaunch); harmless when the folder is already accessible (~/Downloads).
+        let folderAccess = SecurityScopedBookmarkManager.shared.startAccessing(url: outputFolder)
+        defer { SecurityScopedBookmarkManager.shared.stopAccessing(folderAccess) }
+
         // Add to download history immediately (for easy retry of failed downloads)
         let initialTitle = URL(string: urlString)?.host ?? "Download"
         DownloadHistoryService.addEntry(url: urlString, title: initialTitle)
@@ -796,6 +802,9 @@ class DownloadManager {
 
     /// Performs a forced download (overwrites existing files)
     private func performForceDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool, audioOnly: Bool) async {
+        let folderAccess = SecurityScopedBookmarkManager.shared.startAccessing(url: outputFolder)
+        defer { SecurityScopedBookmarkManager.shared.stopAccessing(folderAccess) }
+
         // Record a history entry upfront so the URL stays retry-able even if this
         // forced run is cancelled or fails before completion. Mirrors performDownload.
         let initialTitle = URL(string: urlString)?.host ?? "Download"

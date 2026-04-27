@@ -694,6 +694,17 @@ actor YTDLPService {
             outputURL = outputFolder.appendingPathComponent(finalPath)
         }
 
+        // Defense-in-depth: yt-dlp normally sanitizes %(title)s and would not emit a path
+        // outside outputFolder, but the post-download path here is whatever the subprocess
+        // printed — confine it to the user's chosen folder before we touch the filesystem.
+        let resolvedOutput = outputURL.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedFolder = outputFolder.standardizedFileURL.resolvingSymlinksInPath()
+        guard resolvedOutput.path == resolvedFolder.path
+            || resolvedOutput.path.hasPrefix(resolvedFolder.path + "/") else {
+            logger.error("yt-dlp output path \(resolvedOutput.path, privacy: .public) is outside chosen folder \(resolvedFolder.path, privacy: .public)")
+            throw YTDLPError.outputNotFound
+        }
+
         guard FileManager.default.fileExists(atPath: outputURL.path) else {
             throw YTDLPError.outputNotFound
         }
