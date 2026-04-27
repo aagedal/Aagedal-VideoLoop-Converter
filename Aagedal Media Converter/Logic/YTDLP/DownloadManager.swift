@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import Foundation
+import Network
 import OSLog
 import SwiftUI
 
@@ -1023,7 +1024,65 @@ class DownloadManager {
         // Require http/https AND a non-empty host — `https://` alone parses into a
         // URL but yt-dlp would error out seconds later with a confusing message.
         guard url.scheme == "http" || url.scheme == "https" else { return false }
-        return !(url.host?.isEmpty ?? true)
+        guard let host = url.host, !host.isEmpty else { return false }
+
+        // Reject private/loopback/link-local destinations unless the user has
+        // explicitly opted in. Catches naive `http://192.168.x.y/...` and
+        // `localhost` cases — does not chase DNS or HTTP redirects.
+        let allowsPrivate = UserDefaults.standard.bool(forKey: AppConstants.allowPrivateNetworkDownloadsKey)
+        if !allowsPrivate && isPrivateOrLocalHost(host) { return false }
+        return true
+    }
+
+    /// Returns true if `host` is a literal private/loopback/link-local IP or a
+    /// hostname conventionally used for the local machine / LAN (`localhost`,
+    /// `*.local`, `*.localhost`).
+    nonisolated static func isPrivateOrLocalHost(_ host: String) -> Bool {
+        let lower = host.lowercased()
+        if lower == "localhost" { return true }
+        if lower == "local" || lower.hasSuffix(".local") { return true }
+        if lower.hasSuffix(".localhost") { return true }
+
+        if let v4 = IPv4Address(lower) {
+            return isPrivateIPv4(v4.rawValue)
+        }
+
+        // URL.host strips the brackets around literal IPv6, but accept either form.
+        let v6String: String = {
+            if lower.hasPrefix("["), lower.hasSuffix("]") {
+                return String(lower.dropFirst().dropLast())
+            }
+            return lower
+        }()
+        if let v6 = IPv6Address(v6String) {
+            let bytes = v6.rawValue
+            // ::1 — loopback
+            if bytes.prefix(15).allSatisfy({ $0 == 0 }) && bytes[15] == 1 { return true }
+            // fc00::/7 — unique local addresses
+            if (bytes[0] & 0xFE) == 0xFC { return true }
+            // fe80::/10 — link-local
+            if bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0x80 { return true }
+            // ::ffff:a.b.c.d — IPv4-mapped, classify by the embedded IPv4
+            if bytes.prefix(10).allSatisfy({ $0 == 0 }) && bytes[10] == 0xFF && bytes[11] == 0xFF {
+                return isPrivateIPv4(bytes.suffix(4))
+            }
+            return false
+        }
+        return false
+    }
+
+    private nonisolated static func isPrivateIPv4(_ bytes: Data) -> Bool {
+        guard bytes.count == 4 else { return false }
+        let b = Array(bytes)
+        // 10.0.0.0/8, 127.0.0.0/8, 0.0.0.0/8
+        if b[0] == 10 || b[0] == 127 || b[0] == 0 { return true }
+        // 172.16.0.0/12
+        if b[0] == 172 && (b[1] & 0xF0) == 16 { return true }
+        // 192.168.0.0/16
+        if b[0] == 192 && b[1] == 168 { return true }
+        // 169.254.0.0/16 — link-local
+        if b[0] == 169 && b[1] == 254 { return true }
+        return false
     }
 
     /// Sanitizes URL input by extracting the first line and trimming whitespace

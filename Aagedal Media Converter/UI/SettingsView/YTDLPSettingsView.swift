@@ -52,6 +52,7 @@ struct YTDLPSettingsView: View {
     @AppStorage(AppConstants.ytdlpCookiesBrowserKey) private var cookiesBrowser = ""
     @AppStorage(AppConstants.downloadFolderKey) private var downloadFolder = AppConstants.defaultDownloadDirectory.path
     @AppStorage(AppConstants.ytdlpFilenameRestrictionModeKey) private var filenameRestrictionRaw = AppConstants.defaultYTDLPFilenameRestrictionMode
+    @AppStorage(AppConstants.allowPrivateNetworkDownloadsKey) private var allowPrivateNetworkDownloads = false
 
     var body: some View {
         Form {
@@ -769,6 +770,16 @@ struct YTDLPSettingsView: View {
                 }
 
                 Text(filenameRestrictionExplanation)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Divider()
+
+                Toggle("Allow private network downloads", isOn: $allowPrivateNetworkDownloads)
+                    .toggleStyle(SwitchToggleStyle())
+
+                Text("Off by default. When off, URLs pointing to LAN, loopback, link-local, or `.local` hosts are rejected. Turn on to download from a local media server (Jellyfin, Plex, etc.).")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

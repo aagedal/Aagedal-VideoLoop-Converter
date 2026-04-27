@@ -630,6 +630,11 @@ enum AppConstants {
     static let ytdlpFilenameRestrictionModeKey = "ytdlpFilenameRestrictionMode"
     static let defaultYTDLPFilenameRestrictionMode = "off"
 
+    // When false (default), URLs whose host is a private/loopback/link-local IP or
+    // a `.local`/localhost name are rejected before reaching yt-dlp. Power users
+    // pulling from a LAN media server can flip this on in Settings > Download.
+    static let allowPrivateNetworkDownloadsKey = "allowPrivateNetworkDownloads"
+
     // MARK: - Upload Settings
 
     // Unified profile storage (one list, each profile carries its own backend).
