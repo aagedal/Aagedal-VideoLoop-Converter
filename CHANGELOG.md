@@ -1,3 +1,34 @@
+# v.4.0.1
+
+A follow-up release focused on the download/upload pipeline: a bundled rclone, whole-playlist downloads, audio-only downloads, and a round of security hardening across both yt-dlp and rclone.
+
+## Downloads
+
+- **Whole-playlist download toggle** — paste a playlist, channel, or album URL and every entry is queued up front so you can see the full size of the job. Downloads run sequentially through the existing pipeline; per-item retry/cancel still works. The toggle only appears for URLs that look like a playlist (YouTube `list=` / `/playlist` / `/channel` / `/@handle`, Vimeo `/album` / `/channels` / `/showcase`, SoundCloud `/sets`).
+- **Audio-only toggle** in the URL dialogue — pulls the best audio-only stream and extracts it without re-encoding when possible. Persisted on the queue item and on scheduled downloads.
+- **File controls on the queue row** for downloaded sources — reveal-in-Finder, copy-path, and drag-out, tinted to match the DOWNLOADING status capsule.
+- Update banner now offers **Release Notes** and **Download** buttons that go straight to the GitHub release page and the `.zip` asset, instead of the generic releases landing page. Notifications now fire when the GitHub release is published rather than waiting on the Homebrew cask schedule.
+
+## Uploads (rclone)
+
+- **Bundled minimal rclone binary** so uploads work out of the box, with an **App / Homebrew / Custom** picker in Upload Settings mirroring the yt-dlp pattern. Custom binaries are validated against an `rclone v…` version string with a per-file fingerprint cache.
+
+## Security & hardening
+
+- **Block downloads to private networks by default** — rejects URLs whose host is a private/loopback/link-local IP (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, IPv6 `::1` / `fc00::/7` / `fe80::/10`) or `localhost` / `*.local`. New **Allow private network downloads** toggle in Settings → Download lifts the restriction for LAN media servers (Jellyfin, Plex).
+- **rclone credential leak hardening** — passwords and S3 secrets are passed via `RCLONE_CONFIG_<NAME>_*` environment variables and stdin, never on argv where `ps` could see them. Error messages bubbled to the UI have embedded credentials stripped and length-bounded; subprocess output is logged at `.private` privacy.
+- **rclone install verification** — downloaded rclone binaries must match the SHA-256 entry in the release's `SHA256SUMS` and carry a valid Apple code signature before the quarantine xattr is cleared. GitHub fetches send a User-Agent and refuse cross-host redirects. Subprocesses run with timeouts and a watchdog instead of blocking forever.
+- **yt-dlp output path confined to the chosen folder** — the post-download path emitted by yt-dlp is validated against the output directory before any filesystem touch, defending against `%(title)s` template escapes. A security-scoped bookmark is held for the lifetime of the subprocess so non-default folders survive across relaunch.
+- yt-dlp updates **refuse to install when the SHA2-256SUMS manifest is missing** instead of silently skipping verification.
+
+## Bug fixes
+
+- Fixed the toolbar preset label and queue row filenames going stale when switching the nested format under **Animated Still** (AVIF↔GIF↔APNG) or **Audio Only** (WAV↔AAC↔MP4↔FLAC).
+- Fixed the yt-dlp output filename label staying frozen on the "Fetching info…" placeholder until the download completed, instead of updating when the real title arrived.
+- Widened the URL download overlay (620pt) and history list (220pt) so the four toggles no longer feel cramped, and arrow-key navigation now keeps the selected history entry inside the visible scroll area.
+- Disabled the **Schedule** checkbox when **Whole playlist** is on (the persistence model doesn't support that combination); turning the playlist toggle on clears any pending schedule.
+- The **Whole playlist** toggle (and any value carried over from a prior session) is now gated by the playlist-URL heuristic so a single-video URL can no longer accidentally kick off a playlist run.
+
 # v.4.0.0 — DRAFT
 
 This is the biggest release yet, rolling up everything from the 3.9 beta plus a lot of polish since. Highlights up top; bug fixes at the bottom.
