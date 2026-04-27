@@ -50,6 +50,49 @@ struct URLInputOverlay: View {
         return startOfMinute.addingTimeInterval(60) // Next full minute
     }
 
+    /// True when the current URL looks like a playlist/channel and the playlist
+    /// toggle is on. Used both to enable playlist behaviour at submit time and
+    /// to disable the schedule UI (which doesn't compose with playlist).
+    private var isPlaylistContext: Bool {
+        downloadWholePlaylist && Self.looksLikePlaylistURL(urlText)
+    }
+
+    /// Heuristic: does this URL refer to a playlist, channel, or other multi-video
+    /// resource yt-dlp would expand under `--flat-playlist`? Conservative on purpose
+    /// — false negatives just hide the toggle (annoying), false positives let the
+    /// user kick off a playlist download against a single video (confusing).
+    private static func looksLikePlaylistURL(_ urlString: String) -> Bool {
+        guard let url = URL(string: urlString) else { return false }
+        let host = url.host?.lowercased() ?? ""
+        let path = url.path.lowercased()
+
+        // YouTube — any `list=` query param means we're inside a playlist context,
+        // even when the URL also names a specific video. Channel URLs and explicit
+        // /playlist paths also count.
+        if host.contains("youtube.com") || host == "youtu.be" {
+            if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+               comps.queryItems?.contains(where: { $0.name == "list" }) == true {
+                return true
+            }
+            if path.hasPrefix("/playlist") || path.hasPrefix("/channel/") ||
+               path.hasPrefix("/c/") || path.hasPrefix("/user/") || path.hasPrefix("/@") {
+                return true
+            }
+        }
+
+        if host.contains("vimeo.com") {
+            if path.contains("/album/") || path.contains("/channels/") || path.contains("/showcase/") {
+                return true
+            }
+        }
+
+        if host.contains("soundcloud.com") && path.contains("/sets/") {
+            return true
+        }
+
+        return false
+    }
+
     var body: some View {
         ZStack {
             // Dimmed background
@@ -167,6 +210,12 @@ struct URLInputOverlay: View {
                 if historyIndex >= 0 && !history.isEmpty && historyIndex < history.count && newValue != history[historyIndex].url {
                     historyIndex = -1
                 }
+                // If switching to a playlist URL with playlist toggle already on,
+                // clear the schedule checkbox so the disabled state matches the
+                // value (otherwise Schedule reads as disabled-but-checked).
+                if downloadWholePlaylist && Self.looksLikePlaylistURL(newValue) {
+                    isScheduled = false
+                }
             }
     }
 
@@ -213,9 +262,9 @@ struct URLInputOverlay: View {
                     .font(.subheadline)
             }
             .toggleStyle(.checkbox)
-            .disabled(downloadWholePlaylist)
-            .opacity(downloadWholePlaylist ? 0.5 : 1.0)
-            .help(downloadWholePlaylist ? "Scheduling isn't supported for whole-playlist downloads" : "")
+            .disabled(isPlaylistContext)
+            .opacity(isPlaylistContext ? 0.5 : 1.0)
+            .help(isPlaylistContext ? "Scheduling isn't supported for whole-playlist downloads" : "")
 
             DatePicker(
                 "",
@@ -225,8 +274,8 @@ struct URLInputOverlay: View {
             )
             .labelsHidden()
             .datePickerStyle(.field)
-            .disabled(!isScheduled || downloadWholePlaylist)
-            .opacity(isScheduled && !downloadWholePlaylist ? 1.0 : 0.5)
+            .disabled(!isScheduled || isPlaylistContext)
+            .opacity(isScheduled && !isPlaylistContext ? 1.0 : 0.5)
 
             Spacer()
 
@@ -272,14 +321,16 @@ struct URLInputOverlay: View {
                 help: "Download only the audio track (no video)"
             )
 
-            toggleButton(
-                isOn: $downloadWholePlaylist,
-                iconOn: "list.bullet.rectangle.fill",
-                iconOff: "list.bullet.rectangle",
-                label: "Whole playlist",
-                color: .orange,
-                help: "Add every video from the playlist or channel as separate queue items (downloads run sequentially)"
-            )
+            if Self.looksLikePlaylistURL(urlText) {
+                toggleButton(
+                    isOn: $downloadWholePlaylist,
+                    iconOn: "list.bullet.rectangle.fill",
+                    iconOff: "list.bullet.rectangle",
+                    label: "Whole playlist",
+                    color: .orange,
+                    help: "Add every video from the playlist or channel as separate queue items (downloads run sequentially)"
+                )
+            }
 
             toggleButton(
                 isOn: $autoEncodeAfterDownload,
@@ -447,18 +498,20 @@ struct URLInputOverlay: View {
         guard !sanitized.isEmpty, DownloadManager.isValidURL(sanitized) else { return }
         let trimmed = sanitized
 
-        // Scheduling and "whole playlist" don't compose yet — the schedule
-        // persistence model is single-item, while a playlist expands to N items
-        // at submission time. When both are on, prefer the playlist path and
-        // start it immediately.
-        if isScheduled, !downloadWholePlaylist, let onSchedule = onSchedule {
+        // Only honour the stored "whole playlist" preference when the URL actually
+        // looks like a playlist or channel — the toggle is hidden in that case
+        // anyway, so the stored value can carry over from a prior session.
+        // Scheduling and whole-playlist don't compose yet (single-item persistence
+        // model), so playlist always submits immediately.
+        let isPlaylist = downloadWholePlaylist && Self.looksLikePlaylistURL(trimmed)
+        if isScheduled, !isPlaylist, let onSchedule = onSchedule {
             // Round to the start of the minute (remove seconds)
             let calendar = Calendar.current
             let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: scheduledDate)
             let roundedDate = calendar.date(from: components) ?? scheduledDate
-            onSchedule(trimmed, roundedDate, downloadLiveFromStart, downloadAudioOnly, downloadWholePlaylist)
+            onSchedule(trimmed, roundedDate, downloadLiveFromStart, downloadAudioOnly, isPlaylist)
         } else {
-            onSubmit(trimmed, downloadLiveFromStart, downloadAudioOnly, downloadWholePlaylist)
+            onSubmit(trimmed, downloadLiveFromStart, downloadAudioOnly, isPlaylist)
         }
         isPresented = false
     }
