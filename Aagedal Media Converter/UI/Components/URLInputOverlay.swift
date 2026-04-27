@@ -108,10 +108,16 @@ struct URLInputOverlay: View {
             historySection
         }
         .padding(20)
-        .frame(width: 540)
+        .frame(width: 620)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .shadow(radius: 20)
+        .onChange(of: downloadWholePlaylist) { _, isOn in
+            // Schedule + whole-playlist isn't supported yet; turning the playlist
+            // toggle on auto-clears the schedule checkbox so the UI matches submit()'s
+            // routing (playlist always submits immediately).
+            if isOn { isScheduled = false }
+        }
     }
 
     private var headerSection: some View {
@@ -207,6 +213,9 @@ struct URLInputOverlay: View {
                     .font(.subheadline)
             }
             .toggleStyle(.checkbox)
+            .disabled(downloadWholePlaylist)
+            .opacity(downloadWholePlaylist ? 0.5 : 1.0)
+            .help(downloadWholePlaylist ? "Scheduling isn't supported for whole-playlist downloads" : "")
 
             DatePicker(
                 "",
@@ -216,8 +225,8 @@ struct URLInputOverlay: View {
             )
             .labelsHidden()
             .datePickerStyle(.field)
-            .disabled(!isScheduled)
-            .opacity(isScheduled ? 1.0 : 0.5)
+            .disabled(!isScheduled || downloadWholePlaylist)
+            .opacity(isScheduled && !downloadWholePlaylist ? 1.0 : 0.5)
 
             Spacer()
 
@@ -344,14 +353,24 @@ struct URLInputOverlay: View {
     }
 
     private var historyList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(history.indices, id: \.self) { index in
-                    historyRow(index: index, entry: history[index])
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(history.indices, id: \.self) { index in
+                        historyRow(index: index, entry: history[index])
+                            .id(index)
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+            .onChange(of: historyIndex) { _, newValue in
+                // Keep the arrow-key selection inside the visible scroll area.
+                guard newValue >= 0 else { return }
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    proxy.scrollTo(newValue, anchor: .center)
                 }
             }
         }
-        .frame(maxHeight: 150)
     }
 
     private func historyRow(index: Int, entry: DownloadHistoryEntry) -> some View {
