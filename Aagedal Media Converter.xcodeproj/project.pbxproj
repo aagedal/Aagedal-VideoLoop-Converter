@@ -127,6 +127,7 @@
 		978C1F6A9DF43EE4E1E9FDD4 /* WaveformPCMDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9609862A8EC6964A0A45885F /* WaveformPCMDecoder.swift */; };
 		9CB662C7C4CE637DA85D46A2 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2285544DA98D92593F5F73 /* DownloadManager.swift */; };
 		A14336D5FE72B1741AE6C2E2 /* RcloneService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B40739097F270F27C5045E /* RcloneService.swift */; };
+		B0AECDAEAEAEDAFAFAFEAB02 /* RcloneBinaryVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AECDAEAEAEDAFAFAFEAB01 /* RcloneBinaryVerifier.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* CaptureModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* CaptureModeView.swift */; };
 		A77C1C13727AF20711BFF51D /* VideoFileCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FAC27FC4405A72BB163575D /* VideoFileCellView.swift */; };
 		A7FDCC612BAD184830F774E4 /* WhisperSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */; };
@@ -243,6 +244,7 @@
 		67BAE582711E2F5E020591A9 /* ConversionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionRequest.swift; sourceTree = "<group>"; };
 		6956B138C1E69D90CBBCB7D3 /* WhisperSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperSettingsView.swift; sourceTree = "<group>"; };
 		727051829930996EE4E50306 /* RcloneUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneUpdateService.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneUpdateService.swift"; sourceTree = "<group>"; };
+		B0AECDAEAEAEDAFAFAFEAB01 /* RcloneBinaryVerifier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneBinaryVerifier.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneBinaryVerifier.swift"; sourceTree = "<group>"; };
 		74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataWindowController.swift; sourceTree = "<group>"; };
 		7AE24C0F6CCD5518CB708EE9 /* WhisperService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperService.swift; sourceTree = "<group>"; };
 		8488177BC5403EC6637A5C25 /* bmxtranswrap */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = bmxtranswrap; sourceTree = "<group>"; };
@@ -922,6 +924,7 @@
 				727051829930996EE4E50306 /* RcloneUpdateService.swift */,
 				BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */,
 				45B40739097F270F27C5045E /* RcloneService.swift */,
+				B0AECDAEAEAEDAFAFAFEAB01 /* RcloneBinaryVerifier.swift */,
 				5443D834E6673C963291692B /* UploadManager.swift */,
 				F12A11220000111111111111 /* FileZillaImporter.swift */,
 			);
@@ -1225,6 +1228,7 @@
 				17B524B2559B24713433EF64 /* RcloneUpdateService.swift in Sources */,
 				69E06BBF03A135EC5011AF14 /* RcloneProgressParser.swift in Sources */,
 				A14336D5FE72B1741AE6C2E2 /* RcloneService.swift in Sources */,
+				B0AECDAEAEAEDAFAFAFEAB02 /* RcloneBinaryVerifier.swift in Sources */,
 				181720894631C3060AB2A6ED /* UploadManager.swift in Sources */,
 				BC6905B16FDDC57467098ECF /* KeychainCredentialManager.swift in Sources */,
 				4A82CAA45E362E122405B09C /* WhisperModels.swift in Sources */,
