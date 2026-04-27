@@ -6,15 +6,16 @@ import SwiftUI
 
 struct UpdateNotificationView: View {
     let latestVersion: String
+    let onReleaseNotes: () -> Void
     let onDownload: () -> Void
     let onDismiss: () -> Void
-    
+
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.title2)
                 .foregroundColor(.accentColor)
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 Text("New Version Available")
                     .font(.headline)
@@ -22,12 +23,17 @@ struct UpdateNotificationView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            
+
+            Button("Release Notes") {
+                onReleaseNotes()
+            }
+            .buttonStyle(.bordered)
+
             Button("Download") {
                 onDownload()
             }
             .buttonStyle(.borderedProminent)
-            
+
             Button {
                 onDismiss()
             } label: {
@@ -55,6 +61,7 @@ struct UpdateNotificationView_Previews: PreviewProvider {
             Color.gray.opacity(0.2)
             UpdateNotificationView(
                 latestVersion: "1.2.3",
+                onReleaseNotes: {},
                 onDownload: {},
                 onDismiss: {}
             )

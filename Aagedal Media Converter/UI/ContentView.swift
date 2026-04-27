@@ -713,8 +713,14 @@ struct ContentView: View {
         if showUpdateNotification {
             UpdateNotificationView(
                 latestVersion: updateChecker.latestVersion,
+                onReleaseNotes: {
+                    updateChecker.openReleaseNotes()
+                    withAnimation {
+                        showUpdateNotification = false
+                    }
+                },
                 onDownload: {
-                    updateChecker.openDownloadPage()
+                    updateChecker.openDownloadAsset()
                     withAnimation {
                         showUpdateNotification = false
                     }

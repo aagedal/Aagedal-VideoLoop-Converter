@@ -466,7 +466,7 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
 
 /// Refuses HTTP redirects to hosts outside GitHub's release-serving infrastructure.
 /// Used for the JSON release info fetch (no progress to report).
-private final class GitHubRedirectGuard: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+final class GitHubRedirectGuard: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,

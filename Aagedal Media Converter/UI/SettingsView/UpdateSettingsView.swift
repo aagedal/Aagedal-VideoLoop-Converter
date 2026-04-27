@@ -70,8 +70,11 @@ struct UpdateSettingsView: View {
                         if updateChecker.updateAvailable {
                             Text("Version \(updateChecker.latestVersion) is available!")
                                 .foregroundColor(.green)
+                            Button("Release Notes") {
+                                updateChecker.openReleaseNotes()
+                            }
                             Button("Download") {
-                                updateChecker.openDownloadPage()
+                                updateChecker.openDownloadAsset()
                             }
                         } else {
                             Text("App is up to date")
