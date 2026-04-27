@@ -65,6 +65,8 @@ struct ContentView: View {
     @State private var overallProgress: Double = 0.0
     @State private var isFileImporterPresented = false
     @AppStorage(AppConstants.defaultPresetKey) private var storedDefaultPresetRawValue = ExportPreset.videoLoop.rawValue
+    @AppStorage(AppConstants.animatedStillFormatKey) private var animatedStillFormat = AppConstants.defaultAnimatedStillFormat
+    @AppStorage(AppConstants.audioOnlyFormatKey) private var audioOnlyFormat = AppConstants.defaultAudioOnlyFormat
     @State private var selectedPreset: ExportPreset = .videoLoop
     @State private var hasInitializedPreset = false
     @State private var hasUserChangedPreset = false
@@ -485,6 +487,16 @@ struct ContentView: View {
                     refreshExpectedOutputURLs(for: selectedPreset)
                 }
                 scheduleMergeCompatibilityEvaluation()
+            }
+            .onChange(of: animatedStillFormat) { _, _ in
+                if selectedPreset == .animatedStill {
+                    refreshExpectedOutputURLs(for: selectedPreset)
+                }
+            }
+            .onChange(of: audioOnlyFormat) { _, _ in
+                if selectedPreset == .audioOnly {
+                    refreshExpectedOutputURLs(for: selectedPreset)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .showCameraCardImporter)) { _ in
                 Task { await handleCameraCardFolderSelection() }
