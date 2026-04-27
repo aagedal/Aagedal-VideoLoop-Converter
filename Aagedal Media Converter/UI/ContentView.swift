@@ -288,7 +288,7 @@ struct ContentView: View {
                 }
             },
             onURLDrop: { urlString in
-                handleURLDownload(urlString, liveFromStart: false)
+                handleURLDownload(urlString, liveFromStart: false, audioOnly: false)
             },
             onRenameOutputFileName: { id, newName in
                 handleOutputFileNameOverride(itemID: id, newName: newName)
@@ -605,11 +605,11 @@ struct ContentView: View {
             if showURLInputOverlay {
                 URLInputOverlay(
                     isPresented: $showURLInputOverlay,
-                    onSubmit: { urlString, liveFromStart in
-                        handleURLDownload(urlString, liveFromStart: liveFromStart)
+                    onSubmit: { urlString, liveFromStart, audioOnly in
+                        handleURLDownload(urlString, liveFromStart: liveFromStart, audioOnly: audioOnly)
                     },
-                    onSchedule: { urlString, scheduledDate, liveFromStart in
-                        handleScheduledDownload(urlString, at: scheduledDate, liveFromStart: liveFromStart)
+                    onSchedule: { urlString, scheduledDate, liveFromStart, audioOnly in
+                        handleScheduledDownload(urlString, at: scheduledDate, liveFromStart: liveFromStart, audioOnly: audioOnly)
                     }
                 )
             }
@@ -650,7 +650,7 @@ struct ContentView: View {
     }
 
     /// Handles URL download from the overlay
-    private func handleURLDownload(_ urlString: String, liveFromStart: Bool) {
+    private func handleURLDownload(_ urlString: String, liveFromStart: Bool, audioOnly: Bool) {
         Task {
             // Check if yt-dlp is configured
             guard await DownloadManager.shared.isYTDLPConfigured() else {
@@ -662,20 +662,22 @@ struct ContentView: View {
                 url: urlString,
                 items: $droppedFiles,
                 outputFolder: downloadFolderURL,
-                liveFromStart: liveFromStart
+                liveFromStart: liveFromStart,
+                audioOnly: audioOnly
             )
         }
     }
 
     /// Handles scheduling a download for later
-    private func handleScheduledDownload(_ urlString: String, at date: Date, liveFromStart: Bool) {
+    private func handleScheduledDownload(_ urlString: String, at date: Date, liveFromStart: Bool, audioOnly: Bool) {
         Task {
             await DownloadManager.shared.scheduleDownload(
                 url: urlString,
                 at: date,
                 items: $droppedFiles,
                 outputFolder: downloadFolderURL,
-                liveFromStart: liveFromStart
+                liveFromStart: liveFromStart,
+                audioOnly: audioOnly
             )
         }
     }

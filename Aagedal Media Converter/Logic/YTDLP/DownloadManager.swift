@@ -176,7 +176,8 @@ class DownloadManager {
         at scheduledTime: Date,
         items: Binding<[VideoItem]>,
         outputFolder: URL,
-        liveFromStart: Bool = false
+        liveFromStart: Bool = false,
+        audioOnly: Bool = false
     ) async -> UUID? {
         self.videoItems = items
         self.outputFolder = outputFolder
@@ -201,6 +202,7 @@ class DownloadManager {
         item.autoEncodeAfterDownload = UserDefaults.standard.bool(forKey: AppConstants.autoEncodeAfterDownloadKey)
         item.uploadEnabled = UserDefaults.standard.bool(forKey: AppConstants.autoUploadAfterDownloadKey)
         item.downloadLiveFromStart = liveFromStart
+        item.downloadAudioOnly = audioOnly
 
         let itemID = item.id
 
@@ -224,7 +226,8 @@ class DownloadManager {
             scheduledTime: scheduledTime,
             liveFromStart: liveFromStart,
             autoEncode: item.autoEncodeAfterDownload,
-            uploadEnabled: item.uploadEnabled
+            uploadEnabled: item.uploadEnabled,
+            audioOnly: audioOnly
         ))
 
         return itemID
@@ -268,6 +271,7 @@ class DownloadManager {
             item.autoEncodeAfterDownload = entry.autoEncode
             item.uploadEnabled = entry.uploadEnabled
             item.downloadLiveFromStart = entry.liveFromStart
+            item.downloadAudioOnly = entry.audioOnly
 
             let newItemID = item.id
             items.wrappedValue.append(item)
@@ -279,7 +283,8 @@ class DownloadManager {
                 scheduledTime: entry.scheduledTime,
                 liveFromStart: entry.liveFromStart,
                 autoEncode: entry.autoEncode,
-                uploadEnabled: entry.uploadEnabled
+                uploadEnabled: entry.uploadEnabled,
+                audioOnly: entry.audioOnly
             ))
         }
 
@@ -328,7 +333,8 @@ class DownloadManager {
                 itemID: itemID,
                 urlString: sourceURL,
                 outputFolder: folder,
-                liveFromStart: item.downloadLiveFromStart
+                liveFromStart: item.downloadLiveFromStart,
+                audioOnly: item.downloadAudioOnly
             )
         }
         downloadTasks[itemID] = task
@@ -350,7 +356,8 @@ class DownloadManager {
         url urlString: String,
         items: Binding<[VideoItem]>,
         outputFolder: URL,
-        liveFromStart: Bool = false
+        liveFromStart: Bool = false,
+        audioOnly: Bool = false
     ) async -> UUID? {
         // Check if yt-dlp is available
         guard await isYTDLPConfigured() else {
@@ -381,6 +388,7 @@ class DownloadManager {
         item.downloadHasProgress = false
         item.downloadSpeed = nil
         item.downloadLiveFromStart = liveFromStart
+        item.downloadAudioOnly = audioOnly
 
         // Apply default automation settings
         item.autoEncodeAfterDownload = UserDefaults.standard.bool(forKey: AppConstants.autoEncodeAfterDownloadKey)
@@ -393,7 +401,7 @@ class DownloadManager {
 
         // Start download task (using unowned self since DownloadManager is a singleton)
         let task = Task {
-            await self.performDownload(itemID: itemID, urlString: urlString, outputFolder: outputFolder, liveFromStart: liveFromStart)
+            await self.performDownload(itemID: itemID, urlString: urlString, outputFolder: outputFolder, liveFromStart: liveFromStart, audioOnly: audioOnly)
         }
         downloadTasks[itemID] = task
 
@@ -401,7 +409,7 @@ class DownloadManager {
     }
 
     /// Performs the actual download
-    private func performDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool) async {
+    private func performDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool, audioOnly: Bool) async {
         let downloadStartTime = Date()
         logger.info("[TIMING] performDownload started at \(downloadStartTime)")
 
@@ -428,6 +436,7 @@ class DownloadManager {
                 outputFolder: outputFolder,
                 forceOverwrite: false,
                 liveFromStart: liveFromStart,
+                audioOnly: audioOnly,
                 progress: { [weak self] progress, speed, isLiveStream in
                     Task { @MainActor in
                         guard let self = self else { return }
@@ -746,7 +755,8 @@ class DownloadManager {
                 itemID: itemID,
                 urlString: sourceURL,
                 outputFolder: outputFolder,
-                liveFromStart: item.downloadLiveFromStart
+                liveFromStart: item.downloadLiveFromStart,
+                audioOnly: item.downloadAudioOnly
             )
         }
         downloadTasks[itemID] = task
@@ -777,14 +787,15 @@ class DownloadManager {
                 itemID: itemID,
                 urlString: sourceURL,
                 outputFolder: outputFolder,
-                liveFromStart: item.downloadLiveFromStart
+                liveFromStart: item.downloadLiveFromStart,
+                audioOnly: item.downloadAudioOnly
             )
         }
         downloadTasks[itemID] = task
     }
 
     /// Performs a forced download (overwrites existing files)
-    private func performForceDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool) async {
+    private func performForceDownload(itemID: UUID, urlString: String, outputFolder: URL, liveFromStart: Bool, audioOnly: Bool) async {
         // Record a history entry upfront so the URL stays retry-able even if this
         // forced run is cancelled or fails before completion. Mirrors performDownload.
         let initialTitle = URL(string: urlString)?.host ?? "Download"
@@ -799,6 +810,7 @@ class DownloadManager {
                 outputFolder: outputFolder,
                 forceOverwrite: true,
                 liveFromStart: liveFromStart,
+                audioOnly: audioOnly,
                 progress: { [weak self] progress, speed, isLiveStream in
                     Task { @MainActor in
                         self?.updateItem(itemID) { item in
@@ -1036,6 +1048,29 @@ class DownloadManager {
         let liveFromStart: Bool
         let autoEncode: Bool
         let uploadEnabled: Bool
+        let audioOnly: Bool
+
+        init(itemID: UUID, url: String, scheduledTime: Date, liveFromStart: Bool, autoEncode: Bool, uploadEnabled: Bool, audioOnly: Bool) {
+            self.itemID = itemID
+            self.url = url
+            self.scheduledTime = scheduledTime
+            self.liveFromStart = liveFromStart
+            self.autoEncode = autoEncode
+            self.uploadEnabled = uploadEnabled
+            self.audioOnly = audioOnly
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            itemID = try container.decode(UUID.self, forKey: .itemID)
+            url = try container.decode(String.self, forKey: .url)
+            scheduledTime = try container.decode(Date.self, forKey: .scheduledTime)
+            liveFromStart = try container.decode(Bool.self, forKey: .liveFromStart)
+            autoEncode = try container.decode(Bool.self, forKey: .autoEncode)
+            uploadEnabled = try container.decode(Bool.self, forKey: .uploadEnabled)
+            // Back-compat: schedules persisted before audio-only existed have no key.
+            audioOnly = try container.decodeIfPresent(Bool.self, forKey: .audioOnly) ?? false
+        }
     }
 
     private static func loadPersistedScheduledDownloads() -> [PersistedScheduledDownload] {

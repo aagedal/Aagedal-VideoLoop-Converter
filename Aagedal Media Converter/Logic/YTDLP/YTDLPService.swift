@@ -236,6 +236,7 @@ actor YTDLPService {
     ///   - outputFolder: The folder to save the downloaded video
     ///   - forceOverwrite: If true, overwrites existing files instead of skipping
     ///   - liveFromStart: Whether to rewind live streams to the beginning
+    ///   - audioOnly: Whether to download only the audio track (no video)
     ///   - progress: Callback for progress updates (progress 0-1, speed string, isLiveStream)
     ///   - titleUpdate: Callback when video title is discovered
     /// - Returns: The path to the downloaded file
@@ -244,6 +245,7 @@ actor YTDLPService {
         outputFolder: URL,
         forceOverwrite: Bool = false,
         liveFromStart: Bool = false,
+        audioOnly: Bool = false,
         progress: @escaping @Sendable (Double, String?, Bool) -> Void,
         titleUpdate: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> YTDLPDownloadResult {
@@ -315,8 +317,18 @@ actor YTDLPService {
             logger.info("[YTDLPService] Filename restriction: ASCII only")
         }
 
+        // Format selector: prefer audio-only stream when in audio-only mode, otherwise
+        // grab best video+audio. `-x` (--extract-audio) makes yt-dlp post-process to a
+        // standalone audio file when the chosen stream is muxed; with `--audio-format
+        // best` the original codec is preserved (no re-encoding when avoidable).
+        let formatSelector = audioOnly ? "bestaudio/best" : "bestvideo+bestaudio/best"
+        args.append(contentsOf: ["-f", formatSelector])
+        if audioOnly {
+            args.append(contentsOf: ["-x", "--audio-format", "best"])
+            logger.info("[YTDLPService] Audio-only download requested")
+        }
+
         args.append(contentsOf: [
-            "-f", "bestvideo+bestaudio/best",
             "--no-playlist",
             "--trim-filenames", "200",
             "--newline",

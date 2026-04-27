@@ -624,6 +624,7 @@ enum AppConstants {
     // yt-dlp authentication
     static let ytdlpCookiesBrowserKey = "ytdlpCookiesBrowser"
     static let ytdlpLiveFromStartKey = "ytdlpLiveFromStart"
+    static let ytdlpAudioOnlyKey = "ytdlpAudioOnly"
 
     // Filename restriction mode for yt-dlp downloads. See YTDLPFilenameRestrictionMode.
     static let ytdlpFilenameRestrictionModeKey = "ytdlpFilenameRestrictionMode"

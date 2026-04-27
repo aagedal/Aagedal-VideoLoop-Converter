@@ -10,8 +10,8 @@ struct URLInputOverlay: View {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "URLInput")
 
     @Binding var isPresented: Bool
-    var onSubmit: (String, Bool) -> Void
-    var onSchedule: ((String, Date, Bool) -> Void)?
+    var onSubmit: (String, Bool, Bool) -> Void
+    var onSchedule: ((String, Date, Bool, Bool) -> Void)?
 
     @State private var urlText = ""
     @State private var history: [DownloadHistoryEntry] = []
@@ -19,6 +19,7 @@ struct URLInputOverlay: View {
     @State private var scheduledDate = Self.defaultScheduleDate()
     @FocusState private var isTextFieldFocused: Bool
     @AppStorage(AppConstants.ytdlpLiveFromStartKey) private var downloadLiveFromStart = false
+    @AppStorage(AppConstants.ytdlpAudioOnlyKey) private var downloadAudioOnly = false
     @AppStorage(AppConstants.autoEncodeAfterDownloadKey) private var autoEncodeAfterDownload = false
     @AppStorage(AppConstants.autoUploadAfterDownloadKey) private var autoUploadAfterDownload = false
 
@@ -253,6 +254,15 @@ struct URLInputOverlay: View {
             )
 
             toggleButton(
+                isOn: $downloadAudioOnly,
+                iconOn: "waveform.circle.fill",
+                iconOff: "waveform.circle",
+                label: "Audio only",
+                color: .purple,
+                help: "Download only the audio track (no video)"
+            )
+
+            toggleButton(
                 isOn: $autoEncodeAfterDownload,
                 iconOn: "play.circle.fill",
                 iconOff: "play.circle",
@@ -413,16 +423,16 @@ struct URLInputOverlay: View {
             let calendar = Calendar.current
             let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: scheduledDate)
             let roundedDate = calendar.date(from: components) ?? scheduledDate
-            onSchedule(trimmed, roundedDate, downloadLiveFromStart)
+            onSchedule(trimmed, roundedDate, downloadLiveFromStart, downloadAudioOnly)
         } else {
-            onSubmit(trimmed, downloadLiveFromStart)
+            onSubmit(trimmed, downloadLiveFromStart, downloadAudioOnly)
         }
         isPresented = false
     }
 }
 
 #Preview {
-    URLInputOverlay(isPresented: .constant(true)) { url, liveFromStart in
-        print("Download: \(url), liveFromStart: \(liveFromStart)")
+    URLInputOverlay(isPresented: .constant(true)) { url, liveFromStart, audioOnly in
+        print("Download: \(url), liveFromStart: \(liveFromStart), audioOnly: \(audioOnly)")
     }
 }
