@@ -625,6 +625,7 @@ enum AppConstants {
     static let ytdlpCookiesBrowserKey = "ytdlpCookiesBrowser"
     static let ytdlpLiveFromStartKey = "ytdlpLiveFromStart"
     static let ytdlpAudioOnlyKey = "ytdlpAudioOnly"
+    static let ytdlpDownloadPlaylistKey = "ytdlpDownloadPlaylist"
 
     // Filename restriction mode for yt-dlp downloads. See YTDLPFilenameRestrictionMode.
     static let ytdlpFilenameRestrictionModeKey = "ytdlpFilenameRestrictionMode"
@@ -650,9 +651,7 @@ enum AppConstants {
     static let defaultSMBPort = 445
 
     // rclone binary management
-    static let rcloneVersionKey = "rcloneInstalledVersion"
-    static let rcloneLastUpdateCheckKey = "rcloneLastUpdateCheck"
-    static let rcloneGitHubReleasesURL = "https://api.github.com/repos/rclone/rclone/releases/latest"
+    static let rcloneBinarySourceKey = "rcloneBinarySource"
     static let rcloneCustomPathKey = "rcloneCustomPath"
 
     // C2PA (Content Authenticity) settings

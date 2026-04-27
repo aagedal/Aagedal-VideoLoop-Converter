@@ -5,7 +5,10 @@
 import Foundation
 import OSLog
 
-/// Manages rclone binary resolution with priority: custom path > downloaded > system
+/// Resolves the rclone binary path. Three sources, mirroring how yt-dlp is handled:
+///   - `.app`      → minimal binary bundled with the app (default; security-hardened)
+///   - `.homebrew` → `/opt/homebrew/bin/rclone`
+///   - `.custom`   → user-picked path, validated by running `--version`
 actor RcloneUpdateService {
     static let shared = RcloneUpdateService()
 
@@ -19,49 +22,89 @@ actor RcloneUpdateService {
     }
     private var lastValidatedCustomPath: CustomPathFingerprint?
 
-    /// Path to downloaded rclone binary in Application Support
-    nonisolated var downloadedPath: URL {
-        AppConstants.ytdlpToolsDirectory.appendingPathComponent("rclone")
+    /// Path to the rclone binary bundled inside the app's Resources directory.
+    /// This is the default source — a minimal build with only the backends this app uses,
+    /// shipped to avoid pulling the full upstream binary at runtime.
+    nonisolated var bundledPath: String? {
+        guard let path = Bundle.main.path(forResource: "rclone", ofType: nil) else {
+            return nil
+        }
+        return FileManager.default.isExecutableFile(atPath: path) ? path : nil
     }
 
-    /// Path to version file for downloaded binary
-    private var versionFilePath: URL {
-        AppConstants.ytdlpToolsDirectory.appendingPathComponent("rclone-version.txt")
+    private nonisolated func selectedRcloneSource() -> BinarySourceSelection? {
+        guard let raw = UserDefaults.standard.string(forKey: AppConstants.rcloneBinarySourceKey),
+              !raw.isEmpty else {
+            return nil
+        }
+        return BinarySourceSelection(rawValue: raw)
     }
 
-    /// Returns the path to the best available rclone binary
-    /// Priority: 1) Custom path, 2) Downloaded, 3) System (Homebrew)
+    private func resolveRclonePath(for selection: BinarySourceSelection) async -> String? {
+        switch selection {
+        case .app:
+            return resolveBundledPath()
+        case .homebrew:
+            return resolveHomebrewPath()
+        case .custom:
+            return await resolveCustomPath()
+        }
+    }
+
+    private nonisolated func resolveBundledPath() -> String? {
+        if let path = bundledPath {
+            return path
+        }
+        return nil
+    }
+
+    private nonisolated func resolveHomebrewPath() -> String? {
+        let candidates = ["/opt/homebrew/bin/rclone"]
+        for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
+            return path
+        }
+        return nil
+    }
+
+    private func resolveCustomPath() async -> String? {
+        guard let path = UserDefaults.standard.string(forKey: AppConstants.rcloneCustomPathKey),
+              !path.isEmpty else {
+            return nil
+        }
+        guard await validateCustomRclonePath(path) else {
+            logger.warning("Custom rclone path is missing or not a valid rclone binary: \(path, privacy: .private)")
+            return nil
+        }
+        return path
+    }
+
+    /// Returns the path to the best available rclone binary.
     ///
-    /// The custom path is validated by running `--version` (cached per file fingerprint) so a
-    /// rogue UserDefaults entry pointing at an arbitrary executable is rejected before we launch it.
+    /// If the user has explicitly chosen a source via the settings picker, that source is honored.
+    /// Otherwise we fall back to: bundled → custom (validated) → Homebrew. The bundled binary
+    /// is always present in shipping builds, so the no-saved-choice case effectively means
+    /// "use the minimal binary we shipped with the app."
     func resolveRclonePath() async -> String? {
-        if let customPath = UserDefaults.standard.string(forKey: AppConstants.rcloneCustomPathKey),
-           !customPath.isEmpty {
-            if await validateCustomRclonePath(customPath) {
-                logger.info("Using custom rclone at: \(customPath, privacy: .private)")
-                return customPath
-            } else {
-                logger.warning("Custom rclone path is missing or not a valid rclone binary: \(customPath, privacy: .private)")
+        if let selection = selectedRcloneSource() {
+            if let resolved = await resolveRclonePath(for: selection) {
+                logger.info("Using \(selection.rawValue, privacy: .public) rclone")
+                return resolved
             }
+            logger.warning("Selected rclone source \(selection.rawValue, privacy: .public) is unavailable")
+            return nil
         }
 
-        let downloadedPathString = downloadedPath.path
-        if FileManager.default.fileExists(atPath: downloadedPathString) {
-            if !FileManager.default.isExecutableFile(atPath: downloadedPathString) {
-                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: downloadedPathString)
-            }
-            logger.info("Using downloaded rclone")
-            return downloadedPathString
+        if let path = resolveBundledPath() {
+            logger.info("Using bundled rclone")
+            return path
         }
-
-        let systemPaths = [
-            "/opt/homebrew/bin/rclone"
-        ]
-        for path in systemPaths {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                logger.info("Using system rclone at: \(path, privacy: .public)")
-                return path
-            }
+        if let path = await resolveCustomPath() {
+            logger.info("Using custom rclone at: \(path, privacy: .private)")
+            return path
+        }
+        if let path = resolveHomebrewPath() {
+            logger.info("Using Homebrew rclone at: \(path, privacy: .public)")
+            return path
         }
 
         logger.warning("No rclone binary available")
@@ -103,30 +146,43 @@ actor RcloneUpdateService {
         await resolveRclonePath() != nil
     }
 
-    /// Gets the current installation status
+    /// Gets the current installation status. Mirrors the priority used by `resolveRclonePath`.
     nonisolated func getInstallationStatus() -> RcloneInstallationStatus {
-        // Check custom path
-        if let customPath = UserDefaults.standard.string(forKey: AppConstants.rcloneCustomPathKey),
-           !customPath.isEmpty,
-           FileManager.default.fileExists(atPath: customPath) {
-            return .customPath(customPath)
+        if let selection = selectedRcloneSource() {
+            return installationStatus(for: selection)
         }
 
-        // Check downloaded version
-        if FileManager.default.fileExists(atPath: downloadedPath.path) {
-            let version = UserDefaults.standard.string(forKey: AppConstants.rcloneVersionKey)
-            return .downloaded(version: version)
+        if bundledPath != nil {
+            return .bundled
         }
+        if let custom = UserDefaults.standard.string(forKey: AppConstants.rcloneCustomPathKey),
+           !custom.isEmpty,
+           FileManager.default.fileExists(atPath: custom) {
+            return .customPath(custom)
+        }
+        if let homebrew = ["/opt/homebrew/bin/rclone"].first(where: { FileManager.default.fileExists(atPath: $0) }) {
+            return .systemAvailable(homebrew)
+        }
+        return .notInstalled
+    }
 
-        // Check system paths
-        let systemPaths = ["/opt/homebrew/bin/rclone"]
-        for path in systemPaths {
-            if FileManager.default.fileExists(atPath: path) {
+    private nonisolated func installationStatus(for selection: BinarySourceSelection) -> RcloneInstallationStatus {
+        switch selection {
+        case .app:
+            return bundledPath != nil ? .bundled : .notInstalled
+        case .homebrew:
+            if let path = ["/opt/homebrew/bin/rclone"].first(where: { FileManager.default.fileExists(atPath: $0) }) {
                 return .systemAvailable(path)
             }
+            return .notInstalled
+        case .custom:
+            if let custom = UserDefaults.standard.string(forKey: AppConstants.rcloneCustomPathKey),
+               !custom.isEmpty,
+               FileManager.default.fileExists(atPath: custom) {
+                return .customPath(custom)
+            }
+            return .notInstalled
         }
-
-        return .notInstalled
     }
 
     /// Gets the version of the currently active rclone binary
@@ -162,250 +218,12 @@ actor RcloneUpdateService {
         return nil
     }
 
-    /// Information about the latest rclone release. Includes the SHA256SUMS asset URL so we can
-    /// verify the downloaded zip against rclone's published checksums before installing it.
-    struct LatestReleaseInfo {
-        let version: String
-        let assetName: String
-        let downloadURL: URL
-        let checksumsURL: URL
-    }
-
-    /// Checks GitHub for the latest rclone release. Returns the macOS arm64 asset details and the
-    /// matching SHA256SUMS file (also published as a release asset).
-    func getLatestReleaseInfo() async throws -> LatestReleaseInfo {
-        guard let url = URL(string: AppConstants.rcloneGitHubReleasesURL) else {
-            throw RcloneUpdateError.invalidURL
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue(GitHubRequest.userAgent, forHTTPHeaderField: "User-Agent")
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 30
-
-        // Use a redirect-restricted session so a redirect cannot send us to an attacker-controlled host.
-        let delegate = GitHubRedirectGuard()
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw RcloneUpdateError.networkError
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tagName = json["tag_name"] as? String,
-              let assets = json["assets"] as? [[String: Any]] else {
-            throw RcloneUpdateError.parseError
-        }
-
-        let assetPattern = "rclone-.*-osx-arm64.zip"
-        var binaryAsset: (name: String, url: URL)?
-        var checksumsURL: URL?
-
-        for asset in assets {
-            guard let name = asset["name"] as? String,
-                  let urlString = asset["browser_download_url"] as? String,
-                  let assetURL = URL(string: urlString) else {
-                continue
-            }
-            if name == "SHA256SUMS" {
-                checksumsURL = assetURL
-            } else if name.range(of: assetPattern, options: .regularExpression) != nil {
-                binaryAsset = (name, assetURL)
-            }
-        }
-
-        guard let binary = binaryAsset else {
-            throw RcloneUpdateError.assetNotFound
-        }
-        guard let checksums = checksumsURL else {
-            // No SHA256SUMS asset means we cannot verify integrity. Refuse to install rather than ship blind trust.
-            throw RcloneUpdateError.checksumsNotPublished
-        }
-
-        return LatestReleaseInfo(
-            version: tagName,
-            assetName: binary.name,
-            downloadURL: binary.url,
-            checksumsURL: checksums
-        )
-    }
-
-    /// Backwards-compatible wrapper for callers that just want the version string.
-    func getLatestReleaseVersion() async throws -> (version: String, downloadURL: URL)? {
-        let info = try await getLatestReleaseInfo()
-        return (info.version, info.downloadURL)
-    }
-
-    /// Checks if an update is available
-    func checkForUpdates() async -> Bool {
-        do {
-            guard let currentVersion = await getCurrentVersion() else {
-                return false
-            }
-            let info = try await getLatestReleaseInfo()
-            let isNewer = info.version.compare(currentVersion, options: .numeric) == .orderedDescending
-            logger.info("rclone - Current: \(currentVersion), Latest: \(info.version), Update available: \(isNewer)")
-            return isNewer
-        } catch {
-            logger.error("Failed to check for rclone updates: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    /// Downloads and installs the latest rclone release.
-    ///
-    /// Verification gate (any failure aborts install and removes the partial file):
-    ///   1. SHA-256 of the downloaded zip matches rclone's published `SHA256SUMS` entry.
-    ///   2. The extracted binary has a valid Apple code signature.
-    /// Only after both pass do we strip the quarantine xattr and move it into place.
-    ///
-    /// - Parameter progress: Callback for download progress (0.0 to 1.0)
-    func downloadUpdate(progress: @escaping @Sendable (Double) -> Void) async throws {
-        let info = try await getLatestReleaseInfo()
-        logger.info("Downloading rclone \(info.version, privacy: .public) from \(info.downloadURL.host ?? "?", privacy: .public)")
-
-        let tempZipURL = try await downloadWithProgress(from: info.downloadURL, progress: progress)
-        // From here on, any thrown error must clean up the temp zip.
-        var cleanupZip: URL? = tempZipURL
-        defer {
-            if let url = cleanupZip { try? FileManager.default.removeItem(at: url) }
-        }
-
-        // Step 1: SHA-256 checksum verification before we touch the binary.
-        try await RcloneBinaryVerifier.verifyChecksum(
-            zipURL: tempZipURL,
-            assetName: info.assetName,
-            checksumsURL: info.checksumsURL
-        )
-
-        let extractedBinaryURL = try await extractRcloneBinary(from: tempZipURL)
-        var cleanupExtractDir: URL? = extractedBinaryURL.deletingLastPathComponent()
-        defer {
-            if let url = cleanupExtractDir { try? FileManager.default.removeItem(at: url) }
-        }
-
-        // Step 2: Apple code signature must be present and intact.
-        let signature = try RcloneBinaryVerifier.verifyCodeSignature(at: extractedBinaryURL)
-        logger.info("rclone code signature OK — team=\(signature.teamIdentifier ?? "?", privacy: .public) id=\(signature.identifier ?? "?", privacy: .public)")
-
-        // Both checks passed; install.
-        let fm = FileManager.default
-        let destinationPath = downloadedPath
-        let destinationDir = destinationPath.deletingLastPathComponent()
-        try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true, attributes: nil)
-        if fm.fileExists(atPath: destinationPath.path) {
-            try fm.removeItem(at: destinationPath)
-        }
-        try fm.moveItem(at: extractedBinaryURL, to: destinationPath)
-
-        // Quarantine xattr is stripped only after verification — never on a binary we haven't validated.
-        removeQuarantine(at: destinationPath.path)
-        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationPath.path)
-
-        // We just consumed the extract dir contents; do not let the defer remove the moved binary.
-        cleanupExtractDir = nil
-        // Zip is no longer needed.
-        try? fm.removeItem(at: tempZipURL)
-        cleanupZip = nil
-
-        try info.version.write(to: versionFilePath, atomically: true, encoding: .utf8)
-        UserDefaults.standard.set(Date(), forKey: AppConstants.rcloneLastUpdateCheckKey)
-        UserDefaults.standard.set(info.version, forKey: AppConstants.rcloneVersionKey)
-
-        // The fingerprint cache for any custom path is unrelated, but a freshly installed download
-        // means our resolveRclonePath should re-evaluate priorities on the next call.
-        logger.info("Successfully installed rclone \(info.version, privacy: .public)")
-    }
-
-    // MARK: - Private Methods
-
-    /// Downloads a file with progress tracking. Sends a User-Agent and rejects redirects
-    /// to hosts outside GitHub's serving infrastructure.
-    private func downloadWithProgress(
-        from url: URL,
-        progress: @escaping @Sendable (Double) -> Void
-    ) async throws -> URL {
-        var request = URLRequest(url: url)
-        request.setValue(GitHubRequest.userAgent, forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 60
-
-        let delegate = DownloadProgressDelegate(progressHandler: progress)
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let task = session.downloadTask(with: request) { tempURL, response, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                guard let tempURL = tempURL, response != nil else {
-                    continuation.resume(throwing: RcloneUpdateError.downloadFailed)
-                    return
-                }
-
-                let persistentTemp = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString + ".zip")
-                do {
-                    try FileManager.default.moveItem(at: tempURL, to: persistentTemp)
-                    continuation.resume(returning: persistentTemp)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-            task.resume()
-        }
-    }
-
-    /// Extracts the rclone binary from a downloaded zip file
-    private func extractRcloneBinary(from zipURL: URL) async throws -> URL {
-        let fm = FileManager.default
-        let extractDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-
-        try fm.createDirectory(at: extractDir, withIntermediateDirectories: true)
-
-        // Use ditto to extract (preserves permissions)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-xk", zipURL.path, extractDir.path]
-
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            throw RcloneUpdateError.extractionFailed
-        }
-
-        // Find the rclone binary inside the extracted folder
-        // Structure is typically: rclone-vX.XX.X-osx-arm64/rclone
-        let contents = try fm.contentsOfDirectory(at: extractDir, includingPropertiesForKeys: nil)
-        for item in contents {
-            let binaryPath = item.appendingPathComponent("rclone")
-            if fm.fileExists(atPath: binaryPath.path) {
-                return binaryPath
-            }
-        }
-
-        throw RcloneUpdateError.binaryNotFound
-    }
-
-    /// Removes the quarantine extended attribute from a file
-    private func removeQuarantine(at path: String) {
-        let result = removexattr(path, "com.apple.quarantine", 0)
-        if result != 0 && errno != 93 && errno != 1 {
-            logger.warning("Failed to remove quarantine attribute: \(errno)")
-        }
-    }
-
     // MARK: - Custom Path Management
 
     /// Saves a custom rclone path
     func saveCustomPath(_ path: String) {
         UserDefaults.standard.set(path, forKey: AppConstants.rcloneCustomPathKey)
-        logger.info("Saved custom rclone path: \(path)")
+        logger.info("Saved custom rclone path: \(path, privacy: .private)")
     }
 
     /// Gets the custom rclone path
@@ -420,52 +238,10 @@ actor RcloneUpdateService {
     }
 }
 
-// MARK: - Download Progress Delegate
-
-private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    private let progressHandler: @Sendable (Double) -> Void
-
-    init(progressHandler: @escaping @Sendable (Double) -> Void) {
-        self.progressHandler = progressHandler
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didWriteData bytesWritten: Int64,
-        totalBytesWritten: Int64,
-        totalBytesExpectedToWrite: Int64
-    ) {
-        guard totalBytesExpectedToWrite > 0 else { return }
-        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-        DispatchQueue.main.async {
-            self.progressHandler(progress)
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didFinishDownloadingTo location: URL
-    ) {
-        // Handled in the completion handler
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        completionHandler(GitHubHostAllowlist.allow(request: request))
-    }
-}
-
 // MARK: - GitHub redirect guard
 
 /// Refuses HTTP redirects to hosts outside GitHub's release-serving infrastructure.
-/// Used for the JSON release info fetch (no progress to report).
+/// Used by the app's update checker (see `UpdateChecker`) — kept here for historical reasons.
 final class GitHubRedirectGuard: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
@@ -479,8 +255,8 @@ final class GitHubRedirectGuard: NSObject, URLSessionDataDelegate, @unchecked Se
 }
 
 /// Whitelist of hosts that GitHub legitimately uses for the API and release artifacts.
-/// A redirect to anything else is treated as suspicious and refused (the URL request becomes the original).
-private enum GitHubHostAllowlist {
+/// A redirect to anything else is treated as suspicious and refused.
+enum GitHubHostAllowlist {
     private static let suffixes: [String] = [
         "github.com",
         "githubusercontent.com",
@@ -498,40 +274,12 @@ private enum GitHubHostAllowlist {
     }
 }
 
-// MARK: - Error Types
-
-enum RcloneUpdateError: Error, LocalizedError {
-    case invalidURL
-    case networkError
-    case parseError
-    case assetNotFound
-    case checksumsNotPublished
-    case downloadFailed
-    case extractionFailed
-    case binaryNotFound
-    case installFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL: return "Invalid GitHub API URL"
-        case .networkError: return "Network error while checking for updates"
-        case .parseError: return "Failed to parse GitHub release info"
-        case .assetNotFound: return "macOS binary not found in release"
-        case .checksumsNotPublished: return "Release does not include a SHA256SUMS file — refusing to install without integrity verification"
-        case .downloadFailed: return "Failed to download rclone binary"
-        case .extractionFailed: return "Failed to extract rclone from zip"
-        case .binaryNotFound: return "rclone binary not found in archive"
-        case .installFailed: return "Failed to install rclone binary"
-        }
-    }
-}
-
 // MARK: - Installation Status
 
 /// Status of rclone installation
 enum RcloneInstallationStatus {
     case notInstalled
-    case downloaded(version: String?)
+    case bundled
     case customPath(String)
     case systemAvailable(String)
 
@@ -539,15 +287,12 @@ enum RcloneInstallationStatus {
         switch self {
         case .notInstalled:
             return "Not installed"
-        case .downloaded(let version):
-            if let version = version {
-                return "Downloaded (\(version))"
-            }
-            return "Downloaded"
+        case .bundled:
+            return "Bundled"
         case .customPath(let path):
             return "Custom: \(path)"
         case .systemAvailable(let path):
-            return "System: \(path)"
+            return "Homebrew: \(path)"
         }
     }
 
@@ -555,7 +300,7 @@ enum RcloneInstallationStatus {
         switch self {
         case .notInstalled:
             return false
-        case .downloaded, .customPath, .systemAvailable:
+        case .bundled, .customPath, .systemAvailable:
             return true
         }
     }

@@ -2,6 +2,7 @@
 // Copyright 2025 Truls Aagedal
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -10,9 +11,8 @@ struct UploadSettingsView: View {
 
     @State private var rcloneStatus: RcloneInstallationStatus = .notInstalled
     @State private var rcloneVersion: String?
-    @State private var isDownloading = false
-    @State private var downloadProgress: Double = 0.0
-    @State private var downloadError: String?
+    @State private var rcloneCustomPath: String = ""
+    @AppStorage(AppConstants.rcloneBinarySourceKey) private var rcloneBinarySource = BinarySourceSelection.app.rawValue
 
     @State private var isTesting = false
     @State private var testResult: TestResult?
@@ -80,6 +80,9 @@ struct UploadSettingsView: View {
             UploadManager.shared.refreshConfiguredStatus()
             testResult = nil
         }
+        .onChange(of: rcloneBinarySource) { _, _ in
+            Task { await refreshRcloneStatus() }
+        }
         .sheet(isPresented: $isFileZillaSheetPresented) {
             FileZillaImportSheet(
                 sites: fileZillaSites,
@@ -118,55 +121,131 @@ struct UploadSettingsView: View {
 
     // MARK: - rclone status
 
+    private var selectedRcloneSource: BinarySourceSelection {
+        BinarySourceSelection(rawValue: rcloneBinarySource) ?? .app
+    }
+
     private var rcloneStatusSection: some View {
-        Section(header: Text("rclone Status")) {
+        Section(header: Text("rclone")) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Image(systemName: rcloneStatus.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundColor(rcloneStatus.isAvailable ? .green : .red)
+                    Image(systemName: rcloneStatus.isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundColor(rcloneStatus.isAvailable ? .green : .orange)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(rcloneStatus.displayText)
-                            .font(.body)
-                        if let version = rcloneVersion {
-                            Text(version)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                            .font(.headline)
                     }
 
                     Spacer()
 
-                    if isDownloading {
-                        ProgressView(value: downloadProgress)
-                            .progressViewStyle(.linear)
-                            .frame(width: 100)
-                        Text("\(Int(downloadProgress * 100))%")
+                    if let version = rcloneVersion {
+                        Text(version)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                HStack {
+                    Text("Source:")
+                        .frame(width: 60, alignment: .trailing)
+                    Picker("Source", selection: $rcloneBinarySource) {
+                        Text("App (Bundled)").tag(BinarySourceSelection.app.rawValue)
+                        Text("Homebrew").tag(BinarySourceSelection.homebrew.rawValue)
+                        Text("Custom").tag(BinarySourceSelection.custom.rawValue)
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    Spacer()
+                }
+
+                switch selectedRcloneSource {
+                case .app:
+                    Text("Using a minimal rclone build shipped with the app, trimmed to only the backends this app needs.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                case .homebrew:
+                    if rcloneStatus.isAvailable {
+                        Text("Using the rclone installed via Homebrew at /opt/homebrew/bin/rclone.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else {
-                        Button(rcloneStatus.isAvailable ? "Update" : "Download") {
-                            Task { await downloadRclone() }
-                        }
-                        .disabled(isDownloading)
+                        homebrewInstallHint
                     }
+                case .custom:
+                    customPathPicker
                 }
-
-                if let error = downloadError {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                }
-
-                Text("rclone is used for uploading files to remote servers after conversion.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
             .padding(8)
+        }
+    }
+
+    private var homebrewInstallHint: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("rclone was not found at /opt/homebrew/bin/rclone.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text("To install via Homebrew, run this in Terminal:")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack {
+                Text("brew install rclone")
+                    .font(.system(.body, design: .monospaced))
+                    .padding(8)
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .cornerRadius(6)
+
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("brew install rclone", forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .help("Copy to clipboard")
+            }
+
+            Link("Don't have Homebrew? Install it first", destination: URL(string: "https://brew.sh")!)
+                .font(.caption)
+        }
+    }
+
+    private var customPathPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Custom rclone path:")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack {
+                TextField("Select rclone binary", text: $rcloneCustomPath)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+
+                Button("Browse...") {
+                    selectRcloneBinary()
+                }
+
+                if !rcloneCustomPath.isEmpty {
+                    Button(role: .destructive) {
+                        rcloneCustomPath = ""
+                        saveRclonePath()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            if !rcloneCustomPath.isEmpty && !rcloneStatus.isAvailable {
+                Text("This file is not a valid rclone binary (failed `--version` check).")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+        }
+        .onChange(of: rcloneCustomPath) { _, _ in
+            saveRclonePath()
         }
     }
 
@@ -632,8 +711,8 @@ struct UploadSettingsView: View {
     // MARK: - Actions
 
     private func loadInitialState() async {
-        rcloneStatus = RcloneUpdateService.shared.getInstallationStatus()
-        rcloneVersion = await RcloneUpdateService.shared.getCurrentVersion()
+        rcloneCustomPath = RcloneUpdateService.shared.getCustomPath() ?? ""
+        await refreshRcloneStatus()
 
         if profiles.isEmpty {
             // First-run: create a default FTP profile so the view always has something to show.
@@ -809,24 +888,47 @@ struct UploadSettingsView: View {
         }
     }
 
-    private func downloadRclone() async {
-        isDownloading = true
-        downloadProgress = 0.0
-        downloadError = nil
+    private func refreshRcloneStatus() async {
+        let status = RcloneUpdateService.shared.getInstallationStatus()
+        let version = await RcloneUpdateService.shared.getCurrentVersion()
+        await MainActor.run {
+            rcloneStatus = status
+            rcloneVersion = version
+        }
+    }
 
-        do {
-            try await RcloneUpdateService.shared.downloadUpdate { progress in
-                Task { @MainActor in
-                    self.downloadProgress = progress
-                }
+    private func saveRclonePath() {
+        let trimmed = rcloneCustomPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            if trimmed.isEmpty {
+                await RcloneUpdateService.shared.clearCustomPath()
+            } else {
+                await RcloneUpdateService.shared.saveCustomPath(trimmed)
             }
-            rcloneStatus = RcloneUpdateService.shared.getInstallationStatus()
-            rcloneVersion = await RcloneUpdateService.shared.getCurrentVersion()
-        } catch {
-            downloadError = error.localizedDescription
+            await refreshRcloneStatus()
+        }
+    }
+
+    private func selectRcloneBinary() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.title = "Select rclone Binary"
+        panel.message = "Choose the rclone executable you want this app to use."
+        panel.prompt = "Select"
+        panel.allowedContentTypes = [.unixExecutable, .exe, .item]
+        panel.treatsFilePackagesAsDirectories = true
+        panel.showsHiddenFiles = false
+        panel.resolvesAliases = false
+
+        if FileManager.default.fileExists(atPath: "/opt/homebrew/bin") {
+            panel.directoryURL = URL(fileURLWithPath: "/opt/homebrew/bin")
         }
 
-        isDownloading = false
+        if panel.runModal() == .OK, let url = panel.url {
+            rcloneCustomPath = url.path
+        }
     }
 
     private func savePassword() {
