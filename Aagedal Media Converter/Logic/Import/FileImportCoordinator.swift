@@ -52,6 +52,16 @@ final class FileImportCoordinator {
             for url in urls {
                 var isDirectory: ObjCBool = false
                 if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    // IMF package detection takes precedence over image-sequence detection
+                    // because an IMF package folder may contain image-sequence-looking siblings.
+                    if IMFPackageImporter.isIMFPackage(folder: url) {
+                        let essences = IMFPackageImporter.expandPackage(folder: url)
+                        for essence in essences {
+                            mediaURLs.append(essence.url)
+                        }
+                        continue
+                    }
+
                     // Folder — detect image sequences
                     let hasAccess = url.startAccessingSecurityScopedResource()
                     let sequences = ImageSequenceDetector.detectSequences(inFolder: url)
@@ -488,9 +498,18 @@ final class FileImportCoordinator {
                 else if needsBookmarkAccess { SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url) }
             }
 
-            // Check if URL is a directory — try to detect image sequences
+            // Check if URL is a directory — IMF package detection takes precedence over
+            // image-sequence detection because an IMF folder may contain unrelated images.
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                if IMFPackageImporter.isIMFPackage(folder: url) {
+                    let essences = IMFPackageImporter.expandPackage(folder: url)
+                    for essence in essences {
+                        fileURLs.append(essence.url)
+                    }
+                    continue
+                }
+
                 let sequences = ImageSequenceDetector.detectSequences(inFolder: url)
                 if !sequences.isEmpty {
                     // Save bookmark for the folder

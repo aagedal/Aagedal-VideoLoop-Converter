@@ -23,22 +23,37 @@ enum AudioRoutingService {
             logger.warning("Failed to fetch audio streams for \(url.lastPathComponent)")
             return []
         }
-        
+
         // Try to get richer metadata from VideoMetadataService
         let metadata = try? await VideoMetadataService.shared.metadata(for: url)
-        
+
+        // For MXF (including IMF essences), pull SMPTE 377-4 MCA labels via mxf2raw.
+        let mcaLabels: [AudioTrackMCALabels]
+        if url.pathExtension.lowercased() == "mxf" {
+            mcaLabels = await BMXService.shared.getAudioTrackLabels(url: url) ?? []
+        } else {
+            mcaLabels = []
+        }
+
         var trackInfos: [AudioTrackInfo] = []
-        
+
         for (position, basicStream) in basicStreams.enumerated() {
             // Use position as the audio-relative index for FFmpeg's -map 0:a:X notation
             // basicStream.index contains absolute stream index (e.g., 0=video, 1-4=audio)
             // but FFmpeg's 0:a:X expects audio-relative indices (0, 1, 2, 3...)
             let audioRelativeIndex = position
             let absoluteStreamIndex = basicStream.index ?? position
-            
+
             // Try to find matching stream in detailed metadata using absolute index
             let detailedStream = metadata?.audioStreams.first { $0.index == absoluteStreamIndex }
-            
+
+            let mca = matchMCALabels(
+                in: mcaLabels,
+                position: position,
+                channels: basicStream.channels ?? detailedStream?.channels,
+                sampleRate: detailedStream?.sampleRate
+            )
+
             let trackInfo = AudioTrackInfo(
                 streamIndex: audioRelativeIndex,
                 channels: basicStream.channels ?? detailedStream?.channels,
@@ -49,14 +64,48 @@ enum AudioRoutingService {
                 languageCode: detailedStream?.languageCode,
                 title: detailedStream?.title,
                 bitRate: detailedStream?.bitRate,
-                trackNumber: position + 1  // 1-based track number
+                trackNumber: position + 1,  // 1-based track number
+                mcaSoundfieldGroup: mca?.soundfieldGroup,
+                mcaAudioElement: mca?.audioElement,
+                mcaChannelLabels: (mca?.channelLabels.isEmpty ?? true) ? nil : mca?.channelLabels
             )
-            
+
             trackInfos.append(trackInfo)
         }
-        
+
         logger.info("Found \(trackInfos.count) audio tracks in \(url.lastPathComponent)")
         return trackInfos
+    }
+
+    /// Aligns mxf2raw's MCA-bearing tracks with FFmpeg's audio-relative streams.
+    /// Prefers content-keyed matching on (channels, sampleRate); falls back to positional
+    /// alignment when keys disambiguate the same way; returns nil when alignment is ambiguous
+    /// so we never poison the routing UI with mislabeled channels.
+    private static func matchMCALabels(
+        in mcaLabels: [AudioTrackMCALabels],
+        position: Int,
+        channels: Int?,
+        sampleRate: Int?
+    ) -> AudioTrackMCALabels? {
+        guard !mcaLabels.isEmpty else { return nil }
+
+        // Content-key match by (channels, sampleRate) when both probes agree.
+        if let channels, let sampleRate {
+            let keyMatches = mcaLabels.filter {
+                $0.channelCount == channels && $0.sampleRate == sampleRate
+            }
+            if keyMatches.count == 1 { return keyMatches[0] }
+        }
+
+        // Positional alignment when the count matches and either no content keys disagree
+        // at the same position, or content keys agree at this position.
+        guard mcaLabels.indices.contains(position) else { return nil }
+        let candidate = mcaLabels[position]
+        if let channels, let candidateChannels = candidate.channelCount, channels != candidateChannels {
+            // Position would mislabel; bail out rather than poison the UI.
+            return nil
+        }
+        return candidate
     }
     
     /// Builds FFmpeg arguments based on audio routing configuration

@@ -43,7 +43,9 @@ struct VideoFileUtils: Sendable {
     static func makePlaceholderItem(from url: URL, outputFolder: String? = nil, preset: ExportPreset = .videoLoop, comment: String = "") -> VideoItem? {
         guard isVideoFile(url: url) else { return nil }
 
-        let name = url.lastPathComponent
+        // If this URL was just enumerated from an IMF package, prefer the CPL-derived
+        // virtual-track name (e.g. "Main Audio 1") over the UUID-based MXF filename.
+        let name = IMFNameOverrides.consume(for: url) ?? url.lastPathComponent
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         let includeDateTagByDefault = UserDefaults.standard.bool(forKey: AppConstants.includeDateTagPreferenceKey)
 

@@ -169,6 +169,8 @@
 		FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B862E87364609527CEEC84 /* YTDLPService.swift */; };
 		FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPCRD00000002 /* FileImportCoordinator.swift */; };
 		FILEIMPMGR00000001 /* FileImportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPMGR00000002 /* FileImportManager.swift */; };
+		IMFPKGPAR00000001 /* IMFPackageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFPKGPAR00000002 /* IMFPackageParser.swift */; };
+		IMFPKGIMP00000001 /* IMFPackageImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFPKGIMP00000002 /* IMFPackageImporter.swift */; };
 		FILENAMESETV0000000000B1 /* FileNameSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */; };
 		GRPEDITWIN000002 /* GroupEditorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPEDITWIN000001 /* GroupEditorWindow.swift */; };
 		IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGSEQDET00000001 /* ImageSequenceDetector.swift */; };
@@ -401,6 +403,8 @@
 		FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPUpdateService.swift; path = YTDLP/YTDLPUpdateService.swift; sourceTree = "<group>"; };
 		FILEIMPCRD00000002 /* FileImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportCoordinator.swift; sourceTree = "<group>"; };
 		FILEIMPMGR00000002 /* FileImportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportManager.swift; sourceTree = "<group>"; };
+		IMFPKGPAR00000002 /* IMFPackageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFPackageParser.swift; sourceTree = "<group>"; };
+		IMFPKGIMP00000002 /* IMFPackageImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFPackageImporter.swift; sourceTree = "<group>"; };
 		FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameSettingsView.swift; sourceTree = "<group>"; };
 		GRPEDITWIN000001 /* GroupEditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorWindow.swift; sourceTree = "<group>"; };
 		IMGSEQDET00000001 /* ImageSequenceDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceDetector.swift; sourceTree = "<group>"; };
@@ -940,6 +944,8 @@
 				CAMCARDSCAN0000002 /* CameraCardScanner.swift */,
 				FILEIMPCRD00000002 /* FileImportCoordinator.swift */,
 				FILEIMPMGR00000002 /* FileImportManager.swift */,
+				IMFPKGIMP00000002 /* IMFPackageImporter.swift */,
+				IMFPKGPAR00000002 /* IMFPackageParser.swift */,
 				IMGSEQDET00000001 /* ImageSequenceDetector.swift */,
 				VIDITEMIDX00000002 /* VideoItemIndex.swift */,
 			);
@@ -1256,6 +1262,8 @@
 				IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */,
 				CAMCARDSCAN0000001 /* CameraCardScanner.swift in Sources */,
 				FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */,
+				IMFPKGPAR00000001 /* IMFPackageParser.swift in Sources */,
+				IMFPKGIMP00000001 /* IMFPackageImporter.swift in Sources */,
 				5DA60AEC78445845148F3FFA /* VideoQueueTableView.swift in Sources */,
 				ANALYTICSMOD00000002 /* AnalyticsModels.swift in Sources */,
 				ANALYTICSSRV00000002 /* AnalyticsService.swift in Sources */,

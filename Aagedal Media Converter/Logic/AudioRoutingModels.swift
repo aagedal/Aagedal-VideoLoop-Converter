@@ -22,7 +22,12 @@ struct AudioTrackInfo: Identifiable, Equatable, Sendable, Codable {
     let title: String?
     let bitRate: Int64?
     let trackNumber: Int? // Position-based track number (1, 2, 3...) rather than stream index
-    
+
+    // SMPTE ST 377-4 Multi-Channel Audio (MCA) labels, populated for MXF/IMF essences via mxf2raw
+    let mcaSoundfieldGroup: String?    // e.g. "5.1", "ST", "7.1DS"
+    let mcaAudioElement: String?       // e.g. "DX", "ME", "VI-N"
+    let mcaChannelLabels: [String]?    // e.g. ["L", "R", "C", "LFE", "Ls", "Rs"]
+
     init(
         id: UUID = UUID(),
         streamIndex: Int,
@@ -34,7 +39,10 @@ struct AudioTrackInfo: Identifiable, Equatable, Sendable, Codable {
         languageCode: String? = nil,
         title: String? = nil,
         bitRate: Int64? = nil,
-        trackNumber: Int? = nil
+        trackNumber: Int? = nil,
+        mcaSoundfieldGroup: String? = nil,
+        mcaAudioElement: String? = nil,
+        mcaChannelLabels: [String]? = nil
     ) {
         self.id = id
         self.streamIndex = streamIndex
@@ -47,18 +55,29 @@ struct AudioTrackInfo: Identifiable, Equatable, Sendable, Codable {
         self.title = title
         self.bitRate = bitRate
         self.trackNumber = trackNumber
+        self.mcaSoundfieldGroup = mcaSoundfieldGroup
+        self.mcaAudioElement = mcaAudioElement
+        self.mcaChannelLabels = mcaChannelLabels
     }
-    
+
     /// Human-readable track label
     var displayLabel: String {
         // Use trackNumber if available, otherwise fall back to streamIndex + 1
         let trackLabel = trackNumber.map { "Track \($0)" } ?? "Track \(streamIndex + 1)"
         var components: [String] = [trackLabel]
-        
+
+        if let mcaAudioElement, !mcaAudioElement.isEmpty {
+            components.append(mcaAudioElement)
+        }
+
         if let title = title, !title.isEmpty {
             components.append(title)
         }
-        
+
+        if let mcaSoundfieldGroup, !mcaSoundfieldGroup.isEmpty {
+            components.append(mcaSoundfieldGroup)
+        }
+
         if let channelLayout = channelLayout {
             components.append(channelLayout)
         } else if let channels = channels {
@@ -68,10 +87,10 @@ struct AudioTrackInfo: Identifiable, Equatable, Sendable, Codable {
             default: components.append("\(channels) ch")
             }
         }
-        
+
         return components.joined(separator: " • ")
     }
-    
+
     /// Technical details for subtitle display
     var technicalDetails: String {
         var parts: [String] = []
@@ -86,6 +105,10 @@ struct AudioTrackInfo: Identifiable, Equatable, Sendable, Codable {
 
         if let languageCode = languageCode {
             parts.append(languageCode.uppercased())
+        }
+
+        if let mcaChannelLabels, !mcaChannelLabels.isEmpty {
+            parts.append(mcaChannelLabels.joined(separator: " "))
         }
 
         return parts.joined(separator: " • ")
