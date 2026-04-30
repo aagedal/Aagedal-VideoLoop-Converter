@@ -23,6 +23,7 @@ struct ConversionRequest: Sendable {
     var sourceMetadata: VideoMetadata? = nil
     var sourceCameraMetadata: CameraMetadata? = nil
     var dcpMetadata: DCPItemMetadata? = nil
+    var imfMetadata: IMFItemMetadata? = nil
 
     // MARK: - Trim & Timing
     var trimStart: Double? = nil

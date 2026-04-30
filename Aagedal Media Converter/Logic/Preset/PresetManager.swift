@@ -41,6 +41,8 @@ final class PresetManager {
     private var audioOnlyVisible: Bool
     private var imageSequenceVisible: Bool
     private var dcpVisible: Bool
+    private var imfJ2KVisible: Bool
+    private var imfProResVisible: Bool
 
     // MARK: - Custom Preset Activation
 
@@ -75,6 +77,8 @@ final class PresetManager {
         audioOnlyVisible = defaults.object(forKey: AppConstants.audioOnlyVisibleKey) as? Bool ?? true
         imageSequenceVisible = defaults.object(forKey: AppConstants.imageSequenceVisibleKey) as? Bool ?? true
         dcpVisible = defaults.object(forKey: AppConstants.dcpVisibleKey) as? Bool ?? true
+        imfJ2KVisible = defaults.object(forKey: AppConstants.imfJ2KVisibleKey) as? Bool ?? true
+        imfProResVisible = defaults.object(forKey: AppConstants.imfProResVisibleKey) as? Bool ?? true
 
         // Observe UserDefaults changes for reactive updates
         setupObservers()
@@ -100,6 +104,8 @@ final class PresetManager {
             case .audioOnly: return audioOnlyVisible
             case .imageSequence: return imageSequenceVisible
             case .dcp: return dcpVisible
+            case .imfJ2K: return imfJ2KVisible
+            case .imfProRes: return imfProResVisible
             case .custom1, .custom2, .custom3, .custom4, .custom5,
                  .custom6, .custom7, .custom8, .custom9, .custom10:
                 if let slot = preset.customSlotIndex, customPresetActives.indices.contains(slot) {
@@ -175,6 +181,8 @@ final class PresetManager {
         audioOnlyVisible = defaults.object(forKey: AppConstants.audioOnlyVisibleKey) as? Bool ?? true
         imageSequenceVisible = defaults.object(forKey: AppConstants.imageSequenceVisibleKey) as? Bool ?? true
         dcpVisible = defaults.object(forKey: AppConstants.dcpVisibleKey) as? Bool ?? true
+        imfJ2KVisible = defaults.object(forKey: AppConstants.imfJ2KVisibleKey) as? Bool ?? true
+        imfProResVisible = defaults.object(forKey: AppConstants.imfProResVisibleKey) as? Bool ?? true
 
         customPresetActives = (0..<10).map { slot in
             defaults.bool(forKey: AppConstants.customPresetActiveKey(for: slot))

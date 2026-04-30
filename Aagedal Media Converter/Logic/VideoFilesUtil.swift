@@ -684,6 +684,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var customCounterValue: Int? = nil
     /// DCP metadata (title, content kind, etc.) for DCP export
     var dcpMetadata: DCPItemMetadata? = nil
+    /// IMF metadata (title, content kind, audio language) for IMF export
+    var imfMetadata: IMFItemMetadata? = nil
 
     /// Whether this item represents an image sequence
     var isImageSequence: Bool { imageSequenceConfig != nil }

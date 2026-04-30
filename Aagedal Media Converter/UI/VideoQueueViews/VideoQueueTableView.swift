@@ -1049,6 +1049,8 @@ struct VideoQueueTableView: NSViewRepresentable {
                 isDCPPreset: parent.preset == .dcp,
                 dcpMetadataTitle: item.dcpMetadata?.contentTitleText,
                 showDCPAudioWarning: parent.preset == .dcp && !(audioRouting?.isCustomized ?? false) && audioStreams.count > 1 && !audioStreams.allSatisfy { ($0.channels ?? 0) == 1 },
+                isIMFPreset: parent.preset == .imfJ2K || parent.preset == .imfProRes,
+                imfMetadataTitle: item.imfMetadata?.contentTitleText,
                 formattedOutputSize: item.formattedOutputSize,
                 isTranscriptionAvailable: WhisperUpdateService.shared.getInstallationStatus().isAvailable || ParakeetService.shared.getInstallationStatus().isAvailable,
                 isUploadConfigured: UploadManager.shared.isConfigured

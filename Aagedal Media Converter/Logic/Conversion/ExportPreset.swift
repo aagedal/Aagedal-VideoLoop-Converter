@@ -687,6 +687,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     case audioOnly = "Audio Only"
     case imageSequence = "Image Sequence"
     case dcp = "DCP (Digital Cinema Package)"
+    case imfJ2K = "IMF (App 2e — JPEG 2000)"
+    case imfProRes = "IMF (App 5 — ProRes)"
     case custom1 = "Custom"
     case custom2 = "Custom 2"
     case custom3 = "Custom 3"
@@ -736,6 +738,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
             return format.primaryExtension
         case .dcp:
+            return "mxf"
+        case .imfJ2K, .imfProRes:
             return "mxf"
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return "mp4" }
@@ -816,6 +820,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_IMAGE_SEQUENCE_DESCRIPTION", comment: "Description for Image Sequence preset")
         case .dcp:
             return NSLocalizedString("PRESET_DCP_DESCRIPTION", comment: "Description for DCP preset")
+        case .imfJ2K:
+            return NSLocalizedString("PRESET_IMF_J2K_DESCRIPTION", comment: "Description for IMF App 2e (JPEG 2000) preset")
+        case .imfProRes:
+            return NSLocalizedString("PRESET_IMF_PRORES_DESCRIPTION", comment: "Description for IMF App 5 (ProRes) preset")
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             return NSLocalizedString("PRESET_CUSTOM_DESCRIPTION", comment: "Description for Custom preset")
         }
@@ -853,6 +861,10 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_seq"
         case .dcp:
             return "_dcp"
+        case .imfJ2K:
+            return "_imf2e"
+        case .imfProRes:
+            return "_imf5"
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return "_custom" }
             return Self.customFileSuffix(for: slot)
@@ -893,6 +905,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .dcp:
             let raw = UserDefaults.standard.string(forKey: AppConstants.dcpResolutionKey) ?? AppConstants.defaultDCPResolution
             return Self.dcpResolutionLabel(from: raw)
+        case .imfJ2K, .imfProRes:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.imfResolutionKey) ?? AppConstants.defaultIMFResolution
+            return IMFResolution(rawValue: raw)?.shortTier
         default:
             return nil
         }
@@ -911,6 +926,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let raw = UserDefaults.standard.string(forKey: AppConstants.dcpFrameRateKey) ?? AppConstants.defaultDCPFrameRate
             // Stored as e.g. "24 fps" — strip the unit so it's filename-clean.
             return raw.replacingOccurrences(of: " fps", with: "")
+        case .imfJ2K, .imfProRes:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.imfFrameRateKey) ?? AppConstants.defaultIMFFrameRate
+            return IMFFrameRate(rawValue: raw)?.folderTag
         case .imageSequence:
             let value = UserDefaults.standard.object(forKey: AppConstants.imageSequenceFrameRateKey) as? Double
                 ?? AppConstants.defaultImageSequenceFrameRate
@@ -1512,6 +1530,75 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             // DCP outputs JP2 image sequence (not MXF) — asdcp-wrap creates the final MXF
             // The output path pattern (frame_%06d.jp2) is set by FFMPEGConverter
             return args
+        case .imfJ2K:
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.imfResolutionKey) ?? AppConstants.defaultIMFResolution
+            let resolution = IMFResolution(rawValue: resolutionRaw) ?? .hd1080
+            let frameRateRaw = UserDefaults.standard.string(forKey: AppConstants.imfFrameRateKey) ?? AppConstants.defaultIMFFrameRate
+            let frameRate = IMFFrameRate(rawValue: frameRateRaw) ?? .fps24
+            let bitrateRaw = UserDefaults.standard.string(forKey: AppConstants.imfJ2KBitrateKey) ?? AppConstants.defaultIMFJ2KBitrate
+            let bitrate = DCPBitrate(rawValue: bitrateRaw) ?? .high
+            let scalingModeRaw = UserDefaults.standard.string(forKey: AppConstants.imfScalingModeKey) ?? AppConstants.defaultIMFScalingMode
+            let scalingMode = IMFScalingMode(rawValue: scalingModeRaw) ?? .fit
+            let colorRaw = UserDefaults.standard.string(forKey: AppConstants.imfJ2KColorEncodingKey) ?? AppConstants.defaultIMFJ2KColorEncoding
+            let color = IMFColorEncoding(rawValue: colorRaw) ?? .rec709
+
+            let scaleFilter: String
+            switch scalingMode {
+            case .fill:
+                scaleFilter = "scale=iw*sar:ih,setsar=1,scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=increase,crop=\(resolution.width):\(resolution.height)"
+            case .fit:
+                scaleFilter = "scale=iw*sar:ih,setsar=1,scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=decrease,pad=\(resolution.width):\(resolution.height):-1:-1:color=black"
+            }
+
+            // J2K image sequence: NOT cinema profile (that's DCP); IMF App #2e uses broadcast J2K profiles
+            // No -profile or -cinema_mode; libopenjpeg picks a profile suitable for the YCbCr essence.
+            // Note: deep HDR variants may need additional ffmpeg flags; rely on the JP2 → MXF wrap to flag any non-conformance.
+            var args = commonArgs + [
+                "-c:v", "libopenjpeg",
+                "-pix_fmt", "yuv422p10le",
+                "-color_primaries", color.colorPrimaries,
+                "-color_trc", color.colorTRC,
+                "-colorspace", color.colorSpace,
+                "-b:v", bitrate.ffmpegValue,
+                "-r", frameRate.ffmpegValue,
+                "-vf", scaleFilter,
+                "-map", "0:v:0",
+                "-an",
+            ]
+            _ = args  // The IMF post-process step in FFMPEGConverter takes over from JP2 frames.
+            return args
+        case .imfProRes:
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.imfResolutionKey) ?? AppConstants.defaultIMFResolution
+            let resolution = IMFResolution(rawValue: resolutionRaw) ?? .hd1080
+            let frameRateRaw = UserDefaults.standard.string(forKey: AppConstants.imfFrameRateKey) ?? AppConstants.defaultIMFFrameRate
+            let frameRate = IMFFrameRate(rawValue: frameRateRaw) ?? .fps24
+            let scalingModeRaw = UserDefaults.standard.string(forKey: AppConstants.imfScalingModeKey) ?? AppConstants.defaultIMFScalingMode
+            let scalingMode = IMFScalingMode(rawValue: scalingModeRaw) ?? .fit
+            let colorRaw = UserDefaults.standard.string(forKey: AppConstants.imfJ2KColorEncodingKey) ?? AppConstants.defaultIMFJ2KColorEncoding
+            let color = IMFColorEncoding(rawValue: colorRaw) ?? .rec709
+            let proResProfileRaw = UserDefaults.standard.string(forKey: AppConstants.imfProResProfileKey) ?? AppConstants.defaultIMFProResProfile
+            let proResProfile = IMFProResProfile(rawValue: proResProfileRaw) ?? .proRes422HQ
+
+            let scaleFilter: String
+            switch scalingMode {
+            case .fill:
+                scaleFilter = "scale=iw*sar:ih,setsar=1,scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=increase,crop=\(resolution.width):\(resolution.height)"
+            case .fit:
+                scaleFilter = "scale=iw*sar:ih,setsar=1,scale=\(resolution.width):\(resolution.height):force_original_aspect_ratio=decrease,pad=\(resolution.width):\(resolution.height):-1:-1:color=black"
+            }
+
+            return commonArgs + [
+                "-c:v", "prores_ks",
+                "-profile:v", proResProfile.ffmpegProfile,
+                "-pix_fmt", proResProfile.pixelFormat,
+                "-color_primaries", color.colorPrimaries,
+                "-color_trc", color.colorTRC,
+                "-colorspace", color.colorSpace,
+                "-r", frameRate.ffmpegValue,
+                "-vf", scaleFilter,
+                "-map", "0:v:0",
+                "-an",
+            ]
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return commonArgs }
             let customArgs = ExportPreset.parseCustomCommand(ExportPreset.customCommandString(for: slot))
@@ -1557,6 +1644,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return false // Image sequences have no audio
         case .dcp:
             return false // DCP audio is extracted separately as 24-bit PCM MXF
+        case .imfJ2K, .imfProRes:
+            return false // IMF audio is extracted separately into a per-package PCM MXF essence
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesAudioRouting(for: slot)
@@ -1605,6 +1694,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .audioOnly: key = AppConstants.audioOnlyVisibleKey
         case .imageSequence: key = AppConstants.imageSequenceVisibleKey
         case .dcp: key = AppConstants.dcpVisibleKey
+        case .imfJ2K: key = AppConstants.imfJ2KVisibleKey
+        case .imfProRes: key = AppConstants.imfProResVisibleKey
         default: return true
         }
 
@@ -1640,6 +1731,8 @@ extension ExportPreset {
             return false // Image sequences have no audio
         case .dcp:
             return false // DCP audio is in a separate MXF file
+        case .imfJ2K, .imfProRes:
+            return false // IMF audio essence is a separate MXF file alongside the video essence
         case .videoLoopWithSound:
             return true
         case .audioOnly:
@@ -1659,7 +1752,7 @@ extension ExportPreset {
     /// (DCP has a dedicated metadata sheet).
     var supportsMetadataComment: Bool {
         switch self {
-        case .dcp, .imageSequence, .animatedStill, .tvAVCIntra:
+        case .dcp, .imfJ2K, .imfProRes, .imageSequence, .animatedStill, .tvAVCIntra:
             return false
         case .proxy:
             let codecRaw = UserDefaults.standard.string(forKey: AppConstants.proxyCodecKey) ?? AppConstants.defaultProxyCodec
@@ -1696,6 +1789,10 @@ extension ExportPreset {
         case .dcp:
             let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.dcpResolutionKey) ?? AppConstants.defaultDCPResolution
             let resolution = DCPResolution(rawValue: resolutionRaw) ?? .twoKFull
+            return CGSize(width: resolution.width, height: resolution.height)
+        case .imfJ2K, .imfProRes:
+            let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.imfResolutionKey) ?? AppConstants.defaultIMFResolution
+            let resolution = IMFResolution(rawValue: resolutionRaw) ?? .hd1080
             return CGSize(width: resolution.width, height: resolution.height)
         case .proxy:
             // Use resolution based on current proxy setting

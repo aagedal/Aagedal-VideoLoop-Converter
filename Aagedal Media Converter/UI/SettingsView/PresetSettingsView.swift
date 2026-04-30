@@ -35,6 +35,13 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.dcpBitrateKey) private var dcpBitrate = AppConstants.defaultDCPBitrate
     @AppStorage(AppConstants.dcpScalingModeKey) private var dcpScalingMode = AppConstants.defaultDCPScalingMode
     @AppStorage(AppConstants.dcpKeepJP2ImagesKey) private var dcpKeepJP2Images = false
+    @AppStorage(AppConstants.imfResolutionKey) private var imfResolution = AppConstants.defaultIMFResolution
+    @AppStorage(AppConstants.imfFrameRateKey) private var imfFrameRate = AppConstants.defaultIMFFrameRate
+    @AppStorage(AppConstants.imfScalingModeKey) private var imfScalingMode = AppConstants.defaultIMFScalingMode
+    @AppStorage(AppConstants.imfJ2KColorEncodingKey) private var imfJ2KColorEncoding = AppConstants.defaultIMFJ2KColorEncoding
+    @AppStorage(AppConstants.imfJ2KBitrateKey) private var imfJ2KBitrate = AppConstants.defaultIMFJ2KBitrate
+    @AppStorage(AppConstants.imfProResProfileKey) private var imfProResProfile = AppConstants.defaultIMFProResProfile
+    @AppStorage(AppConstants.imfKeepIntermediatesKey) private var imfKeepIntermediates = false
 
     // Stream Copy container
     @AppStorage(AppConstants.streamCopyContainerKey) private var streamCopyContainer = AppConstants.defaultStreamCopyContainer
@@ -104,6 +111,8 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.audioOnlyMP4BitrateKey) private var audioOnlyMP4Bitrate = AppConstants.defaultAudioOnlyMP4Bitrate
     @AppStorage(AppConstants.imageSequenceVisibleKey) private var imageSequenceVisible = true
     @AppStorage(AppConstants.dcpVisibleKey) private var dcpVisible = true
+    @AppStorage(AppConstants.imfJ2KVisibleKey) private var imfJ2KVisible = true
+    @AppStorage(AppConstants.imfProResVisibleKey) private var imfProResVisible = true
 
     @AppStorage(AppConstants.defaultPresetKey) private var storedDefaultPresetRawValue = ExportPreset.videoLoop.rawValue
 
@@ -436,6 +445,171 @@ struct PresetsSettingsView: View {
                     .help("Retain the JPEG 2000 image files in the working folder after DCP creation. Useful for importing as an image sequence.")
 
                     Text("JPEG 2000 video in MXF with 24-bit PCM audio. XYZ color space (DCI P3).")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+
+        if selectedPreset == .imfJ2K {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Resolution")
+                        Spacer()
+                        Picker("", selection: $imfResolution) {
+                            ForEach(IMFResolution.allCases) { res in
+                                Text(res.rawValue).tag(res.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("HD (1920×1080) or UHD (3840×2160). IMF App #2e is commonly delivered at one of these tiers.")
+                    }
+
+                    HStack {
+                        Text("Frame Rate")
+                        Spacer()
+                        Picker("", selection: $imfFrameRate) {
+                            ForEach(IMFFrameRate.allCases) { rate in
+                                Text(rate.rawValue).tag(rate.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("IMF allows a wider range of frame rates than DCP, including drop-frame variants for NTSC delivery.")
+                    }
+
+                    HStack {
+                        Text("Color")
+                        Spacer()
+                        Picker("", selection: $imfJ2KColorEncoding) {
+                            ForEach(IMFColorEncoding.allCases) { color in
+                                Text(color.rawValue).tag(color.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Color encoding for the J2K essence. Use Rec. 709 for HD SDR, Rec. 2020 PQ/HLG for HDR10/HLG.")
+                    }
+
+                    HStack {
+                        Text("Video Bitrate")
+                        Spacer()
+                        Picker("", selection: $imfJ2KBitrate) {
+                            ForEach(DCPBitrate.allCases) { br in
+                                Text(br.rawValue).tag(br.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("JPEG 2000 video bitrate. Higher bitrates yield better quality at the cost of file size.")
+                    }
+
+                    HStack {
+                        Text("Scaling")
+                        Spacer()
+                        Picker("", selection: $imfScalingMode) {
+                            ForEach(IMFScalingMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Fill crops the source to fill the IMF frame; Fit adds black bars to preserve the full image.")
+                    }
+
+                    Toggle(isOn: $imfKeepIntermediates) {
+                        Text("Keep intermediate files")
+                    }
+                    .help("Retain the JP2 image sequence and temp MXF files after the IMP is assembled. Useful for debugging.")
+
+                    Text("JPEG 2000 video in MXF (App #2e). PCM audio with MCA labels. CPL/PKL/ASSETMAP manifests.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+
+        if selectedPreset == .imfProRes {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Resolution")
+                        Spacer()
+                        Picker("", selection: $imfResolution) {
+                            ForEach(IMFResolution.allCases) { res in
+                                Text(res.rawValue).tag(res.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                    }
+
+                    HStack {
+                        Text("Frame Rate")
+                        Spacer()
+                        Picker("", selection: $imfFrameRate) {
+                            ForEach(IMFFrameRate.allCases) { rate in
+                                Text(rate.rawValue).tag(rate.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                    }
+
+                    HStack {
+                        Text("ProRes Profile")
+                        Spacer()
+                        Picker("", selection: $imfProResProfile) {
+                            ForEach(IMFProResProfile.allCases) { profile in
+                                Text(profile.rawValue).tag(profile.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("ST 2067-50 permits 422 HQ, 4444, and 4444 XQ. Lower-quality profiles are not allowed for IMF delivery.")
+                    }
+
+                    HStack {
+                        Text("Color")
+                        Spacer()
+                        Picker("", selection: $imfJ2KColorEncoding) {
+                            ForEach(IMFColorEncoding.allCases) { color in
+                                Text(color.rawValue).tag(color.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                    }
+
+                    HStack {
+                        Text("Scaling")
+                        Spacer()
+                        Picker("", selection: $imfScalingMode) {
+                            ForEach(IMFScalingMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                    }
+
+                    Toggle(isOn: $imfKeepIntermediates) {
+                        Text("Keep intermediate files")
+                    }
+
+                    Text("Apple ProRes video in MXF (App #5). PCM audio with MCA labels. CPL/PKL/ASSETMAP manifests.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -1413,6 +1587,10 @@ struct PresetsSettingsView: View {
             return $imageSequenceVisible
         case .dcp:
             return $dcpVisible
+        case .imfJ2K:
+            return $imfJ2KVisible
+        case .imfProRes:
+            return $imfProResVisible
         default:
             // Custom presets use activation, not visibility
             return .constant(true)

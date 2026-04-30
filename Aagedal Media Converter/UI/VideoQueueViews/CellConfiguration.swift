@@ -114,6 +114,10 @@ struct VideoFileCellConfiguration: Equatable {
     let dcpMetadataTitle: String?
     let showDCPAudioWarning: Bool
 
+    // IMF
+    let isIMFPreset: Bool
+    let imfMetadataTitle: String?
+
     // Formatted output size (for done items)
     let formattedOutputSize: String?
 
@@ -232,6 +236,7 @@ enum CellAction {
     case showAudioRouting
     case showTimecode
     case showDCPMetadata
+    case showIMFMetadata
     case showAnalyticsResults
     case showAnalyticsFilePicker
     case showSubtitleTrackSheet

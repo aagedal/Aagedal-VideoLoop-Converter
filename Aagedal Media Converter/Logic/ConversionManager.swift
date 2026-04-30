@@ -1705,6 +1705,7 @@ actor ConversionManager: Sendable {
             sourceMetadata: currentItem.metadata,
             sourceCameraMetadata: currentItem.cameraMetadata,
             dcpMetadata: currentItem.dcpMetadata,
+            imfMetadata: currentItem.imfMetadata,
             trimStart: currentItem.trimStart,
             trimEnd: currentItem.trimEnd,
             expectedDuration: imageSeqExpectedDuration,
@@ -1748,8 +1749,8 @@ actor ConversionManager: Sendable {
                     var outputFileURL: URL?
 
                     if success {
-                        if preset == .imageSequence || preset == .dcp {
-                            // For image sequence / DCP export, the output is a subfolder
+                        if preset == .imageSequence || preset == .dcp || preset == .imfJ2K || preset == .imfProRes {
+                            // For image sequence / DCP / IMF export, the output is a subfolder
                             // Point outputURL to the subfolder (same name as outputBaseName)
                             let subfolderName = outputURL.lastPathComponent
                             let subfolderURL = outputURL.deletingLastPathComponent().appendingPathComponent(subfolderName, isDirectory: true)

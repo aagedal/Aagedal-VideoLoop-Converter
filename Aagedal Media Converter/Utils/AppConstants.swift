@@ -427,6 +427,25 @@ enum AppConstants {
     static let defaultDCPScalingMode = "Fill (crop to fill)"
     static let dcpKeepJP2ImagesKey = "dcpKeepJP2Images"
 
+    // IMF preset settings (App #2e and App #5 share these unless suffixed)
+    static let imfApplicationKey = "imfApplication"
+    static let defaultIMFApplication = "app2e"          // IMFApplication.rawValue
+    static let imfResolutionKey = "imfResolution"
+    static let defaultIMFResolution = "HD 1920x1080"
+    static let imfFrameRateKey = "imfFrameRate"
+    static let defaultIMFFrameRate = "24 fps"
+    static let imfScalingModeKey = "imfScalingMode"
+    static let defaultIMFScalingMode = "Fit (letterbox/pillarbox)"
+    static let imfJ2KColorEncodingKey = "imfJ2KColorEncoding"
+    static let defaultIMFJ2KColorEncoding = "Rec. 709 (HD SDR)"
+    static let imfJ2KBitrateKey = "imfJ2KBitrate"
+    static let defaultIMFJ2KBitrate = "200 Mbps"
+    static let imfProResProfileKey = "imfProResProfile"
+    static let defaultIMFProResProfile = "ProRes 422 HQ"
+    static let imfAudioBitDepthKey = "imfAudioBitDepth"
+    static let defaultIMFAudioBitDepth = "24-bit"
+    static let imfKeepIntermediatesKey = "imfKeepIntermediates"
+
     // Stream Copy container settings
     static let streamCopyContainerKey = "streamCopyContainer"
     static let defaultStreamCopyContainer = "Keep Current"
@@ -537,6 +556,8 @@ enum AppConstants {
     static let defaultAudioOnlyMP4Bitrate = "192 kbps"
     static let imageSequenceVisibleKey = "imageSequenceVisible"
     static let dcpVisibleKey = "dcpVisible"
+    static let imfJ2KVisibleKey = "imfJ2KVisible"
+    static let imfProResVisibleKey = "imfProResVisible"
 
     // Image sequence preset settings
     static let imageSequenceExportFormatKey = "imageSequenceExportFormat"

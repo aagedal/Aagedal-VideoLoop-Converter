@@ -293,40 +293,17 @@ actor DCPService {
         return "\(sanitizedTitle)_\(contentType)-1-\(frameRate.ffmpegValue)_\(aspectRatio)-\(arNumber)_\(langCode)-XX_20_\(resTier)_\(dateStr)_SMPTE_OV"
     }
 
-    // MARK: - UUID Helpers
+    // MARK: - UUID Helpers (delegate to SMPTEPackageUtils)
 
-    private func dcpUUID() -> String {
-        "urn:uuid:\(UUID().uuidString.lowercased())"
-    }
+    private func dcpUUID() -> String { SMPTEPackageUtils.urnUUID() }
 
-    private func uuidString(from urn: String) -> String {
-        urn.replacingOccurrences(of: "urn:uuid:", with: "")
-    }
+    private func uuidString(from urn: String) -> String { SMPTEPackageUtils.uuidString(from: urn) }
 
-    // MARK: - Hash and Size
+    // MARK: - Hash and Size (delegate to SMPTEPackageUtils)
 
-    private func computeSHA1(for url: URL) -> String? {
-        guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
-            return nil
-        }
-        defer { fileHandle.closeFile() }
+    private func computeSHA1(for url: URL) -> String? { SMPTEPackageUtils.computeSHA1(for: url) }
 
-        var hasher = Insecure.SHA1()
-        let bufferSize = 1024 * 1024 // 1 MB chunks
-        while autoreleasepool(invoking: {
-            let data = fileHandle.readData(ofLength: bufferSize)
-            if data.isEmpty { return false }
-            hasher.update(data: data)
-            return true
-        }) {}
-
-        let digest = hasher.finalize()
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func fileSize(at url: URL) -> Int64 {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-    }
+    private func fileSize(at url: URL) -> Int64 { SMPTEPackageUtils.fileSize(at: url) }
 
     // MARK: - XML Generation (SMPTE DCP)
 
@@ -602,34 +579,11 @@ actor DCPService {
         """
     }
 
-    // MARK: - Helpers
+    // MARK: - Helpers (delegate to SMPTEPackageUtils)
 
-    private func xmlEscape(_ string: String) -> String {
-        string
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&apos;")
-    }
+    private func xmlEscape(_ string: String) -> String { SMPTEPackageUtils.xmlEscape(string) }
 
-    private func iso8601Now() -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.string(from: Date())
-    }
+    private func iso8601Now() -> String { SMPTEPackageUtils.iso8601Now() }
 
-    /// Convert hex SHA-1 hash to base64 (as required by DCP PKL)
-    private func base64SHA1(hex: String) -> String {
-        var bytes = [UInt8]()
-        var index = hex.startIndex
-        while index < hex.endIndex {
-            let nextIndex = hex.index(index, offsetBy: 2)
-            if let byte = UInt8(hex[index..<nextIndex], radix: 16) {
-                bytes.append(byte)
-            }
-            index = nextIndex
-        }
-        return Data(bytes).base64EncodedString()
-    }
+    private func base64SHA1(hex: String) -> String { SMPTEPackageUtils.base64SHA1(hex: hex) }
 }

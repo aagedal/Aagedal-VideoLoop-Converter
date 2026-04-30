@@ -168,14 +168,18 @@ actor FFMPEGConverter {
             return
         }
 
-        // Image sequence / DCP export: create subfolder
+        // Image sequence / DCP / IMF export: create subfolder
         var outputFileURL: URL
         let isImageSequenceExport = preset == .imageSequence
         let isDCPExport = preset == .dcp
+        let isIMFJ2KExport = preset == .imfJ2K
+        let isIMFProResExport = preset == .imfProRes
+        let isIMFExport = isIMFJ2KExport || isIMFProResExport
         var dcpSubfolderURL: URL? = nil
+        var imfSubfolderURL: URL? = nil
 
-        if isDCPExport {
-            // Create DCP working directory: outputDir/Title_dcp/
+        if isDCPExport || isIMFJ2KExport {
+            // Create working directory for the package output
             let subfolderName = outputURL.lastPathComponent
             let subfolderURL = outputDir.appendingPathComponent(subfolderName, isDirectory: true)
 
@@ -189,25 +193,51 @@ actor FFMPEGConverter {
             do {
                 try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
             } catch {
-                Self.logger.error("Failed to create DCP working directory: \(error.localizedDescription, privacy: .public)")
-                completion(false, "Failed to create DCP directory")
+                Self.logger.error("Failed to create package working directory: \(error.localizedDescription, privacy: .public)")
+                completion(false, "Failed to create package directory")
                 return
             }
 
-            dcpSubfolderURL = finalSubfolderURL
+            if isDCPExport {
+                dcpSubfolderURL = finalSubfolderURL
+            } else {
+                imfSubfolderURL = finalSubfolderURL
+            }
 
-            // DCP: FFmpeg outputs JP2 image sequence to a subdirectory in the working folder.
+            // DCP / IMF App #2e: FFmpeg outputs JP2 image sequence to a subdirectory in the working folder.
             // This allows the user to optionally keep the JP2 images for image sequence import.
             let jp2Dir = finalSubfolderURL.appendingPathComponent("jp2", isDirectory: true)
             do {
                 try fileManager.createDirectory(at: jp2Dir, withIntermediateDirectories: true)
             } catch {
-                Self.logger.error("Failed to create DCP JP2 directory: \(error.localizedDescription, privacy: .public)")
-                completion(false, "Failed to create DCP JP2 directory")
+                Self.logger.error("Failed to create JP2 working directory: \(error.localizedDescription, privacy: .public)")
+                completion(false, "Failed to create JP2 directory")
                 return
             }
             outputFileURL = jp2Dir.appendingPathComponent("frame_%06d.jp2")
-            Self.logger.info("DCP: FFmpeg will output JP2 image sequence for asdcp-wrap")
+            Self.logger.info("\(isDCPExport ? "DCP" : "IMF App 2e"): FFmpeg will output JP2 image sequence")
+        } else if isIMFProResExport {
+            // IMF App #5: create package working directory; FFmpeg writes to a temp MOV that we
+            // later rewrap to OP1a MXF and assemble into the package.
+            let subfolderName = outputURL.lastPathComponent
+            let subfolderURL = outputDir.appendingPathComponent(subfolderName, isDirectory: true)
+            var finalSubfolderURL = subfolderURL
+            var counter = 1
+            while FileManager.default.fileExists(atPath: finalSubfolderURL.path) {
+                finalSubfolderURL = outputDir.appendingPathComponent("\(subfolderName)_\(counter)", isDirectory: true)
+                counter += 1
+            }
+            do {
+                try fileManager.createDirectory(at: finalSubfolderURL, withIntermediateDirectories: true)
+            } catch {
+                Self.logger.error("Failed to create IMF package working directory: \(error.localizedDescription, privacy: .public)")
+                completion(false, "Failed to create IMF directory")
+                return
+            }
+            imfSubfolderURL = finalSubfolderURL
+            // FFmpeg outputs to a temp MOV inside the working folder; bmxtranswrap will produce the OP1a MXF.
+            outputFileURL = finalSubfolderURL.appendingPathComponent("imf_prores_temp.mov")
+            Self.logger.info("IMF App 5: FFmpeg will output ProRes MOV for OP1a rewrap")
         } else if isImageSequenceExport {
             let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceExportFormatKey) ?? AppConstants.defaultImageSequenceExportFormat
             let format = ImageSequenceFormat(rawValue: formatRaw) ?? .png
@@ -373,9 +403,9 @@ actor FFMPEGConverter {
         let progressThrottler = ProgressThrottler()
         let frameRate = request.videoFrameRate ?? 24.0  // Default to 24fps if not provided
 
-        // For DCP exports, scale FFmpeg progress to 0-75% to leave room for post-processing steps
+        // For DCP / IMF exports, scale FFmpeg progress to 0-75% to leave room for post-processing steps
         let ffmpegProgressUpdate: @Sendable (Double, String?) -> Void
-        if isDCPExport {
+        if isDCPExport || isIMFExport {
             ffmpegProgressUpdate = { progress, eta in
                 progressUpdate(progress * 0.75, eta)
             }
@@ -422,6 +452,10 @@ actor FFMPEGConverter {
         let capturedIsImageSequenceExport = isImageSequenceExport
         let capturedIsDCPExport = isDCPExport
         let capturedDCPSubfolderURL = dcpSubfolderURL
+        let capturedIsIMFJ2KExport = isIMFJ2KExport
+        let capturedIsIMFProResExport = isIMFProResExport
+        let capturedIsIMFExport = isIMFExport
+        let capturedIMFSubfolderURL = imfSubfolderURL
         let capturedInputURL = inputURL
         let capturedFfmpegPath = ffmpegPath
 
@@ -447,8 +481,9 @@ actor FFMPEGConverter {
 
                 // Validate output file exists and has content.
                 // FFmpeg can exit 0 while producing empty/corrupt output (disk full, I/O error, etc.)
-                // Skip validation for image sequence and DCP exports (they produce directories, not single files).
-                if success && !capturedIsImageSequenceExport && !capturedIsDCPExport {
+                // Skip validation for image sequence and DCP / IMF App 2e exports (they produce directories).
+                // For IMF App 5 we still validate the temp MOV here; the rewrap-to-MXF step is the IMF arm below.
+                if success && !capturedIsImageSequenceExport && !capturedIsDCPExport && !capturedIsIMFJ2KExport {
                     let fileToValidate = capturedNeedsBMXRewrap ? (capturedTempMXFURL ?? capturedFinalOutputURL) : capturedFinalOutputURL
                     if let validationError = Self.validateOutputFile(at: fileToValidate) {
                         Self.logger.error("Output validation failed: \(validationError, privacy: .public)")
@@ -619,7 +654,7 @@ actor FFMPEGConverter {
 
                     // Step 2: Extract audio as WAV
                     progressUpdate(0.82, "Extracting audio for DCP...")
-                    let audioWavURL = await Self.extractAudioForDCP(
+                    let audioWavURL = await Self.extractAudioAsPCMWAV(
                         inputURL: capturedInputURL,
                         outputFolder: FileManager.default.temporaryDirectory,
                         ffmpegPath: capturedFfmpegPath,
@@ -737,6 +772,244 @@ actor FFMPEGConverter {
                             Self.cleanupTempFile(at: videoMXF, label: "DCP video MXF")
                         }
                     }
+                }
+
+                // IMF assembly: produce video MXF + audio MXF essences and emit CPL/PKL/ASSETMAP.
+                if success && capturedIsIMFExport, let imfFolder = capturedIMFSubfolderURL {
+                    Self.logger.info("Starting IMF assembly...")
+
+                    let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.imfResolutionKey) ?? AppConstants.defaultIMFResolution
+                    let resolution = IMFResolution(rawValue: resolutionRaw) ?? .hd1080
+                    let frameRateRaw = UserDefaults.standard.string(forKey: AppConstants.imfFrameRateKey) ?? AppConstants.defaultIMFFrameRate
+                    let frameRate = IMFFrameRate(rawValue: frameRateRaw) ?? .fps24
+                    let colorRaw = UserDefaults.standard.string(forKey: AppConstants.imfJ2KColorEncodingKey) ?? AppConstants.defaultIMFJ2KColorEncoding
+                    let color = IMFColorEncoding(rawValue: colorRaw) ?? .rec709
+                    let application: IMFApplication = capturedIsIMFJ2KExport ? .app2e : .app5
+
+                    let fm = FileManager.default
+                    var imfVideoMXF: URL? = nil
+
+                    // ----- Video essence wrap -----
+                    if capturedIsIMFJ2KExport {
+                        // J2K → asdcp-wrap (mirror DCP path; SMPTE Universal Labels via -L work for IMF App #2e too).
+                        let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
+                        if let asdcpWrapPath = BinaryPathResolver.asdcpWrapPath {
+                            progressUpdate(0.78, "Creating IMF video essence...")
+                            let tmpVideoMXF = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("imf_video_\(UUID().uuidString).mxf")
+
+                            let jp2Files = (try? fm.contentsOfDirectory(atPath: jp2Dir.path))?
+                                .filter { $0.hasSuffix(".jp2") }
+                                .sorted() ?? []
+
+                            if jp2Files.isEmpty {
+                                Self.logger.error("No JP2 frames found for IMF in \(jp2Dir.path)")
+                                success = false
+                            } else {
+                                let j2cDir = FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("imf_j2c_\(UUID().uuidString)", isDirectory: true)
+                                try? fm.createDirectory(at: j2cDir, withIntermediateDirectories: true)
+
+                                let socMarker = Data([0xFF, 0x4F])
+                                for jp2File in jp2Files {
+                                    let jp2URL = jp2Dir.appendingPathComponent(jp2File)
+                                    let j2cFile = jp2File.replacingOccurrences(of: ".jp2", with: ".j2c")
+                                    let j2cURL = j2cDir.appendingPathComponent(j2cFile)
+                                    if let data = try? Data(contentsOf: jp2URL),
+                                       let socRange = data.range(of: socMarker) {
+                                        try? data[socRange.lowerBound...].write(to: j2cURL)
+                                    }
+                                }
+
+                                let videoWrapArgs: [String] = [
+                                    "-v",
+                                    "-p", frameRate.ffmpegValue,
+                                    "-L",
+                                    j2cDir.path + "/",
+                                    tmpVideoMXF.path
+                                ]
+                                let videoWrapProcess = Process()
+                                videoWrapProcess.executableURL = URL(fileURLWithPath: asdcpWrapPath)
+                                videoWrapProcess.arguments = videoWrapArgs
+                                videoWrapProcess.standardInput = FileHandle.nullDevice
+                                let stderrPipe = Pipe()
+                                videoWrapProcess.standardOutput = stderrPipe
+                                videoWrapProcess.standardError = stderrPipe
+                                do {
+                                    try videoWrapProcess.run()
+                                    videoWrapProcess.waitUntilExit()
+                                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                                    try? stderrPipe.fileHandleForReading.close()
+                                    let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+                                    if videoWrapProcess.terminationStatus == 0 {
+                                        imfVideoMXF = tmpVideoMXF
+                                        Self.logger.info("IMF video essence created (App #2e)")
+                                    } else {
+                                        Self.logger.error("asdcp-wrap failed for IMF video (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
+                                        success = false
+                                        Self.cleanupTempFile(at: tmpVideoMXF, label: "failed IMF video MXF")
+                                    }
+                                } catch {
+                                    try? stderrPipe.fileHandleForReading.close()
+                                    Self.logger.error("Failed to run asdcp-wrap for IMF video: \(error.localizedDescription)")
+                                    success = false
+                                }
+                                Self.cleanupTempFile(at: j2cDir, label: "IMF J2C frames")
+                            }
+                        } else {
+                            Self.logger.error("asdcp-wrap not found — cannot create IMF App 2e essence")
+                            success = false
+                        }
+
+                        // Clean up JP2 working folder
+                        let keepIntermediates = UserDefaults.standard.bool(forKey: AppConstants.imfKeepIntermediatesKey)
+                        if !keepIntermediates {
+                            Self.cleanupTempFile(at: jp2Dir, label: "IMF JP2 images")
+                        }
+                    } else if capturedIsIMFProResExport {
+                        // ProRes MOV → bmxtranswrap → OP1a MXF
+                        progressUpdate(0.78, "Creating IMF video essence...")
+                        let tmpVideoMXF = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("imf_video_\(UUID().uuidString).mxf")
+
+                        let bmxColorPrimaries: String?
+                        let bmxTransfer: String?
+                        let bmxCodingEq: String?
+                        switch color {
+                        case .rec709:
+                            bmxColorPrimaries = "709"; bmxTransfer = "709"; bmxCodingEq = "709"
+                        case .rec2020SDR, .rec2020PQ, .rec2020HLG:
+                            bmxColorPrimaries = "2020"; bmxTransfer = nil; bmxCodingEq = "2020"
+                        }
+
+                        let bmxOK = await BMXService.shared.rewrapToIMFOP1a(
+                            inputURL: capturedFinalOutputURL,
+                            outputURL: tmpVideoMXF,
+                            colorPrimaries: bmxColorPrimaries,
+                            transferCharacteristic: bmxTransfer,
+                            codingEquations: bmxCodingEq,
+                            clipName: capturedInputBaseName,
+                            mcaLabelsFile: nil,
+                            progress: { _ in }
+                        )
+                        if bmxOK {
+                            imfVideoMXF = tmpVideoMXF
+                            Self.logger.info("IMF video essence created (App #5)")
+                        } else {
+                            Self.logger.error("bmxtranswrap failed for IMF ProRes video essence")
+                            success = false
+                        }
+                        // Remove the temporary MOV; if user wants to keep, they can use the .prores preset directly.
+                        let keepIntermediates = UserDefaults.standard.bool(forKey: AppConstants.imfKeepIntermediatesKey)
+                        if !keepIntermediates {
+                            Self.cleanupTempFile(at: capturedFinalOutputURL, label: "IMF ProRes temp MOV")
+                        }
+                    }
+
+                    // ----- Audio essence wrap (shared between App #2e and App #5) -----
+                    var imfAudioMXF: URL? = nil
+                    if success {
+                        progressUpdate(0.86, "Extracting audio for IMF...")
+                        let audioWavURL = await Self.extractAudioAsPCMWAV(
+                            inputURL: capturedInputURL,
+                            outputFolder: FileManager.default.temporaryDirectory,
+                            ffmpegPath: capturedFfmpegPath,
+                            trimStart: capturedRequest.trimStart,
+                            trimEnd: capturedRequest.trimEnd,
+                            audioRoutingConfig: capturedRequest.audioRoutingConfig
+                        )
+
+                        if let wavURL = audioWavURL {
+                            progressUpdate(0.90, "Wrapping audio essence...")
+                            let tmpAudioMXF = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("imf_audio_\(UUID().uuidString).mxf")
+
+                            let mcaLabelsFile = await MCALabelsBuilder.buildIMFLabelsFile(
+                                inputURL: capturedInputURL,
+                                audioRoutingConfig: capturedRequest.audioRoutingConfig
+                            )
+
+                            let bmxAudioOK = await BMXService.shared.rewrapToIMFOP1a(
+                                inputURL: wavURL,
+                                outputURL: tmpAudioMXF,
+                                colorPrimaries: nil,
+                                transferCharacteristic: nil,
+                                codingEquations: nil,
+                                clipName: capturedInputBaseName + "_audio",
+                                mcaLabelsFile: mcaLabelsFile,
+                                progress: { _ in }
+                            )
+                            if let mcaLabelsFile {
+                                Self.cleanupTempFile(at: mcaLabelsFile, label: "IMF MCA labels")
+                            }
+                            if bmxAudioOK {
+                                imfAudioMXF = tmpAudioMXF
+                            } else {
+                                Self.logger.warning("bmxtranswrap failed for IMF audio essence — proceeding without audio")
+                                Self.cleanupTempFile(at: tmpAudioMXF, label: "failed IMF audio MXF")
+                            }
+                            Self.cleanupTempFile(at: wavURL, label: "IMF audio WAV")
+                        }
+                    }
+
+                    // ----- Manifest assembly -----
+                    if success, let videoMXF = imfVideoMXF {
+                        progressUpdate(0.94, "Generating IMF manifests...")
+
+                        let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
+                        let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
+
+                        let imfTitle: String
+                        if let metaTitle = capturedRequest.imfMetadata?.contentTitleText, !metaTitle.isEmpty {
+                            imfTitle = metaTitle
+                        } else {
+                            imfTitle = capturedInputBaseName
+                        }
+                        let audioLanguage = capturedRequest.imfMetadata?.audioLanguage ?? "en"
+
+                        let folderName = await IMFManifestWriter.shared.packageFolderName(
+                            title: imfTitle,
+                            application: application,
+                            resolution: resolution,
+                            frameRate: frameRate,
+                            audioLanguage: audioLanguage
+                        )
+                        let imfOutputDir = imfFolder.appendingPathComponent(folderName, isDirectory: true)
+                        try? fm.createDirectory(at: imfOutputDir, withIntermediateDirectories: true)
+
+                        Self.logger.info("IMF output folder: \(imfOutputDir.lastPathComponent)")
+
+                        let imfSuccess = await IMFManifestWriter.shared.assembleIMP(
+                            videoMXFURL: videoMXF,
+                            audioMXFURL: imfAudioMXF,
+                            outputDirectoryURL: imfOutputDir,
+                            title: imfTitle,
+                            application: application,
+                            editRateNumerator: frameRate.editRateNumerator,
+                            editRateDenominator: frameRate.editRateDenominator,
+                            frameCount: max(frameCount, 1),
+                            itemMetadata: capturedRequest.imfMetadata,
+                            progress: { imfProgress in
+                                let overall = 0.94 + imfProgress * 0.06
+                                Task { @MainActor in
+                                    progressUpdate(overall, "Generating IMF manifests...")
+                                }
+                            }
+                        )
+                        if !imfSuccess {
+                            Self.logger.error("IMF assembly failed")
+                            success = false
+                        }
+                        // IMFManifestWriter moves the essences into the package folder; clean up
+                        // the temp paths only if they still exist (they shouldn't on success).
+                        if fm.fileExists(atPath: videoMXF.path) {
+                            Self.cleanupTempFile(at: videoMXF, label: "IMF video MXF")
+                        }
+                        if let audioMXF = imfAudioMXF, fm.fileExists(atPath: audioMXF.path) {
+                            Self.cleanupTempFile(at: audioMXF, label: "IMF audio MXF")
+                        }
+                    }
+                    _ = resolution // resolution captured for potential per-essence labelling; quiet "unused" warnings
                 }
 
                 // Extract audio as WAV for image sequence exports (if source has audio)
@@ -1155,11 +1428,11 @@ actor FFMPEGConverter {
         }
     }
 
-    /// Extracts audio from source as 24-bit PCM WAV for DCP
-    /// FFmpeg's MXF muxer cannot create audio-only MXF files, so we extract to WAV.
-    /// The WAV can later be wrapped into DCP-compliant MXF using asdcp-wrap.
+    /// Extracts audio from source as 24-bit PCM 48 kHz WAV for SMPTE-package exports (DCP, IMF).
+    /// FFmpeg's MXF muxer cannot create audio-only MXF files, so we extract to WAV first,
+    /// then asdcp-wrap (DCP) or bmxtranswrap (IMF) takes over to produce the MXF essence.
     /// - Returns: URL of the audio WAV file, or nil if source has no audio or extraction failed
-    private static func extractAudioForDCP(
+    private static func extractAudioAsPCMWAV(
         inputURL: URL,
         outputFolder: URL,
         ffmpegPath: String,

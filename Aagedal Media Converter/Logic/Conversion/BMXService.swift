@@ -96,6 +96,55 @@ actor BMXService {
         )
     }
 
+    /// Rewraps an MXF/MOV file to OP1a for IMF essence delivery (ST 2067-2 / 2067-21 / 2067-50).
+    /// - Parameters:
+    ///   - inputURL: The source MXF or MOV file (from FFmpeg or asdcp-wrap).
+    ///   - outputURL: The destination OP1a MXF.
+    ///   - colorPrimaries: bmx `--color-prim` value (e.g. "709", "2020"); nil to omit.
+    ///   - transferCharacteristic: bmx `--transfer-ch` value (e.g. "709", "2020", "smpte2084", "hlg"); nil to omit.
+    ///   - codingEquations: bmx `--coding-eq` value (e.g. "709", "2020"); nil to omit.
+    ///   - clipName: Optional clip name written to the MXF.
+    ///   - mcaLabelsFile: Optional MCA labels file (for IMF audio essences carrying SMPTE ST 377-4 labels).
+    ///   - progress: Progress callback (0.0 to 1.0).
+    /// - Returns: true on success.
+    func rewrapToIMFOP1a(
+        inputURL: URL,
+        outputURL: URL,
+        colorPrimaries: String? = nil,
+        transferCharacteristic: String? = nil,
+        codingEquations: String? = nil,
+        clipName: String? = nil,
+        mcaLabelsFile: URL? = nil,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async -> Bool {
+        var arguments: [String] = [
+            "-t", "op1a",
+        ]
+
+        if let value = colorPrimaries {
+            arguments.append(contentsOf: ["--color-prim", value])
+        }
+        if let value = transferCharacteristic {
+            arguments.append(contentsOf: ["--transfer-ch", value])
+        }
+        if let value = codingEquations {
+            arguments.append(contentsOf: ["--coding-eq", value])
+        }
+        if let name = clipName, !name.isEmpty {
+            arguments.append(contentsOf: ["--clip", name])
+        }
+        if let mcaLabelsFile {
+            arguments.append(contentsOf: ["--track-mca-labels", "x", mcaLabelsFile.path])
+        }
+
+        return await runBMXTranswrap(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            extraArguments: arguments,
+            progress: progress
+        )
+    }
+
     /// Rewraps an MXF file to RDD9 (SMPTE RDD 9) format for DCP-compliant ASDCP MXF
     /// - Parameters:
     ///   - inputURL: The source MXF file (from FFmpeg)

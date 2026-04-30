@@ -91,7 +91,6 @@
 		8EBD10222EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD10202EBE8B3C00377649 /* Aagedal_Media_Converter_UITestsLaunchTests.swift */; };
 		8EBD10242EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */; };
 		8EC017D3E3FDF66B8DE02E57 /* BMXService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED542D049B53B34DBA25323 /* BMXService.swift */; };
-		MCALABBLD00000001 /* MCALabelsBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCALABBLD00000002 /* MCALabelsBuilder.swift */; };
 		8EC3DCDD2EF57F0600CD75BC /* RandomTips.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */; };
 		8EC9A6F12EC146C00082C67F /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EFBDA932EA58975005ADDCF /* AboutView.swift */; };
 		8EC9A6F72EC149010082C67F /* PreviewTrimControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC9A6F62EC149010082C67F /* PreviewTrimControls.swift */; };
@@ -170,13 +169,18 @@
 		FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B862E87364609527CEEC84 /* YTDLPService.swift */; };
 		FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPCRD00000002 /* FileImportCoordinator.swift */; };
 		FILEIMPMGR00000001 /* FileImportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPMGR00000002 /* FileImportManager.swift */; };
-		IMFPKGPAR00000001 /* IMFPackageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFPKGPAR00000002 /* IMFPackageParser.swift */; };
-		IMFPKGIMP00000001 /* IMFPackageImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFPKGIMP00000002 /* IMFPackageImporter.swift */; };
 		FILENAMESETV0000000000B1 /* FileNameSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */; };
 		GRPEDITWIN000002 /* GroupEditorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPEDITWIN000001 /* GroupEditorWindow.swift */; };
+		IMFPKGIMP00000001 /* IMFPackageImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFPKGIMP00000002 /* IMFPackageImporter.swift */; };
+		IMFPKGPAR00000001 /* IMFPackageParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFPKGPAR00000002 /* IMFPackageParser.swift */; };
 		IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGSEQDET00000001 /* ImageSequenceDetector.swift */; };
 		IMGSEQMOD00000002 /* ImageSequenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGSEQMOD00000001 /* ImageSequenceModels.swift */; };
 		LQGLSTB00000001 /* LiquidGlassToolbarConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = LQGLSTB00000002 /* LiquidGlassToolbarConfigurator.swift */; };
+		MCALABBLD00000001 /* MCALabelsBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = MCALABBLD00000002 /* MCALabelsBuilder.swift */; };
+		SMPTEPKGUTL00000001 /* SMPTEPackageUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = SMPTEPKGUTL00000002 /* SMPTEPackageUtils.swift */; };
+		IMFEXP0000MDL0001 /* IMFModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFEXP0000MDL0002 /* IMFModels.swift */; };
+		IMFEXP0000MFW0001 /* IMFManifestWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFEXP0000MFW0002 /* IMFManifestWriter.swift */; };
+		IMFEXP0000UIV0001 /* IMFMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFEXP0000UIV0002 /* IMFMetadataView.swift */; };
 		METAEXPORT000000000001 /* MetadataExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = METAEXPORT000000000002 /* MetadataExporter.swift */; };
 		METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = METAEXPVIEW000000000002 /* MetadataExportView.swift */; };
 		OUTCLEAN0BF00000001 /* OutputFolderCleanupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */; };
@@ -390,7 +394,6 @@
 		DC0001A1DCP0000100000004 /* DCPService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DCPService.swift; sourceTree = "<group>"; };
 		DC0001A1DCP0000100000006 /* DCPMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DCPMetadataView.swift; sourceTree = "<group>"; };
 		DED542D049B53B34DBA25323 /* BMXService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BMXService.swift; sourceTree = "<group>"; };
-		MCALABBLD00000002 /* MCALabelsBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCALabelsBuilder.swift; sourceTree = "<group>"; };
 		DLHIST001SERV00000002 /* DownloadHistoryService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DownloadHistoryService.swift; path = YTDLP/DownloadHistoryService.swift; sourceTree = "<group>"; };
 		E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataSidecarGenerator.swift; sourceTree = "<group>"; };
 		E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoQueueTableView.swift; sourceTree = "<group>"; };
@@ -405,13 +408,18 @@
 		FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPUpdateService.swift; path = YTDLP/YTDLPUpdateService.swift; sourceTree = "<group>"; };
 		FILEIMPCRD00000002 /* FileImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportCoordinator.swift; sourceTree = "<group>"; };
 		FILEIMPMGR00000002 /* FileImportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportManager.swift; sourceTree = "<group>"; };
-		IMFPKGPAR00000002 /* IMFPackageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFPackageParser.swift; sourceTree = "<group>"; };
-		IMFPKGIMP00000002 /* IMFPackageImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFPackageImporter.swift; sourceTree = "<group>"; };
 		FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameSettingsView.swift; sourceTree = "<group>"; };
 		GRPEDITWIN000001 /* GroupEditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorWindow.swift; sourceTree = "<group>"; };
+		IMFPKGIMP00000002 /* IMFPackageImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFPackageImporter.swift; sourceTree = "<group>"; };
+		IMFPKGPAR00000002 /* IMFPackageParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFPackageParser.swift; sourceTree = "<group>"; };
 		IMGSEQDET00000001 /* ImageSequenceDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceDetector.swift; sourceTree = "<group>"; };
 		IMGSEQMOD00000001 /* ImageSequenceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSequenceModels.swift; sourceTree = "<group>"; };
 		LQGLSTB00000002 /* LiquidGlassToolbarConfigurator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassToolbarConfigurator.swift; sourceTree = "<group>"; };
+		MCALABBLD00000002 /* MCALabelsBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCALabelsBuilder.swift; sourceTree = "<group>"; };
+		SMPTEPKGUTL00000002 /* SMPTEPackageUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMPTEPackageUtils.swift; sourceTree = "<group>"; };
+		IMFEXP0000MDL0002 /* IMFModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFModels.swift; sourceTree = "<group>"; };
+		IMFEXP0000MFW0002 /* IMFManifestWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFManifestWriter.swift; sourceTree = "<group>"; };
+		IMFEXP0000UIV0002 /* IMFMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFMetadataView.swift; sourceTree = "<group>"; };
 		METAEXPORT000000000002 /* MetadataExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataExporter.swift; sourceTree = "<group>"; };
 		METAEXPVIEW000000000002 /* MetadataExportView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataExportView.swift; sourceTree = "<group>"; };
 		OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputFolderCleanupService.swift; sourceTree = "<group>"; };
@@ -658,6 +666,7 @@
 				8E9B52562ED6516C006E6A10 /* AudioRoutingView.swift */,
 				8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */,
 				DC0001A1DCP0000100000006 /* DCPMetadataView.swift */,
+				IMFEXP0000UIV0002 /* IMFMetadataView.swift */,
 				DC0001A1CFM0000100000001 /* ConformanceMergeDialog.swift */,
 				8EC3DCDC2EF57F0600CD75BC /* RandomTips.swift */,
 				AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */,
@@ -770,6 +779,9 @@
 				8ECEBC172ED766D200F1F67C /* CropService.swift */,
 				DED542D049B53B34DBA25323 /* BMXService.swift */,
 				MCALABBLD00000002 /* MCALabelsBuilder.swift */,
+				SMPTEPKGUTL00000002 /* SMPTEPackageUtils.swift */,
+				IMFEXP0000MDL0002 /* IMFModels.swift */,
+				IMFEXP0000MFW0002 /* IMFManifestWriter.swift */,
 				DC0001A1DCP0000100000002 /* DCPModels.swift */,
 				DC0001A1DCP0000100000004 /* DCPService.swift */,
 				E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */,
@@ -1166,6 +1178,7 @@
 				8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */,
 				8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */,
 				DC0001A1DCP0000100000005 /* DCPMetadataView.swift in Sources */,
+				IMFEXP0000UIV0001 /* IMFMetadataView.swift in Sources */,
 				DC0001A1CFM0000100000002 /* ConformanceMergeDialog.swift in Sources */,
 				8EEE45182EBEA9F00049F017 /* PreviewPlayerView.swift in Sources */,
 				8EEE45312EC139270049F017 /* FFMPEGProgressParser.swift in Sources */,
@@ -1251,6 +1264,9 @@
 				A7FDCC612BAD184830F774E4 /* WhisperSettingsView.swift in Sources */,
 				8EC017D3E3FDF66B8DE02E57 /* BMXService.swift in Sources */,
 				MCALABBLD00000001 /* MCALabelsBuilder.swift in Sources */,
+				SMPTEPKGUTL00000001 /* SMPTEPackageUtils.swift in Sources */,
+				IMFEXP0000MDL0001 /* IMFModels.swift in Sources */,
+				IMFEXP0000MFW0001 /* IMFManifestWriter.swift in Sources */,
 				DC0001A1DCP0000100000001 /* DCPModels.swift in Sources */,
 				DC0001A1DCP0000100000003 /* DCPService.swift in Sources */,
 				F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */,
@@ -1484,7 +1500,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 496;
+				CURRENT_PROJECT_VERSION = 516;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2119,7 +2135,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 4.0.1;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2145,7 +2161,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 496;
+				CURRENT_PROJECT_VERSION = 516;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2780,7 +2796,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 4.0.1;
+				MARKETING_VERSION = 4.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
