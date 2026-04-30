@@ -172,6 +172,23 @@ struct AudioRoutingView: View {
             .opacity(0)
             .frame(width: 0, height: 0)
         )
+        .task(id: item.id) {
+            await loadInputTracksIfNeeded()
+        }
+    }
+
+    /// On first open of the routing view for an item, probe the input file via
+    /// AudioRoutingService so MCA labels (and any other enrichment that path adds)
+    /// land on the input tracks. Skipped when a config already exists so the user's
+    /// customizations are preserved across re-opens.
+    private func loadInputTracksIfNeeded() async {
+        guard item.audioRoutingConfig == nil else { return }
+        let tracks = await AudioRoutingService.fetchAudioTrackInfo(for: item.url)
+        guard !tracks.isEmpty else { return }
+        await MainActor.run {
+            item.audioRoutingConfig = AudioRoutingConfig(inputTracks: tracks)
+            updateValidation()
+        }
     }
 
     // MARK: - Mute Toggle Section
@@ -599,10 +616,21 @@ struct AudioRoutingView: View {
     /// Popup-menu picker for the manual MCA-label override. Lives on each output
     /// track row; the AVC-Intra rewrap step reads these overrides when building
     /// the bmx labels file. The icon switches to filled when an override is set.
+    ///
+    /// The checkmark next to a menu entry reflects the *effective* selection:
+    /// the explicit override when set, otherwise the auto-detected label read
+    /// from the source input track's MCA descriptors. This way users see the
+    /// label that's actually in force without having to first save it as an
+    /// override.
     @ViewBuilder
     private func mcaLabelsMenu(for outputTrack: OutputTrack) -> some View {
         let current = outputTrack.mcaOverride
         let hasOverride = current?.isEmpty == false
+        let inputTrack = config.trackInfo(for: outputTrack.streamIndex)
+        let autoSoundfield = inputTrack?.mcaSoundfieldGroup.flatMap(MCAStandardSoundfield.init(matching:))
+        let autoElement = inputTrack?.mcaAudioElement.flatMap(MCAStandardAudioElement.init(matching:))
+        let effectiveSoundfield = current?.soundfield ?? autoSoundfield
+        let effectiveElement = current?.audioElement ?? autoElement
 
         Menu {
             Section("Soundfield") {
@@ -612,7 +640,7 @@ struct AudioRoutingView: View {
                         updated.soundfield = soundfield
                         applyMCAOverride(updated, to: outputTrack.id)
                     } label: {
-                        if current?.soundfield == soundfield {
+                        if effectiveSoundfield == soundfield {
                             Label(soundfield.displayName, systemImage: "checkmark")
                         } else {
                             Text(soundfield.displayName)
@@ -636,7 +664,7 @@ struct AudioRoutingView: View {
                         updated.audioElement = element
                         applyMCAOverride(updated, to: outputTrack.id)
                     } label: {
-                        if current?.audioElement == element {
+                        if effectiveElement == element {
                             Label(element.displayName, systemImage: "checkmark")
                         } else {
                             Text(element.displayName)

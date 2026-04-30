@@ -230,6 +230,26 @@ enum MCAStandardSoundfield: String, CaseIterable, Codable, Sendable, Identifiabl
         case .surround71: return ["L", "R", "C", "LFE", "Ls", "Rs", "Lss", "Rss"]
         }
     }
+
+    /// Maps an input MCA soundfield label (the human-readable Tag Name surfaced by
+    /// `AudioTrackInfo.mcaSoundfieldGroup`) to the matching standard soundfield, so
+    /// the override picker can show the auto-detected option as "selected" before
+    /// the user makes an explicit choice.
+    init?(matching autoDetectedLabel: String) {
+        let normalized = autoDetectedLabel.lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: ".", with: "")
+        switch normalized {
+        case "mono", "monoaural", "10", "1": self = .mono
+        case "stereo", "standardstereo", "st": self = .stereo
+        case "dualmono", "dm": self = .dualMono
+        case "51", "51surround": self = .surround51
+        case "71", "71ds", "71sds", "71surround": self = .surround71
+        case "ltrt", "ltrtdownmix": self = .ltRt
+        default: return nil
+        }
+    }
 }
 
 /// User-selectable audio element / GOSG labels for the manual MCA-label override.
@@ -271,6 +291,25 @@ enum MCAStandardAudioElement: String, CaseIterable, Codable, Sendable, Identifia
         case .dialog: return "ggDcm"
         case .audioDescription: return "ggAD"
         case .descriptiveVideoService: return "ggDVS"
+        }
+    }
+
+    /// Maps an input MCA audio-element label (`AudioTrackInfo.mcaAudioElement`,
+    /// either the human Tag Name like "Main Program" or the short label like "MP")
+    /// to the matching standard element, so the override picker can show the
+    /// auto-detected option as "selected" before the user makes an explicit choice.
+    init?(matching autoDetectedLabel: String) {
+        let normalized = autoDetectedLabel.lowercased()
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "&", with: "and")
+            .replacingOccurrences(of: "-", with: "")
+        switch normalized {
+        case "mainprogram", "mp", "mpg": self = .mainProgram
+        case "musicandeffects", "me": self = .musicAndEffects
+        case "dialogcentricmix", "dialog", "dx", "dcm": self = .dialog
+        case "audiodescription", "ad": self = .audioDescription
+        case "descriptivevideoservice", "dvs": self = .descriptiveVideoService
+        default: return nil
         }
     }
 }

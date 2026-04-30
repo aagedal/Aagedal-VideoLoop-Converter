@@ -313,9 +313,26 @@ actor BMXService {
     /// - Returns: Per-track MCA labels in the order mxf2raw emits Sound tracks, or nil if mxf2raw fails.
     ///           Tracks without MCA descriptors yield entries with nil/empty label fields.
     func getAudioTrackLabels(url: URL) async -> [AudioTrackMCALabels]? {
+        logger.info("getAudioTrackLabels: starting for \(url.lastPathComponent, privacy: .public)")
+
+        // Open security-scoped access so the mxf2raw subprocess can read user-imported
+        // MXFs that live outside the sandbox container. Mirrors the pattern in
+        // VideoMetadataService — try direct scope first, fall back to a saved bookmark.
+        let directAccess = url.startAccessingSecurityScopedResource()
+        var bookmarkAccess = false
+        if !directAccess {
+            bookmarkAccess = SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url)
+        }
+        logger.info("getAudioTrackLabels: scope direct=\(directAccess) bookmark=\(bookmarkAccess) for \(url.lastPathComponent, privacy: .public)")
+        defer {
+            if directAccess { url.stopAccessingSecurityScopedResource() }
+            else if bookmarkAccess { SecurityScopedBookmarkManager.shared.stopAccessingSecurityScopedResource(for: url) }
+        }
+
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         let mtime = attrs?[.modificationDate] as? Date
         if let cached = mcaCache[url], cached.modificationDate == mtime {
+            logger.info("getAudioTrackLabels: cache hit (\(cached.labels.count) entries) for \(url.lastPathComponent, privacy: .public)")
             return cached.labels
         }
 
@@ -325,7 +342,7 @@ actor BMXService {
         }
 
         guard FileManager.default.fileExists(atPath: url.path) else {
-            logger.error("MXF file not found: \(url.path)")
+            logger.error("getAudioTrackLabels: file not reachable in sandbox at \(url.path, privacy: .public) (scope direct=\(directAccess) bookmark=\(bookmarkAccess))")
             return nil
         }
 
@@ -362,7 +379,11 @@ actor BMXService {
 
         let labels = MXFInfoMCAParser.parse(xmlData: xmlData)
         mcaCache[url] = MCACacheEntry(modificationDate: mtime, labels: labels)
-        logger.info("Parsed \(labels.count) MCA-bearing audio tracks from \(url.lastPathComponent)")
+        let summary = labels.map { "[ch=\($0.channelCount ?? -1) sg=\($0.soundfieldGroup ?? "-") el=\($0.audioElement ?? "-") chs=\($0.channelLabels.count)]" }.joined(separator: " ")
+        logger.notice("Parsed \(labels.count) MCA-bearing audio tracks from \(url.lastPathComponent, privacy: .public): \(summary, privacy: .public)")
+        if labels.isEmpty {
+            logger.warning("getAudioTrackLabels: parser produced 0 entries — XML may not contain MCA descriptors. Stdout size=\(xmlData.count)")
+        }
         return labels
     }
 

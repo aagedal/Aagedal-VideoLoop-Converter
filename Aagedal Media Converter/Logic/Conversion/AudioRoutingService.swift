@@ -18,6 +18,7 @@ enum AudioRoutingService {
     /// - Parameter url: The URL of the media file
     /// - Returns: Array of AudioTrackInfo objects, or empty array if no audio tracks
     static func fetchAudioTrackInfo(for url: URL) async -> [AudioTrackInfo] {
+        logger.debug("fetchAudioTrackInfo: ENTRY for \(url.lastPathComponent, privacy: .public) (ext=\(url.pathExtension, privacy: .public))")
         // Use existing FFMPEGProbeService to get basic info, then enhance with VideoMetadata
         guard let basicStreams = await FFMPEGProbeService.fetchAudioStreams(for: url) else {
             logger.warning("Failed to fetch audio streams for \(url.lastPathComponent)")
@@ -30,7 +31,9 @@ enum AudioRoutingService {
         // For MXF (including IMF essences), pull SMPTE 377-4 MCA labels via mxf2raw.
         let mcaLabels: [AudioTrackMCALabels]
         if url.pathExtension.lowercased() == "mxf" {
+            logger.info("fetchAudioTrackInfo: requesting MCA labels for \(url.lastPathComponent, privacy: .public)")
             mcaLabels = await BMXService.shared.getAudioTrackLabels(url: url) ?? []
+            logger.info("fetchAudioTrackInfo: BMXService returned \(mcaLabels.count) MCA entries")
         } else {
             mcaLabels = []
         }
