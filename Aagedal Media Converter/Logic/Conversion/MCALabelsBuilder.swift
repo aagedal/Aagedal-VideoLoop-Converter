@@ -24,6 +24,9 @@ enum MCALabelsBuilder {
 
     /// Per-input-stream channel info used to derive output-track labels.
     struct InputStreamInfo: Sendable {
+        /// Audio-relative index of this stream (matches `AudioTrackInfo.streamIndex`),
+        /// used to look up user overrides keyed by the routing UI's stream index.
+        let audioRelativeIndex: Int
         /// Channel count from FFprobe.
         let channelCount: Int
         /// FFmpeg channel layout string ("mono", "stereo", "5.1", "5.1(side)", "7.1", …) when known.
@@ -36,11 +39,13 @@ enum MCALabelsBuilder {
     /// - Parameters:
     ///   - inputStreams: input audio streams in the order ffmpeg processes them (only `isDecodable` streams).
     ///   - inputMCALabels: optional MCA labels read from the input MXF (empty for non-MXF inputs).
+    ///   - overrides: optional manual label overrides keyed by `audioRelativeIndex`.
     ///   - outputTrackCount: total number of mono output tracks (after padding/truncation).
     /// - Returns: file content string, or nil if no useful labels can be derived.
     static func buildAVCIntraLabelsFile(
         inputStreams: [InputStreamInfo],
         inputMCALabels: [AudioTrackMCALabels],
+        overrides: [Int: MCALabelOverride] = [:],
         outputTrackCount: Int
     ) -> String? {
         guard outputTrackCount > 0, !inputStreams.isEmpty else { return nil }
@@ -48,6 +53,7 @@ enum MCALabelsBuilder {
         var lines: [String] = []
         var outputTrackIndex = 0
         var soundfieldGroupCounter = 1
+        var groupOfGroupsCounter = 1
         var emittedAny = false
 
         for (streamPosition, stream) in inputStreams.enumerated() {
@@ -55,7 +61,9 @@ enum MCALabelsBuilder {
             if outputTrackIndex >= outputTrackCount { break }
 
             let mca = matchMCA(in: inputMCALabels, position: streamPosition, channels: stream.channelCount, sampleRate: stream.sampleRate)
-            guard let group = deriveLabelGroup(stream: stream, inputMCA: mca) else {
+            let override = overrides[stream.audioRelativeIndex]
+
+            guard let group = deriveLabelGroup(stream: stream, inputMCA: mca, override: override) else {
                 // Couldn't confidently label this stream — advance the output index past its
                 // channels but emit nothing. Subsequent streams keep their correct positions.
                 outputTrackIndex += stream.channelCount
@@ -72,6 +80,17 @@ enum MCALabelsBuilder {
             let groupID = "sg\(soundfieldGroupCounter)"
             soundfieldGroupCounter += 1
 
+            // Emit a GOSG (audio element) line only when the user explicitly chose one.
+            // Auto-derivation never emits an audio element to avoid mislabeling.
+            let groupOfGroups: (symbol: String, id: String)?
+            if let element = override?.audioElement {
+                let id = "gosg\(groupOfGroupsCounter)"
+                groupOfGroupsCounter += 1
+                groupOfGroups = (symbol: element.bmxSymbol, id: id)
+            } else {
+                groupOfGroups = nil
+            }
+
             for (channelIndex, channelSymbol) in group.channelSymbols.enumerated() {
                 let isFirst = channelIndex == 0
                 lines.append(contentsOf: trackBlock(
@@ -79,6 +98,7 @@ enum MCALabelsBuilder {
                     channelSymbol: channelSymbol,
                     soundfieldSymbol: group.soundfieldSymbol,
                     soundfieldID: groupID,
+                    groupOfGroups: groupOfGroups,
                     isFirstInGroup: isFirst
                 ))
                 outputTrackIndex += 1
@@ -98,6 +118,7 @@ enum MCALabelsBuilder {
         channelSymbol: String,
         soundfieldSymbol: String,
         soundfieldID: String,
+        groupOfGroups: (symbol: String, id: String)?,
         isFirstInGroup: Bool
     ) -> [String] {
         var block: [String] = []
@@ -108,6 +129,13 @@ enum MCALabelsBuilder {
             block.append("\(soundfieldSymbol), id=\(soundfieldID)")
         } else {
             block.append("\(soundfieldSymbol), id=\(soundfieldID), repeat=false")
+        }
+        if let gosg = groupOfGroups {
+            if isFirstInGroup {
+                block.append("\(gosg.symbol), id=\(gosg.id)")
+            } else {
+                block.append("\(gosg.symbol), id=\(gosg.id), repeat=false")
+            }
         }
         return block
     }
@@ -120,9 +148,21 @@ enum MCALabelsBuilder {
         let channelSymbols: [String]
     }
 
-    /// Returns labels derived from input MCA descriptors when present and
-    /// recognizable; otherwise from standard channel-layout assumptions.
-    private static func deriveLabelGroup(stream: InputStreamInfo, inputMCA: AudioTrackMCALabels?) -> LabelGroup? {
+    /// Returns labels derived in priority order:
+    ///   1. User override (when its soundfield's channel count matches the stream)
+    ///   2. Input MCA descriptors (when channel labels align with the stream)
+    ///   3. Standard SMPTE channel layouts (mono / stereo / 5.1)
+    private static func deriveLabelGroup(stream: InputStreamInfo, inputMCA: AudioTrackMCALabels?, override: MCALabelOverride?) -> LabelGroup? {
+        // Manual override wins when its soundfield channel count matches the stream;
+        // a mismatched override (e.g. "Stereo" picked on a 6-channel input) falls
+        // through so we don't produce a malformed labels file.
+        if let soundfield = override?.soundfield, soundfield.channelCount == stream.channelCount {
+            return LabelGroup(
+                soundfieldSymbol: soundfield.bmxSymbol,
+                channelSymbols: soundfield.bmxChannelSymbols
+            )
+        }
+
         // Prefer input MCA when channel labels exist and align with the stream channel count.
         if let mca = inputMCA,
            !mca.channelLabels.isEmpty,

@@ -119,21 +119,214 @@ struct AudioTrackInfo: Identifiable, Equatable, Sendable, Codable {
         guard let channels = channels else { return false }
         return channels > 2
     }
+
+    /// Returns a copy of this track with the supplied MCA override merged in.
+    /// Override values replace the corresponding auto-detected MCA fields; passing
+    /// nil leaves all fields untouched. Channel labels follow the override's
+    /// soundfield only when the channel count matches, so a 5.1 override on a
+    /// 2-channel stream still updates the soundfield label without inventing
+    /// per-channel labels that don't exist.
+    func applyingOverride(_ override: MCALabelOverride?) -> AudioTrackInfo {
+        guard let override, !override.isEmpty else { return self }
+        let overriddenSoundfield = override.soundfield?.displayName ?? mcaSoundfieldGroup
+        let overriddenElement = override.audioElement?.shortLabel ?? mcaAudioElement
+        let overriddenChannelLabels: [String]?
+        if let soundfield = override.soundfield, soundfield.channelCount == channels {
+            overriddenChannelLabels = soundfield.displayChannelLabels
+        } else {
+            overriddenChannelLabels = mcaChannelLabels
+        }
+        return AudioTrackInfo(
+            id: id,
+            streamIndex: streamIndex,
+            channels: channels,
+            channelLayout: channelLayout,
+            codec: codec,
+            codecLongName: codecLongName,
+            sampleRate: sampleRate,
+            languageCode: languageCode,
+            title: title,
+            bitRate: bitRate,
+            trackNumber: trackNumber,
+            mcaSoundfieldGroup: overriddenSoundfield,
+            mcaAudioElement: overriddenElement,
+            mcaChannelLabels: overriddenChannelLabels
+        )
+    }
+}
+
+// MARK: - MCA Label Overrides
+
+/// User-selectable soundfield groups for the manual MCA-label override.
+/// Each case maps to a bmx tag symbol (used by `MCALabelsBuilder` when emitting
+/// the `--track-mca-labels` file) and to the per-channel symbol list that bmx
+/// expects for that soundfield.
+enum MCAStandardSoundfield: String, CaseIterable, Codable, Sendable, Identifiable {
+    case mono
+    case stereo
+    case dualMono
+    case surround51
+    case surround71
+    case ltRt
+
+    var id: String { rawValue }
+
+    /// Human-readable label shown in pickers and in the routing-row display label.
+    var displayName: String {
+        switch self {
+        case .mono: return "Mono"
+        case .stereo: return "Stereo"
+        case .dualMono: return "Dual Mono"
+        case .surround51: return "5.1"
+        case .surround71: return "7.1"
+        case .ltRt: return "Lt-Rt"
+        }
+    }
+
+    /// bmx Tag Symbol for the SoundfieldGroupLabelSubDescriptor.
+    var bmxSymbol: String {
+        switch self {
+        case .mono: return "sgM"
+        case .stereo: return "sgST"
+        case .dualMono: return "sgDM"
+        case .surround51: return "sg51"
+        case .surround71: return "sg71"
+        case .ltRt: return "sgLtRt"
+        }
+    }
+
+    /// Channel-count this soundfield expects. Used to validate user picks against
+    /// the actual stream channel count and to produce the per-channel symbol list.
+    var channelCount: Int {
+        switch self {
+        case .mono: return 1
+        case .stereo, .dualMono, .ltRt: return 2
+        case .surround51: return 6
+        case .surround71: return 8
+        }
+    }
+
+    /// bmx channel Tag Symbols in essence channel order for this soundfield.
+    var bmxChannelSymbols: [String] {
+        switch self {
+        case .mono: return ["chM1"]
+        case .stereo: return ["chL", "chR"]
+        case .dualMono: return ["chM1", "chM2"]
+        case .ltRt: return ["chLt", "chRt"]
+        case .surround51: return ["chL", "chR", "chC", "chLFE", "chLs", "chRs"]
+        case .surround71: return ["chL", "chR", "chC", "chLFE", "chLs", "chRs", "chLss", "chRss"]
+        }
+    }
+
+    /// Display labels (Tag Names) corresponding to bmxChannelSymbols, used to enrich
+    /// the routing-row subtitle when an override is applied.
+    var displayChannelLabels: [String] {
+        switch self {
+        case .mono: return ["Mono"]
+        case .stereo: return ["Left", "Right"]
+        case .dualMono: return ["Mono 1", "Mono 2"]
+        case .ltRt: return ["Lt", "Rt"]
+        case .surround51: return ["L", "R", "C", "LFE", "Ls", "Rs"]
+        case .surround71: return ["L", "R", "C", "LFE", "Ls", "Rs", "Lss", "Rss"]
+        }
+    }
+}
+
+/// User-selectable audio element / GOSG labels for the manual MCA-label override.
+enum MCAStandardAudioElement: String, CaseIterable, Codable, Sendable, Identifiable {
+    case mainProgram
+    case musicAndEffects
+    case dialog
+    case audioDescription
+    case descriptiveVideoService
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .mainProgram: return "Main Program"
+        case .musicAndEffects: return "Music & Effects"
+        case .dialog: return "Dialog"
+        case .audioDescription: return "Audio Description"
+        case .descriptiveVideoService: return "Descriptive Video Service"
+        }
+    }
+
+    /// Short label shown in the routing-row display label (after the track number).
+    var shortLabel: String {
+        switch self {
+        case .mainProgram: return "MP"
+        case .musicAndEffects: return "M&E"
+        case .dialog: return "DX"
+        case .audioDescription: return "AD"
+        case .descriptiveVideoService: return "DVS"
+        }
+    }
+
+    /// bmx Tag Symbol for the GroupOfSoundfieldGroupsLabelSubDescriptor.
+    var bmxSymbol: String {
+        switch self {
+        case .mainProgram: return "ggMPg"
+        case .musicAndEffects: return "ggME"
+        case .dialog: return "ggDcm"
+        case .audioDescription: return "ggAD"
+        case .descriptiveVideoService: return "ggDVS"
+        }
+    }
+}
+
+/// Manual MCA-label override the user can apply to an input audio track. When
+/// stored on `AudioRoutingConfig.mcaOverrides`, both the routing-row display
+/// and the AVC-Intra MCA labels file prefer these values over the auto-derived
+/// labels read from the input MXF.
+struct MCALabelOverride: Codable, Equatable, Sendable {
+    var soundfield: MCAStandardSoundfield?
+    var audioElement: MCAStandardAudioElement?
+
+    /// Returns true when neither field is set so callers can drop empty overrides.
+    var isEmpty: Bool { soundfield == nil && audioElement == nil }
 }
 
 // MARK: - Output Track
 
 /// Represents a single output audio track with per-track options
 /// Allows the same input track to be added multiple times with different settings
-struct OutputTrack: Equatable, Sendable, Codable, Identifiable {
+struct OutputTrack: Equatable, Sendable, Identifiable {
     let id: UUID
     let streamIndex: Int
     var downmixToStereo: Bool
+    /// Manual MCA-label override applied at the bmxtranswrap step (used by the
+    /// TV AVC-Intra MXF preset). When nil, AVC-Intra falls back to input MCA
+    /// labels and then to standard channel-layout assumptions.
+    var mcaOverride: MCALabelOverride?
 
-    init(id: UUID = UUID(), streamIndex: Int, downmixToStereo: Bool = false) {
+    init(id: UUID = UUID(), streamIndex: Int, downmixToStereo: Bool = false, mcaOverride: MCALabelOverride? = nil) {
         self.id = id
         self.streamIndex = streamIndex
         self.downmixToStereo = downmixToStereo
+        self.mcaOverride = mcaOverride
+    }
+}
+
+extension OutputTrack: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, streamIndex, downmixToStereo, mcaOverride
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        streamIndex = try container.decode(Int.self, forKey: .streamIndex)
+        downmixToStereo = try container.decodeIfPresent(Bool.self, forKey: .downmixToStereo) ?? false
+        mcaOverride = try container.decodeIfPresent(MCALabelOverride.self, forKey: .mcaOverride)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(streamIndex, forKey: .streamIndex)
+        try container.encode(downmixToStereo, forKey: .downmixToStereo)
+        try container.encodeIfPresent(mcaOverride, forKey: .mcaOverride)
     }
 }
 
@@ -290,6 +483,17 @@ struct AudioRoutingConfig: Equatable, Sendable {
     mutating func setDownmix(for trackId: UUID, downmix: Bool) {
         if let index = outputTracks.firstIndex(where: { $0.id == trackId }) {
             outputTracks[index].downmixToStereo = downmix
+        }
+    }
+
+    /// Set or clear the manual MCA-label override on a specific output track.
+    /// Pass nil (or an empty override) to remove the override.
+    mutating func setMCAOverride(_ override: MCALabelOverride?, for trackId: UUID) {
+        guard let index = outputTracks.firstIndex(where: { $0.id == trackId }) else { return }
+        if let override, !override.isEmpty {
+            outputTracks[index].mcaOverride = override
+        } else {
+            outputTracks[index].mcaOverride = nil
         }
     }
 

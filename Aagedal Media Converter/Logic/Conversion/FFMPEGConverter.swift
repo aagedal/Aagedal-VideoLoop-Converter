@@ -49,18 +49,24 @@ actor FFMPEGConverter {
     /// the labels flag in that case, preserving today's behavior). Mirrors the
     /// AVC-Intra mono-split layout in `FFMPEGCommandBuilder.adjustAVCIntraAudio`:
     /// each input audio channel becomes one mono output track in input order.
-    private static func prepareAVCIntraMCALabelsFile(inputURL: URL) async -> URL? {
+    private static func prepareAVCIntraMCALabelsFile(
+        inputURL: URL,
+        audioRoutingConfig: AudioRoutingConfig?
+    ) async -> URL? {
         let allStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL) ?? []
-        let decodableStreams = allStreams.filter { $0.isDecodable }
-        guard !decodableStreams.isEmpty else { return nil }
-
-        let inputInfos = decodableStreams.map {
-            MCALabelsBuilder.InputStreamInfo(
-                channelCount: $0.channels ?? 0,
-                channelLayout: $0.channelLayout,
+        // Walk the unfiltered list so audio-relative indices match the routing UI
+        // (which sees every audio stream, decodable or not). Only decodable streams
+        // produce output tracks, but the override key must use the original index.
+        let inputInfos = allStreams.enumerated().compactMap { (audioRelIdx, stream) -> MCALabelsBuilder.InputStreamInfo? in
+            guard stream.isDecodable else { return nil }
+            return MCALabelsBuilder.InputStreamInfo(
+                audioRelativeIndex: audioRelIdx,
+                channelCount: stream.channels ?? 0,
+                channelLayout: stream.channelLayout,
                 sampleRate: nil  // FFprobe basic info doesn't expose sampleRate; positional matching is reliable here
             )
         }
+        guard !inputInfos.isEmpty else { return nil }
 
         // Read input MCA labels via mxf2raw only when the input is itself MXF.
         let mcaLabels: [AudioTrackMCALabels]
@@ -70,6 +76,19 @@ actor FFMPEGConverter {
             mcaLabels = []
         }
 
+        // Collect manual overrides from the routing UI's output tracks. When more than
+        // one output track points at the same input stream, the FIRST non-empty override
+        // wins so the result is deterministic.
+        var overrides: [Int: MCALabelOverride] = [:]
+        if let routing = audioRoutingConfig {
+            for outputTrack in routing.outputTracks {
+                guard let override = outputTrack.mcaOverride, !override.isEmpty else { continue }
+                if overrides[outputTrack.streamIndex] == nil {
+                    overrides[outputTrack.streamIndex] = override
+                }
+            }
+        }
+
         let audioChannelsRaw = UserDefaults.standard.string(forKey: AppConstants.avcIntraAudioChannelsKey)
             ?? AppConstants.defaultAVCIntraAudioChannels
         let targetChannelCount = (AVCIntraAudioChannels(rawValue: audioChannelsRaw) ?? .ch8).count
@@ -77,6 +96,7 @@ actor FFMPEGConverter {
         guard let content = MCALabelsBuilder.buildAVCIntraLabelsFile(
             inputStreams: inputInfos,
             inputMCALabels: mcaLabels,
+            overrides: overrides,
             outputTrackCount: targetChannelCount
         ) else {
             return nil
@@ -442,7 +462,10 @@ actor FFMPEGConverter {
                     Self.logger.info("Running bmxtranswrap to rewrap MXF to OP1a format")
                     progressUpdate(0.95, "Rewrapping to OP1a...")
 
-                    let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(inputURL: capturedInputURL)
+                    let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(
+                        inputURL: capturedInputURL,
+                        audioRoutingConfig: capturedRequest.audioRoutingConfig
+                    )
                     let bmxSuccess = await BMXService.shared.rewrapToOP1a(
                         inputURL: tempMXF,
                         outputURL: capturedFinalOutputURL,
@@ -954,6 +977,7 @@ actor FFMPEGConverter {
         let capturedFinalOutputURL = outputFileURL
         let capturedInputBaseName = inputURL.deletingPathExtension().lastPathComponent
         let capturedInputURL = inputURL
+        let capturedAudioRoutingConfig = audioRoutingConfig
 
         // Monitor stderr for encoding progress (secondary to our frame-based progress)
         errorPipe.fileHandleForReading.readabilityHandler = { fileHandle in
@@ -984,7 +1008,10 @@ actor FFMPEGConverter {
                     Self.logger.info("Running bmxtranswrap for native waveform output")
                     progressUpdate(0.95, "Rewrapping to OP1a...")
 
-                    let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(inputURL: capturedInputURL)
+                    let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(
+                        inputURL: capturedInputURL,
+                        audioRoutingConfig: capturedAudioRoutingConfig
+                    )
                     let bmxSuccess = await BMXService.shared.rewrapToOP1a(
                         inputURL: tempMXF,
                         outputURL: capturedFinalOutputURL,

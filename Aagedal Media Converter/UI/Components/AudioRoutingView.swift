@@ -457,7 +457,8 @@ struct AudioRoutingView: View {
     }
     
     private func outputTrackRow(_ outputTrack: OutputTrack, position: Int) -> some View {
-        let trackInfo = config.trackInfo(for: outputTrack.streamIndex)
+        let baseTrackInfo = config.trackInfo(for: outputTrack.streamIndex)
+        let trackInfo = baseTrackInfo?.applyingOverride(outputTrack.mcaOverride)
 
         return HStack(spacing: 12) {
             // Position indicator
@@ -558,6 +559,9 @@ struct AudioRoutingView: View {
                 .help(outputTrack.downmixToStereo ? "Keep original surround audio" : "Downmix to stereo for compatibility")
             }
 
+            // MCA labels picker (used by TV AVC-Intra MXF output)
+            mcaLabelsMenu(for: outputTrack)
+
             // Remove button
             Button {
                 withAnimation {
@@ -590,6 +594,97 @@ struct AudioRoutingView: View {
             config: configBinding,
             onUpdate: updateValidation
         ))
+    }
+
+    /// Popup-menu picker for the manual MCA-label override. Lives on each output
+    /// track row; the AVC-Intra rewrap step reads these overrides when building
+    /// the bmx labels file. The icon switches to filled when an override is set.
+    @ViewBuilder
+    private func mcaLabelsMenu(for outputTrack: OutputTrack) -> some View {
+        let current = outputTrack.mcaOverride
+        let hasOverride = current?.isEmpty == false
+
+        Menu {
+            Section("Soundfield") {
+                ForEach(MCAStandardSoundfield.allCases) { soundfield in
+                    Button {
+                        var updated = current ?? MCALabelOverride()
+                        updated.soundfield = soundfield
+                        applyMCAOverride(updated, to: outputTrack.id)
+                    } label: {
+                        if current?.soundfield == soundfield {
+                            Label(soundfield.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(soundfield.displayName)
+                        }
+                    }
+                }
+                if current?.soundfield != nil {
+                    Divider()
+                    Button("Clear soundfield") {
+                        var updated = current ?? MCALabelOverride()
+                        updated.soundfield = nil
+                        applyMCAOverride(updated, to: outputTrack.id)
+                    }
+                }
+            }
+
+            Section("Audio Element") {
+                ForEach(MCAStandardAudioElement.allCases) { element in
+                    Button {
+                        var updated = current ?? MCALabelOverride()
+                        updated.audioElement = element
+                        applyMCAOverride(updated, to: outputTrack.id)
+                    } label: {
+                        if current?.audioElement == element {
+                            Label(element.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(element.displayName)
+                        }
+                    }
+                }
+                if current?.audioElement != nil {
+                    Divider()
+                    Button("Clear audio element") {
+                        var updated = current ?? MCALabelOverride()
+                        updated.audioElement = nil
+                        applyMCAOverride(updated, to: outputTrack.id)
+                    }
+                }
+            }
+
+            if hasOverride {
+                Section {
+                    Button("Reset all labels", role: .destructive) {
+                        applyMCAOverride(nil, to: outputTrack.id)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: hasOverride ? "tag.fill" : "tag")
+                .font(.body)
+                .foregroundColor(hasOverride ? .accentColor : .secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(mcaMenuHelp(for: current))
+    }
+
+    private func applyMCAOverride(_ override: MCALabelOverride?, to trackID: UUID) {
+        var updated = config
+        updated.setMCAOverride(override, for: trackID)
+        configBinding.wrappedValue = updated
+    }
+
+    private func mcaMenuHelp(for override: MCALabelOverride?) -> String {
+        guard let override, !override.isEmpty else {
+            return "Set MCA labels for this output track (used by AVC-Intra MXF export)"
+        }
+        var parts: [String] = []
+        if let element = override.audioElement { parts.append(element.displayName) }
+        if let soundfield = override.soundfield { parts.append(soundfield.displayName) }
+        return "MCA labels: \(parts.joined(separator: " • "))"
     }
     
     // MARK: - Bottom Toolbar
