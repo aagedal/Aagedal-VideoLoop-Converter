@@ -61,12 +61,17 @@ actor BMXService {
     ///   - inputURL: The source MXF file (from FFmpeg)
     ///   - outputURL: The destination MXF file (OP1a compliant)
     ///   - clipName: Optional clip name for the output
+    ///   - mcaLabelsFile: Optional path to a bmx MCA labels file. When provided, MCA
+    ///     descriptors (Soundfield Group, channel labels) are injected into the OP1a
+    ///     output for downstream broadcast/MAM systems. When nil, no labels are written
+    ///     (preserves pre-existing behavior).
     ///   - progress: Progress callback (0.0 to 1.0)
     /// - Returns: true if successful, false otherwise
     func rewrapToOP1a(
         inputURL: URL,
         outputURL: URL,
         clipName: String? = nil,
+        mcaLabelsFile: URL? = nil,
         progress: @escaping @Sendable (Double) -> Void
     ) async -> Bool {
         var arguments: [String] = [
@@ -76,6 +81,11 @@ actor BMXService {
 
         if let name = clipName, !name.isEmpty {
             arguments.append(contentsOf: ["--clip", name])
+        }
+
+        if let mcaLabelsFile {
+            // The <scheme> argument is ignored unless it is "as11"; pass a placeholder.
+            arguments.append(contentsOf: ["--track-mca-labels", "x", mcaLabelsFile.path])
         }
 
         return await runBMXTranswrap(

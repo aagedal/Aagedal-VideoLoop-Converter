@@ -41,6 +41,59 @@ actor FFMPEGConverter {
         }
     }
 
+    // MARK: - AVC-Intra MCA Labels
+
+    /// Builds an MCA labels temp file for the AVC-Intra OP1a rewrap.
+    ///
+    /// Returns nil if no useful labels can be derived (caller should rewrap without
+    /// the labels flag in that case, preserving today's behavior). Mirrors the
+    /// AVC-Intra mono-split layout in `FFMPEGCommandBuilder.adjustAVCIntraAudio`:
+    /// each input audio channel becomes one mono output track in input order.
+    private static func prepareAVCIntraMCALabelsFile(inputURL: URL) async -> URL? {
+        let allStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL) ?? []
+        let decodableStreams = allStreams.filter { $0.isDecodable }
+        guard !decodableStreams.isEmpty else { return nil }
+
+        let inputInfos = decodableStreams.map {
+            MCALabelsBuilder.InputStreamInfo(
+                channelCount: $0.channels ?? 0,
+                channelLayout: $0.channelLayout,
+                sampleRate: nil  // FFprobe basic info doesn't expose sampleRate; positional matching is reliable here
+            )
+        }
+
+        // Read input MCA labels via mxf2raw only when the input is itself MXF.
+        let mcaLabels: [AudioTrackMCALabels]
+        if inputURL.pathExtension.lowercased() == "mxf" {
+            mcaLabels = await BMXService.shared.getAudioTrackLabels(url: inputURL) ?? []
+        } else {
+            mcaLabels = []
+        }
+
+        let audioChannelsRaw = UserDefaults.standard.string(forKey: AppConstants.avcIntraAudioChannelsKey)
+            ?? AppConstants.defaultAVCIntraAudioChannels
+        let targetChannelCount = (AVCIntraAudioChannels(rawValue: audioChannelsRaw) ?? .ch8).count
+
+        guard let content = MCALabelsBuilder.buildAVCIntraLabelsFile(
+            inputStreams: inputInfos,
+            inputMCALabels: mcaLabels,
+            outputTrackCount: targetChannelCount
+        ) else {
+            return nil
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mca-labels-\(UUID().uuidString).txt")
+        do {
+            try content.write(to: tempURL, atomically: true, encoding: .utf8)
+            logger.info("Wrote MCA labels file for \(inputURL.lastPathComponent, privacy: .public) at \(tempURL.path, privacy: .public)")
+            return tempURL
+        } catch {
+            logger.error("Failed to write MCA labels file: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
     // MARK: - Output Validation
 
     /// Validates that an output file exists and has a non-zero size after FFmpeg reports success.
@@ -389,10 +442,12 @@ actor FFMPEGConverter {
                     Self.logger.info("Running bmxtranswrap to rewrap MXF to OP1a format")
                     progressUpdate(0.95, "Rewrapping to OP1a...")
 
+                    let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(inputURL: capturedInputURL)
                     let bmxSuccess = await BMXService.shared.rewrapToOP1a(
                         inputURL: tempMXF,
                         outputURL: capturedFinalOutputURL,
                         clipName: capturedInputBaseName,
+                        mcaLabelsFile: mcaLabelsFile,
                         progress: { bmxProgress in
                             // Map bmx progress to 95-100% range
                             let overallProgress = 0.95 + (bmxProgress * 0.05)
@@ -401,6 +456,9 @@ actor FFMPEGConverter {
                             }
                         }
                     )
+                    if let mcaLabelsFile {
+                        Self.cleanupTempFile(at: mcaLabelsFile, label: "MCA labels")
+                    }
 
                     if bmxSuccess {
                         Self.logger.info("bmxtranswrap completed: \(capturedFinalOutputURL.lastPathComponent)")
@@ -895,6 +953,7 @@ actor FFMPEGConverter {
         let capturedTempMXFURL = tempMXFURL
         let capturedFinalOutputURL = outputFileURL
         let capturedInputBaseName = inputURL.deletingPathExtension().lastPathComponent
+        let capturedInputURL = inputURL
 
         // Monitor stderr for encoding progress (secondary to our frame-based progress)
         errorPipe.fileHandleForReading.readabilityHandler = { fileHandle in
@@ -925,10 +984,12 @@ actor FFMPEGConverter {
                     Self.logger.info("Running bmxtranswrap for native waveform output")
                     progressUpdate(0.95, "Rewrapping to OP1a...")
 
+                    let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(inputURL: capturedInputURL)
                     let bmxSuccess = await BMXService.shared.rewrapToOP1a(
                         inputURL: tempMXF,
                         outputURL: capturedFinalOutputURL,
                         clipName: capturedInputBaseName,
+                        mcaLabelsFile: mcaLabelsFile,
                         progress: { bmxProgress in
                             let overallProgress = 0.95 + (bmxProgress * 0.05)
                             Task { @MainActor in
@@ -936,6 +997,9 @@ actor FFMPEGConverter {
                             }
                         }
                     )
+                    if let mcaLabelsFile {
+                        Self.cleanupTempFile(at: mcaLabelsFile, label: "MCA labels")
+                    }
 
                     if !bmxSuccess {
                         Self.logger.error("bmxtranswrap failed for native waveform")
