@@ -283,7 +283,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         // PERF: Rasterize the rounded-corner card so masksToBounds + cornerRadius
         // don't force an offscreen rendering pass on every scroll frame.
         cardView.layer?.shouldRasterize = true
-        cardView.layer?.rasterizationScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        updateCardRasterizationScale()
 
         // Left accent bar for encoding group child rows
         groupAccentLayer.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.3).cgColor
@@ -1144,6 +1144,25 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         lastThumbBoundsSize = .zero
         lastThumbCornerRadius = -1
         lastProgressTintColor = nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateCardRasterizationScale()
+    }
+
+    // Without this, a card rasterized on a 1× display stays a 1× bitmap when
+    // the window moves to Retina — Core Animation just upsamples it.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateCardRasterizationScale()
+    }
+
+    private func updateCardRasterizationScale() {
+        let scale = window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2.0
+        cardView.layer?.rasterizationScale = scale
     }
 
     /// Applies a thumbnail decoded on a background queue. The `forItemID` guard
