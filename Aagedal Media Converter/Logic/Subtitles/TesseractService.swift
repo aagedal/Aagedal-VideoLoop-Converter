@@ -79,6 +79,7 @@ actor TesseractService {
 
     private var isCancelled = false
     private var currentProcess: Process?
+    private var currentOCRTask: Task<String, Error>?
 
     private init() {}
 
@@ -134,6 +135,7 @@ actor TesseractService {
     func cancelGeneration() {
         isCancelled = true
         currentProcess?.terminate()
+        currentOCRTask?.cancel()
     }
 
     // MARK: - Pipeline
@@ -149,8 +151,19 @@ actor TesseractService {
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             throw TesseractServiceError.ffmpegNotFound
         }
-        guard let tesseractPath = BinaryPathResolver.tesseractPath else {
-            throw TesseractServiceError.tesseractNotFound
+
+        let engine: any BitmapSubtitleOCREngine
+        switch OCREngineKind.userPreferred {
+        case .tesseract:
+            guard let tesseractPath = BinaryPathResolver.tesseractPath else {
+                throw TesseractServiceError.tesseractNotFound
+            }
+            engine = TesseractOCREngine(
+                tesseractPath: tesseractPath,
+                tessdataPrefix: BinaryPathResolver.tessdataDirectory
+            )
+        case .appleVision:
+            engine = VisionOCREngine()
         }
 
         let tempDir = FileManager.default.temporaryDirectory
@@ -191,11 +204,19 @@ actor TesseractService {
             let pngFile = tempDir.appendingPathComponent("frame_\(i).png")
             try frame.imageData.write(to: pngFile)
 
-            let text = try ocrFrame(
-                pngURL: pngFile,
-                tesseractPath: tesseractPath,
-                language: language
-            )
+            let task = Task<String, Error> {
+                try await engine.recognize(pngURL: pngFile, language: language)
+            }
+            currentOCRTask = task
+            let text: String
+            do {
+                text = try await task.value
+            } catch is CancellationError {
+                throw TesseractServiceError.cancelled
+            } catch {
+                throw TesseractServiceError.ocrFailed(error.localizedDescription)
+            }
+            currentOCRTask = nil
 
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
@@ -301,45 +322,6 @@ actor TesseractService {
             let msg = String(data: errData, encoding: .utf8)?.suffix(300) ?? "unknown error"
             throw TesseractServiceError.extractionFailed("FFmpeg exited \(process.terminationStatus): \(msg)")
         }
-    }
-
-    // MARK: - OCR
-
-    private func ocrFrame(pngURL: URL, tesseractPath: String, language: String) throws -> String {
-        guard !isCancelled else { throw TesseractServiceError.cancelled }
-
-        let process = Process()
-        let stdoutPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: tesseractPath)
-        process.arguments = [pngURL.path, "stdout", "--psm", "6", "-l", language]
-        process.standardOutput = stdoutPipe
-        process.standardError = FileHandle.nullDevice  // suppress TIFF-absent warnings from PNG-only build
-        process.standardInput = FileHandle.nullDevice
-
-        // Pass tessdata directory via environment
-        var env = ProcessInfo.processInfo.environment
-        if let tessdata = BinaryPathResolver.tessdataDirectory {
-            env["TESSDATA_PREFIX"] = tessdata
-        }
-        process.environment = env
-
-        currentProcess = process
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            throw TesseractServiceError.ocrFailed(error.localizedDescription)
-        }
-        currentProcess = nil
-
-        guard process.terminationStatus == 0 else {
-            // Non-zero exit on a single frame is non-fatal — return empty string
-            return ""
-        }
-
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
     }
 
     // MARK: - SRT Builder
