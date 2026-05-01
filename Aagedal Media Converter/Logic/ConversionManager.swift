@@ -1696,6 +1696,14 @@ actor ConversionManager: Sendable {
         let imageSeqInputArgs = currentItem.imageSequenceConfig?.ffmpegInputArguments
         let imageSeqExpectedDuration = currentItem.imageSequenceConfig?.durationSeconds
 
+        // Auto-populate DCP/IMF metadata when the user never opened the editor.
+        // The CPL/PKL embed `ContentTitleText` literally, so handing FFMPEGConverter
+        // the raw filename would put the source extension into the cinema package.
+        // Default the title to the filename minus extension and pick up the user's
+        // last-used contentKind so batches of trailers don't have to be re-edited.
+        let resolvedDCPMetadata = resolveDCPMetadata(for: currentItem, preset: preset, inputURL: inputURL)
+        let resolvedIMFMetadata = resolveIMFMetadata(for: currentItem, preset: preset, inputURL: inputURL)
+
         let conversionRequest = ConversionRequest(
             inputURL: inputURL,
             outputURL: outputURL,
@@ -1704,8 +1712,8 @@ actor ConversionManager: Sendable {
             includeDateTag: currentItem.includeDateTag,
             sourceMetadata: currentItem.metadata,
             sourceCameraMetadata: currentItem.cameraMetadata,
-            dcpMetadata: currentItem.dcpMetadata,
-            imfMetadata: currentItem.imfMetadata,
+            dcpMetadata: resolvedDCPMetadata,
+            imfMetadata: resolvedIMFMetadata,
             trimStart: currentItem.trimStart,
             trimEnd: currentItem.trimEnd,
             expectedDuration: imageSeqExpectedDuration,
@@ -2269,11 +2277,20 @@ actor ConversionManager: Sendable {
         let streamIndex = stream.index ?? 0
         let codec = stream.codec ?? "pgssub"
 
-        // Language: stream language → user default → "eng"
+        // Language: stream language wins (ISO 639-2; both engines accept it).
+        // Otherwise fall back to the engine-specific user preference.
         let streamLang = stream.languageCode
-        let language = streamLang
-            ?? UserDefaults.standard.string(forKey: AppConstants.tesseractLanguageKey)
-            ?? AppConstants.defaultTesseractLanguage
+        let language: String = {
+            if let streamLang { return streamLang }
+            switch OCREngineKind.userPreferred {
+            case .tesseract:
+                return UserDefaults.standard.string(forKey: AppConstants.tesseractLanguageKey)
+                    ?? AppConstants.defaultTesseractLanguage
+            case .appleVision:
+                return UserDefaults.standard.string(forKey: AppConstants.visionLanguageKey)
+                    ?? AppConstants.defaultVisionLanguage
+            }
+        }()
 
         await MainActor.run {
             if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
@@ -2587,6 +2604,82 @@ actor ConversionManager: Sendable {
                 }
             }
             logger.error("Quality analytics failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Returns the DCP metadata to embed in the request. When the user has saved
+    /// metadata via the editor we pass it through unchanged. When the preset is
+    /// DCP but no metadata exists yet, we materialize a sensible default so the
+    /// CPL ContentTitleText is the source filename without extension (the editor
+    /// uses the same fallback when the user opens it). Last-used contentKind is
+    /// applied so a batch of trailers doesn't have to be re-edited per item.
+    /// Logs advisory warnings when the chosen kind looks wrong for the filename
+    /// or audio language is empty.
+    private func resolveDCPMetadata(for item: VideoItem, preset: ExportPreset, inputURL: URL) -> DCPItemMetadata? {
+        guard preset == .dcp else { return item.dcpMetadata }
+        let stripped = inputURL.deletingPathExtension().lastPathComponent
+        let resolved: DCPItemMetadata = {
+            if let stored = item.dcpMetadata {
+                if stored.contentTitleText.isEmpty {
+                    var copy = stored
+                    copy.contentTitleText = stripped
+                    return copy
+                }
+                return stored
+            }
+            var fresh = DCPItemMetadata()
+            fresh.contentTitleText = stripped
+            if let raw = UserDefaults.standard.string(forKey: AppConstants.lastDCPContentKindKey),
+               let remembered = DCPContentKind(rawValue: raw) {
+                fresh.contentKind = remembered
+            }
+            return fresh
+        }()
+        emitDCPAdvisoryWarnings(metadata: resolved, sourceName: stripped)
+        return resolved
+    }
+
+    private func resolveIMFMetadata(for item: VideoItem, preset: ExportPreset, inputURL: URL) -> IMFItemMetadata? {
+        guard preset == .imfJ2K || preset == .imfProRes else { return item.imfMetadata }
+        let stripped = inputURL.deletingPathExtension().lastPathComponent
+        let resolved: IMFItemMetadata = {
+            if let stored = item.imfMetadata {
+                if stored.contentTitleText.isEmpty {
+                    var copy = stored
+                    copy.contentTitleText = stripped
+                    return copy
+                }
+                return stored
+            }
+            var fresh = IMFItemMetadata()
+            fresh.contentTitleText = stripped
+            if let raw = UserDefaults.standard.string(forKey: AppConstants.lastIMFContentKindKey),
+               let remembered = IMFContentKind(rawValue: raw) {
+                fresh.contentKind = remembered
+            }
+            return fresh
+        }()
+        emitIMFAdvisoryWarnings(metadata: resolved, sourceName: stripped)
+        return resolved
+    }
+
+    private func emitDCPAdvisoryWarnings(metadata: DCPItemMetadata, sourceName: String) {
+        let lowered = sourceName.lowercased()
+        if metadata.contentKind == .feature, lowered.contains("trailer") || lowered.contains("_tlr") {
+            logger.warning("DCP metadata advisory for \(sourceName, privacy: .public): filename suggests a trailer but contentKind is set to 'feature'. Open the DCP metadata editor to confirm.")
+        }
+        if metadata.audioLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            logger.warning("DCP metadata advisory for \(sourceName, privacy: .public): audioLanguage is empty. Defaulting to 'en' in the manifest.")
+        }
+    }
+
+    private func emitIMFAdvisoryWarnings(metadata: IMFItemMetadata, sourceName: String) {
+        let lowered = sourceName.lowercased()
+        if metadata.contentKind == .feature, lowered.contains("trailer") || lowered.contains("_tlr") {
+            logger.warning("IMF metadata advisory for \(sourceName, privacy: .public): filename suggests a trailer but contentKind is set to 'feature'. Open the IMF metadata editor to confirm.")
+        }
+        if metadata.audioLanguage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            logger.warning("IMF metadata advisory for \(sourceName, privacy: .public): audioLanguage is empty. Defaulting to 'en' in the manifest.")
         }
     }
 

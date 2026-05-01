@@ -56,6 +56,8 @@ struct VideoFileListView: View {
     var onOpenTimecode: ((UUID) -> Void)?
     var onOpenAudioConfig: ((UUID) -> Void)?
     var onOpenMetadata: (([UUID]) -> Void)?
+    var onOpenDCPMetadata: ((UUID) -> Void)?
+    var onOpenIMFMetadata: ((UUID) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
     var onURLDrop: ((String) -> Void)?
@@ -205,6 +207,8 @@ struct VideoFileListView: View {
                     onOpenTimecode: onOpenTimecode,
                     onOpenAudioConfig: onOpenAudioConfig,
                     onOpenMetadata: onOpenMetadata,
+                    onOpenDCPMetadata: onOpenDCPMetadata,
+                    onOpenIMFMetadata: onOpenIMFMetadata,
                     onOpenAnalyticsResults: { itemID in
                         analyticsResultsItemID = itemID
                     },
@@ -1148,11 +1152,20 @@ struct VideoFileListView: View {
 
         let streamIndex = stream.index ?? 0
         let codec = stream.codec ?? "pgssub"
-        let language = stream.languageCode
-            ?? UserDefaults.standard.string(forKey: AppConstants.tesseractLanguageKey)
-            ?? AppConstants.defaultTesseractLanguage
+        let engineKind = OCREngineKind.userPreferred
+        let language: String = {
+            if let streamLang = stream.languageCode { return streamLang }
+            switch engineKind {
+            case .tesseract:
+                return UserDefaults.standard.string(forKey: AppConstants.tesseractLanguageKey)
+                    ?? AppConstants.defaultTesseractLanguage
+            case .appleVision:
+                return UserDefaults.standard.string(forKey: AppConstants.visionLanguageKey)
+                    ?? AppConstants.defaultVisionLanguage
+            }
+        }()
 
-        guard BinaryPathResolver.tesseractPath != nil else {
+        if engineKind == .tesseract, BinaryPathResolver.tesseractPath == nil {
             await MainActor.run {
                 if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
                     droppedFiles[idx].subtitleStatus = .failed("Tesseract not found. Configure in Settings → OCR.")

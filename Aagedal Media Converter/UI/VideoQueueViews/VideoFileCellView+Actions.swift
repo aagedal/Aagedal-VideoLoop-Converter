@@ -352,6 +352,14 @@ extension VideoFileCellView {
         menu.addItem(withTitle: "Metadata", action: #selector(ctxMetadata), keyEquivalent: "")
             .target = self
 
+        if config.isDCPPreset {
+            menu.addItem(withTitle: "DCP Metadata…", action: #selector(ctxDCPMetadata), keyEquivalent: "")
+                .target = self
+        } else if config.isIMFPreset {
+            menu.addItem(withTitle: "IMF Metadata…", action: #selector(ctxIMFMetadata), keyEquivalent: "")
+                .target = self
+        }
+
         if config.hasVideoStream || config.audioStreamCount > 0 {
             menu.addItem(withTitle: "Audio Routing", action: #selector(ctxAudioRouting), keyEquivalent: "")
                 .target = self
@@ -382,6 +390,8 @@ extension VideoFileCellView {
     @objc private func ctxShowSubtitleInFinder() { actionHandler?(.showSubtitleInFinder) }
     @objc private func ctxPreview() { actionHandler?(.showPreview) }
     @objc private func ctxMetadata() { actionHandler?(.showMetadata) }
+    @objc private func ctxDCPMetadata() { actionHandler?(.showDCPMetadata) }
+    @objc private func ctxIMFMetadata() { actionHandler?(.showIMFMetadata) }
     @objc private func ctxAudioRouting() { actionHandler?(.showAudioRouting) }
     @objc private func ctxAttachSubtitle() { actionHandler?(.attachSubtitleFile) }
     @objc private func ctxRename() { actionHandler?(.beginRename) }

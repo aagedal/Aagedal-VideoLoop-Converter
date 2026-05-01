@@ -129,6 +129,8 @@ struct VideoQueueTableView: NSViewRepresentable {
     var onOpenTimecode: ((UUID) -> Void)?
     var onOpenAudioConfig: ((UUID) -> Void)?
     var onOpenMetadata: (([UUID]) -> Void)?
+    var onOpenDCPMetadata: ((UUID) -> Void)?
+    var onOpenIMFMetadata: ((UUID) -> Void)?
     var onOpenAnalyticsResults: ((UUID) -> Void)?
     var onToggleDateTag: ((Int) -> Void)?
     var onPlayFullscreen: ((UUID) -> Void)?
@@ -1407,6 +1409,10 @@ struct VideoQueueTableView: NSViewRepresentable {
                 parent.onOpenTrim?(itemID)
             case .showMetadata:
                 parent.onOpenMetadata?([itemID])
+            case .showDCPMetadata:
+                parent.onOpenDCPMetadata?(itemID)
+            case .showIMFMetadata:
+                parent.onOpenIMFMetadata?(itemID)
             case .showAudioRouting:
                 parent.onOpenAudioConfig?(itemID)
             case .showTimecode:

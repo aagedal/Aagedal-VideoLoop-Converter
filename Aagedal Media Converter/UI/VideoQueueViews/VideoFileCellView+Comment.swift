@@ -42,6 +42,7 @@ extension VideoFileCellView {
     /// inline — it opens in a popover anchored to the comment button.
     func setupCommentSection() {
         setupToggleButton(commentToggleButton, symbol: "text.bubble", action: #selector(commentToggleClicked))
+        setupToggleButton(metadataToggleButton, symbol: "film.stack", action: #selector(metadataToggleClicked))
         setupToggleButton(dateTagButton, symbol: "calendar.badge.checkmark", action: #selector(dateTagClicked))
         setupToggleButton(waveformButton, symbol: "waveform.circle", action: #selector(waveformClicked))
         setupToggleButton(waveformBgButton, symbol: "photo", action: #selector(waveformBgClicked))
@@ -82,6 +83,28 @@ extension VideoFileCellView {
             commentToggleButton.toolTip = hasComment
                 ? "Edit comment — stored in the encoded file's metadata"
                 : "Add a comment — stored in the encoded file's metadata"
+        }
+
+        // DCP / IMF metadata toggle — visible only when the current preset is a
+        // DCP or IMF preset. The cell config carries the per-preset flag plus the
+        // current title (nil/empty when nothing has been set yet) so we can
+        // tint the button to indicate whether the user has populated metadata.
+        let metadataAvailable = config.isDCPPreset || config.isIMFPreset
+        metadataToggleButton.isHidden = !metadataAvailable
+        if metadataAvailable {
+            let title = config.isDCPPreset ? config.dcpMetadataTitle : config.imfMetadataTitle
+            let hasMetadata = !(title?.isEmpty ?? true)
+            metadataToggleButton.image = hasMetadata ? VideoFileCellView.Symbol.filmStackFill : VideoFileCellView.Symbol.filmStack
+            metadataToggleButton.contentTintColor = hasMetadata ? .systemIndigo : .secondaryLabelColor
+            if config.isDCPPreset {
+                metadataToggleButton.toolTip = hasMetadata
+                    ? "Edit DCP metadata — embedded in the CPL/PKL"
+                    : "Add DCP metadata (title, content kind, language)"
+            } else {
+                metadataToggleButton.toolTip = hasMetadata
+                    ? "Edit IMF metadata — embedded in the CPL/PKL"
+                    : "Add IMF metadata (title, content kind, language)"
+            }
         }
 
         // Date tag button — respects the "show date tag" preference.

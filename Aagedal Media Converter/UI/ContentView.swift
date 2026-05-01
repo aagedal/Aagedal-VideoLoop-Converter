@@ -101,6 +101,8 @@ struct ContentView: View {
     @State private var trimWithCropSheetItemID: UUID?
     @State private var timecodeSheetItemID: UUID?
     @State private var audioConfigSheetItemID: UUID?
+    @State private var dcpMetadataSheetItemID: UUID?
+    @State private var imfMetadataSheetItemID: UUID?
     
     // Using shared AppConstants for supported file types
     private var supportedVideoTypes: [UTType] {
@@ -156,6 +158,8 @@ struct ContentView: View {
             trimWithCropSheetItemID != nil ||
             timecodeSheetItemID != nil ||
             audioConfigSheetItemID != nil ||
+            dcpMetadataSheetItemID != nil ||
+            imfMetadataSheetItemID != nil ||
             CaptureOverlayWindowController.shared.isShowing ||
             showURLInputOverlay ||
             showPresetQuickSelect
@@ -267,6 +271,14 @@ struct ContentView: View {
                 MetadataWindowState.shared.selectedItemIDs = Set(validIDs)
                 MetadataWindowState.shared.allItems = allItems
                 MetadataWindowController.shared.showWindow()
+            },
+            onOpenDCPMetadata: { [self] id in
+                guard itemExists(id: id) else { return }
+                dcpMetadataSheetItemID = id
+            },
+            onOpenIMFMetadata: { [self] id in
+                guard itemExists(id: id) else { return }
+                imfMetadataSheetItemID = id
             },
             onToggleDateTag: { index in
                 droppedFiles[index].includeDateTag.toggle()
@@ -442,6 +454,8 @@ struct ContentView: View {
                 trimWithCropSheetItemID: $trimWithCropSheetItemID,
                 timecodeSheetItemID: $timecodeSheetItemID,
                 audioConfigSheetItemID: $audioConfigSheetItemID,
+                dcpMetadataSheetItemID: $dcpMetadataSheetItemID,
+                imfMetadataSheetItemID: $imfMetadataSheetItemID,
                 selectedPreset: selectedPreset,
                 showCaptureSheet: .constant(false)
             ))
@@ -2239,6 +2253,8 @@ private struct ContentViewSheets: ViewModifier {
     @Binding var trimWithCropSheetItemID: UUID?
     @Binding var timecodeSheetItemID: UUID?
     @Binding var audioConfigSheetItemID: UUID?
+    @Binding var dcpMetadataSheetItemID: UUID?
+    @Binding var imfMetadataSheetItemID: UUID?
     let selectedPreset: ExportPreset
     @Binding var showCaptureSheet: Bool
 
@@ -2255,6 +2271,12 @@ private struct ContentViewSheets: ViewModifier {
             }
             .sheet(isPresented: sheetBinding(for: $audioConfigSheetItemID)) {
                 audioConfigSheetContent
+            }
+            .sheet(isPresented: sheetBinding(for: $dcpMetadataSheetItemID)) {
+                dcpMetadataSheetContent
+            }
+            .sheet(isPresented: sheetBinding(for: $imfMetadataSheetItemID)) {
+                imfMetadataSheetContent
             }
             // Capture mode now uses CaptureOverlayWindowController instead of a sheet
     }
@@ -2300,6 +2322,20 @@ private struct ContentViewSheets: ViewModifier {
     private var audioConfigSheetContent: some View {
         if let id = audioConfigSheetItemID, let binding = itemBinding(id: id) {
             AudioRoutingView(item: binding, preset: selectedPreset)
+        }
+    }
+
+    @ViewBuilder
+    private var dcpMetadataSheetContent: some View {
+        if let id = dcpMetadataSheetItemID, let binding = itemBinding(id: id) {
+            DCPMetadataView(item: binding)
+        }
+    }
+
+    @ViewBuilder
+    private var imfMetadataSheetContent: some View {
+        if let id = imfMetadataSheetItemID, let binding = itemBinding(id: id) {
+            IMFMetadataView(item: binding)
         }
     }
 

@@ -94,9 +94,18 @@ struct IMFMetadataView: View {
         .padding(24)
         .frame(width: 520, height: 340)
         .onAppear {
-            let meta = item.imfMetadata ?? IMFItemMetadata()
-            contentTitleText = meta.contentTitleText.isEmpty ? item.name : meta.contentTitleText
-            contentKind = meta.contentKind
+            let stored = item.imfMetadata
+            let meta = stored ?? IMFItemMetadata()
+            contentTitleText = meta.contentTitleText.isEmpty
+                ? (item.url.deletingPathExtension().lastPathComponent)
+                : meta.contentTitleText
+            if stored == nil,
+               let raw = UserDefaults.standard.string(forKey: AppConstants.lastIMFContentKindKey),
+               let remembered = IMFContentKind(rawValue: raw) {
+                contentKind = remembered
+            } else {
+                contentKind = meta.contentKind
+            }
             annotationText = meta.annotationText
             audioLanguage = meta.audioLanguage
         }
@@ -109,5 +118,6 @@ struct IMFMetadataView: View {
             annotationText: annotationText,
             audioLanguage: audioLanguage.isEmpty ? "en" : audioLanguage
         )
+        UserDefaults.standard.set(contentKind.rawValue, forKey: AppConstants.lastIMFContentKindKey)
     }
 }

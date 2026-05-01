@@ -77,6 +77,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     let ocrButton = NSButton()
     let analyticsButton = NSButton()
     let commentToggleButton = NSButton()
+    let metadataToggleButton = NSButton()
 
     // Action buttons container
     let actionButtonStack = NSStackView()
@@ -221,6 +222,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         static let calendarMinus       = NSImage(systemSymbolName: "calendar.badge.minus", accessibilityDescription: nil)
         static let waveformCircle      = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: nil)
         static let waveformCircleFill  = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: nil)
+        // DCP / IMF metadata
+        static let filmStack           = NSImage(systemSymbolName: "film.stack", accessibilityDescription: nil)
+        static let filmStackFill       = NSImage(systemSymbolName: "film.stack.fill", accessibilityDescription: nil)
 
         /// Maps a raw symbol name to the cached image when available.
         /// Falls back to a fresh lookup so callers using dynamic names still work.
@@ -250,6 +254,8 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             case "calendar.badge.minus": return calendarMinus
             case "waveform.circle": return waveformCircle
             case "waveform.circle.fill": return waveformCircleFill
+            case "film.stack": return filmStack
+            case "film.stack.fill": return filmStackFill
             default: return NSImage(systemSymbolName: name, accessibilityDescription: nil)
             }
         }
@@ -726,7 +732,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
         for view in [encodeButton, autoEncodeButton, encodeDivider, transcriptionButton, ocrButton, analyticsButton, uploadButton,
                      metaDivider,
-                     dateTagButton, commentToggleButton, waveformButton, waveformBgButton,
+                     dateTagButton, commentToggleButton, metadataToggleButton, waveformButton, waveformBgButton,
                      trailingSpacer,
                      buttonDivider, actionButtonStack] {
             buttonsRow.addArrangedSubview(view)
@@ -1443,6 +1449,14 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     @objc private func autoEncodeButtonClicked() { actionHandler?(.toggleAutoEncode) }
     @objc func commentToggleClicked() {
         commentPopoverRequested()
+    }
+    @objc func metadataToggleClicked() {
+        guard let config = currentConfig else { return }
+        if config.isDCPPreset {
+            actionHandler?(.showDCPMetadata)
+        } else if config.isIMFPreset {
+            actionHandler?(.showIMFMetadata)
+        }
     }
 
     // MARK: - NSTextFieldDelegate (comment field)

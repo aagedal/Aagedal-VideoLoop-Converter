@@ -73,6 +73,12 @@ enum AppConstants {
     static let captureRegionWidthKey = "captureRegionWidth"
     static let captureRegionHeightKey = "captureRegionHeight"
     static let defaultCaptureRegionMode = false
+
+    // DCP / IMF metadata: remember the last `contentKind` the user picked so a
+    // fresh queue item opening the editor lands on the same kind they last used
+    // (per format) instead of always reverting to "feature".
+    static let lastDCPContentKindKey = "lastDCPContentKind"
+    static let lastIMFContentKindKey = "lastIMFContentKind"
     
     // Directory for cached preview assets (thumbnails, waveforms, etc.)
     static let previewCacheDirectory: URL = {
@@ -753,6 +759,16 @@ enum AppConstants {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cache/huggingface/hub", isDirectory: true)
     }
+
+    // MARK: - OCR (Bitmap Subtitle) Settings
+
+    // Engine selection — values match `OCREngineKind.rawValue`
+    static let ocrEngineKey = "ocrEngineSelection"
+    static let defaultOCREngine = "appleVision"
+
+    // Apple Vision recognition language (BCP-47, e.g. "en-US")
+    static let visionLanguageKey = "visionRecognitionLanguage"
+    static let defaultVisionLanguage = "en-US"
 
     // MARK: - Tesseract Settings
 
