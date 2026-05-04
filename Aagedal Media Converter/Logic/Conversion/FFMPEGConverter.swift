@@ -568,6 +568,7 @@ actor FFMPEGConverter {
 
                         if jp2Files.isEmpty {
                             Self.logger.error("No JP2 frames found in \(jp2Dir.path)")
+                            errorReason = String(localized: "DCP video wrap failed: no JP2 frames produced", comment: "Shown when the JPEG 2000 frame export step produced no usable frames for DCP wrapping.")
                             success = false
                         } else {
                             // Create J2C directory for stripped codestreams
@@ -629,12 +630,17 @@ actor FFMPEGConverter {
                                     Self.logger.info("Video MXF created with asdcp-wrap")
                                 } else {
                                     Self.logger.error("asdcp-wrap failed for video MXF (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
+                                    errorReason = Self.dcpIMFErrorReason(
+                                        base: String(localized: "DCP video wrap failed (asdcp-wrap exit \(Int(videoWrapProcess.terminationStatus)))", comment: "Shown when the asdcp-wrap tool exits with a non-zero status while wrapping the DCP video essence."),
+                                        stderr: stderrStr
+                                    )
                                     success = false
                                     Self.cleanupTempFile(at: tmpVideoMXF, label: "failed DCP video MXF")
                                 }
                             } catch {
                                 try? stderrPipe.fileHandleForReading.close()
                                 Self.logger.error("Failed to run asdcp-wrap for video: \(error.localizedDescription)")
+                                errorReason = String(localized: "DCP video wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for DCP video throws an exception.")
                                 success = false
                             }
 
@@ -643,6 +649,7 @@ actor FFMPEGConverter {
                         }
                     } else {
                         Self.logger.error("asdcp-wrap not found — cannot create DCP-compliant MXF files")
+                        errorReason = String(localized: "DCP video wrap failed: asdcp-wrap not found", comment: "Shown when the bundled asdcp-wrap binary cannot be located, blocking the DCP export.")
                         success = false
                     }
 
@@ -654,7 +661,7 @@ actor FFMPEGConverter {
 
                     // Step 2: Extract audio as WAV
                     progressUpdate(0.82, "Extracting audio for DCP...")
-                    let audioWavURL = await Self.extractAudioAsPCMWAV(
+                    let audioExtractionResult = await Self.extractAudioAsPCMWAV(
                         inputURL: capturedInputURL,
                         outputFolder: FileManager.default.temporaryDirectory,
                         ffmpegPath: capturedFfmpegPath,
@@ -662,6 +669,17 @@ actor FFMPEGConverter {
                         trimEnd: capturedRequest.trimEnd,
                         audioRoutingConfig: capturedRequest.audioRoutingConfig
                     )
+                    let audioWavURL: URL?
+                    switch audioExtractionResult {
+                    case .extracted(let url):
+                        audioWavURL = url
+                    case .noAudioInSource:
+                        audioWavURL = nil
+                    case .failed(let reason):
+                        audioWavURL = nil
+                        errorReason = String(localized: "DCP audio extraction failed: \(reason)", comment: "Shown when ffmpeg cannot extract PCM audio from a source that has audio streams, blocking the DCP audio MXF.")
+                        success = false
+                    }
 
                     // Step 3: Wrap audio WAV to DCP MXF with asdcp-wrap
                     var finalAudioMXF: URL? = nil
@@ -702,11 +720,20 @@ actor FFMPEGConverter {
                                 finalAudioMXF = audioMXFURL
                                 Self.logger.info("Audio MXF created with asdcp-wrap")
                             } else {
-                                Self.logger.warning("asdcp-wrap failed for audio (status \(audioWrapProcess.terminationStatus)): \(audioStderrStr.prefix(300))")
+                                Self.logger.error("asdcp-wrap failed for audio (status \(audioWrapProcess.terminationStatus)): \(audioStderrStr.prefix(300))")
+                                errorReason = Self.dcpIMFErrorReason(
+                                    base: String(localized: "DCP audio wrap failed (asdcp-wrap exit \(Int(audioWrapProcess.terminationStatus)))", comment: "Shown when asdcp-wrap exits with a non-zero status while wrapping the DCP audio essence; the resulting package would be missing audio."),
+                                    stderr: audioStderrStr
+                                )
+                                success = false
+                                Self.cleanupTempFile(at: audioMXFURL, label: "failed DCP audio MXF")
                             }
                         } catch {
                             try? audioStderrPipe.fileHandleForReading.close()
                             Self.logger.error("Failed to run asdcp-wrap for audio: \(error.localizedDescription)")
+                            errorReason = String(localized: "DCP audio wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for DCP audio throws an exception.")
+                            success = false
+                            Self.cleanupTempFile(at: audioMXFURL, label: "failed DCP audio MXF")
                         }
 
                         // Clean up WAV
@@ -764,6 +791,7 @@ actor FFMPEGConverter {
 
                         if !dcpSuccess {
                             Self.logger.error("DCP assembly failed")
+                            errorReason = String(localized: "DCP assembly failed", comment: "Shown when DCPService cannot assemble the final DCP package (CPL/PKL/ASSETMAP). Detailed cause is in the app log.")
                             success = false
                         }
 
@@ -804,6 +832,7 @@ actor FFMPEGConverter {
 
                             if jp2Files.isEmpty {
                                 Self.logger.error("No JP2 frames found for IMF in \(jp2Dir.path)")
+                                errorReason = String(localized: "IMF video wrap failed: no JP2 frames produced", comment: "Shown when the JPEG 2000 frame export step produced no usable frames for IMF App 2e wrapping.")
                                 success = false
                             } else {
                                 let j2cDir = FileManager.default.temporaryDirectory
@@ -846,18 +875,24 @@ actor FFMPEGConverter {
                                         Self.logger.info("IMF video essence created (App #2e)")
                                     } else {
                                         Self.logger.error("asdcp-wrap failed for IMF video (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
+                                        errorReason = Self.dcpIMFErrorReason(
+                                            base: String(localized: "IMF video wrap failed (asdcp-wrap exit \(Int(videoWrapProcess.terminationStatus)))", comment: "Shown when asdcp-wrap exits with a non-zero status while wrapping the IMF App 2e video essence."),
+                                            stderr: stderrStr
+                                        )
                                         success = false
                                         Self.cleanupTempFile(at: tmpVideoMXF, label: "failed IMF video MXF")
                                     }
                                 } catch {
                                     try? stderrPipe.fileHandleForReading.close()
                                     Self.logger.error("Failed to run asdcp-wrap for IMF video: \(error.localizedDescription)")
+                                    errorReason = String(localized: "IMF video wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for IMF video throws an exception.")
                                     success = false
                                 }
                                 Self.cleanupTempFile(at: j2cDir, label: "IMF J2C frames")
                             }
                         } else {
                             Self.logger.error("asdcp-wrap not found — cannot create IMF App 2e essence")
+                            errorReason = String(localized: "IMF video wrap failed: asdcp-wrap not found", comment: "Shown when the bundled asdcp-wrap binary cannot be located, blocking the IMF App 2e export.")
                             success = false
                         }
 
@@ -897,6 +932,7 @@ actor FFMPEGConverter {
                             Self.logger.info("IMF video essence created (App #5)")
                         } else {
                             Self.logger.error("bmxtranswrap failed for IMF ProRes video essence")
+                            errorReason = String(localized: "IMF video wrap failed: bmxtranswrap rejected ProRes essence", comment: "Shown when bmxtranswrap cannot rewrap the ProRes MOV into IMF App 5 OP1a MXF.")
                             success = false
                         }
                         // Remove the temporary MOV; if user wants to keep, they can use the .prores preset directly.
@@ -910,7 +946,7 @@ actor FFMPEGConverter {
                     var imfAudioMXF: URL? = nil
                     if success {
                         progressUpdate(0.86, "Extracting audio for IMF...")
-                        let audioWavURL = await Self.extractAudioAsPCMWAV(
+                        let audioExtractionResult = await Self.extractAudioAsPCMWAV(
                             inputURL: capturedInputURL,
                             outputFolder: FileManager.default.temporaryDirectory,
                             ffmpegPath: capturedFfmpegPath,
@@ -918,6 +954,17 @@ actor FFMPEGConverter {
                             trimEnd: capturedRequest.trimEnd,
                             audioRoutingConfig: capturedRequest.audioRoutingConfig
                         )
+                        let audioWavURL: URL?
+                        switch audioExtractionResult {
+                        case .extracted(let url):
+                            audioWavURL = url
+                        case .noAudioInSource:
+                            audioWavURL = nil
+                        case .failed(let reason):
+                            audioWavURL = nil
+                            errorReason = String(localized: "IMF audio extraction failed: \(reason)", comment: "Shown when ffmpeg cannot extract PCM audio from a source that has audio streams, blocking the IMF audio essence.")
+                            success = false
+                        }
 
                         if let wavURL = audioWavURL {
                             progressUpdate(0.90, "Wrapping audio essence...")
@@ -945,7 +992,9 @@ actor FFMPEGConverter {
                             if bmxAudioOK {
                                 imfAudioMXF = tmpAudioMXF
                             } else {
-                                Self.logger.warning("bmxtranswrap failed for IMF audio essence — proceeding without audio")
+                                Self.logger.error("bmxtranswrap failed for IMF audio essence")
+                                errorReason = String(localized: "IMF audio wrap failed: bmxtranswrap rejected audio essence", comment: "Shown when bmxtranswrap cannot wrap the extracted PCM audio into the IMF audio MXF; the package would otherwise be missing audio.")
+                                success = false
                                 Self.cleanupTempFile(at: tmpAudioMXF, label: "failed IMF audio MXF")
                             }
                             Self.cleanupTempFile(at: wavURL, label: "IMF audio WAV")
@@ -998,6 +1047,7 @@ actor FFMPEGConverter {
                         )
                         if !imfSuccess {
                             Self.logger.error("IMF assembly failed")
+                            errorReason = String(localized: "IMF manifest assembly failed", comment: "Shown when IMFManifestWriter cannot assemble the IMP package (CPL/PKL/ASSETMAP). Detailed cause is in the app log.")
                             success = false
                         }
                         // IMFManifestWriter moves the essences into the package folder; clean up
@@ -1058,6 +1108,19 @@ actor FFMPEGConverter {
     }
 
     // MARK: - Extract Error Reason
+
+    /// Composes a user-facing reason for a DCP/IMF wrap-step failure. Appends a short,
+    /// trimmed slice of the tool's stderr after the base message when present, so the
+    /// queue capsule tooltip carries the diagnostic context without dumping the full log.
+    private static func dcpIMFErrorReason(base: String, stderr: String) -> String {
+        let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return base }
+        // Use the last non-empty line — wrap tools tend to print the actionable cause last.
+        let lastLine = trimmed.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last(where: { !$0.isEmpty }) ?? trimmed
+        return truncateForDisplay("\(base): \(lastLine)")
+    }
 
     /// Extracts a concise, user-facing error reason from FFmpeg stderr output.
     private static func extractErrorReason(from stderr: String, exitCode: Int32) -> String {
@@ -1432,6 +1495,16 @@ actor FFMPEGConverter {
     /// FFmpeg's MXF muxer cannot create audio-only MXF files, so we extract to WAV first,
     /// then asdcp-wrap (DCP) or bmxtranswrap (IMF) takes over to produce the MXF essence.
     /// - Returns: URL of the audio WAV file, or nil if source has no audio or extraction failed
+    /// Result of `extractAudioAsPCMWAV`. Distinguishes "source has no audio" (a legitimate
+    /// silent DCP/IMF) from "extraction failed" (the user had audio but we lost it), so
+    /// callers can surface the failure case to the UI instead of silently producing a
+    /// package with no audio.
+    enum AudioExtractionResult: Sendable {
+        case extracted(URL)
+        case noAudioInSource
+        case failed(reason: String)
+    }
+
     private static func extractAudioAsPCMWAV(
         inputURL: URL,
         outputFolder: URL,
@@ -1439,12 +1512,12 @@ actor FFMPEGConverter {
         trimStart: Double?,
         trimEnd: Double?,
         audioRoutingConfig: AudioRoutingConfig? = nil
-    ) async -> URL? {
+    ) async -> AudioExtractionResult {
         // Check if source has audio streams
         guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
               !audioStreams.isEmpty else {
             logger.debug("No audio streams in source, skipping audio extraction for DCP")
-            return nil
+            return .noAudioInSource
         }
 
         let audioWavURL = outputFolder.appendingPathComponent("audio_temp_\(UUID().uuidString).wav")
@@ -1541,16 +1614,16 @@ actor FFMPEGConverter {
 
             if process.terminationStatus == 0 {
                 logger.info("Audio WAV extraction complete: \(audioWavURL.lastPathComponent)")
-                return audioWavURL
+                return .extracted(audioWavURL)
             } else {
-                logger.warning("Audio WAV extraction for DCP failed (status \(process.terminationStatus)): \(stderrStr.suffix(300))")
-                Self.cleanupTempFile(at: audioWavURL, label: "failed DCP audio WAV")
-                return nil
+                logger.error("Audio WAV extraction failed (status \(process.terminationStatus)): \(stderrStr.suffix(300))")
+                Self.cleanupTempFile(at: audioWavURL, label: "failed audio WAV")
+                return .failed(reason: "ffmpeg exit \(process.terminationStatus)")
             }
         } catch {
             try? stderrPipe.fileHandleForReading.close()
-            logger.error("Failed to start audio WAV extraction for DCP: \(error.localizedDescription)")
-            return nil
+            logger.error("Failed to start audio WAV extraction: \(error.localizedDescription)")
+            return .failed(reason: error.localizedDescription)
         }
     }
 
