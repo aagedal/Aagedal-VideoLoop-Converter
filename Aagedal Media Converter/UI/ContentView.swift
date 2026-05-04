@@ -1258,16 +1258,21 @@ struct ContentView: View {
                   let ii = encodingGroups[gi].items.firstIndex(where: { $0.id == itemID }) else { continue }
 
             let url = encodingGroups[gi].items[ii].url
-            let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
-            let metadata = await VideoFileUtils.fetchMetadata(for: url)
+            async let detailsTask = VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
+            async let metadataTask = VideoFileUtils.fetchMetadata(for: url)
 
-            // Re-lookup indices in case array changed during await
-            guard let gi2 = encodingGroups.firstIndex(where: { $0.id == groupID }),
-                  let ii2 = encodingGroups[gi2].items.firstIndex(where: { $0.id == itemID }) else { continue }
+            let details = await detailsTask
+            if let gi2 = encodingGroups.firstIndex(where: { $0.id == groupID }),
+               let ii2 = encodingGroups[gi2].items.firstIndex(where: { $0.id == itemID }) {
+                encodingGroups[gi2].items[ii2].apply(details: details)
+                encodingGroups[gi2].items[ii2].detailsLoaded = true
+            }
 
-            encodingGroups[gi2].items[ii2].apply(details: details)
-            encodingGroups[gi2].items[ii2].detailsLoaded = true
-            encodingGroups[gi2].items[ii2].metadata = metadata
+            let metadata = await metadataTask
+            if let gi3 = encodingGroups.firstIndex(where: { $0.id == groupID }),
+               let ii3 = encodingGroups[gi3].items.firstIndex(where: { $0.id == itemID }) {
+                encodingGroups[gi3].items[ii3].metadata = metadata
+            }
         }
     }
 
@@ -1339,13 +1344,20 @@ struct ContentView: View {
 
                 // Load details asynchronously in background
                 Task(priority: .utility) {
-                    let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                    let metadata = await VideoFileUtils.fetchMetadata(for: url)
+                    async let detailsTask = VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
+                    async let metadataTask = VideoFileUtils.fetchMetadata(for: url)
 
+                    let details = await detailsTask
                     await MainActor.run {
                         if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                             self.droppedFiles[index].apply(details: details)
                             self.droppedFiles[index].detailsLoaded = true
+                        }
+                    }
+
+                    let metadata = await metadataTask
+                    await MainActor.run {
+                        if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                             self.droppedFiles[index].metadata = metadata
                         }
                     }
@@ -1678,20 +1690,27 @@ struct ContentView: View {
 
             // Load details asynchronously in background
             Task(priority: .utility) {
-                let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
-                let metadata = await VideoFileUtils.fetchMetadata(for: url)
+                async let detailsTask = VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: selectedPreset)
+                async let metadataTask = VideoFileUtils.fetchMetadata(for: url)
 
+                let details = await detailsTask
                 await MainActor.run {
                     if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                         self.droppedFiles[index].apply(details: details)
                         self.droppedFiles[index].detailsLoaded = true
+                    }
+                }
+
+                let metadata = await metadataTask
+                await MainActor.run {
+                    if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                         self.droppedFiles[index].metadata = metadata
                     }
                 }
             }
         }
     }
-    
+
     private func scheduleAutoEncode() {
         Task { @MainActor in
             watchFolderCoordinator.scheduleAutoEncode {

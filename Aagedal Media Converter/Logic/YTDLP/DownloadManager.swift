@@ -625,8 +625,11 @@ class DownloadManager {
             if let item = findItem(itemID) {
                 let shouldAutoEncode = item.autoEncodeAfterDownload
                 Task.detached {
+                    async let detailsTask = VideoFileUtils.loadDetails(for: item.url)
+                    async let metadataTask = VideoFileUtils.fetchMetadata(for: item.url)
+
                     // Load basic details (size, duration, thumbnail)
-                    let details = await VideoFileUtils.loadDetails(for: item.url)
+                    let details = await detailsTask
                     await MainActor.run {
                         self.updateItem(itemID) { item in
                             item.apply(details: details)
@@ -635,7 +638,7 @@ class DownloadManager {
                     }
 
                     // Load full metadata (video/audio streams, codecs, etc.)
-                    let metadata = await VideoFileUtils.fetchMetadata(for: item.url)
+                    let metadata = await metadataTask
                     await MainActor.run {
                         self.updateItem(itemID) { item in
                             item.metadata = metadata
@@ -723,8 +726,11 @@ class DownloadManager {
                     )
 
                     // Load details and metadata for the file
-                    Task.detached {
-                        let details = await VideoFileUtils.loadDetails(for: finalFile)
+                    Task.detached { [finalFile] in
+                        async let detailsTask = VideoFileUtils.loadDetails(for: finalFile)
+                        async let metadataTask = VideoFileUtils.fetchMetadata(for: finalFile)
+
+                        let details = await detailsTask
                         await MainActor.run {
                             self.updateItem(itemID) { item in
                                 item.apply(details: details)
@@ -732,7 +738,7 @@ class DownloadManager {
                             }
                         }
 
-                        let metadata = await VideoFileUtils.fetchMetadata(for: finalFile)
+                        let metadata = await metadataTask
                         await MainActor.run {
                             self.updateItem(itemID) { item in
                                 item.metadata = metadata
@@ -980,8 +986,11 @@ class DownloadManager {
             if let item = findItem(itemID) {
                 let shouldAutoEncode = item.autoEncodeAfterDownload
                 Task.detached {
+                    async let detailsTask = VideoFileUtils.loadDetails(for: item.url)
+                    async let metadataTask = VideoFileUtils.fetchMetadata(for: item.url)
+
                     // Load basic details (size, duration, thumbnail)
-                    let details = await VideoFileUtils.loadDetails(for: item.url)
+                    let details = await detailsTask
                     await MainActor.run {
                         self.updateItem(itemID) { item in
                             item.apply(details: details)
@@ -990,7 +999,7 @@ class DownloadManager {
                     }
 
                     // Load full metadata (video/audio streams, codecs, etc.)
-                    let metadata = await VideoFileUtils.fetchMetadata(for: item.url)
+                    let metadata = await metadataTask
                     await MainActor.run {
                         self.updateItem(itemID) { item in
                             item.metadata = metadata
