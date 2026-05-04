@@ -350,6 +350,7 @@ actor TesseractService {
 
     private func isBitmapPGS(codec: String) -> Bool {
         let lower = codec.lowercased()
-        return lower == "pgssub" || lower == "hdmv_pgs_subtitle"
+        // FFprobe-style + Matroska container ID (SwiftExif's MKV reader emits the latter).
+        return lower == "pgssub" || lower == "hdmv_pgs_subtitle" || lower == "s_hdmv/pgs"
     }
 }

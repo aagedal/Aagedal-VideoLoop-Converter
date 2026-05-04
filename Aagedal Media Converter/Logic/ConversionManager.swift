@@ -2261,7 +2261,8 @@ actor ConversionManager: Sendable {
     ) async {
         // Identify the chosen (or first) bitmap subtitle stream
         let chosenStreamIndex = droppedFiles.wrappedValue.first(where: { $0.id == itemID })?.selectedBitmapSubtitleStreamIndex
-        let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
+        // FFprobe-style + Matroska container IDs (SwiftExif's MKV reader surfaces the latter).
+        let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub", "s_hdmv/pgs", "s_vobsub"]
         guard let stream = metadata?.subtitleStreams.first(where: {
             if let chosen = chosenStreamIndex { return $0.index == chosen }
             return bitmapCodecs.contains($0.codec?.lowercased() ?? "")

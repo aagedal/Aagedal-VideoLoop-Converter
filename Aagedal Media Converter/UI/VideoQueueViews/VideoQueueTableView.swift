@@ -402,7 +402,10 @@ struct VideoQueueTableView: NSViewRepresentable {
         private static let cellID = NSUserInterfaceItemIdentifier("VideoQueueCell")
         private static let appkitCellID = NSUserInterfaceItemIdentifier("VideoFileCellView")
         private static let groupHeaderCellID = NSUserInterfaceItemIdentifier("EncodingGroupHeaderCellView")
-        private static let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub"]
+        // FFprobe-style names ("hdmv_pgs_subtitle", …) plus Matroska-container codec
+        // IDs ("S_HDMV/PGS", "S_VOBSUB"), since SwiftExif's MKV reader surfaces the
+        // raw Matroska codecID rather than translating it to FFprobe's vocabulary.
+        private static let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub", "s_hdmv/pgs", "s_vobsub"]
 
         init(parent: VideoQueueTableView) {
             self.parent = parent
