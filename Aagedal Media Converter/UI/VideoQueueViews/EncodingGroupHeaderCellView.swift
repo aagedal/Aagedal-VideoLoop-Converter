@@ -4,6 +4,27 @@
 
 import AppKit
 
+private extension NSAppearance {
+    var isDark: Bool {
+        bestMatch(from: [.darkAqua, .vibrantDark, .accessibilityHighContrastDarkAqua, .accessibilityHighContrastVibrantDark]) != nil
+    }
+}
+
+private extension NSColor {
+    static let queueGroupHeaderCardBackground = NSColor(name: "queueGroupHeaderCardBackground") { appearance in
+        // Dark: slightly lighter than the row card (0.13) so the header reads as a tier above.
+        // Light: slightly darker than the row card (0.97) for the same hierarchy in reverse.
+        appearance.isDark
+            ? NSColor(white: 0.15, alpha: 1.0)
+            : NSColor(white: 0.94, alpha: 1.0)
+    }
+    static let queueGroupHeaderRestingStroke = NSColor(name: "queueGroupHeaderRestingStroke") { appearance in
+        appearance.isDark
+            ? NSColor.white.withAlphaComponent(0.18)
+            : NSColor.black.withAlphaComponent(0.18)
+    }
+}
+
 /// Pure AppKit cell view for an encoding group header.
 /// Mirrors VideoFileCellView's card layout — same thumbnail area + shadow + corner radius — so
 /// groups read as peers of single items. The thumbnail area uses a stacked-thumbnail preview
@@ -170,7 +191,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         cardView.wantsLayer = true
         cardView.layer?.cornerRadius = 12
         cardView.layer?.masksToBounds = true
-        cardView.layer?.backgroundColor = NSColor(white: 0.15, alpha: 1.0).cgColor
+        // Card background — dynamic NSColor; reapplied in viewDidChangeEffectiveAppearance.
+        applyCardBackground()
         cardView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(cardView)
 
@@ -182,7 +204,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         // Selection border — dashed at rest, solid + system-blue on selection. Idle dash is a
         // muted neutral so it reads as "container" without competing with VideoItem selection.
         selectionBorderLayer.fillColor = nil
-        selectionBorderLayer.strokeColor = NSColor.white.withAlphaComponent(0.18).cgColor
+        applyRestingSelectionStroke()
         selectionBorderLayer.lineWidth = 1.2
         selectionBorderLayer.lineDashPattern = [6, 4]
         selectionBorderLayer.zPosition = 100
@@ -1232,6 +1254,44 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         }
     }
 
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        super.updateLayer()
+        applyCardBackground()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyCardBackground()
+        // Re-run with current selection state so we don't clobber an active blue stroke
+        // when the user toggles theme on a selected/drop-hover cell.
+        if let config = currentConfig {
+            updateSelectionBorder(isSelected: config.isSelected, isDropTargetHover: config.isDropTargetHover)
+        } else {
+            applyRestingSelectionStroke()
+        }
+        cardView.needsDisplay = true
+    }
+
+    /// Resolves the dynamic card background against the current effective appearance and
+    /// pushes the result onto `cardView.layer.backgroundColor`. `cgColor` snapshots the resolved
+    /// color at access time, so we re-run this whenever appearance changes.
+    private func applyCardBackground() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            cardView.layer?.backgroundColor = NSColor.queueGroupHeaderCardBackground.cgColor
+        }
+    }
+
+    /// Resolves the resting (idle) dashed selection stroke against the current appearance.
+    /// Only assigns when the selection is not in selected/drop-hover state — those cases handle
+    /// their own stroke colors with `.systemBlue`.
+    private func applyRestingSelectionStroke() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            selectionBorderLayer.strokeColor = NSColor.queueGroupHeaderRestingStroke.cgColor
+        }
+    }
+
     private func updateSelectionBorder(isSelected: Bool, isDropTargetHover: Bool) {
         // Drop-target hover wins over selection so the user can see exactly where a
         // dragged item will land. Uses a bright, thick, solid blue — distinct from
@@ -1245,7 +1305,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             selectionBorderLayer.lineWidth = 2.5
             selectionBorderLayer.lineDashPattern = nil
         } else {
-            selectionBorderLayer.strokeColor = NSColor.white.withAlphaComponent(0.18).cgColor
+            applyRestingSelectionStroke()
             selectionBorderLayer.lineWidth = 1.2
             selectionBorderLayer.lineDashPattern = [6, 4]
         }

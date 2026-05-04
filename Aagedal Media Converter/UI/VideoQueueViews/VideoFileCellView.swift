@@ -5,6 +5,25 @@
 import AppKit
 import OSLog
 
+private extension NSAppearance {
+    var isDark: Bool {
+        bestMatch(from: [.darkAqua, .vibrantDark, .accessibilityHighContrastDarkAqua, .accessibilityHighContrastVibrantDark]) != nil
+    }
+}
+
+private extension NSColor {
+    static let queueRowCardBackground = NSColor(name: "queueRowCardBackground") { appearance in
+        appearance.isDark
+            ? NSColor(white: 0.13, alpha: 1.0)
+            : NSColor(white: 0.97, alpha: 1.0)
+    }
+    static let queueRowGroupChildCardBackground = NSColor(name: "queueRowGroupChildCardBackground") { appearance in
+        appearance.isDark
+            ? NSColor(red: 0.11, green: 0.12, blue: 0.17, alpha: 1.0)
+            : NSColor(red: 0.93, green: 0.94, blue: 0.97, alpha: 1.0)
+    }
+}
+
 /// Pure AppKit cell view for a video file queue row.
 /// Uses AppKit rather than SwiftUI for smooth scrolling performance.
 /// All subviews are created once in init; `configure()` updates values only.
@@ -284,8 +303,9 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         cardView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(cardView)
 
-        // Dark card background (updateLayer handles group-child tint)
-        cardView.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1.0).cgColor
+        // Card background — dynamic NSColor resolved against effectiveAppearance.
+        // Re-applied from updateLayer (config changes) and viewDidChangeEffectiveAppearance (theme toggle).
+        applyCardBackground()
         // PERF: Rasterize the rounded-corner card so masksToBounds + cornerRadius
         // don't force an offscreen rendering pass on every scroll frame.
         cardView.layer?.shouldRasterize = true
@@ -1178,13 +1198,30 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         thumbnailImageView.image = image
     }
 
+    override var wantsUpdateLayer: Bool { true }
+
     override func updateLayer() {
         super.updateLayer()
-        if currentConfig?.isGroupChild == true {
-            // Subtle blue-tinted background to visually tie child rows to their encoding group header
-            cardView.layer?.backgroundColor = NSColor(red: 0.11, green: 0.12, blue: 0.17, alpha: 1.0).cgColor
-        } else {
-            cardView.layer?.backgroundColor = NSColor(white: 0.13, alpha: 1.0).cgColor
+        applyCardBackground()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyCardBackground()
+        cardView.needsDisplay = true
+    }
+
+    /// Resolves the dynamic card background against the current effective appearance and
+    /// pushes the result onto `cardView.layer.backgroundColor`. Called from `setupViews()`,
+    /// `updateLayer()` (config change), and `viewDidChangeEffectiveAppearance()` (theme toggle).
+    /// `cgColor` snapshots the resolved color at access time, so we must re-run this whenever
+    /// the inputs (group-child flag or appearance) change.
+    private func applyCardBackground() {
+        let color: NSColor = currentConfig?.isGroupChild == true
+            ? .queueRowGroupChildCardBackground
+            : .queueRowCardBackground
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            cardView.layer?.backgroundColor = color.cgColor
         }
     }
 
