@@ -14,13 +14,13 @@ private extension NSAppearance {
 private extension NSColor {
     static let queueRowCardBackground = NSColor(name: "queueRowCardBackground") { appearance in
         appearance.isDark
-            ? NSColor(white: 0.13, alpha: 1.0)
-            : NSColor(white: 0.97, alpha: 1.0)
+            ? NSColor(white: 0.17, alpha: 1.0)
+            : NSColor(white: 0.93, alpha: 1.0)
     }
     static let queueRowGroupChildCardBackground = NSColor(name: "queueRowGroupChildCardBackground") { appearance in
         appearance.isDark
-            ? NSColor(red: 0.11, green: 0.12, blue: 0.17, alpha: 1.0)
-            : NSColor(red: 0.93, green: 0.94, blue: 0.97, alpha: 1.0)
+            ? NSColor(red: 0.15, green: 0.16, blue: 0.21, alpha: 1.0)
+            : NSColor(red: 0.89, green: 0.90, blue: 0.93, alpha: 1.0)
     }
 }
 
@@ -677,9 +677,19 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
 
         contentStack.addArrangedSubview(infoStack)
         infoStack.translatesAutoresizingMaskIntoConstraints = false
+        // Pin the leading edge but let the stack hug its content on the trailing
+        // side. Otherwise the stack spans the full row width, which (a) makes the
+        // metadata-hover tracking area cover the empty right-hand area and (b)
+        // gives label-level hit-tests a chance to match where there's no text.
+        // The trailing space then falls through to cell selection on click.
+        // Required content-hugging is needed because NSStackView's default is
+        // .defaultLow — without it the stack can still stretch under autolayout
+        // pressure from the surrounding contentStack, even with the loose
+        // `lessThanOrEqualTo` upper bound, producing a flaky-looking hit area.
+        infoStack.setContentHuggingPriority(.required, for: .horizontal)
         NSLayoutConstraint.activate([
             infoStack.leadingAnchor.constraint(equalTo: contentStack.leadingAnchor),
-            infoStack.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
+            infoStack.trailingAnchor.constraint(lessThanOrEqualTo: contentStack.trailingAnchor),
         ])
     }
 
@@ -789,8 +799,12 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         actionButtonStack.addArrangedSubview(cancelButton)
         actionButtonStack.addArrangedSubview(cancelSubtitleButton)
         actionButtonStack.addArrangedSubview(cancelAnalyticsButton)
-        actionButtonStack.addArrangedSubview(deleteButton)
+        // Reset before delete so the trailing edge stays pinned to the delete button.
+        // When reset is hidden (status .waiting / .converting), the action group only
+        // shrinks on the inside — delete doesn't shift. Mirrors the toolbar's
+        // Reset-then-Clear ordering.
         actionButtonStack.addArrangedSubview(resetButton)
+        actionButtonStack.addArrangedSubview(deleteButton)
     }
 
     private func setupStatusCapsule() {
