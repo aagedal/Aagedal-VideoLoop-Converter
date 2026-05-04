@@ -54,6 +54,7 @@ struct Aagedal_Media_Converter_App: App {
         Self.migrateAudioPresets()
         UploadProfileStore.migrateLegacyProfilesIfNeeded()
         applyPreviewCacheCleanupPolicy()
+        TesseractService.purgeOrphanTempDirs()
         OutputFolderCleanupService.shared.start()
     }
 

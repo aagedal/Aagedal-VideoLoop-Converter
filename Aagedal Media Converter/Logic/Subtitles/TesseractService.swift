@@ -38,6 +38,7 @@ enum TesseractServiceError: Error, LocalizedError {
     case extractionFailed(String)
     case parsingFailed(String)
     case ocrFailed(String)
+    case engineUnstable(String)
     case srtGenerationFailed
     case cancelled
 
@@ -55,6 +56,8 @@ enum TesseractServiceError: Error, LocalizedError {
             return "Subtitle parsing failed: \(msg)"
         case .ocrFailed(let msg):
             return "OCR failed: \(msg)"
+        case .engineUnstable(let msg):
+            return "OCR engine failed repeatedly — likely misconfigured (\(msg))"
         case .srtGenerationFailed:
             return "Failed to write SRT file."
         case .cancelled:
@@ -77,11 +80,28 @@ actor TesseractService {
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "TesseractService")
 
+    /// Prefix shared by every per-run scratch directory under `NSTemporaryDirectory()`.
+    /// Used both when creating a run dir and when sweeping orphans on launch.
+    private static let tempDirPrefix = "TesseractOCR-"
+
     private var isCancelled = false
     private var currentProcess: Process?
     private var currentOCRTask: Task<String, Error>?
 
     private init() {}
+
+    /// Sweep scratch directories left over from a previous run that crashed before its
+    /// `defer` cleanup could fire. Safe to call from anywhere; never throws.
+    nonisolated static func purgeOrphanTempDirs() {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: fm.temporaryDirectory,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        for entry in entries where entry.lastPathComponent.hasPrefix(tempDirPrefix) {
+            try? fm.removeItem(at: entry)
+        }
+    }
 
     // MARK: - Public API
 
@@ -167,7 +187,7 @@ actor TesseractService {
         }
 
         let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("TesseractOCR-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("\(Self.tempDirPrefix)\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -194,6 +214,8 @@ actor TesseractService {
         // Step 3 — OCR each frame
         let total = frames.count
         var srtEntries: [(index: Int, start: TimeInterval, end: TimeInterval, text: String)] = []
+        var consecutiveFailures = 0
+        let maxConsecutiveFailures = 5
 
         for (i, frame) in frames.enumerated() {
             guard !isCancelled else { throw TesseractServiceError.cancelled }
@@ -208,15 +230,25 @@ actor TesseractService {
                 try await engine.recognize(pngURL: pngFile, language: language)
             }
             currentOCRTask = task
+            defer { currentOCRTask = nil }
+
             let text: String
             do {
                 text = try await task.value
+                consecutiveFailures = 0
             } catch is CancellationError {
                 throw TesseractServiceError.cancelled
             } catch {
-                throw TesseractServiceError.ocrFailed(error.localizedDescription)
+                // Single-frame failure is non-fatal — but a streak almost certainly means
+                // the engine itself is broken (wrong tessdata path, missing language pack,
+                // unreadable PNG dimensions). Log every failure; bail after a streak.
+                consecutiveFailures += 1
+                logger.warning("OCR engine failure on frame \(i + 1)/\(total): \(error.localizedDescription, privacy: .public)")
+                if consecutiveFailures >= maxConsecutiveFailures {
+                    throw TesseractServiceError.engineUnstable(error.localizedDescription)
+                }
+                continue
             }
-            currentOCRTask = nil
 
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
@@ -252,7 +284,7 @@ actor TesseractService {
     ) async throws -> [SubtitleFrame] {
         if isPGS {
             let supFile = tempDir.appendingPathComponent("subs.sup")
-            try extractStream(
+            try await extractStream(
                 source: sourceFile.path,
                 streamIndex: streamIndex,
                 outputPath: supFile.path,
@@ -269,7 +301,7 @@ actor TesseractService {
             // VOBSUB — FFmpeg outputs .sub + .idx
             let subFile = tempDir.appendingPathComponent("subs.sub")
             let idxFile = tempDir.appendingPathComponent("subs.idx")
-            try extractStream(
+            try await extractStream(
                 source: sourceFile.path,
                 streamIndex: streamIndex,
                 outputPath: subFile.path,
@@ -288,19 +320,23 @@ actor TesseractService {
         }
     }
 
+    /// Hard cap for subtitle extraction. Long enough for a feature-length MKV PGS dump,
+    /// short enough that a wedged FFmpeg can't pin the queue forever.
+    private static let extractionTimeoutSeconds: UInt64 = 60
+
     private func extractStream(
         source: String,
         streamIndex: Int,
         outputPath: String,
         ffmpegPath: String
-    ) throws {
+    ) async throws {
         let process = Process()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
         process.arguments = [
             "-y",
             "-i", source,
-            "-map", "0:\(streamIndex)",
+            "-map", "0:s:\(streamIndex)",
             "-c", "copy",
             outputPath
         ]
@@ -309,18 +345,41 @@ actor TesseractService {
         process.standardInput = FileHandle.nullDevice
 
         currentProcess = process
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            throw TesseractServiceError.extractionFailed(error.localizedDescription)
-        }
-        currentProcess = nil
+        defer { currentProcess = nil }
 
-        guard process.terminationStatus == 0 else {
-            let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        // Run + wait off-actor so cancelGeneration() can interleave and call terminate().
+        // While this `await` is suspended the actor is free to accept other messages.
+        let exitCode: Int32 = try await withTaskCancellationHandler {
+            try await Task.detached(priority: .userInitiated) {
+                do {
+                    try process.run()
+                } catch {
+                    throw TesseractServiceError.extractionFailed(error.localizedDescription)
+                }
+
+                let timeoutTask = Task.detached(priority: .utility) {
+                    try? await Task.sleep(nanoseconds: Self.extractionTimeoutSeconds * 1_000_000_000)
+                    if process.isRunning { process.terminate() }
+                }
+                process.waitUntilExit()
+                timeoutTask.cancel()
+                return process.terminationStatus
+            }.value
+        } onCancel: {
+            process.terminate()
+        }
+
+        // If the user asked to cancel mid-extract, our cancelGeneration() terminated the
+        // process — surface that as .cancelled rather than a misleading exit-code error.
+        if isCancelled { throw TesseractServiceError.cancelled }
+
+        // Stream-copying a single subtitle track produces little stderr, but read it
+        // after the process exits so we can include it in the error message on failure.
+        let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+
+        guard exitCode == 0 else {
             let msg = String(data: errData, encoding: .utf8)?.suffix(300) ?? "unknown error"
-            throw TesseractServiceError.extractionFailed("FFmpeg exited \(process.terminationStatus): \(msg)")
+            throw TesseractServiceError.extractionFailed("FFmpeg exited \(exitCode): \(msg)")
         }
     }
 
