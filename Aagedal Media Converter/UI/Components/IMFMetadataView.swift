@@ -92,7 +92,7 @@ struct IMFMetadataView: View {
             Spacer()
         }
         .padding(24)
-        .frame(width: 520, height: 340)
+        .frame(width: 640, height: 340)
         .onAppear {
             let stored = item.imfMetadata
             let meta = stored ?? IMFItemMetadata()

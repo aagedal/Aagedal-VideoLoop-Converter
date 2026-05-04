@@ -104,7 +104,7 @@ struct DCPMetadataView: View {
             Spacer()
         }
         .padding(24)
-        .frame(width: 520, height: 360)
+        .frame(width: 640, height: 360)
         .onAppear {
             let stored = item.dcpMetadata
             let meta = stored ?? DCPItemMetadata()
