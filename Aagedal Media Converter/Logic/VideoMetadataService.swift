@@ -253,6 +253,10 @@ actor VideoMetadataService {
     // instead of each spawning a fresh SwiftExif parse (heavy for large MKV/MXF files).
     private var inFlightMetadata: [URL: Task<VideoMetadata, Error>] = [:]
     private var inFlightEssential: [URL: Task<EssentialVideoInfo, Error>] = [:]
+    // Shared single-flight at the SwiftExif layer: when both fetchEssentialInfo and
+    // metadata(for:) race for the same URL (typical `async let` import flow), they
+    // coalesce onto one readVideo parse instead of two.
+    private var inFlightRawVideo: [URL: Task<SwiftExif.VideoMetadata, Error>] = [:]
 
     private final class CachedMetadata: NSObject {
         let metadata: VideoMetadata
@@ -358,6 +362,21 @@ actor VideoMetadataService {
         return try await task.value
     }
 
+    /// Single-flight wrapper around `SwiftExifMediaProbe.readVideo`. Concurrent callers
+    /// (typically `fetchEssentialInfo` and `metadata(for:)` racing via `async let`)
+    /// share one parse instead of each spawning their own.
+    private func readRawVideo(for url: URL) async throws -> SwiftExif.VideoMetadata {
+        if let inFlight = inFlightRawVideo[url] {
+            return try await inFlight.value
+        }
+        let task = Task.detached {
+            try await SwiftExifMediaProbe.readVideo(url)
+        }
+        inFlightRawVideo[url] = task
+        defer { inFlightRawVideo.removeValue(forKey: url) }
+        return try await task.value
+    }
+
     private func performFetchEssentialInfo(for url: URL) async throws -> EssentialVideoInfo {
         let scope = startAccess(for: url)
         defer { stopAccess(scope, for: url) }
@@ -365,7 +384,7 @@ actor VideoMetadataService {
         let info: EssentialVideoInfo
         if SwiftExifMediaProbe.canReadVideo(url) {
             do {
-                let meta = try await SwiftExifMediaProbe.readVideo(url)
+                let meta = try await readRawVideo(for: url)
                 let timedVideo = meta.videoStreams.filter { $0.isAttachedPic != true }
                 let primary = timedVideo.first
                 info = EssentialVideoInfo(
@@ -443,7 +462,7 @@ actor VideoMetadataService {
 
         let rawMeta: SwiftExif.VideoMetadata
         do {
-            rawMeta = try await SwiftExifMediaProbe.readVideo(url)
+            rawMeta = try await readRawVideo(for: url)
         } catch {
             throw VideoMetadataError.readFailed(error.localizedDescription)
         }
