@@ -12,11 +12,11 @@ private extension NSAppearance {
 
 private extension NSColor {
     static let queueGroupHeaderCardBackground = NSColor(name: "queueGroupHeaderCardBackground") { appearance in
-        // Dark: slightly lighter than the row card (0.13) so the header reads as a tier above.
-        // Light: slightly darker than the row card (0.97) for the same hierarchy in reverse.
+        // Dark: slightly lighter than the row card (0.17) so the header reads as a tier above.
+        // Light: slightly darker than the row card (0.93) for the same hierarchy in reverse.
         appearance.isDark
-            ? NSColor(white: 0.15, alpha: 1.0)
-            : NSColor(white: 0.94, alpha: 1.0)
+            ? NSColor(white: 0.19, alpha: 1.0)
+            : NSColor(white: 0.90, alpha: 1.0)
     }
     static let queueGroupHeaderRestingStroke = NSColor(name: "queueGroupHeaderRestingStroke") { appearance in
         appearance.isDark

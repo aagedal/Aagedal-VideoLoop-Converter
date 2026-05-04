@@ -20,7 +20,7 @@ extension VideoFileCellView {
         encodeButton.isHidden = false
         let isEncoding = config.status == .converting
         encodeButton.image = VideoFileCellView.Symbol.playFill
-        encodeButton.contentTintColor = isEncoding ? .systemGreen : .systemGreen.withAlphaComponent(0.5)
+        encodeButton.contentTintColor = isEncoding ? .systemGreen : .systemGreen.withAlphaComponent(0.75)
         encodeButton.isEnabled = config.status == .waiting || config.status == .done || config.status == .failed
         encodeButton.toolTip = isEncoding ? "Encoding in progress" : "Start encoding"
         applyProcessingRing(to: encodeButton, active: isEncoding, color: .systemGreen)
@@ -173,8 +173,9 @@ extension VideoFileCellView {
         } else {
             deleteButton.isHidden = false
             deleteButton.toolTip = "Remove from list"
-            resetButton.isHidden = false
-            resetButton.isEnabled = config.status != .converting && config.status != .waiting
+            // Hide rather than disable so we don't carry a faded icon next to the
+            // strong delete one. Stack order is [reset, delete] so delete stays put.
+            resetButton.isHidden = config.status == .converting || config.status == .waiting
             resetButton.toolTip = "Reset status"
         }
     }

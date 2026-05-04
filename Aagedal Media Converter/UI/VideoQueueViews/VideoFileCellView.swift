@@ -1094,7 +1094,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         // because `supportsMetadataComment` (which gates the comment button) is
         // derived from it; skipping preset here leaves the button stale when
         // the user switches to a format that can't carry a comment.
-        if Self.commentSectionEnabled, isFirstConfigure || prev?.comment != config.comment || prev?.isCompactMode != config.isCompactMode || prev?.showCommentField != config.showCommentField || prev?.includeDateTag != config.includeDateTag || prev?.isFocusedComment != config.isFocusedComment || prev?.waveformVideoEnabled != config.waveformVideoEnabled || prev?.preset != config.preset || prev?.hasVideoStream != config.hasVideoStream {
+        if Self.commentSectionEnabled, isFirstConfigure || prev?.comment != config.comment || prev?.isCompactMode != config.isCompactMode || prev?.showCommentField != config.showCommentField || prev?.includeDateTag != config.includeDateTag || prev?.isFocusedComment != config.isFocusedComment || prev?.waveformVideoEnabled != config.waveformVideoEnabled || prev?.preset != config.preset || prev?.hasVideoStream != config.hasVideoStream || prev?.dcpMetadataTitle != config.dcpMetadataTitle || prev?.imfMetadataTitle != config.imfMetadataTitle {
             updateCommentSection(config: config)
         }
 
