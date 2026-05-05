@@ -281,9 +281,14 @@ extension VideoFileCellView {
         if config.uploadStatus == .uploaded { return "" }
         if case .failed = config.uploadStatus { return "" }
 
-        // Subtitle generation
+        // Subtitle generation — show the active stage in addition to percentage so the
+        // user knows what's happening when progress hasn't started moving yet (e.g. an
+        // FFmpeg PGS dump that hasn't emitted its first time= line yet).
         if config.subtitleStatus.isInProgress {
-            return "\(Int(config.subtitleProgress * 100))%"
+            let pct = Int(config.subtitleProgress * 100)
+            let stage = subtitleStageLabel(status: config.subtitleStatus, method: config.subtitleMethod)
+            if stage.isEmpty { return "\(pct)%" }
+            return "\(stage) \(pct)%"
         }
         if case .failed(let error) = config.subtitleStatus {
             return error
@@ -311,6 +316,25 @@ extension VideoFileCellView {
         case .cancelled:
             return ""
         @unknown default:
+            return ""
+        }
+    }
+
+    private func subtitleStageLabel(status: SubtitleStatus, method: SubtitleConversionMethod) -> String {
+        switch status {
+        case .pending:
+            return "Preparing"
+        case .extractingAudio:
+            return method == .ocr ? "Extracting subtitle stream" : "Extracting audio"
+        case .generating:
+            switch method {
+            case .ocr:      return "Recognizing text"
+            case .whisper:  return "Transcribing (Whisper)"
+            case .parakeet: return "Transcribing (Parakeet)"
+            }
+        case .embedding:
+            return "Embedding subtitles"
+        default:
             return ""
         }
     }

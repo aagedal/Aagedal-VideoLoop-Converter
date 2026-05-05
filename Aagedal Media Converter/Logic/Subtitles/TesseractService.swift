@@ -287,13 +287,20 @@ actor TesseractService {
         tempDir: URL,
         progress: @escaping @Sendable (TesseractProgress) -> Void
     ) async throws -> [SubtitleFrame] {
+        // Map FFmpeg's 0…1 demux progress into the extractingTrack slice (0…15%) of the
+        // overall pipeline so the queue card moves while the stream is being dumped.
+        let extractProgress: @Sendable (Double) -> Void = { fraction in
+            progress(TesseractProgress(stage: .extractingTrack, percentage: fraction * 0.15))
+        }
+
         if isPGS {
             let supFile = tempDir.appendingPathComponent("subs.sup")
             try await extractStream(
                 source: sourceFile.path,
                 streamIndex: streamIndex,
                 outputPath: supFile.path,
-                ffmpegPath: ffmpegPath
+                ffmpegPath: ffmpegPath,
+                progress: extractProgress
             )
             progress(TesseractProgress(stage: .parsingFrames, percentage: 0.15))
             do {
@@ -310,7 +317,8 @@ actor TesseractService {
                 source: sourceFile.path,
                 streamIndex: streamIndex,
                 outputPath: subFile.path,
-                ffmpegPath: ffmpegPath
+                ffmpegPath: ffmpegPath,
+                progress: extractProgress
             )
             progress(TesseractProgress(stage: .parsingFrames, percentage: 0.15))
             guard FileManager.default.fileExists(atPath: subFile.path),
@@ -335,7 +343,8 @@ actor TesseractService {
         source: String,
         streamIndex: Int,
         outputPath: String,
-        ffmpegPath: String
+        ffmpegPath: String,
+        progress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
         let process = Process()
         let stderrPipe = Pipe()
@@ -353,6 +362,29 @@ actor TesseractService {
 
         currentProcess = process
         defer { currentProcess = nil }
+
+        // Stream stderr live so we can drive a real progress bar during long PGS dumps,
+        // and accumulate it for the post-exit error-message tail.
+        let collector = ExtractStderrCollector()
+        let throttler = ProgressThrottler(minInterval: 0.25)
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            collector.append(chunk)
+            guard let progress, let text = String(data: chunk, encoding: .utf8) else { return }
+            collector.updateDuration { duration in
+                let (newDuration, _) = FFMPEGProgressParser.handleOutput(
+                    text,
+                    totalDuration: duration,
+                    effectiveDuration: duration,
+                    progressThrottler: throttler
+                ) { fraction, _ in
+                    progress(fraction)
+                }
+                duration = newDuration
+            }
+        }
+        defer { stderrPipe.fileHandleForReading.readabilityHandler = nil }
 
         // Run + wait off-actor so cancelGeneration() can interleave and call terminate().
         // While this `await` is suspended the actor is free to accept other messages.
@@ -380,9 +412,7 @@ actor TesseractService {
         // process — surface that as .cancelled rather than a misleading exit-code error.
         if isCancelled { throw TesseractServiceError.cancelled }
 
-        // Stream-copying a single subtitle track produces little stderr, but read it
-        // after the process exits so we can include it in the error message on failure.
-        let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let errData = collector.snapshot
 
         guard exitCode == 0 else {
             let msg = String(data: errData, encoding: .utf8)?.suffix(300) ?? "unknown error"
@@ -418,5 +448,28 @@ actor TesseractService {
         let lower = codec.lowercased()
         // FFprobe-style + Matroska container ID (SwiftExif's MKV reader emits the latter).
         return lower == "pgssub" || lower == "hdmv_pgs_subtitle" || lower == "s_hdmv/pgs"
+    }
+}
+
+/// Thread-safe accumulator for FFmpeg stderr, shared between the readabilityHandler
+/// (background thread) and the actor-side error-reporting code that runs after exit.
+private final class ExtractStderrCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    private var duration: Double? = nil
+
+    func append(_ chunk: Data) {
+        lock.lock(); defer { lock.unlock() }
+        buffer.append(chunk)
+    }
+
+    var snapshot: Data {
+        lock.lock(); defer { lock.unlock() }
+        return buffer
+    }
+
+    func updateDuration(_ body: (inout Double?) -> Void) {
+        lock.lock(); defer { lock.unlock() }
+        body(&duration)
     }
 }
