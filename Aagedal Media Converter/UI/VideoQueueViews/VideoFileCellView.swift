@@ -1006,8 +1006,21 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             liveRecordingBadge.isHidden = !config.isLiveStreamRecording
         }
 
-        // Progress bar
-        if isFirstConfigure || prev?.status != config.status || prev?.progress != config.progress || prev?.isDownloading != config.isDownloading || prev?.uploadStatus != config.uploadStatus || prev?.subtitleStatus != config.subtitleStatus || prev?.analyticsStatus != config.analyticsStatus {
+        // Progress bar — also re-render on the *fractional* progress values, not just
+        // their parent Status enum. During the OCR extract phase subtitleStatus stays at
+        // .extractingAudio while subtitleProgress ticks 0…0.15, so without the Double
+        // checks the bar would sit frozen even though the label updates.
+        if isFirstConfigure
+            || prev?.status != config.status
+            || prev?.progress != config.progress
+            || prev?.isDownloading != config.isDownloading
+            || prev?.downloadProgress != config.downloadProgress
+            || prev?.uploadStatus != config.uploadStatus
+            || prev?.uploadProgress != config.uploadProgress
+            || prev?.subtitleStatus != config.subtitleStatus
+            || prev?.subtitleProgress != config.subtitleProgress
+            || prev?.analyticsStatus != config.analyticsStatus
+            || prev?.analyticsProgress != config.analyticsProgress {
             updateProgressBar(config: config)
         }
 

@@ -225,7 +225,9 @@ actor TesseractService {
         for (i, frame) in frames.enumerated() {
             guard !isCancelled else { throw TesseractServiceError.cancelled }
 
-            let pct = 0.3 + 0.65 * (Double(i) / Double(total))
+            // Recognize starts where extract+parse left off (15%) so the bar doesn't
+            // visibly jump when the pipeline transitions from extract to OCR.
+            let pct = 0.15 + 0.80 * (Double(i) / Double(total))
             progress(TesseractProgress(stage: .recognizing(frame: i + 1, total: total), percentage: pct))
 
             let pngFile = tempDir.appendingPathComponent("frame_\(i).png")

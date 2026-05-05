@@ -994,6 +994,9 @@ struct VideoFileListView: View {
         guard currentSelection == nil else { return false }
         let selectable = audioStreams.filter { $0.index != nil }
         guard selectable.count > 1 else { return false }
+        // Already showing a picker (e.g. user double-clicked the transcription button) —
+        // don't replace it; just early-out so the in-flight call doesn't proceed.
+        guard pendingTrackPicker == nil else { return true }
 
         pendingTrackPicker = PendingTrackPicker(
             title: "Select Audio Track",
@@ -1025,6 +1028,7 @@ struct VideoFileListView: View {
         guard currentSelection == nil else { return false }
         let selectable = bitmapStreams.filter { $0.index != nil }
         guard selectable.count > 1 else { return false }
+        guard pendingTrackPicker == nil else { return true }
 
         pendingTrackPicker = PendingTrackPicker(
             title: "Select Subtitle Track",
