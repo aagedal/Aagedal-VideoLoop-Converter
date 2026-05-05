@@ -113,6 +113,24 @@ struct VideoFileListView: View {
     @State private var lastCreatedGroupID: UUID?
     @State private var showGroupCreatedOverlay = false
     @State private var groupCreatedDismissTask: DispatchWorkItem?
+    /// Track-picker sheet state. Non-nil while the user needs to choose between multiple
+    /// audio (Whisper/Parakeet) or bitmap-subtitle (OCR) streams before a transcribe-only
+    /// run can proceed.
+    @State private var pendingTrackPicker: PendingTrackPicker?
+
+    private struct PendingTrackPicker: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+        let rows: [TrackPickerSheet.Row]
+    }
+
+    /// Bitmap subtitle codec IDs the OCR pipeline can handle. Covers both FFprobe-style
+    /// codec names and SwiftExif's Matroska container IDs.
+    private static let bitmapSubtitleCodecs: Set<String> = [
+        "pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub",
+        "s_hdmv/pgs", "s_vobsub"
+    ]
 
     /// Lightweight handle so this view can ask the NSTableView questions (e.g.
     /// whether a specific row is already on screen), instead of duplicating its
@@ -326,6 +344,14 @@ struct VideoFileListView: View {
             set: { if !$0 { analyticsResultsItemID = nil } }
         )) {
             analyticsResultsSheetContent
+        }
+        .sheet(item: $pendingTrackPicker) { picker in
+            TrackPickerSheet(
+                title: picker.title,
+                message: picker.message,
+                rows: picker.rows,
+                onCancel: { pendingTrackPicker = nil }
+            )
         }
         // External file drops are handled by FileDropBackstop in the empty state
         // and by VideoQueueTableView when populated. URL/text drops (yt-dlp links,
@@ -956,6 +982,93 @@ struct VideoFileListView: View {
 
     // MARK: - Transcribe Only (Option+click)
 
+    /// If the file has more than one selectable audio track and none has been chosen yet,
+    /// presents the picker and returns true so the caller can early-out. The picker action
+    /// stores the choice on the VideoItem and re-invokes the same transcribe-only function.
+    private func presentAudioTrackPickerIfNeeded(
+        itemID: UUID,
+        currentSelection: Int?,
+        audioStreams: [VideoMetadata.AudioStream],
+        method: SubtitleConversionMethod
+    ) -> Bool {
+        guard currentSelection == nil else { return false }
+        let selectable = audioStreams.filter { $0.index != nil }
+        guard selectable.count > 1 else { return false }
+
+        pendingTrackPicker = PendingTrackPicker(
+            title: "Select Audio Track",
+            message: "Select the audio track to transcribe.",
+            rows: selectable.enumerated().map { offset, stream in
+                TrackPickerSheet.Row(
+                    label: audioTrackLabel(stream, trackNumber: offset + 1),
+                    action: {
+                        if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                            droppedFiles[idx].selectedAudioStreamIndex = stream.index
+                        }
+                        pendingTrackPicker = nil
+                        Task { @MainActor in
+                            await transcribeOnly(itemID: itemID, method: method)
+                        }
+                    }
+                )
+            }
+        )
+        return true
+    }
+
+    /// Bitmap-subtitle counterpart of `presentAudioTrackPickerIfNeeded`.
+    private func presentBitmapSubtitleTrackPickerIfNeeded(
+        itemID: UUID,
+        currentSelection: Int?,
+        bitmapStreams: [VideoMetadata.SubtitleStream]
+    ) -> Bool {
+        guard currentSelection == nil else { return false }
+        let selectable = bitmapStreams.filter { $0.index != nil }
+        guard selectable.count > 1 else { return false }
+
+        pendingTrackPicker = PendingTrackPicker(
+            title: "Select Subtitle Track",
+            message: "This file has multiple bitmap subtitle tracks. Select the one to convert with OCR.",
+            rows: selectable.enumerated().map { offset, stream in
+                TrackPickerSheet.Row(
+                    label: subtitleTrackLabel(stream, trackNumber: offset + 1),
+                    action: {
+                        if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                            droppedFiles[idx].selectedBitmapSubtitleStreamIndex = stream.index
+                        }
+                        pendingTrackPicker = nil
+                        Task { @MainActor in
+                            await transcribeOnly(itemID: itemID, method: .ocr)
+                        }
+                    }
+                )
+            }
+        )
+        return true
+    }
+
+    private func audioTrackLabel(_ stream: VideoMetadata.AudioStream, trackNumber: Int) -> String {
+        var parts: [String] = ["Track \(trackNumber)"]
+        if let lang = stream.languageCode { parts.append(lang.uppercased()) }
+        if let codec = stream.codec?.uppercased() { parts.append(codec) }
+        if let ch = stream.channels {
+            parts.append(ch == 1 ? "Mono" : ch == 2 ? "Stereo" : "\(ch)ch")
+        }
+        if let title = stream.title, !title.isEmpty { parts.append("(\(title))") }
+        return parts.joined(separator: " · ")
+    }
+
+    private func subtitleTrackLabel(_ stream: VideoMetadata.SubtitleStream, trackNumber: Int) -> String {
+        var parts: [String] = ["Track \(trackNumber)"]
+        if let lang = stream.languageCode { parts.append(lang.uppercased()) }
+        if let codec = stream.codec?.lowercased() {
+            let isPGS = codec == "pgssub" || codec == "hdmv_pgs_subtitle" || codec == "s_hdmv/pgs"
+            parts.append(isPGS ? "PGS" : "VOBSUB")
+        }
+        if let title = stream.title, !title.isEmpty { parts.append("(\(title))") }
+        return parts.joined(separator: " · ")
+    }
+
     /// Generates subtitles directly from source file without encoding
     private func transcribeOnly(itemID: UUID, method: SubtitleConversionMethod) async {
         switch method {
@@ -976,6 +1089,15 @@ struct VideoFileListView: View {
 
         let inputURL = droppedFiles[index].url
         let audioStreamIndex = droppedFiles[index].selectedAudioStreamIndex
+
+        if presentAudioTrackPickerIfNeeded(
+            itemID: itemID,
+            currentSelection: audioStreamIndex,
+            audioStreams: droppedFiles[index].metadata?.audioStreams ?? [],
+            method: .whisper
+        ) {
+            return
+        }
 
         // Get model from settings
         let modelRaw = UserDefaults.standard.string(forKey: AppConstants.whisperModelKey) ?? "base"
@@ -1060,6 +1182,15 @@ struct VideoFileListView: View {
         let inputURL = droppedFiles[index].url
         let audioStreamIndex = droppedFiles[index].selectedAudioStreamIndex
 
+        if presentAudioTrackPickerIfNeeded(
+            itemID: itemID,
+            currentSelection: audioStreamIndex,
+            audioStreams: droppedFiles[index].metadata?.audioStreams ?? [],
+            method: .parakeet
+        ) {
+            return
+        }
+
         // Get model from settings
         let modelId = UserDefaults.standard.string(forKey: AppConstants.parakeetModelKey) ?? AppConstants.defaultParakeetModel
         let model = ParakeetModel.model(for: modelId) ?? ParakeetModel.allModels[0]
@@ -1132,11 +1263,21 @@ struct VideoFileListView: View {
         let metadata  = droppedFiles[index].metadata
         let chosenStreamIndex = droppedFiles[index].selectedBitmapSubtitleStreamIndex
 
-        // FFprobe-style + Matroska container IDs (SwiftExif's MKV reader surfaces the latter).
-        let bitmapCodecs: Set<String> = ["pgssub", "hdmv_pgs_subtitle", "dvd_subtitle", "dvdsub", "s_hdmv/pgs", "s_vobsub"]
+        let bitmapStreams = (metadata?.subtitleStreams ?? []).filter {
+            Self.bitmapSubtitleCodecs.contains($0.codec?.lowercased() ?? "")
+        }
+
+        if presentBitmapSubtitleTrackPickerIfNeeded(
+            itemID: itemID,
+            currentSelection: chosenStreamIndex,
+            bitmapStreams: bitmapStreams
+        ) {
+            return
+        }
+
         guard let stream = metadata?.subtitleStreams.first(where: {
             if let chosen = chosenStreamIndex { return $0.index == chosen }
-            return bitmapCodecs.contains($0.codec?.lowercased() ?? "")
+            return Self.bitmapSubtitleCodecs.contains($0.codec?.lowercased() ?? "")
         }) else {
             await MainActor.run {
                 if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
