@@ -325,9 +325,11 @@ actor TesseractService {
         }
     }
 
-    /// Hard cap for subtitle extraction. Long enough for a feature-length MKV PGS dump,
-    /// short enough that a wedged FFmpeg can't pin the queue forever.
-    private static let extractionTimeoutSeconds: UInt64 = 60
+    /// Hard cap for subtitle extraction. A feature-length PGS dump finishes in ~60s when
+    /// FFmpeg can run at full speed, but slow disks, network shares, or long-form content
+    /// can blow that budget. Keep the bound so a wedged FFmpeg can't pin the queue forever,
+    /// but make it generous enough that a normal run never trips it.
+    private static let extractionTimeoutSeconds: UInt64 = 1800
 
     private func extractStream(
         source: String,

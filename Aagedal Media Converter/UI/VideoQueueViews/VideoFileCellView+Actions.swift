@@ -197,6 +197,7 @@ extension VideoFileCellView {
             if config.uploadStatus == .uploaded { return ("UPLOADED", "checkmark.circle", .systemGreen) }
             if case .failed = config.uploadStatus { return ("UPLOAD ERR", "exclamationmark.circle", .systemRed) }
             if config.subtitleStatus.isInProgress { return ("SUBTITLES", "captions.bubble", .systemOrange) }
+            if case .failed = config.subtitleStatus { return ("SUBTITLE FAIL", "exclamationmark.circle", .systemRed) }
             if config.analyticsStatus.isInProgress { return ("ANALYZING", "chart.bar.xaxis", .systemCyan) }
 
             switch config.status {
@@ -236,7 +237,11 @@ extension VideoFileCellView {
         statusLabel.stringValue = text
         statusLabel.textColor = statusColor(config: config)
         // Show full error in tooltip when the label truncates it
-        statusLabel.toolTip = (config.status == .failed || config.downloadError != nil) ? text : nil
+        let isSubtitleFailed: Bool = {
+            if case .failed = config.subtitleStatus { return true }
+            return false
+        }()
+        statusLabel.toolTip = (config.status == .failed || config.downloadError != nil || isSubtitleFailed) ? text : nil
     }
 
     // MARK: - Progress Text
@@ -280,6 +285,9 @@ extension VideoFileCellView {
         if config.subtitleStatus.isInProgress {
             return "\(Int(config.subtitleProgress * 100))%"
         }
+        if case .failed(let error) = config.subtitleStatus {
+            return error
+        }
 
         // Analytics
         if config.analyticsStatus.isInProgress {
@@ -317,6 +325,7 @@ extension VideoFileCellView {
         if config.uploadStatus == .uploaded { return .systemGreen }
         if case .failed = config.uploadStatus { return .systemRed }
         if config.subtitleStatus.isInProgress { return .systemOrange }
+        if case .failed = config.subtitleStatus { return .systemRed }
         if config.analyticsStatus.isInProgress { return .systemCyan }
 
         switch config.status {
