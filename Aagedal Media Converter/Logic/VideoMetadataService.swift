@@ -575,6 +575,7 @@ actor VideoMetadataService {
         case .mxfMaterialPackage: return .mxfMaterialPackage
         case .mxfFilePackage: return .mxfFilePackage
         case .sonyNRT: return .sonyNRT
+        case .redR3D: return .redR3D
         }
     }
 

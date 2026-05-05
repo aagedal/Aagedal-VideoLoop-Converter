@@ -91,6 +91,7 @@ enum TimecodeSource: String, Codable, Sendable, Equatable {
     case mxfMaterialPackage
     case mxfFilePackage
     case sonyNRT
+    case redR3D
 
     /// Human-readable label for UI display.
     var label: String {
@@ -102,6 +103,7 @@ enum TimecodeSource: String, Codable, Sendable, Equatable {
         case .mxfMaterialPackage: return "MXF Material Package"
         case .mxfFilePackage: return "MXF File Package"
         case .sonyNRT: return "Sony NRT"
+        case .redR3D: return "RED R3D"
         }
     }
 }

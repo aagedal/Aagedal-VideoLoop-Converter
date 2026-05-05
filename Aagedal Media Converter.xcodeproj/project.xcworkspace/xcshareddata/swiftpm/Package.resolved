@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/aagedal/SwiftExif.git",
       "state" : {
-        "revision" : "1a8a6069ef59eafd30a77f1dcc2af124c3fdead5",
-        "version" : "1.5.0"
+        "revision" : "ae55105ce5cf679cbd50f046b06d449512f5065f",
+        "version" : "1.6.0"
       }
     }
   ],

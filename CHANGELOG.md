@@ -1,3 +1,44 @@
+# v.4.1 — DRAFT
+
+A broadcast and cinema-leaning release: full IMF package export, per-item DCP/IMF metadata, MCA labels carried through audio routing, and a second OCR engine for bitmap subtitles.
+
+## IMF & DCP
+
+> ⚠️ **Experimental.** The IMF and DCP paths have not yet been validated against a professional mastering or QC workflow. Output may not pass strict compliance checks (Photon, Clairmeta, etc.) and the package layout, metadata fields, and MCA label derivation are likely to change. Treat as a preview — don't rely on it for delivery yet, and please report any issues you run into.
+
+- **IMF export** — two new presets, **IMF (App #2e — JPEG 2000)** and **IMF (App #5 — ProRes)**, producing a complete IMF package folder (CPL, PKL, ASSETMAP.xml) with editable metadata. Audio is rewrapped as 24‑bit 48 kHz PCM with MCA labels (preserved from the source MXF when available, otherwise standard SMPTE layouts for mono / stereo / 5.1). Resolution and frame‑rate selections are persisted per preset.
+- **Per‑item DCP/IMF metadata editor** — a film‑stack icon appears next to the comment button on each queue row when a DCP or IMF preset is active. Opens a sheet to edit **ContentTitle**, **ContentKind** (feature, trailer, etc.), **Annotation**, and **AudioLanguage** per item. The title auto‑populates from the filename. The sheet width was bumped to 640pt so the title/annotation fields and the Content Kind / Rating / Audio Language row fit comfortably in non‑English locales too.
+- **Wrap failures now surface in the queue.** Missing `asdcp-wrap`, non‑zero exits, JP2/manifest assembly errors, and audio extraction failures populate the row's error capsule and tooltip instead of silently completing with an audio‑less or partial package.
+
+## Audio Routing — MCA Labels
+
+- **Imported from MXF and IMF inputs** — SMPTE ST 377‑4 MCA descriptors are now parsed from MXF files (and IMF packages dropped onto the queue), and the routing inspector surfaces them inline, e.g. `Track 1 • DX • 5.1 • L R C LFE Ls Rs`.
+- **Injected into TV (AVC‑Intra MXF) output** — when routing audio through the mono‑split AVC‑Intra workflow, the encoder now emits a matching `bmx --track-mca-labels` file. Source labels are preferred; standard SMPTE labels are derived for mono / stereo / 5.1 layouts when the source has none.
+- **Per‑track manual override** — each output track in the routing inspector now has a tag‑icon menu for picking the **Soundfield** (Mono, Stereo, Dual Mono, 5.1, 7.1, Lt‑Rt) and the **Audio Element** (Main, Music & Effects, Dialog, …). Overrides take precedence over auto‑derived labels. (Applies to AVC‑Intra TV output today; IMF and DCP continue to derive from the source.)
+
+## Subtitles
+
+- **Apple Vision OCR engine** for PGS/VOBSUB bitmap subtitles, alongside the existing Tesseract engine. New picker in **Settings → Subtitles → OCR Engine**; Vision needs no extra binaries or language packs and is the default for new installs (existing users keep their current Tesseract setup).
+
+## Metadata
+
+- **SwiftExif updated to 1.6.0** (from 1.3.1) — enables the MXF MCA descriptor parsing used by the routing inspector, and includes upstream parsing fixes.
+- **Faster imports** — concurrent SwiftExif reads of the same file are now coalesced into a single parse, so the parallel async‑let import flow no longer probes every file twice.
+
+## UI & polish
+
+- Queue cards now adapt correctly to **Light mode** — backgrounds, the idle encode (play) button, and the group‑child cool tint were all stuck on the dark palette. Reset/Delete row buttons were reordered (reset before delete) to match the toolbar, and reset is now hidden entirely when not applicable instead of greying out.
+- The metadata row's hover and click hit‑area now ends at the rightmost visible label instead of stretching across the empty trailing space, so that area is free for normal row selection.
+- Queue rows now apply **resolution / codec / FPS as soon as the metadata probe returns**, instead of waiting on the thumbnail+duration step. Imported queues feel like they fill in faster.
+- Queue card thumbnails **re‑rasterize when the window moves between displays** with different backing scales, so dragging the window to or from an external non‑Retina display no longer leaves blurry artwork.
+- App Intent display names (**Add to Encode Queue**, **Convert Immediately**) are now tracked in the string catalog so they can be localized.
+
+## Bug fixes
+
+- **MKV PGS / VOBSUB subtitles were silently rejected by OCR.** SwiftExif's Matroska reader returns the container‑native codec IDs (`S_HDMV/PGS`, `S_VOBSUB`), but the four bitmap‑codec gates in the OCR launch path only knew FFprobe's vocabulary, so the OCR button stayed hidden on MKVs and any OCR run aborted with "No bitmap subtitle stream found". All gates now recognize both naming styles.
+- **Tesseract OCR mapped the wrong stream on MKV inputs.** The extract step used absolute stream indexing (`0:N`); SwiftExif reports `index` relative to subtitle streams, so on a typical \[video, audio, subtitle\] MKV the muxer tried to ingest the video stream and rejected the run with "sup muxer does not support any stream of type video". Now uses the type‑relative `0:s:N` selector.
+- **Tesseract pipeline hardened.** A misconfigured `tessdata` path now surfaces as a real error instead of silently producing an empty SRT, cancellations land mid‑extract instead of queueing behind the actor (and translate to *cancelled* rather than the misleading "FFmpeg exited 15"), and 60 s extraction / 10 s per‑frame timeouts prevent a wedged subprocess from pinning the queue forever. Orphan `/tmp/TesseractOCR-*` directories are also swept at launch.
+
 # v.4.0.1
 
 A follow-up release focused on the download/upload pipeline: a bundled rclone, whole-playlist downloads, audio-only downloads, and a round of security hardening across both yt-dlp and rclone.
