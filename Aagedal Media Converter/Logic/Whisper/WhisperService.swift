@@ -59,7 +59,7 @@ actor WhisperService {
 
         // Prepare output file path
         let baseName = inputFile.deletingPathExtension().lastPathComponent
-        let srtFile = outputDirectory.appendingPathComponent(baseName + ".srt")
+        let srtFile = SubtitleSRTNaming.outputURL(directory: outputDirectory, baseName: baseName, method: .whisper)
 
         // Build whisper filter string
         // whisper=model=/path/to/model.bin:language=auto:format=srt:destination=/path/to/output.srt

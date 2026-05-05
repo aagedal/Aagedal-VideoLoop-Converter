@@ -80,6 +80,7 @@
 		8EA25FE42F82A75C0087B1F1 /* SubtitleConversionMethod.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA25FE02F82A75C0087B1F1 /* SubtitleConversionMethod.swift */; };
 		8EA25FE52F82A75C0087B1F1 /* PGSParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA25FDF2F82A75C0087B1F1 /* PGSParser.swift */; };
 		8EA25FE62F82A75C0087B1F1 /* TesseractService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA25FE12F82A75C0087B1F1 /* TesseractService.swift */; };
+		AA51AC0E2FAE0FB1A09B0124 /* SubtitleSRTNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51AC0D2FAE0FB1A09B0123 /* SubtitleSRTNaming.swift */; };
 		8EA25FE72F82A75C0087B1F1 /* VOBSUBParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA25FE22F82A75C0087B1F1 /* VOBSUBParser.swift */; };
 		1D59593ACD4844D6AFFFA9AF /* BitmapSubtitleOCREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2A61B04B3A246528DAFA1F6 /* BitmapSubtitleOCREngine.swift */; };
 		11255751B6534433ACCE197E /* TesseractOCREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4782DE38B404350A2A11FCF /* TesseractOCREngine.swift */; };
@@ -313,6 +314,7 @@
 		8EA25FDF2F82A75C0087B1F1 /* PGSParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PGSParser.swift; sourceTree = "<group>"; };
 		8EA25FE02F82A75C0087B1F1 /* SubtitleConversionMethod.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleConversionMethod.swift; sourceTree = "<group>"; };
 		8EA25FE12F82A75C0087B1F1 /* TesseractService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TesseractService.swift; sourceTree = "<group>"; };
+		AA51AC0D2FAE0FB1A09B0123 /* SubtitleSRTNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleSRTNaming.swift; sourceTree = "<group>"; };
 		8EA25FE22F82A75C0087B1F1 /* VOBSUBParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VOBSUBParser.swift; sourceTree = "<group>"; };
 		E2A61B04B3A246528DAFA1F6 /* BitmapSubtitleOCREngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitmapSubtitleOCREngine.swift; sourceTree = "<group>"; };
 		D4782DE38B404350A2A11FCF /* TesseractOCREngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TesseractOCREngine.swift; sourceTree = "<group>"; };
@@ -640,6 +642,7 @@
 				E2A61B04B3A246528DAFA1F6 /* BitmapSubtitleOCREngine.swift */,
 				8EA25FDF2F82A75C0087B1F1 /* PGSParser.swift */,
 				8EA25FE02F82A75C0087B1F1 /* SubtitleConversionMethod.swift */,
+				AA51AC0D2FAE0FB1A09B0123 /* SubtitleSRTNaming.swift */,
 				D4782DE38B404350A2A11FCF /* TesseractOCREngine.swift */,
 				8EA25FE12F82A75C0087B1F1 /* TesseractService.swift */,
 				3133DAB4DB1E47E29DFC6CF4 /* VisionOCREngine.swift */,
@@ -1213,6 +1216,7 @@
 				8EA25FE42F82A75C0087B1F1 /* SubtitleConversionMethod.swift in Sources */,
 				8EA25FE52F82A75C0087B1F1 /* PGSParser.swift in Sources */,
 				8EA25FE62F82A75C0087B1F1 /* TesseractService.swift in Sources */,
+				AA51AC0E2FAE0FB1A09B0124 /* SubtitleSRTNaming.swift in Sources */,
 				8EA25FE72F82A75C0087B1F1 /* VOBSUBParser.swift in Sources */,
 				1D59593ACD4844D6AFFFA9AF /* BitmapSubtitleOCREngine.swift in Sources */,
 				11255751B6534433ACCE197E /* TesseractOCREngine.swift in Sources */,

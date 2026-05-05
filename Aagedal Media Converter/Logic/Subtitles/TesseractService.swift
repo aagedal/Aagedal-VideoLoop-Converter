@@ -117,7 +117,7 @@ actor TesseractService {
     ) async throws -> URL {
         isCancelled = false
         let baseName = sourceFile.deletingPathExtension().lastPathComponent
-        let srtURL = outputDirectory.appendingPathComponent(baseName + ".srt")
+        let srtURL = SubtitleSRTNaming.outputURL(directory: outputDirectory, baseName: baseName, method: .ocr)
         return try await runPipeline(
             sourceFile: sourceFile,
             srtURL: srtURL,
@@ -140,7 +140,7 @@ actor TesseractService {
         isCancelled = false
         let outputDirectory = sourceFile.deletingLastPathComponent()
         let baseName = sourceFile.deletingPathExtension().lastPathComponent
-        let srtURL = outputDirectory.appendingPathComponent(baseName + ".srt")
+        let srtURL = SubtitleSRTNaming.outputURL(directory: outputDirectory, baseName: baseName, method: .ocr)
         return try await runPipeline(
             sourceFile: sourceFile,
             srtURL: srtURL,

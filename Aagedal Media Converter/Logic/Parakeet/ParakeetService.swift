@@ -240,39 +240,31 @@ actor ParakeetService {
             )
         }
 
-        // parakeet-mlx outputs SRT with the same base name as the input file
-        let baseName = actualInputFile.deletingPathExtension().lastPathComponent
-        let srtFile = outputDirectory.appendingPathComponent(baseName + ".srt")
+        // parakeet-mlx writes <baseName>.srt next to its --output-dir. When we extracted
+        // a temp audio track, that baseName is a UUID; otherwise it's the input file's
+        // own base. Either way, we normalize to the canonical, collision-aware path
+        // SubtitleSRTNaming chooses for the .parakeet engine so OCR/Whisper outputs
+        // can coexist on disk.
+        let writtenBaseName = actualInputFile.deletingPathExtension().lastPathComponent
+        let writtenSrt = outputDirectory.appendingPathComponent(writtenBaseName + ".srt")
 
-        // If we used a temp audio file, the SRT name will be based on the temp UUID.
-        // Rename it to match the original input file name.
-        if tempAudioFile != nil {
-            let originalBaseName = inputFile.deletingPathExtension().lastPathComponent
-            let expectedSrt = outputDirectory.appendingPathComponent(originalBaseName + ".srt")
-
-            if srtFile.path != expectedSrt.path && FileManager.default.fileExists(atPath: srtFile.path) {
-                try? FileManager.default.removeItem(at: expectedSrt)
-                try FileManager.default.moveItem(at: srtFile, to: expectedSrt)
-
-                guard FileManager.default.fileExists(atPath: expectedSrt.path) else {
-                    throw ParakeetServiceError.srtGenerationFailed
-                }
-
-                progress(ParakeetProgress(stage: .complete, percentage: 1.0, message: nil))
-                logger.info("Subtitles generated: \(expectedSrt.lastPathComponent)")
-                return expectedSrt
-            }
-        }
-
-        // Verify SRT file was created
-        guard FileManager.default.fileExists(atPath: srtFile.path) else {
+        guard FileManager.default.fileExists(atPath: writtenSrt.path) else {
             throw ParakeetServiceError.srtGenerationFailed
         }
 
-        progress(ParakeetProgress(stage: .complete, percentage: 1.0, message: nil))
-        logger.info("Subtitles generated: \(srtFile.lastPathComponent)")
+        let originalBaseName = inputFile.deletingPathExtension().lastPathComponent
+        let finalSrt = SubtitleSRTNaming.outputURL(directory: outputDirectory, baseName: originalBaseName, method: .parakeet)
+        if writtenSrt.path != finalSrt.path {
+            try? FileManager.default.removeItem(at: finalSrt)
+            try FileManager.default.moveItem(at: writtenSrt, to: finalSrt)
+            guard FileManager.default.fileExists(atPath: finalSrt.path) else {
+                throw ParakeetServiceError.srtGenerationFailed
+            }
+        }
 
-        return srtFile
+        progress(ParakeetProgress(stage: .complete, percentage: 1.0, message: nil))
+        logger.info("Subtitles generated: \(finalSrt.lastPathComponent)")
+        return finalSrt
     }
 
     /// Generates SRT subtitle file directly from input file (no encoding)
