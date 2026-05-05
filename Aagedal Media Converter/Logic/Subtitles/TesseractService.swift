@@ -168,6 +168,11 @@ actor TesseractService {
         language: String,
         progress: @escaping @Sendable (TesseractProgress) -> Void
     ) async throws -> URL {
+        // Sandboxed FFmpeg subprocess can't open user-imported files on external volumes
+        // unless we hold security scope on the source URL for the duration of the run.
+        let access = SecurityScopedBookmarkManager.shared.startAccessing(url: sourceFile)
+        defer { SecurityScopedBookmarkManager.shared.stopAccessing(access) }
+
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             throw TesseractServiceError.ffmpegNotFound
         }

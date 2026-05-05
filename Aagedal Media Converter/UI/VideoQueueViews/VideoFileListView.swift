@@ -997,6 +997,7 @@ struct VideoFileListView: View {
         // Update status to pending
         await MainActor.run {
             if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].subtitleMethod = .whisper
                 droppedFiles[idx].subtitleStatus = .pending
             }
         }
@@ -1069,6 +1070,7 @@ struct VideoFileListView: View {
         // Update status to pending
         await MainActor.run {
             if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].subtitleMethod = .parakeet
                 droppedFiles[idx].subtitleStatus = .pending
             }
         }
@@ -1170,6 +1172,7 @@ struct VideoFileListView: View {
 
         await MainActor.run {
             if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                droppedFiles[idx].subtitleMethod = .ocr
                 droppedFiles[idx].subtitleStatus = .pending
             }
         }

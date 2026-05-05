@@ -38,6 +38,7 @@ extension VideoFileCellView {
         transcriptionButton.isHidden = false
         let isTranscriptionEnabled = config.subtitleEnabled && (config.subtitleMethod == .whisper || config.subtitleMethod == .parakeet)
         let isTranscribing = config.subtitleStatus.isInProgress
+            && (config.subtitleMethod == .whisper || config.subtitleMethod == .parakeet)
         transcriptionButton.image = isTranscriptionEnabled ? VideoFileCellView.Symbol.captionsBubbleFill : VideoFileCellView.Symbol.captionsBubble
         if !config.isTranscriptionAvailable {
             transcriptionButton.contentTintColor = .systemOrange
@@ -57,10 +58,13 @@ extension VideoFileCellView {
         ocrButton.isHidden = !showOCR
         if showOCR {
             let isOCREnabled = config.subtitleEnabled && config.subtitleMethod == .ocr
-            ocrButton.contentTintColor = isOCREnabled ? .systemYellow : .secondaryLabelColor
-            ocrButton.toolTip = isOCREnabled
+            let isOCRing = config.subtitleStatus.isInProgress && config.subtitleMethod == .ocr
+            let isOCRActive = isOCREnabled || isOCRing
+            ocrButton.contentTintColor = isOCRActive ? .systemYellow : .secondaryLabelColor
+            ocrButton.toolTip = isOCRActive
                 ? "OCR enabled. ⌥-click to generate SRT only."
                 : "Enable OCR for bitmap subtitles. ⌥-click to generate SRT only."
+            applyProcessingRing(to: ocrButton, active: isOCRing, color: .systemYellow)
         }
 
         // --- Analytics button (cyan) ---
