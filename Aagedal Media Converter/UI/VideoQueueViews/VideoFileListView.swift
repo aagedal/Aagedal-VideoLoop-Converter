@@ -517,21 +517,11 @@ struct VideoFileListView: View {
 
             _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
 
-            async let detailsTask = VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
-            async let metadataTask = VideoFileUtils.fetchMetadata(for: url)
-
-            let details = await detailsTask
+            let details = await VideoFileUtils.loadDetails(for: url, outputFolder: outputFolder, preset: preset)
             await MainActor.run {
                 if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
                     self.droppedFiles[index].apply(details: details)
                     self.droppedFiles[index].detailsLoaded = true
-                }
-            }
-
-            let metadata = await metadataTask
-            await MainActor.run {
-                if let index = self.droppedFiles.firstIndex(where: { $0.id == placeholderID }) {
-                    self.droppedFiles[index].metadata = metadata
                 }
             }
         }

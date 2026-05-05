@@ -170,8 +170,6 @@
 		F3720F14FE01EFDA351E853C /* MetadataSidecarGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DE2A8F5AA781549E2BC186 /* MetadataSidecarGenerator.swift */; };
 		F88CB64509DD67D585EB71E6 /* WhisperModelManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4796A97B7CD776CF35F1314 /* WhisperModelManager.swift */; };
 		FE7150EDC2D2BFA59C20A1F1 /* YTDLPService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B862E87364609527CEEC84 /* YTDLPService.swift */; };
-		FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPCRD00000002 /* FileImportCoordinator.swift */; };
-		FILEIMPMGR00000001 /* FileImportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILEIMPMGR00000002 /* FileImportManager.swift */; };
 		FILENAMESETV0000000000B1 /* FileNameSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */; };
 		GRPEDITWIN000002 /* GroupEditorWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPEDITWIN000001 /* GroupEditorWindow.swift */; };
 		IMFPKGIMP00000001 /* IMFPackageImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMFPKGIMP00000002 /* IMFPackageImporter.swift */; };
@@ -412,8 +410,6 @@
 		F82CC3B9944D3DAF6B3F9C93 /* ComparisonMetadataView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparisonMetadataView.swift; sourceTree = "<group>"; };
 		FB97784F4F5459DC7E6D8CD3 /* AudioFrequencyAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioFrequencyAnalyzer.swift; sourceTree = "<group>"; };
 		FE5D4D8671AB2EB5948179AE /* YTDLPUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPUpdateService.swift; path = YTDLP/YTDLPUpdateService.swift; sourceTree = "<group>"; };
-		FILEIMPCRD00000002 /* FileImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportCoordinator.swift; sourceTree = "<group>"; };
-		FILEIMPMGR00000002 /* FileImportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileImportManager.swift; sourceTree = "<group>"; };
 		FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameSettingsView.swift; sourceTree = "<group>"; };
 		GRPEDITWIN000001 /* GroupEditorWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditorWindow.swift; sourceTree = "<group>"; };
 		IMFPKGIMP00000002 /* IMFPackageImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMFPackageImporter.swift; sourceTree = "<group>"; };
@@ -966,8 +962,6 @@
 			isa = PBXGroup;
 			children = (
 				CAMCARDSCAN0000002 /* CameraCardScanner.swift */,
-				FILEIMPCRD00000002 /* FileImportCoordinator.swift */,
-				FILEIMPMGR00000002 /* FileImportManager.swift */,
 				IMFPKGIMP00000002 /* IMFPackageImporter.swift */,
 				IMFPKGPAR00000002 /* IMFPackageParser.swift */,
 				IMGSEQDET00000001 /* ImageSequenceDetector.swift */,
@@ -1289,11 +1283,9 @@
 				METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */,
 				PRESET01MGR000000001 /* PresetManager.swift in Sources */,
 				VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */,
-				FILEIMPMGR00000001 /* FileImportManager.swift in Sources */,
 				IMGSEQMOD00000002 /* ImageSequenceModels.swift in Sources */,
 				IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */,
 				CAMCARDSCAN0000001 /* CameraCardScanner.swift in Sources */,
-				FILEIMPCRD00000001 /* FileImportCoordinator.swift in Sources */,
 				IMFPKGPAR00000001 /* IMFPackageParser.swift in Sources */,
 				IMFPKGIMP00000001 /* IMFPackageImporter.swift in Sources */,
 				5DA60AEC78445845148F3FFA /* VideoQueueTableView.swift in Sources */,

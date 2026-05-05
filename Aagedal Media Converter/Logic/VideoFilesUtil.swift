@@ -21,6 +21,7 @@ struct VideoFileUtils: Sendable {
         let thumbnailData: Data?
         let outputURL: URL?
         let hasVideoStream: Bool
+        let metadata: VideoMetadata?
     }
 
     static func isVideoFile(url: URL) -> Bool {
@@ -190,8 +191,6 @@ struct VideoFileUtils: Sendable {
         generateRowThumbnailIfMissing: Bool = true,
         counter: Int? = nil
     ) async -> VideoItemDetails {
-        let fileName = url.lastPathComponent
-
         // Skip if file doesn't exist (e.g., scheduled downloads)
         guard FileManager.default.fileExists(atPath: url.path) else {
             return VideoItemDetails(
@@ -200,53 +199,82 @@ struct VideoFileUtils: Sendable {
                 durationSeconds: 0,
                 thumbnailData: nil,
                 outputURL: nil,
-                hasVideoStream: false
+                hasVideoStream: false,
+                metadata: nil
             )
         }
 
-        // Compute size (cheap, but ensures we have up-to-date info)
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        let outputURL = makeOutputURL(for: url, outputFolder: outputFolder, preset: preset, counter: counter)
 
-        // Resolve duration + hasVideoStream together. Both come from the same SwiftExif read,
-        // so when either cache misses we route through `fetchEssentialInfo` to:
-        //   1. parse the container only once instead of twice,
-        //   2. dedup concurrent imports of the same URL via the service's in-flight tracker,
-        //   3. populate `essentialInfoCache` so subsequent loadDetails / hasVideoStream lookups
-        //      return without touching the disk.
+        // Run the full metadata probe in parallel with thumbnail generation. The metadata
+        // service's `inFlightRawVideo` map dedups concurrent SwiftExif reads internally, so
+        // even when several files import together we don't pay for redundant parses.
+        async let metadataResult = fetchVideoMetadataWithFallback(for: url)
+        async let thumbResult = getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generateRowThumbnailIfMissing)
+
+        let (outcome, thumb) = await (metadataResult, thumbResult)
+
         let durationSec: Double
         let hasVideoStream: Bool
-
-        let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url)
-        let cachedHasVideo = await VideoMetadataService.shared.cachedHasVideoStream(for: url)
-
-        if let cachedDuration, cachedDuration > 0, let cachedHasVideo {
-            durationSec = cachedDuration
-            hasVideoStream = cachedHasVideo
-            logger.debug("Using cached metadata: \(cachedDuration, privacy: .public)s, hasVideo=\(cachedHasVideo) for \(fileName, privacy: .public)")
-        } else if let info = try? await VideoMetadataService.shared.fetchEssentialInfo(for: url) {
+        let metadata: VideoMetadata?
+        switch outcome {
+        case .full(let m):
+            metadata = m
+            durationSec = m.duration ?? 0
+            hasVideoStream = !m.videoStreams.isEmpty
+        case .essentialOnly(let info):
+            metadata = nil
             durationSec = info.duration
             hasVideoStream = info.hasVideoStream
-        } else {
-            // Probe failed — preserve the legacy defensive fallback (assume video exists when
-            // SwiftExif can't read the container) so downstream UI doesn't silently drop the row.
+        case .failed:
+            // Both probes failed — preserve the legacy defensive fallback so the row still appears.
+            metadata = nil
             durationSec = (await SwiftExifMediaProbe.duration(for: url)) ?? 0
             hasVideoStream = await VideoMetadataService.shared.hasVideoStream(for: url)
         }
 
-        let durationString = formatDuration(seconds: durationSec)
-
-        let thumbnailData = await getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generateRowThumbnailIfMissing)
-
-        let outputURL = makeOutputURL(for: url, outputFolder: outputFolder, preset: preset, counter: counter)
-
         return VideoItemDetails(
             size: size,
-            duration: durationString,
+            duration: formatDuration(seconds: durationSec),
             durationSeconds: durationSec,
-            thumbnailData: thumbnailData,
+            thumbnailData: thumb,
             outputURL: outputURL,
-            hasVideoStream: hasVideoStream
+            hasVideoStream: hasVideoStream,
+            metadata: metadata
         )
+    }
+
+    private enum MetadataProbeOutcome {
+        case full(VideoMetadata)
+        case essentialOnly(EssentialVideoInfo)
+        case failed
+    }
+
+    /// Tries the full metadata read first (gives the row resolution + FPS in the same hop as
+    /// duration). Falls back to `fetchEssentialInfo` for audio containers, read failures, and
+    /// timeouts so the row still gets a duration.
+    private static func fetchVideoMetadataWithFallback(for url: URL) async -> MetadataProbeOutcome {
+        struct MetadataTimeout: Error {}
+        do {
+            let metadata = try await withThrowingTaskGroup(of: VideoMetadata.self) { group in
+                group.addTask { try await VideoMetadataService.shared.metadata(for: url) }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 15_000_000_000)
+                    throw MetadataTimeout()
+                }
+                let result = try await group.next()
+                group.cancelAll()
+                guard let result else { throw MetadataTimeout() }
+                return result
+            }
+            return .full(metadata)
+        } catch {
+            if let info = try? await VideoMetadataService.shared.fetchEssentialInfo(for: url) {
+                return .essentialOnly(info)
+            }
+            return .failed
+        }
     }
 
     static func loadDetailsAsync(
@@ -844,6 +872,10 @@ struct VideoItem: Identifiable, Equatable, Sendable {
             outputURL = details.outputURL
         }
         hasVideoStream = details.hasVideoStream
+        // Preserve a previously-set metadata when the fallback path returned nil.
+        if let m = details.metadata {
+            metadata = m
+        }
     }
     
     /// Formats a byte count as a human-readable string (<1 MB ⇒ KB, 1–600 MB ⇒ MB, ≥600 MB ⇒ GB).
