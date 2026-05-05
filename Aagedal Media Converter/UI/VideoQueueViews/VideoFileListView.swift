@@ -1086,6 +1086,7 @@ struct VideoFileListView: View {
         guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else {
             return
         }
+        Self.logger.info("[subtitle-trigger] option-click Whisper for item \(itemID, privacy: .public) file=\(droppedFiles[index].url.lastPathComponent, privacy: .public)")
 
         let inputURL = droppedFiles[index].url
         let audioStreamIndex = droppedFiles[index].selectedAudioStreamIndex
@@ -1178,6 +1179,7 @@ struct VideoFileListView: View {
 
     private func transcribeOnlyParakeet(itemID: UUID) async {
         guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+        Self.logger.info("[subtitle-trigger] option-click Parakeet for item \(itemID, privacy: .public) file=\(droppedFiles[index].url.lastPathComponent, privacy: .public)")
 
         let inputURL = droppedFiles[index].url
         let audioStreamIndex = droppedFiles[index].selectedAudioStreamIndex
@@ -1258,6 +1260,7 @@ struct VideoFileListView: View {
 
     private func transcribeOnlyOCR(itemID: UUID) async {
         guard let index = droppedFiles.firstIndex(where: { $0.id == itemID }) else { return }
+        Self.logger.info("[subtitle-trigger] option-click OCR for item \(itemID, privacy: .public) file=\(droppedFiles[index].url.lastPathComponent, privacy: .public)")
 
         let sourceURL = droppedFiles[index].url
         let metadata  = droppedFiles[index].metadata

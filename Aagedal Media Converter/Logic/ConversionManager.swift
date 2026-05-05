@@ -2084,6 +2084,7 @@ actor ConversionManager: Sendable {
         inputURL: URL,
         droppedFiles: Binding<[VideoItem]>
     ) async {
+        logger.info("[subtitle-trigger] post-encode Whisper for item \(itemID, privacy: .public) inputURL=\(inputURL.lastPathComponent, privacy: .public)")
         // Get selected model and language from settings
         let modelRaw = UserDefaults.standard.string(forKey: AppConstants.whisperModelKey) ?? AppConstants.defaultWhisperModel
         let model = WhisperModel(rawValue: modelRaw) ?? .base
@@ -2176,6 +2177,7 @@ actor ConversionManager: Sendable {
         inputURL: URL,
         droppedFiles: Binding<[VideoItem]>
     ) async {
+        logger.info("[subtitle-trigger] post-encode Parakeet for item \(itemID, privacy: .public) inputURL=\(inputURL.lastPathComponent, privacy: .public)")
         // Get selected model and language from settings
         let modelId = UserDefaults.standard.string(forKey: AppConstants.parakeetModelKey) ?? AppConstants.defaultParakeetModel
         let model = ParakeetModel.model(for: modelId) ?? ParakeetModel.allModels[0]
@@ -2259,6 +2261,7 @@ actor ConversionManager: Sendable {
         metadata: VideoMetadata?,
         droppedFiles: Binding<[VideoItem]>
     ) async {
+        logger.info("[subtitle-trigger] post-encode OCR for item \(itemID, privacy: .public) sourceURL=\(sourceURL.lastPathComponent, privacy: .public)")
         // Identify the chosen (or first) bitmap subtitle stream
         let chosenStreamIndex = droppedFiles.wrappedValue.first(where: { $0.id == itemID })?.selectedBitmapSubtitleStreamIndex
         // FFprobe-style + Matroska container IDs (SwiftExif's MKV reader surfaces the latter).
