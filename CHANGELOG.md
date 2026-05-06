@@ -18,7 +18,7 @@ A broadcast and cinema-leaning release: full IMF package export, per-item DCP/IM
 
 ## Subtitles
 
-- **Apple Vision OCR engine** for PGS/VOBSUB bitmap subtitles, alongside the existing Tesseract engine. New picker in **Settings → Subtitles → OCR Engine**; Vision needs no extra binaries or language packs and is the default for new installs (existing users keep their current Tesseract setup).
+- **Apple Vision OCR engine** for PGS/VOBSUB bitmap subtitles, alongside the existing Tesseract engine. Vision is noticeably more accurate than Tesseract — especially on stylised or anti‑aliased subtitle bitmaps where Tesseract tends to mis‑read glyphs like `I` vs. `|` or `rn` vs. `m` — and needs no extra binaries or language packs. New picker in **Settings → Subtitles → OCR Engine**; Vision is the default for new installs, while existing users keep their current Tesseract setup.
 
 ## Metadata
 
