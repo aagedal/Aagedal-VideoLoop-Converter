@@ -110,9 +110,9 @@ actor BMXService {
     /// - Parameters:
     ///   - inputURL: The source MXF or MOV file (from FFmpeg or asdcp-wrap).
     ///   - outputURL: The destination OP1a MXF.
-    ///   - colorPrimaries: bmx `--color-prim` value (e.g. "709", "2020"); nil to omit.
-    ///   - transferCharacteristic: bmx `--transfer-ch` value (e.g. "709", "2020", "smpte2084", "hlg"); nil to omit.
-    ///   - codingEquations: bmx `--coding-eq` value (e.g. "709", "2020"); nil to omit.
+    ///   - colorPrimaries: bmx `--color-prim` value (e.g. "bt709", "bt2020"); nil to omit.
+    ///   - transferCharacteristic: bmx `--transfer-ch` value (e.g. "bt709", "bt2020", "st2084", "hlg"); nil to omit.
+    ///   - codingEquations: bmx `--coding-eq` value (e.g. "bt709", "bt2020"); nil to omit.
     ///   - clipName: Optional clip name written to the MXF.
     ///   - mcaLabelsFile: Optional MCA labels file (for IMF audio essences carrying SMPTE ST 377-4 labels).
     ///   - progress: Progress callback (0.0 to 1.0).

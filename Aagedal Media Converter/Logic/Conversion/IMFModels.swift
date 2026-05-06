@@ -201,12 +201,15 @@ enum IMFColorEncoding: String, CaseIterable, Identifiable, Sendable {
 
     /// Flags to pass to bmx tools (raw2bmx, bmxtranswrap) for IMF wrapping.
     /// `transferCharacteristic == nil` means omit `--transfer-ch` and let bmx default.
+    /// Values follow bmx v1.6.2's accepted vocabulary (`bt709`, `bt2020`, `st2084`, `hlg`);
+    /// older bmx releases also accepted shorter forms ("709"/"2020"/"smpte2084") but those
+    /// were dropped, so use the verbose names.
     var bmxFlags: (colorPrimaries: String, transferCharacteristic: String?, codingEquations: String) {
         switch self {
-        case .rec709:     return ("709", "709", "709")
-        case .rec2020SDR: return ("2020", nil, "2020")
-        case .rec2020PQ:  return ("2020", "smpte2084", "2020")
-        case .rec2020HLG: return ("2020", "hlg", "2020")
+        case .rec709:     return ("bt709", "bt709", "bt709")
+        case .rec2020SDR: return ("bt2020", nil, "bt2020")
+        case .rec2020PQ:  return ("bt2020", "st2084", "bt2020")
+        case .rec2020HLG: return ("bt2020", "hlg", "bt2020")
         }
     }
 }
