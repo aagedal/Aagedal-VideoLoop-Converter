@@ -1,4 +1,4 @@
-# v.4.1 — DRAFT
+# v.4.1.0
 
 A broadcast and cinema-leaning release: full IMF package export, per-item DCP/IMF metadata, MCA labels carried through audio routing, and a second OCR engine for bitmap subtitles.
 
@@ -9,6 +9,8 @@ A broadcast and cinema-leaning release: full IMF package export, per-item DCP/IM
 - **IMF export** — two new presets, **IMF (App #2e — JPEG 2000)** and **IMF (App #5 — ProRes)**, producing a complete IMF package folder (CPL, PKL, ASSETMAP.xml) with editable metadata. Audio is rewrapped as 24‑bit 48 kHz PCM with MCA labels (preserved from the source MXF when available, otherwise standard SMPTE layouts for mono / stereo / 5.1). Resolution and frame‑rate selections are persisted per preset.
 - **Per‑item DCP/IMF metadata editor** — a film‑stack icon appears next to the comment button on each queue row when a DCP or IMF preset is active. Opens a sheet to edit **ContentTitle**, **ContentKind** (feature, trailer, etc.), **Annotation**, and **AudioLanguage** per item. The title auto‑populates from the filename. The sheet width was bumped to 640pt so the title/annotation fields and the Content Kind / Rating / Audio Language row fit comfortably in non‑English locales too.
 - **Wrap failures now surface in the queue.** Missing `asdcp-wrap`, non‑zero exits, JP2/manifest assembly errors, and audio extraction failures populate the row's error capsule and tooltip instead of silently completing with an audio‑less or partial package.
+- **Live progress through the wrap and packaging stages.** Audio extraction, `asdcp-wrap`, and manifest writes now report progress to the queue card instead of pegging at the FFmpeg hand-off, and a deadlock around `asdcp-wrap`'s stdout pipe is fixed so long IMF audio essences no longer hang the wrap step.
+- **Quality Analytics runs on the inner MXF** for DCP and IMF exports, so VMAF / PSNR / SSIMULACRA2 compare the actual mastered essence instead of stopping at the package boundary.
 
 ## Audio Routing — MCA Labels
 
@@ -19,6 +21,7 @@ A broadcast and cinema-leaning release: full IMF package export, per-item DCP/IM
 ## Subtitles
 
 - **Apple Vision OCR engine** for PGS/VOBSUB bitmap subtitles, alongside the existing Tesseract engine. Vision is noticeably more accurate than Tesseract — especially on stylised or anti‑aliased subtitle bitmaps where Tesseract tends to mis‑read glyphs like `I` vs. `|` or `rn` vs. `m` — and needs no extra binaries or language packs. New picker in **Settings → Subtitles → OCR Engine**; Vision is the default for new installs, while existing users keep their current Tesseract setup.
+- **Real progress during PGS extraction.** Subtitle dumps now stream FFmpeg's demux progress into the queue card (mapped onto the 0–15% extract slice), and the status label shows what the engine is actually doing — "Extracting subtitle stream", "Recognizing text", "Transcribing (Whisper)" — instead of a bare percentage that left feature-length rips looking frozen.
 
 ## Metadata
 
@@ -28,6 +31,9 @@ A broadcast and cinema-leaning release: full IMF package export, per-item DCP/IM
 ## UI & polish
 
 - Queue cards now adapt correctly to **Light mode** — backgrounds, the idle encode (play) button, and the group‑child cool tint were all stuck on the dark palette. Reset/Delete row buttons were reordered (reset before delete) to match the toolbar, and reset is now hidden entirely when not applicable instead of greying out.
+- **Idle queue cards now carry a thin, theme-aware outline** so cards read as distinct cards in both light and dark mode without being shouty.
+- **Click a queue row's error capsule to copy the full message** to the clipboard, with a brief "Copied to clipboard" confirmation. Long `bmxtranswrap` / `asdcp-wrap` stderr lines (and any other truncated failure text) are now reachable instead of being hidden by row truncation.
+- **Wider Settings sidebar** so longer non-English row labels stop wrapping, and **new encoding groups now adopt a configurable default format** instead of always falling back to the global preset.
 - The metadata row's hover and click hit‑area now ends at the rightmost visible label instead of stretching across the empty trailing space, so that area is free for normal row selection.
 - Queue rows now apply **resolution / codec / FPS as soon as the metadata probe returns**, instead of waiting on the thumbnail+duration step. Imported queues feel like they fill in faster.
 - Queue card thumbnails **re‑rasterize when the window moves between displays** with different backing scales, so dragging the window to or from an external non‑Retina display no longer leaves blurry artwork.
@@ -35,6 +41,7 @@ A broadcast and cinema-leaning release: full IMF package export, per-item DCP/IM
 
 ## Bug fixes
 
+- **Running two subtitle engines on the same source overwrote the first engine's SRT.** Tesseract → Whisper (and any other combination) shared the hard-coded `<base>.srt` destination, so the second run silently replaced the first. The first run for a given basename now writes the canonical `<base>.srt`; subsequent runs from a different engine write `<base>.<method>.srt` so both outputs sit side-by-side. Wired through Tesseract, Whisper, and Parakeet.
 - **MKV PGS / VOBSUB subtitles were silently rejected by OCR.** SwiftExif's Matroska reader returns the container‑native codec IDs (`S_HDMV/PGS`, `S_VOBSUB`), but the four bitmap‑codec gates in the OCR launch path only knew FFprobe's vocabulary, so the OCR button stayed hidden on MKVs and any OCR run aborted with "No bitmap subtitle stream found". All gates now recognize both naming styles.
 - **Tesseract OCR mapped the wrong stream on MKV inputs.** The extract step used absolute stream indexing (`0:N`); SwiftExif reports `index` relative to subtitle streams, so on a typical \[video, audio, subtitle\] MKV the muxer tried to ingest the video stream and rejected the run with "sup muxer does not support any stream of type video". Now uses the type‑relative `0:s:N` selector.
 - **Tesseract pipeline hardened.** A misconfigured `tessdata` path now surfaces as a real error instead of silently producing an empty SRT, cancellations land mid‑extract instead of queueing behind the actor (and translate to *cancelled* rather than the misleading "FFmpeg exited 15"), and 60 s extraction / 10 s per‑frame timeouts prevent a wedged subprocess from pinning the queue forever. Orphan `/tmp/TesseractOCR-*` directories are also swept at launch.
@@ -70,7 +77,7 @@ A follow-up release focused on the download/upload pipeline: a bundled rclone, w
 - Disabled the **Schedule** checkbox when **Whole playlist** is on (the persistence model doesn't support that combination); turning the playlist toggle on clears any pending schedule.
 - The **Whole playlist** toggle (and any value carried over from a prior session) is now gated by the playlist-URL heuristic so a single-video URL can no longer accidentally kick off a playlist run.
 
-# v.4.0.0 — DRAFT
+# v.4.0.0
 
 This is the biggest release yet, rolling up everything from the 3.9 beta plus a lot of polish since. Highlights up top; bug fixes at the bottom.
 

@@ -1553,7 +1553,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             // J2K image sequence: NOT cinema profile (that's DCP); IMF App #2e uses broadcast J2K profiles
             // No -profile or -cinema_mode; libopenjpeg picks a profile suitable for the YCbCr essence.
             // Note: deep HDR variants may need additional ffmpeg flags; rely on the JP2 → MXF wrap to flag any non-conformance.
-            var args = commonArgs + [
+            let args = commonArgs + [
                 "-c:v", "libopenjpeg",
                 "-pix_fmt", "yuv422p10le",
                 "-color_primaries", color.colorPrimaries,
