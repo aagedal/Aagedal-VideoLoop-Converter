@@ -36,11 +36,15 @@ actor AnalyticsService {
             throw AnalyticsError.ffmpegNotFound
         }
 
-        guard FileManager.default.fileExists(atPath: sourceFile.path) else {
+        // Reject directories explicitly — `fileExists(atPath:)` alone returns true for folders,
+        // which would let callers (e.g. DCP/IMF package outputs) sail past validation and
+        // surface a confusing FFmpeg error instead.
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: sourceFile.path, isDirectory: &isDir), !isDir.boolValue else {
             throw AnalyticsError.sourceFileNotFound
         }
-
-        guard FileManager.default.fileExists(atPath: encodedFile.path) else {
+        isDir = false
+        guard FileManager.default.fileExists(atPath: encodedFile.path, isDirectory: &isDir), !isDir.boolValue else {
             throw AnalyticsError.encodedFileNotFound
         }
 

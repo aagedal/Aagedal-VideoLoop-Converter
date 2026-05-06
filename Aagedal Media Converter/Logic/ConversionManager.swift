@@ -906,19 +906,29 @@ actor ConversionManager: Sendable {
             }
         }
 
-        // Trigger analytics for merged output (once since all items share the same file)
+        // Trigger analytics for merged output (once since all items share the same file).
+        // Merge always uses .streamCopy, so the resolver is a no-op for this path today —
+        // we route through it anyway to avoid a regression if merge ever produces packages.
         if success,
            let firstAnalyticsIdx = indices.first(where: { droppedFiles.wrappedValue[$0].analyticsEnabled }),
            let outputURL = droppedFiles.wrappedValue[firstAnalyticsIdx].outputURL {
             let itemID = droppedFiles.wrappedValue[firstAnalyticsIdx].id
             let sourceURL = droppedFiles.wrappedValue[firstAnalyticsIdx].url
-            Task {
-                await self.runAnalytics(
-                    for: itemID,
-                    sourceURL: sourceURL,
-                    encodedURL: outputURL,
-                    droppedFiles: droppedFiles
-                )
+            if let analyticsURL = self.resolveAnalyticsSourceURL(for: outputURL, preset: plan.preset) {
+                Task {
+                    await self.runAnalytics(
+                        for: itemID,
+                        sourceURL: sourceURL,
+                        encodedURL: analyticsURL,
+                        droppedFiles: droppedFiles
+                    )
+                }
+            } else {
+                await MainActor.run {
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                        droppedFiles.wrappedValue[idx].analyticsStatus = .failed("Could not locate wrapped video essence in package")
+                    }
+                }
             }
         }
 
@@ -1896,13 +1906,17 @@ actor ConversionManager: Sendable {
                     if success && droppedFiles.wrappedValue[idx].analyticsEnabled {
                         if let outputURL = droppedFiles.wrappedValue[idx].outputURL {
                             let sourceURL = droppedFiles.wrappedValue[idx].url
-                            Task {
-                                await self.runAnalytics(
-                                    for: fileId,
-                                    sourceURL: sourceURL,
-                                    encodedURL: outputURL,
-                                    droppedFiles: droppedFiles
-                                )
+                            if let analyticsURL = self.resolveAnalyticsSourceURL(for: outputURL, preset: preset) {
+                                Task {
+                                    await self.runAnalytics(
+                                        for: fileId,
+                                        sourceURL: sourceURL,
+                                        encodedURL: analyticsURL,
+                                        droppedFiles: droppedFiles
+                                    )
+                                }
+                            } else {
+                                droppedFiles.wrappedValue[idx].analyticsStatus = .failed("Could not locate wrapped video essence in package")
                             }
                         }
                     }
@@ -2608,6 +2622,51 @@ actor ConversionManager: Sendable {
                 }
             }
             logger.error("Quality analytics failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Resolves an item's reported `outputURL` to the file Quality Analytics should ingest.
+    /// DCP / IMF presets store the package working folder as `outputURL` (so the queue UI
+    /// can show package size and Reveal-in-Finder lands in the right place), but FFmpeg
+    /// can't read a folder. For those presets, return the wrapped video essence MXF inside
+    /// the package. Returns `nil` if the package is missing the expected MXF.
+    nonisolated private func resolveAnalyticsSourceURL(for outputURL: URL, preset: ExportPreset) -> URL? {
+        let fm = FileManager.default
+        switch preset {
+        case .dcp:
+            // DCP: <packageFolder>/<isdcfFolder>/j2c_<UUID>.mxf
+            guard let entries = try? fm.contentsOfDirectory(
+                at: outputURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { return nil }
+            let subfolders = entries.filter {
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            }
+            for folder in subfolders {
+                if let inner = try? fm.contentsOfDirectory(
+                    at: folder,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                ), let videoMXF = inner.first(where: {
+                    $0.lastPathComponent.hasPrefix("j2c_") && $0.pathExtension.lowercased() == "mxf"
+                }) {
+                    return videoMXF
+                }
+            }
+            return nil
+        case .imfJ2K, .imfProRes:
+            // IMF: <packageFolder>/video_<UUID>.mxf
+            guard let entries = try? fm.contentsOfDirectory(
+                at: outputURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { return nil }
+            return entries.first(where: {
+                $0.lastPathComponent.hasPrefix("video_") && $0.pathExtension.lowercased() == "mxf"
+            })
+        default:
+            return outputURL
         }
     }
 
