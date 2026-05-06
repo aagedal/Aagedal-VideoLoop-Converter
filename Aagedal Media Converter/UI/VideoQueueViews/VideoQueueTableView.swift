@@ -990,6 +990,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 status: item.status,
                 progress: item.progress,
                 eta: item.eta,
+                statusMessage: item.statusMessage,
                 conversionError: item.conversionError,
                 comment: item.comment,
                 includeDateTag: item.includeDateTag,

@@ -1086,6 +1086,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             || prev?.formattedOutputSize != config.formattedOutputSize
             || prev?.progress != config.progress
             || prev?.eta != config.eta
+            || prev?.statusMessage != config.statusMessage
             || prev?.conversionError != config.conversionError
             || prev?.downloadError != config.downloadError
             || prev?.isDownloading != config.isDownloading

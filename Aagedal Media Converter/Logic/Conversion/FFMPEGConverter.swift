@@ -466,6 +466,9 @@ actor FFMPEGConverter {
             Task { [weak self] in
                 await self?.setCurrentProcess(nil)
                 var success = process.terminationStatus == 0
+                if capturedIsIMFExport || capturedIsDCPExport {
+                    print("[IMF/DCP] termination handler entered, ffmpeg exit=\(process.terminationStatus), success=\(success), isIMF=\(capturedIsIMFExport), isDCP=\(capturedIsDCPExport)")
+                }
                 if success {
                     Self.logger.info("FFmpeg process terminated with status: \(process.terminationStatus) (success: \(success))")
                 } else {
@@ -609,17 +612,29 @@ actor FFMPEGConverter {
                             videoWrapProcess.arguments = videoWrapArgs
                             videoWrapProcess.standardInput = FileHandle.nullDevice
 
-                            // Capture stderr for debugging
+                            // Capture stderr for debugging. Drain in real time — `-v` makes asdcp-wrap
+                            // emit per-frame stderr that fills the pipe (16–64 KB) and deadlocks
+                            // long encodes if no reader is consuming it.
                             let stderrPipe = Pipe()
                             videoWrapProcess.standardOutput = stderrPipe  // asdcp-wrap prints info to stdout
                             videoWrapProcess.standardError = stderrPipe
+
+                            let stderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
+                            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                                let chunk = handle.availableData
+                                guard !chunk.isEmpty else { return }
+                                stderrBuffer.withLock { $0.append(chunk) }
+                            }
 
                             do {
                                 try videoWrapProcess.run()
                                 videoWrapProcess.waitUntilExit()
 
-                                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                                stderrPipe.fileHandleForReading.readabilityHandler = nil
+                                let trailing = stderrPipe.fileHandleForReading.availableData
+                                if !trailing.isEmpty { stderrBuffer.withLock { $0.append(trailing) } }
                                 try? stderrPipe.fileHandleForReading.close()
+                                let stderrData = stderrBuffer.withLock { $0 }
                                 let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
                                 if !stderrStr.isEmpty {
                                     Self.logger.info("asdcp-wrap video output: \(stderrStr.prefix(500))")
@@ -638,6 +653,7 @@ actor FFMPEGConverter {
                                     Self.cleanupTempFile(at: tmpVideoMXF, label: "failed DCP video MXF")
                                 }
                             } catch {
+                                stderrPipe.fileHandleForReading.readabilityHandler = nil
                                 try? stderrPipe.fileHandleForReading.close()
                                 Self.logger.error("Failed to run asdcp-wrap for video: \(error.localizedDescription)")
                                 errorReason = String(localized: "DCP video wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for DCP video throws an exception.")
@@ -705,12 +721,23 @@ actor FFMPEGConverter {
                         audioWrapProcess.standardOutput = audioStderrPipe
                         audioWrapProcess.standardError = audioStderrPipe
 
+                        // Same drain-in-real-time pattern as the video wrap to avoid pipe-buffer deadlock.
+                        let audioStderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
+                        audioStderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                            let chunk = handle.availableData
+                            guard !chunk.isEmpty else { return }
+                            audioStderrBuffer.withLock { $0.append(chunk) }
+                        }
+
                         do {
                             try audioWrapProcess.run()
                             audioWrapProcess.waitUntilExit()
 
-                            let audioStderrData = audioStderrPipe.fileHandleForReading.readDataToEndOfFile()
+                            audioStderrPipe.fileHandleForReading.readabilityHandler = nil
+                            let trailing = audioStderrPipe.fileHandleForReading.availableData
+                            if !trailing.isEmpty { audioStderrBuffer.withLock { $0.append(trailing) } }
                             try? audioStderrPipe.fileHandleForReading.close()
+                            let audioStderrData = audioStderrBuffer.withLock { $0 }
                             let audioStderrStr = String(data: audioStderrData, encoding: .utf8) ?? ""
                             if !audioStderrStr.isEmpty {
                                 Self.logger.info("asdcp-wrap audio output: \(audioStderrStr.prefix(500))")
@@ -729,6 +756,7 @@ actor FFMPEGConverter {
                                 Self.cleanupTempFile(at: audioMXFURL, label: "failed DCP audio MXF")
                             }
                         } catch {
+                            audioStderrPipe.fileHandleForReading.readabilityHandler = nil
                             try? audioStderrPipe.fileHandleForReading.close()
                             Self.logger.error("Failed to run asdcp-wrap for audio: \(error.localizedDescription)")
                             errorReason = String(localized: "DCP audio wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for DCP audio throws an exception.")
@@ -805,6 +833,7 @@ actor FFMPEGConverter {
                 // IMF assembly: produce video MXF + audio MXF essences and emit CPL/PKL/ASSETMAP.
                 if success && capturedIsIMFExport, let imfFolder = capturedIMFSubfolderURL {
                     Self.logger.info("Starting IMF assembly...")
+                    print("[IMF] starting assembly, imfFolder=\(imfFolder.path)")
 
                     let resolutionRaw = UserDefaults.standard.string(forKey: AppConstants.imfResolutionKey) ?? AppConstants.defaultIMFResolution
                     let resolution = IMFResolution(rawValue: resolutionRaw) ?? .hd1080
@@ -821,14 +850,17 @@ actor FFMPEGConverter {
                     if capturedIsIMFJ2KExport {
                         // J2K → asdcp-wrap (mirror DCP path; SMPTE Universal Labels via -L work for IMF App #2e too).
                         let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
-                        if let asdcpWrapPath = BinaryPathResolver.asdcpWrapPath {
-                            progressUpdate(0.78, "Creating IMF video essence...")
+                        let resolvedAsdcpPath = BinaryPathResolver.asdcpWrapPath
+                        print("[IMF] App 2e branch — asdcp-wrap path: \(resolvedAsdcpPath ?? "<nil>"), jp2Dir=\(jp2Dir.path)")
+                        if let asdcpWrapPath = resolvedAsdcpPath {
+                            progressUpdate(0.78, "Creating IMF video essence")
                             let tmpVideoMXF = FileManager.default.temporaryDirectory
                                 .appendingPathComponent("imf_video_\(UUID().uuidString).mxf")
 
                             let jp2Files = (try? fm.contentsOfDirectory(atPath: jp2Dir.path))?
                                 .filter { $0.hasSuffix(".jp2") }
                                 .sorted() ?? []
+                            print("[IMF] discovered \(jp2Files.count) JP2 frames in \(jp2Dir.path)")
 
                             if jp2Files.isEmpty {
                                 Self.logger.error("No JP2 frames found for IMF in \(jp2Dir.path)")
@@ -839,16 +871,36 @@ actor FFMPEGConverter {
                                     .appendingPathComponent("imf_j2c_\(UUID().uuidString)", isDirectory: true)
                                 try? fm.createDirectory(at: j2cDir, withIntermediateDirectories: true)
 
+                                // Strip JP2 box wrapper to raw J2C codestreams. For long sources
+                                // this loop can take many seconds; emit throttled progress so the
+                                // UI shows what's happening between FFmpeg finishing and asdcp-wrap.
+                                // Also accumulate total J2C bytes so the asdcp-wrap poller below
+                                // can estimate real progress against expected MXF essence size.
                                 let socMarker = Data([0xFF, 0x4F])
-                                for jp2File in jp2Files {
+                                let totalFrames = jp2Files.count
+                                var totalJ2CBytes: Int64 = 0
+                                var lastEmit = Date.distantPast
+                                let emitInterval: TimeInterval = 0.25
+                                for (index, jp2File) in jp2Files.enumerated() {
                                     let jp2URL = jp2Dir.appendingPathComponent(jp2File)
                                     let j2cFile = jp2File.replacingOccurrences(of: ".jp2", with: ".j2c")
                                     let j2cURL = j2cDir.appendingPathComponent(j2cFile)
                                     if let data = try? Data(contentsOf: jp2URL),
                                        let socRange = data.range(of: socMarker) {
-                                        try? data[socRange.lowerBound...].write(to: j2cURL)
+                                        let codestream = data[socRange.lowerBound...]
+                                        try? codestream.write(to: j2cURL)
+                                        totalJ2CBytes += Int64(codestream.count)
+                                    }
+                                    let now = Date()
+                                    if now.timeIntervalSince(lastEmit) >= emitInterval || index == totalFrames - 1 {
+                                        lastEmit = now
+                                        let frac = Double(index + 1) / Double(totalFrames)
+                                        let overall = 0.78 + frac * 0.02   // 0.78 → 0.80
+                                        progressUpdate(overall, "Preparing J2C frames \(index + 1)/\(totalFrames)")
                                     }
                                 }
+                                let expectedMXFBytes = totalJ2CBytes
+                                print("[IMF] J2C extraction complete (\(totalFrames) frames, \(ByteCountFormatter.string(fromByteCount: expectedMXFBytes, countStyle: .file)))")
 
                                 let videoWrapArgs: [String] = [
                                     "-v",
@@ -864,12 +916,57 @@ actor FFMPEGConverter {
                                 let stderrPipe = Pipe()
                                 videoWrapProcess.standardOutput = stderrPipe
                                 videoWrapProcess.standardError = stderrPipe
+                                progressUpdate(0.80, "Wrapping J2C → MXF")
+                                print("[IMF] launching asdcp-wrap: \(videoWrapArgs.joined(separator: " "))")
+                                // Drain the merged stdout/stderr pipe in real time. asdcp-wrap is
+                                // launched with `-v` (verbose) and emits one informational line per
+                                // wrapped frame; without an active reader the pipe (16–64 KB on
+                                // macOS) fills, asdcp-wrap blocks on `write()`, and the MXF stops
+                                // growing — exactly the "frozen at 82%" deadlock observed on long
+                                // sources. The buffer keeps the bytes around for error reporting.
+                                let stderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
+                                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                                    let chunk = handle.availableData
+                                    guard !chunk.isEmpty else { return }
+                                    stderrBuffer.withLock { $0.append(chunk) }
+                                }
                                 do {
                                     try videoWrapProcess.run()
+                                    // asdcp-wrap has no progress flag; poll the output MXF size
+                                    // and estimate progress as bytes-written / expected-essence-size.
+                                    // The MXF holds the J2C codestreams plus a small index/header
+                                    // overhead, so total J2C bytes is a tight lower-bound estimate.
+                                    let pollerTask = Task.detached { [tmpVideoMXF, expectedMXFBytes] in
+                                        let pollFM = FileManager.default
+                                        while !Task.isCancelled {
+                                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                                            if Task.isCancelled { break }
+                                            let attrs = try? pollFM.attributesOfItem(atPath: tmpVideoMXF.path)
+                                            let bytes = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+                                            let formatted = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+                                            let frac: Double
+                                            if expectedMXFBytes > 0 {
+                                                frac = min(0.99, Double(bytes) / Double(expectedMXFBytes))
+                                            } else {
+                                                frac = 0.0
+                                            }
+                                            let overall = 0.80 + frac * 0.06   // 0.80 → 0.86
+                                            let pct = Int(frac * 100)
+                                            progressUpdate(overall, "Wrapping J2C → MXF (\(formatted), \(pct)%)")
+                                        }
+                                    }
                                     videoWrapProcess.waitUntilExit()
-                                    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                                    pollerTask.cancel()
+                                    stderrPipe.fileHandleForReading.readabilityHandler = nil
+                                    // Drain anything still in the pipe after the process ended.
+                                    let trailing = stderrPipe.fileHandleForReading.availableData
+                                    if !trailing.isEmpty {
+                                        stderrBuffer.withLock { $0.append(trailing) }
+                                    }
                                     try? stderrPipe.fileHandleForReading.close()
+                                    let stderrData = stderrBuffer.withLock { $0 }
                                     let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+                                    print("[IMF] asdcp-wrap exited with status \(videoWrapProcess.terminationStatus)")
                                     if videoWrapProcess.terminationStatus == 0 {
                                         imfVideoMXF = tmpVideoMXF
                                         Self.logger.info("IMF video essence created (App #2e)")
@@ -883,8 +980,10 @@ actor FFMPEGConverter {
                                         Self.cleanupTempFile(at: tmpVideoMXF, label: "failed IMF video MXF")
                                     }
                                 } catch {
+                                    stderrPipe.fileHandleForReading.readabilityHandler = nil
                                     try? stderrPipe.fileHandleForReading.close()
                                     Self.logger.error("Failed to run asdcp-wrap for IMF video: \(error.localizedDescription)")
+                                    print("[IMF] asdcp-wrap launch threw: \(error.localizedDescription)")
                                     errorReason = String(localized: "IMF video wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for IMF video throws an exception.")
                                     success = false
                                 }
@@ -903,7 +1002,8 @@ actor FFMPEGConverter {
                         }
                     } else if capturedIsIMFProResExport {
                         // ProRes MOV → bmxtranswrap → OP1a MXF
-                        progressUpdate(0.78, "Creating IMF video essence...")
+                        progressUpdate(0.78, "Creating IMF video essence")
+                        print("[IMF] App 5 branch — input MOV: \(capturedFinalOutputURL.lastPathComponent)")
                         let tmpVideoMXF = FileManager.default.temporaryDirectory
                             .appendingPathComponent("imf_video_\(UUID().uuidString).mxf")
 
@@ -925,7 +1025,12 @@ actor FFMPEGConverter {
                             codingEquations: bmxCodingEq,
                             clipName: capturedInputBaseName,
                             mcaLabelsFile: nil,
-                            progress: { _ in }
+                            progress: { bmxProgress in
+                                // Map bmx 0..1 onto the 0.78 → 0.84 sub-band of overall progress.
+                                let overall = 0.78 + bmxProgress * 0.06
+                                let pct = Int(bmxProgress * 100)
+                                progressUpdate(overall, "Wrapping ProRes → MXF \(pct)%")
+                            }
                         )
                         if bmxOK {
                             imfVideoMXF = tmpVideoMXF
@@ -945,7 +1050,8 @@ actor FFMPEGConverter {
                     // ----- Audio essence wrap (shared between App #2e and App #5) -----
                     var imfAudioMXF: URL? = nil
                     if success {
-                        progressUpdate(0.86, "Extracting audio for IMF...")
+                        progressUpdate(0.86, "Extracting audio for IMF")
+                        print("[IMF] extracting audio")
                         let audioExtractionResult = await Self.extractAudioAsPCMWAV(
                             inputURL: capturedInputURL,
                             outputFolder: FileManager.default.temporaryDirectory,
@@ -967,7 +1073,8 @@ actor FFMPEGConverter {
                         }
 
                         if let wavURL = audioWavURL {
-                            progressUpdate(0.90, "Wrapping audio essence...")
+                            progressUpdate(0.90, "Wrapping audio essence")
+                            print("[IMF] wrapping audio essence")
                             let tmpAudioMXF = FileManager.default.temporaryDirectory
                                 .appendingPathComponent("imf_audio_\(UUID().uuidString).mxf")
 
@@ -984,7 +1091,12 @@ actor FFMPEGConverter {
                                 codingEquations: nil,
                                 clipName: capturedInputBaseName + "_audio",
                                 mcaLabelsFile: mcaLabelsFile,
-                                progress: { _ in }
+                                progress: { bmxProgress in
+                                    // Map bmx 0..1 onto the 0.90 → 0.94 sub-band of overall progress.
+                                    let overall = 0.90 + bmxProgress * 0.04
+                                    let pct = Int(bmxProgress * 100)
+                                    progressUpdate(overall, "Wrapping audio essence \(pct)%")
+                                }
                             )
                             if let mcaLabelsFile {
                                 Self.cleanupTempFile(at: mcaLabelsFile, label: "IMF MCA labels")
@@ -1003,7 +1115,8 @@ actor FFMPEGConverter {
 
                     // ----- Manifest assembly -----
                     if success, let videoMXF = imfVideoMXF {
-                        progressUpdate(0.94, "Generating IMF manifests...")
+                        progressUpdate(0.94, "Generating IMF manifests")
+                        print("[IMF] generating manifests")
 
                         let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
                         let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
@@ -1040,8 +1153,9 @@ actor FFMPEGConverter {
                             itemMetadata: capturedRequest.imfMetadata,
                             progress: { imfProgress in
                                 let overall = 0.94 + imfProgress * 0.06
+                                let pct = Int(imfProgress * 100)
                                 Task { @MainActor in
-                                    progressUpdate(overall, "Generating IMF manifests...")
+                                    progressUpdate(overall, "Generating IMF manifests \(pct)%")
                                 }
                             }
                         )

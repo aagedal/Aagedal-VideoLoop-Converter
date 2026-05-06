@@ -13,6 +13,20 @@ import SwiftUI
 import AppKit
 import OSLog
 
+/// FFmpeg-style ETA strings are always `HH:MM:SS` (see ParsingUtils.parseTimeProgress).
+/// Anything else from the converter's progressUpdate is a stage label like
+/// "Wrapping audio essence 42%" or "Closing file...".
+private let etaDurationRegex: NSRegularExpression = {
+    // swiftlint:disable:next force_try
+    try! NSRegularExpression(pattern: #"^\d{2}:\d{2}:\d{2}$"#)
+}()
+
+private func progressIsDuration(_ s: String?) -> Bool {
+    guard let s, !s.isEmpty else { return false }
+    let range = NSRange(s.startIndex..., in: s)
+    return etaDurationRegex.firstMatch(in: s, range: range) != nil
+}
+
 actor ConversionManager: Sendable {
     @MainActor static let shared = ConversionManager()
     private init() {}
@@ -595,7 +609,7 @@ actor ConversionManager: Sendable {
         let mergeUIThrottle = OSAllocatedUnfairLock(initialState: Date.distantPast)
         await ffmpegConverter.convert(
             request: mergeRequest,
-            progressUpdate: { progress, eta in
+            progressUpdate: { progress, status in
                 let now = Date()
                 let shouldUpdate = mergeUIThrottle.withLock { last -> Bool in
                     guard progress < 1.0 else { return true }
@@ -604,10 +618,16 @@ actor ConversionManager: Sendable {
                     return true
                 }
                 guard shouldUpdate else { return }
+                let isDuration = progressIsDuration(status)
                 Task { @MainActor in
                     for index in indices {
                         droppedFiles.wrappedValue[index].progress = progress
-                        droppedFiles.wrappedValue[index].eta = eta
+                        if isDuration {
+                            droppedFiles.wrappedValue[index].eta = status
+                            droppedFiles.wrappedValue[index].statusMessage = nil
+                        } else {
+                            droppedFiles.wrappedValue[index].statusMessage = status
+                        }
                     }
                 }
             },
@@ -876,6 +896,8 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[index].outputURL = success ? finalURL : nil
                     droppedFiles.wrappedValue[index].outputFileSizeBytes = outputFileSizeBytes
                     droppedFiles.wrappedValue[index].conversionError = success ? nil : errorReason
+                    droppedFiles.wrappedValue[index].eta = nil
+                    droppedFiles.wrappedValue[index].statusMessage = nil
                 }
             }
         }
@@ -1626,6 +1648,8 @@ actor ConversionManager: Sendable {
                 droppedFiles.wrappedValue[idx].status = .failed
                 droppedFiles.wrappedValue[idx].progress = 0
                 droppedFiles.wrappedValue[idx].conversionError = "Cannot access input file"
+                droppedFiles.wrappedValue[idx].eta = nil
+                droppedFiles.wrappedValue[idx].statusMessage = nil
                 SoundManager.shared.playError()
             }
             await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
@@ -1643,6 +1667,8 @@ actor ConversionManager: Sendable {
                 droppedFiles.wrappedValue[idx].status = .failed
                 droppedFiles.wrappedValue[idx].progress = 0
                 droppedFiles.wrappedValue[idx].conversionError = "Cannot access output directory"
+                droppedFiles.wrappedValue[idx].eta = nil
+                droppedFiles.wrappedValue[idx].statusMessage = nil
                 SoundManager.shared.playError()
             }
             await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
@@ -1742,7 +1768,7 @@ actor ConversionManager: Sendable {
         let singleUIThrottle = OSAllocatedUnfairLock(initialState: Date.distantPast)
         await ffmpegConverter.convert(
             request: conversionRequest,
-            progressUpdate: { progress, eta in
+            progressUpdate: { progress, status in
                 let now = Date()
                 let shouldUpdate = singleUIThrottle.withLock { last -> Bool in
                     guard progress < 1.0 else { return true }
@@ -1751,10 +1777,16 @@ actor ConversionManager: Sendable {
                     return true
                 }
                 guard shouldUpdate else { return }
+                let isDuration = progressIsDuration(status)
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
                         droppedFiles.wrappedValue[idx].progress = progress
-                        droppedFiles.wrappedValue[idx].eta = eta
+                        if isDuration {
+                            droppedFiles.wrappedValue[idx].eta = status
+                            droppedFiles.wrappedValue[idx].statusMessage = nil
+                        } else {
+                            droppedFiles.wrappedValue[idx].statusMessage = status
+                        }
                     }
                 }
             }
@@ -1842,6 +1874,8 @@ actor ConversionManager: Sendable {
                         updatedItem.status = success ? .done : .failed
                         updatedItem.progress = success ? 1.0 : 0
                         updatedItem.conversionError = success ? nil : errorReason
+                        updatedItem.eta = nil
+                        updatedItem.statusMessage = nil
                     }
 
                     // Replace the entire item to ensure SwiftUI detects the change
@@ -1957,6 +1991,8 @@ actor ConversionManager: Sendable {
                 where droppedFiles.wrappedValue[idx].status == .converting {
                 droppedFiles.wrappedValue[idx].status = .cancelled
                 droppedFiles.wrappedValue[idx].progress = 0.0
+                droppedFiles.wrappedValue[idx].eta = nil
+                droppedFiles.wrappedValue[idx].statusMessage = nil
             }
         }
 
@@ -1986,6 +2022,8 @@ actor ConversionManager: Sendable {
         logger.debug("Item \(droppedFiles.wrappedValue[idx].name, privacy: .public) cancelled (was converting)")
         #endif
             droppedFiles.wrappedValue[idx].progress = 0.0
+            droppedFiles.wrappedValue[idx].eta = nil
+            droppedFiles.wrappedValue[idx].statusMessage = nil
             
             // Re-compute overall progress; the existing convertNextFile call in the
             // original conversion's completion handler will continue the queue, so
@@ -2020,6 +2058,8 @@ actor ConversionManager: Sendable {
                    || droppedFiles.wrappedValue[idx].status == .waiting {
                 droppedFiles.wrappedValue[idx].status = .cancelled
                 droppedFiles.wrappedValue[idx].progress = 0.0
+                droppedFiles.wrappedValue[idx].eta = nil
+                droppedFiles.wrappedValue[idx].statusMessage = nil
             }
         }
 

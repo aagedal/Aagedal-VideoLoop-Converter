@@ -27,6 +27,9 @@ struct VideoFileCellConfiguration: Equatable {
     let status: ConversionManager.ConversionStatus
     let progress: Double
     let eta: String?
+    /// Stage label for multi-phase operations (e.g. "Wrapping audio essence 42%").
+    /// When set, takes visual precedence over `eta` in the progress label.
+    let statusMessage: String?
     let conversionError: String?
     let comment: String
     let includeDateTag: Bool

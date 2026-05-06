@@ -299,16 +299,23 @@ extension VideoFileCellView {
             return "\(Int(config.analyticsProgress * 100))%"
         }
 
-        // Conversion — show percentage and ETA (capsule shows ENCODING/DONE/FAILED/WAITING)
+        // Conversion — show percentage and ETA (capsule shows ENCODING/DONE/FAILED/WAITING).
+        // For multi-phase exports (DCP, IMF) `statusMessage` carries the active stage label
+        // ("Wrapping audio essence 42%"); when present we prefix it so the user can see
+        // which sub-step is running even though the FFmpeg ETA may be stale.
         switch config.status {
         case .waiting:
             return ""
         case .converting:
             let pct = Int(config.progress * 100)
+            let stagePrefix: String = {
+                guard let stage = config.statusMessage, !stage.isEmpty else { return "" }
+                return "\(stage) · "
+            }()
             if let eta = config.eta {
-                return "\(pct)% — ETA \(eta)"
+                return "\(stagePrefix)\(pct)% — ETA \(eta)"
             }
-            return "\(pct)%"
+            return "\(stagePrefix)\(pct)%"
         case .done:
             return ""
         case .failed:
