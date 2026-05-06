@@ -1081,39 +1081,74 @@ actor FFMPEGConverter {
                             let tmpAudioMXF = FileManager.default.temporaryDirectory
                                 .appendingPathComponent("imf_audio_\(UUID().uuidString).mxf")
 
-                            let mcaLabelsFile = await MCALabelsBuilder.buildIMFLabelsFile(
-                                inputURL: capturedInputURL,
-                                audioRoutingConfig: capturedRequest.audioRoutingConfig
-                            )
+                            // Wrap PCM WAV → IMF audio MXF using asdcp-wrap. bmxtranswrap is
+                            // MXF-only (it cannot ingest WAV), so the prior call always failed
+                            // with "Failed to open MXF file '…wav'". asdcp-wrap supports raw
+                            // PCM input and produces a SMPTE-labelled audio essence — same
+                            // tool the DCP path uses for its audio MXF.
+                            if let asdcpPath = BinaryPathResolver.asdcpWrapPath {
+                                let audioWrapArgs: [String] = [
+                                    "-p", frameRate.ffmpegValue,
+                                    "-L",                          // SMPTE Universal Labels
+                                    wavURL.path,
+                                    tmpAudioMXF.path
+                                ]
+                                print("[IMF] launching asdcp-wrap (audio): \(audioWrapArgs.joined(separator: " "))")
 
-                            let bmxAudioResult = await BMXService.shared.rewrapToIMFOP1a(
-                                inputURL: wavURL,
-                                outputURL: tmpAudioMXF,
-                                colorPrimaries: nil,
-                                transferCharacteristic: nil,
-                                codingEquations: nil,
-                                clipName: capturedInputBaseName + "_audio",
-                                mcaLabelsFile: mcaLabelsFile,
-                                progress: { bmxProgress in
-                                    // Map bmx 0..1 onto the 0.90 → 0.94 sub-band of overall progress.
-                                    let overall = 0.90 + bmxProgress * 0.04
-                                    let pct = Int(bmxProgress * 100)
-                                    progressUpdate(overall, "Wrapping audio essence \(pct)%")
+                                let audioWrapProcess = Process()
+                                audioWrapProcess.executableURL = URL(fileURLWithPath: asdcpPath)
+                                audioWrapProcess.arguments = audioWrapArgs
+                                audioWrapProcess.standardInput = FileHandle.nullDevice
+
+                                let audioStderrPipe = Pipe()
+                                audioWrapProcess.standardOutput = audioStderrPipe
+                                audioWrapProcess.standardError = audioStderrPipe
+
+                                let audioStderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
+                                audioStderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                                    let chunk = handle.availableData
+                                    guard !chunk.isEmpty else { return }
+                                    audioStderrBuffer.withLock { $0.append(chunk) }
                                 }
-                            )
-                            if let mcaLabelsFile {
-                                Self.cleanupTempFile(at: mcaLabelsFile, label: "IMF MCA labels")
-                            }
-                            if bmxAudioResult.success {
-                                imfAudioMXF = tmpAudioMXF
+
+                                do {
+                                    try audioWrapProcess.run()
+                                    audioWrapProcess.waitUntilExit()
+
+                                    audioStderrPipe.fileHandleForReading.readabilityHandler = nil
+                                    let trailing = audioStderrPipe.fileHandleForReading.availableData
+                                    if !trailing.isEmpty { audioStderrBuffer.withLock { $0.append(trailing) } }
+                                    try? audioStderrPipe.fileHandleForReading.close()
+                                    let audioStderrData = audioStderrBuffer.withLock { $0 }
+                                    let audioStderrStr = String(data: audioStderrData, encoding: .utf8) ?? ""
+
+                                    if audioWrapProcess.terminationStatus == 0 {
+                                        imfAudioMXF = tmpAudioMXF
+                                        Self.logger.info("IMF audio essence created (asdcp-wrap)")
+                                        progressUpdate(0.94, "Wrapping audio essence")
+                                    } else {
+                                        Self.logger.error("asdcp-wrap failed for IMF audio (status \(audioWrapProcess.terminationStatus)): \(audioStderrStr.prefix(300))")
+                                        print("[IMF] asdcp-wrap (audio) exited \(audioWrapProcess.terminationStatus)")
+                                        print("[IMF] stderr:\n\(audioStderrStr.isEmpty ? "(empty)" : audioStderrStr)")
+                                        errorReason = Self.dcpIMFErrorReason(
+                                            base: String(localized: "IMF audio wrap failed (asdcp-wrap exit \(Int(audioWrapProcess.terminationStatus)))", comment: "Shown when asdcp-wrap exits with a non-zero status while wrapping the IMF audio essence; the resulting package would be missing audio."),
+                                            stderr: audioStderrStr
+                                        )
+                                        success = false
+                                        Self.cleanupTempFile(at: tmpAudioMXF, label: "failed IMF audio MXF")
+                                    }
+                                } catch {
+                                    audioStderrPipe.fileHandleForReading.readabilityHandler = nil
+                                    try? audioStderrPipe.fileHandleForReading.close()
+                                    Self.logger.error("Failed to run asdcp-wrap for IMF audio: \(error.localizedDescription)")
+                                    print("[IMF] asdcp-wrap (audio) launch threw: \(error.localizedDescription)")
+                                    errorReason = String(localized: "IMF audio wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for IMF audio throws an exception.")
+                                    success = false
+                                }
                             } else {
-                                Self.logger.error("bmxtranswrap failed for IMF audio essence")
-                                errorReason = Self.dcpIMFErrorReason(
-                                    base: String(localized: "IMF audio wrap failed: bmxtranswrap rejected audio essence", comment: "Shown when bmxtranswrap cannot wrap the extracted PCM audio into the IMF audio MXF; the package would otherwise be missing audio."),
-                                    stderr: bmxAudioResult.stderr
-                                )
+                                Self.logger.error("asdcp-wrap not found — cannot create IMF audio essence")
+                                errorReason = String(localized: "IMF audio wrap failed: asdcp-wrap not found", comment: "Shown when the bundled asdcp-wrap binary cannot be located, blocking IMF audio essence creation.")
                                 success = false
-                                Self.cleanupTempFile(at: tmpAudioMXF, label: "failed IMF audio MXF")
                             }
                             Self.cleanupTempFile(at: wavURL, label: "IMF audio WAV")
                         }
