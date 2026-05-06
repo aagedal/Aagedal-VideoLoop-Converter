@@ -1629,6 +1629,28 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
             return
         }
 
+        // Click on the status label when it's showing an error → copy the full
+        // text to the clipboard. Failure messages (especially bmxtranswrap /
+        // asdcp-wrap stderr) are often longer than the row width, so the cell
+        // truncates them; copy-on-click lets the user paste the full message
+        // into a search or bug report.
+        if labelContains(statusLabel, point: location),
+           let errorText = errorTextForCopy(from: currentConfig), !errorText.isEmpty {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(errorText, forType: .string)
+            let confirm = "Copied to clipboard"
+            statusLabel.stringValue = confirm
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                guard let self else { return }
+                // Only restore if a re-configure hasn't already replaced the text.
+                if self.statusLabel.stringValue == confirm,
+                   let cfg = self.currentConfig {
+                    self.statusLabel.stringValue = self.progressText(config: cfg)
+                }
+            }
+            return
+        }
+
         // Click on a metadata text label → open metadata. Restricted to the
         // labels themselves so the gaps between them (and the rest of the row)
         // don't become an oversized hit target.
@@ -1646,6 +1668,17 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         }
 
         super.mouseDown(with: event)
+    }
+
+    /// Returns the error text to copy when the user clicks the status label,
+    /// or nil if the row isn't currently showing an error worth copying.
+    /// Mirrors the failure cases handled in `progressLabelText`.
+    private func errorTextForCopy(from config: VideoFileCellConfiguration?) -> String? {
+        guard let config else { return nil }
+        if let err = config.downloadError, !err.isEmpty { return err }
+        if case .failed(let err) = config.subtitleStatus, !err.isEmpty { return err }
+        if config.status == .failed, let err = config.conversionError, !err.isEmpty { return err }
+        return nil
     }
 }
 

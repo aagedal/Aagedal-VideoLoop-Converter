@@ -246,7 +246,7 @@ extension VideoFileCellView {
 
     // MARK: - Progress Text
 
-    private func progressText(config: VideoFileCellConfiguration) -> String {
+    func progressText(config: VideoFileCellConfiguration) -> String {
         // Scheduled download — capsule can't show time detail
         if let scheduledTime = config.scheduledDownloadTime {
             return "Scheduled \(scheduledTimeFormatter.string(from: scheduledTime))"
