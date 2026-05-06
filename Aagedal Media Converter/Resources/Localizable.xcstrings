@@ -5031,8 +5031,14 @@
     "IMF audio extraction failed: %@" : {
       "comment" : "Shown when ffmpeg cannot extract PCM audio from a source that has audio streams, blocking the IMF audio essence."
     },
-    "IMF audio wrap failed: bmxtranswrap rejected audio essence" : {
-      "comment" : "Shown when bmxtranswrap cannot wrap the extracted PCM audio into the IMF audio MXF; the package would otherwise be missing audio."
+    "IMF audio wrap failed (asdcp-wrap exit %lld)" : {
+      "comment" : "Shown when asdcp-wrap exits with a non-zero status while wrapping the IMF audio essence; the resulting package would be missing audio."
+    },
+    "IMF audio wrap failed: %@" : {
+      "comment" : "Shown when launching the asdcp-wrap process for IMF audio throws an exception."
+    },
+    "IMF audio wrap failed: asdcp-wrap not found" : {
+      "comment" : "Shown when the bundled asdcp-wrap binary cannot be located, blocking IMF audio essence creation."
     },
     "IMF manifest assembly failed" : {
       "comment" : "Shown when IMFManifestWriter cannot assemble the IMP package (CPL/PKL/ASSETMAP). Detailed cause is in the app log."
