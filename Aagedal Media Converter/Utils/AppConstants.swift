@@ -204,8 +204,10 @@ enum AppConstants {
     // toggle handlers enforce that only one can be on at a time.
     static let defaultGroupMergeEnabledKey = "defaultGroupMergeEnabled"
     static let defaultGroupSequentialNamingEnabledKey = "defaultGroupSequentialNamingEnabled"
+    static let defaultGroupPresetKey = "defaultGroupPreset"
     static let defaultGroupMergeEnabled = true
     static let defaultGroupSequentialNamingEnabled = false
+    static let defaultGroupPreset: String = ExportPreset.streamCopy.rawValue
     static let customPresetCommandKey = "customPresetFFmpegCommand"
     static let customPresetSuffixKey = "customPresetFileSuffix"
     static let customPresetExtensionKey = "customPresetFileExtension"

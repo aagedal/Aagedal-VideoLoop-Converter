@@ -520,6 +520,9 @@ struct ContentView: View {
                     ?? AppConstants.defaultGroupMergeEnabled
                 let defaultSequential = UserDefaults.standard.object(forKey: AppConstants.defaultGroupSequentialNamingEnabledKey) as? Bool
                     ?? AppConstants.defaultGroupSequentialNamingEnabled
+                let defaultPresetRaw = UserDefaults.standard.string(forKey: AppConstants.defaultGroupPresetKey)
+                    ?? AppConstants.defaultGroupPreset
+                let defaultPreset = ExportPreset(rawValue: defaultPresetRaw)
                 // Mutual exclusion: if both flags somehow ended up true (e.g. from
                 // an older defaults plist), prefer merge — matches the historical
                 // behavior where new groups were merge-on by default.
@@ -527,6 +530,7 @@ struct ContentView: View {
                 let sequentialEnabled = defaultSequential && !mergeEnabled
                 var group = EncodingGroup(
                     name: "New Group",
+                    preset: defaultPreset,
                     concatEnabled: mergeEnabled,
                     sequentialNamingEnabled: sequentialEnabled
                 )

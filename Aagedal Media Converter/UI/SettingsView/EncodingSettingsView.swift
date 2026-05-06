@@ -11,10 +11,33 @@ struct EncodingSettingsView: View {
     @AppStorage(AppConstants.defaultGroupSequentialNamingEnabledKey)
     private var defaultSequentialNamingEnabled = AppConstants.defaultGroupSequentialNamingEnabled
 
+    @AppStorage(AppConstants.defaultGroupPresetKey)
+    private var defaultGroupPresetRaw = AppConstants.defaultGroupPreset
+
+    private let presetManager = PresetManager.shared
+
+    private var defaultGroupPresetBinding: Binding<ExportPreset> {
+        Binding(
+            get: { ExportPreset(rawValue: defaultGroupPresetRaw) ?? .streamCopy },
+            set: { defaultGroupPresetRaw = $0.rawValue }
+        )
+    }
+
     var body: some View {
         Form {
             Section(header: Text("New Group Defaults")) {
                 VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Default format for new groups") {
+                        Picker("", selection: defaultGroupPresetBinding) {
+                            ForEach(presetManager.visiblePresets) { preset in
+                                Text(presetManager.displayName(for: preset)).tag(preset)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(minWidth: 180, idealWidth: 220, maxWidth: 320)
+                    }
+                    .help("New groups created with ⌘N will use this format. Camera-card imports have their own remembered preset.")
+
                     Toggle("Merge clips by default", isOn: $defaultMergeEnabled)
                         .toggleStyle(SwitchToggleStyle())
                         .help("New groups will have merge enabled — clips concatenate into a single output file.")

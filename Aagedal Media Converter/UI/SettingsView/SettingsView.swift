@@ -128,7 +128,7 @@ struct SettingsView: View {
                 }
                 .background(Color(NSColor.windowBackgroundColor))
             }
-            .frame(width: sidebarCollapsed ? 46 : 165)
+            .frame(width: sidebarCollapsed ? 46 : 195)
             .clipped()
 
             Divider()
