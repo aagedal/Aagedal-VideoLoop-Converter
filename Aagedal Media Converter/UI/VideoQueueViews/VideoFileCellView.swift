@@ -22,6 +22,11 @@ private extension NSColor {
             ? NSColor(red: 0.15, green: 0.16, blue: 0.21, alpha: 1.0)
             : NSColor(red: 0.89, green: 0.90, blue: 0.93, alpha: 1.0)
     }
+    static let queueRowCardBorder = NSColor(name: "queueRowCardBorder") { appearance in
+        appearance.isDark
+            ? NSColor.white.withAlphaComponent(0.14)
+            : NSColor.black.withAlphaComponent(0.12)
+    }
 }
 
 /// Pure AppKit cell view for a video file queue row.
@@ -325,11 +330,12 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         layer?.shadowRadius = 4
         layer?.shadowOffset = NSSize(width: 0, height: -2)
 
-        // Selection border — system blue when selected, invisible at rest.
+        // Selection / card border — thin resting stroke that defines the card edge,
+        // upgraded to a thicker system-blue stroke when the row is selected.
         // High zPosition so it draws above all subviews.
         selectionBorderLayer.fillColor = nil
-        selectionBorderLayer.lineWidth = 0
-        selectionBorderLayer.strokeColor = NSColor.systemBlue.withAlphaComponent(0.9).cgColor
+        applyRestingCardBorder()
+        selectionBorderLayer.lineWidth = 1
         selectionBorderLayer.zPosition = 100
         cardView.layer?.addSublayer(selectionBorderLayer)
 
@@ -1235,6 +1241,11 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyCardBackground()
+        // Resting stroke is a no-op for selected rows — updateSelectionBorder
+        // re-drives them via updateLayer / config changes.
+        if currentConfig?.isSelected != true {
+            applyRestingCardBorder()
+        }
         cardView.needsDisplay = true
     }
 
@@ -1286,8 +1297,22 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     }
 
     private func updateSelectionBorder(isSelected: Bool) {
-        selectionBorderLayer.strokeColor = NSColor.systemBlue.withAlphaComponent(0.9).cgColor
-        selectionBorderLayer.lineWidth = isSelected ? 2.5 : 0
+        if isSelected {
+            selectionBorderLayer.strokeColor = NSColor.systemBlue.withAlphaComponent(0.9).cgColor
+            selectionBorderLayer.lineWidth = 2.5
+        } else {
+            applyRestingCardBorder()
+            selectionBorderLayer.lineWidth = 1
+        }
+    }
+
+    /// Resolves the dynamic card border against the current effective appearance.
+    /// Mirrors `applyCardBackground` — `cgColor` snapshots the resolved color, so we
+    /// re-run this whenever the appearance changes (and at rest in `updateSelectionBorder`).
+    private func applyRestingCardBorder() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            selectionBorderLayer.strokeColor = NSColor.queueRowCardBorder.cgColor
+        }
     }
 
     /// Builds the "1920×1080 · 25 fps · Interlaced" label shown in the metadata
