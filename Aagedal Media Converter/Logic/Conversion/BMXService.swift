@@ -38,6 +38,16 @@ struct AudioTrackMCALabels: Sendable {
     let channelLabels: [String]
 }
 
+/// Result of a bmxtranswrap invocation. `stderr` is the captured stderr output —
+/// useful for showing the actual failure cause to the user instead of a generic
+/// "rejected by bmxtranswrap" string.
+struct BMXRewrapResult: Sendable {
+    let success: Bool
+    let stderr: String
+    /// Convenience for chained `if` checks where only the success bit matters.
+    var isSuccess: Bool { success }
+}
+
 /// Service for handling BMX tools operations (MXF rewrapping + MCA label extraction)
 actor BMXService {
     static let shared = BMXService()
@@ -73,7 +83,7 @@ actor BMXService {
         clipName: String? = nil,
         mcaLabelsFile: URL? = nil,
         progress: @escaping @Sendable (Double) -> Void
-    ) async -> Bool {
+    ) async -> BMXRewrapResult {
         var arguments: [String] = [
             "-t", "op1a",
             "--use-avc-subdesc",
@@ -116,7 +126,7 @@ actor BMXService {
         clipName: String? = nil,
         mcaLabelsFile: URL? = nil,
         progress: @escaping @Sendable (Double) -> Void
-    ) async -> Bool {
+    ) async -> BMXRewrapResult {
         var arguments: [String] = [
             "-t", "op1a",
         ]
@@ -159,7 +169,7 @@ actor BMXService {
         isVideo: Bool = true,
         clipName: String? = nil,
         progress: @escaping @Sendable (Double) -> Void
-    ) async -> Bool {
+    ) async -> BMXRewrapResult {
         var arguments: [String] = [
             "-t", "rdd9",
         ]
@@ -203,15 +213,15 @@ actor BMXService {
         outputURL: URL,
         extraArguments: [String],
         progress: @escaping @Sendable (Double) -> Void
-    ) async -> Bool {
+    ) async -> BMXRewrapResult {
         guard let bmxtranswrapPath = BinaryPathResolver.bmxtranswrapPath else {
             logger.error("bmxtranswrap binary not found")
-            return false
+            return BMXRewrapResult(success: false, stderr: "bmxtranswrap binary not found")
         }
 
         guard FileManager.default.fileExists(atPath: inputURL.path) else {
             logger.error("Input MXF file not found: \(inputURL.path)")
-            return false
+            return BMXRewrapResult(success: false, stderr: "Input file not found: \(inputURL.lastPathComponent)")
         }
 
         let outputDir = outputURL.deletingLastPathComponent()
@@ -219,7 +229,7 @@ actor BMXService {
             try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
         } catch {
             logger.error("Failed to create output directory: \(error.localizedDescription)")
-            return false
+            return BMXRewrapResult(success: false, stderr: "Failed to create output directory: \(error.localizedDescription)")
         }
 
         if FileManager.default.fileExists(atPath: outputURL.path) {
@@ -227,7 +237,7 @@ actor BMXService {
                 try FileManager.default.removeItem(at: outputURL)
             } catch {
                 logger.error("Failed to remove existing output file: \(error.localizedDescription)")
-                return false
+                return BMXRewrapResult(success: false, stderr: "Failed to remove existing output file: \(error.localizedDescription)")
             }
         }
 
@@ -280,8 +290,9 @@ actor BMXService {
             process.waitUntilExit()
         } catch {
             logger.error("Failed to run bmxtranswrap: \(error.localizedDescription)")
+            print("[BMX] launch failed: \(error.localizedDescription)")
             currentProcess = nil
-            return false
+            return BMXRewrapResult(success: false, stderr: "Failed to launch bmxtranswrap: \(error.localizedDescription)")
         }
 
         stdoutPipe.fileHandleForReading.readabilityHandler = nil
@@ -289,17 +300,22 @@ actor BMXService {
         currentProcess = nil
 
         let success = process.terminationStatus == 0
+        let stderrData = await stderrCollector.snapshot()
+        let stderrString = String(data: stderrData, encoding: .utf8) ?? ""
 
         if success {
             logger.info("bmxtranswrap completed successfully: \(outputURL.lastPathComponent)")
             progress(1.0)
         } else {
-            let stderrData = await stderrCollector.snapshot()
-            let stderrString = String(data: stderrData, encoding: .utf8) ?? "(no error output)"
             logger.error("bmxtranswrap failed with code \(process.terminationStatus): \(stderrString)")
+            // Mirror to stdout so the failure cause is visible in the Xcode console
+            // even when OSLog `error` events are filtered out.
+            print("[BMX] bmxtranswrap exited \(process.terminationStatus) for \(outputURL.lastPathComponent)")
+            print("[BMX] command: \(arguments.joined(separator: " "))")
+            print("[BMX] stderr:\n\(stderrString.isEmpty ? "(empty)" : stderrString)")
         }
 
-        return success
+        return BMXRewrapResult(success: success, stderr: stderrString)
     }
 
     // MARK: - MXF Info

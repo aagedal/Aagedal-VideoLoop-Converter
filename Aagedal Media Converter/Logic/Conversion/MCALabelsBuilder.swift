@@ -148,10 +148,15 @@ enum MCALabelsBuilder {
         let channelSymbols: [String]
     }
 
-    /// Returns labels derived in priority order:
+    /// Returns labels derived in priority order. We deliberately do *not* fall back to a
+    /// standard SMPTE layout when neither source MCA nor a user override is present —
+    /// auto-labelling 2-ch as "ST", 6-ch as "5.1", etc. is plausible but may be wrong
+    /// (e.g. dual-mono delivered on two channels would be mislabelled as stereo) and
+    /// some downstream tools reject unsolicited labels. Returning nil here causes the
+    /// caller to omit `--track-mca-labels` entirely, which is the safe default.
+    ///
     ///   1. User override (when its soundfield's channel count matches the stream)
     ///   2. Input MCA descriptors (when channel labels align with the stream)
-    ///   3. Standard SMPTE channel layouts (mono / stereo / 5.1)
     private static func deriveLabelGroup(stream: InputStreamInfo, inputMCA: AudioTrackMCALabels?, override: MCALabelOverride?) -> LabelGroup? {
         // Manual override wins when its soundfield channel count matches the stream;
         // a mismatched override (e.g. "Stereo" picked on a 6-channel input) falls
@@ -176,26 +181,7 @@ enum MCALabelsBuilder {
             }
         }
 
-        // Fall back to standard channel layouts.
-        return standardLabelGroup(channelCount: stream.channelCount, channelLayout: stream.channelLayout)
-    }
-
-    /// Standard SMPTE channel labels for the layouts FFmpeg can produce unambiguously.
-    /// Only the layouts where channel order is universally agreed are emitted; everything
-    /// else returns nil so we don't risk mislabeling.
-    private static func standardLabelGroup(channelCount: Int, channelLayout: String?) -> LabelGroup? {
-        let layout = (channelLayout ?? "").lowercased()
-        switch channelCount {
-        case 1:
-            return LabelGroup(soundfieldSymbol: "sgM", channelSymbols: ["chM1"])
-        case 2 where layout.isEmpty || layout.contains("stereo") || layout.contains("downmix"):
-            return LabelGroup(soundfieldSymbol: "sgST", channelSymbols: ["chL", "chR"])
-        case 6 where layout.contains("5.1"):
-            // FFmpeg "5.1" and "5.1(side)" both deliver channels in L R C LFE Ls Rs order.
-            return LabelGroup(soundfieldSymbol: "sg51", channelSymbols: ["chL", "chR", "chC", "chLFE", "chLs", "chRs"])
-        default:
-            return nil
-        }
+        return nil
     }
 
     /// Maps MCA Tag Names / Symbols (as parsed from mxf2raw) to the bmx tag symbols.
@@ -294,22 +280,18 @@ enum MCALabelsBuilder {
         // Effective output channel count mirrors extractAudioAsPCMWAV's behavior: if all streams
         // are mono, they are amerged into one channel-per-stream essence; otherwise stream 0 wins.
         let effectiveChannelCount: Int
-        let effectiveLayoutHint: String?
         if let routing = audioRoutingConfig, routing.isCustomized {
             // Custom routing: count summed channels across selected streams.
             let selected = routing.outputTrackIndices
             effectiveChannelCount = selected.reduce(0) { acc, idx in
                 acc + (audioStreams.indices.contains(idx) ? (audioStreams[idx].channels ?? 0) : 0)
             }
-            effectiveLayoutHint = nil
         } else {
             let allMono = audioStreams.allSatisfy { ($0.channels ?? 0) == 1 }
             if allMono && audioStreams.count > 1 {
                 effectiveChannelCount = audioStreams.count
-                effectiveLayoutHint = nil
             } else {
                 effectiveChannelCount = audioStreams.first?.channels ?? 0
-                effectiveLayoutHint = audioStreams.first?.channelLayout
             }
         }
 
@@ -329,16 +311,13 @@ enum MCALabelsBuilder {
             channelSymbols = mapped
         }
 
-        if soundfieldSymbol == nil || channelSymbols.isEmpty {
-            // Fall back to standard SMPTE layouts.
-            if let group = standardLabelGroup(channelCount: effectiveChannelCount, channelLayout: effectiveLayoutHint) {
-                soundfieldSymbol = group.soundfieldSymbol
-                channelSymbols = group.channelSymbols
-            }
-        }
-
+        // No standard-SMPTE fallback: only emit labels when the source MXF carries them
+        // (auto-detected above) or the user has manually configured an override. Inferring
+        // labels from channel count alone risks mislabeling dual-mono / non-standard layouts
+        // and triggers bmxtranswrap rejections on otherwise-valid PCM essences.
         guard let sg = soundfieldSymbol, channelSymbols.count == effectiveChannelCount else {
-            logger.info("IMF MCA labels: layout unrecognized (\(effectiveChannelCount) channels); audio essence will be unlabeled.")
+            logger.info("IMF MCA labels: no source labels detected and no manual override (\(effectiveChannelCount) channels); audio essence will be unlabeled.")
+            print("[IMF] MCA labels skipped — no source MCA or manual override (\(effectiveChannelCount) channels)")
             return nil
         }
 

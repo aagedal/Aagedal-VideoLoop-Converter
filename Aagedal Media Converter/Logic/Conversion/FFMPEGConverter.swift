@@ -504,7 +504,7 @@ actor FFMPEGConverter {
                         inputURL: capturedInputURL,
                         audioRoutingConfig: capturedRequest.audioRoutingConfig
                     )
-                    let bmxSuccess = await BMXService.shared.rewrapToOP1a(
+                    let bmxResult = await BMXService.shared.rewrapToOP1a(
                         inputURL: tempMXF,
                         outputURL: capturedFinalOutputURL,
                         clipName: capturedInputBaseName,
@@ -521,7 +521,7 @@ actor FFMPEGConverter {
                         Self.cleanupTempFile(at: mcaLabelsFile, label: "MCA labels")
                     }
 
-                    if bmxSuccess {
+                    if bmxResult.success {
                         Self.logger.info("bmxtranswrap completed: \(capturedFinalOutputURL.lastPathComponent)")
                     } else {
                         Self.logger.error("bmxtranswrap failed, keeping FFmpeg output as fallback")
@@ -1017,7 +1017,7 @@ actor FFMPEGConverter {
                             bmxColorPrimaries = "2020"; bmxTransfer = nil; bmxCodingEq = "2020"
                         }
 
-                        let bmxOK = await BMXService.shared.rewrapToIMFOP1a(
+                        let bmxResult = await BMXService.shared.rewrapToIMFOP1a(
                             inputURL: capturedFinalOutputURL,
                             outputURL: tmpVideoMXF,
                             colorPrimaries: bmxColorPrimaries,
@@ -1032,12 +1032,15 @@ actor FFMPEGConverter {
                                 progressUpdate(overall, "Wrapping ProRes → MXF \(pct)%")
                             }
                         )
-                        if bmxOK {
+                        if bmxResult.success {
                             imfVideoMXF = tmpVideoMXF
                             Self.logger.info("IMF video essence created (App #5)")
                         } else {
                             Self.logger.error("bmxtranswrap failed for IMF ProRes video essence")
-                            errorReason = String(localized: "IMF video wrap failed: bmxtranswrap rejected ProRes essence", comment: "Shown when bmxtranswrap cannot rewrap the ProRes MOV into IMF App 5 OP1a MXF.")
+                            errorReason = Self.dcpIMFErrorReason(
+                                base: String(localized: "IMF video wrap failed: bmxtranswrap rejected ProRes essence", comment: "Shown when bmxtranswrap cannot rewrap the ProRes MOV into IMF App 5 OP1a MXF."),
+                                stderr: bmxResult.stderr
+                            )
                             success = false
                         }
                         // Remove the temporary MOV; if user wants to keep, they can use the .prores preset directly.
@@ -1083,7 +1086,7 @@ actor FFMPEGConverter {
                                 audioRoutingConfig: capturedRequest.audioRoutingConfig
                             )
 
-                            let bmxAudioOK = await BMXService.shared.rewrapToIMFOP1a(
+                            let bmxAudioResult = await BMXService.shared.rewrapToIMFOP1a(
                                 inputURL: wavURL,
                                 outputURL: tmpAudioMXF,
                                 colorPrimaries: nil,
@@ -1101,11 +1104,14 @@ actor FFMPEGConverter {
                             if let mcaLabelsFile {
                                 Self.cleanupTempFile(at: mcaLabelsFile, label: "IMF MCA labels")
                             }
-                            if bmxAudioOK {
+                            if bmxAudioResult.success {
                                 imfAudioMXF = tmpAudioMXF
                             } else {
                                 Self.logger.error("bmxtranswrap failed for IMF audio essence")
-                                errorReason = String(localized: "IMF audio wrap failed: bmxtranswrap rejected audio essence", comment: "Shown when bmxtranswrap cannot wrap the extracted PCM audio into the IMF audio MXF; the package would otherwise be missing audio.")
+                                errorReason = Self.dcpIMFErrorReason(
+                                    base: String(localized: "IMF audio wrap failed: bmxtranswrap rejected audio essence", comment: "Shown when bmxtranswrap cannot wrap the extracted PCM audio into the IMF audio MXF; the package would otherwise be missing audio."),
+                                    stderr: bmxAudioResult.stderr
+                                )
                                 success = false
                                 Self.cleanupTempFile(at: tmpAudioMXF, label: "failed IMF audio MXF")
                             }
@@ -1462,7 +1468,7 @@ actor FFMPEGConverter {
                         inputURL: capturedInputURL,
                         audioRoutingConfig: capturedAudioRoutingConfig
                     )
-                    let bmxSuccess = await BMXService.shared.rewrapToOP1a(
+                    let bmxResult = await BMXService.shared.rewrapToOP1a(
                         inputURL: tempMXF,
                         outputURL: capturedFinalOutputURL,
                         clipName: capturedInputBaseName,
@@ -1478,7 +1484,7 @@ actor FFMPEGConverter {
                         Self.cleanupTempFile(at: mcaLabelsFile, label: "MCA labels")
                     }
 
-                    if !bmxSuccess {
+                    if !bmxResult.success {
                         Self.logger.error("bmxtranswrap failed for native waveform")
                         do {
                             try FileManager.default.copyItem(at: tempMXF, to: capturedFinalOutputURL)
