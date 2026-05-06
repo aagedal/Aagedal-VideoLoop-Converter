@@ -28,6 +28,10 @@ struct PresetsSettingsView: View {
     // AVC-Intra settings
     @AppStorage(AppConstants.avcIntraClassKey) private var avcIntraClass = AppConstants.defaultAVCIntraClass
     @AppStorage(AppConstants.avcIntraAudioChannelsKey) private var avcIntraAudioChannels = AppConstants.defaultAVCIntraAudioChannels
+    @AppStorage(AppConstants.avcIntraDefaultMCASoundfield1ChKey) private var avcIntra1ChMCADefault = ""
+    @AppStorage(AppConstants.avcIntraDefaultMCASoundfield2ChKey) private var avcIntra2ChMCADefault = ""
+    @AppStorage(AppConstants.avcIntraDefaultMCASoundfield6ChKey) private var avcIntra6ChMCADefault = ""
+    @AppStorage(AppConstants.avcIntraDefaultMCASoundfield8ChKey) private var avcIntra8ChMCADefault = ""
 
     // DCP settings
     @AppStorage(AppConstants.dcpResolutionKey) private var dcpResolution = AppConstants.defaultDCPResolution
@@ -1233,6 +1237,60 @@ struct PresetsSettingsView: View {
                         .fixedSize()
                         .labelsHidden()
                         .help("Limit output resolution. Bitrate scales automatically with resolution.")
+                    }
+
+                    Divider()
+                    Text("Default MCA Labels")
+                        .font(.subheadline.bold())
+                    Text("Used when the source has no MCA labels and no per-track override is set. Choose 'None' to leave the audio essence unlabelled.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Text("1-channel default")
+                        Spacer()
+                        Picker("", selection: $avcIntra1ChMCADefault) {
+                            Text("None").tag("")
+                            Text(MCAStandardSoundfield.mono.displayName).tag(MCAStandardSoundfield.mono.rawValue)
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                    }
+                    HStack {
+                        Text("2-channel default")
+                        Spacer()
+                        Picker("", selection: $avcIntra2ChMCADefault) {
+                            Text("None").tag("")
+                            Text(MCAStandardSoundfield.stereo.displayName).tag(MCAStandardSoundfield.stereo.rawValue)
+                            Text(MCAStandardSoundfield.dualMono.displayName).tag(MCAStandardSoundfield.dualMono.rawValue)
+                            Text(MCAStandardSoundfield.ltRt.displayName).tag(MCAStandardSoundfield.ltRt.rawValue)
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                    }
+                    HStack {
+                        Text("6-channel default")
+                        Spacer()
+                        Picker("", selection: $avcIntra6ChMCADefault) {
+                            Text("None").tag("")
+                            Text(MCAStandardSoundfield.surround51.displayName).tag(MCAStandardSoundfield.surround51.rawValue)
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                    }
+                    HStack {
+                        Text("8-channel default")
+                        Spacer()
+                        Picker("", selection: $avcIntra8ChMCADefault) {
+                            Text("None").tag("")
+                            Text(MCAStandardSoundfield.surround71.displayName).tag(MCAStandardSoundfield.surround71.rawValue)
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
                     }
                 }
             }

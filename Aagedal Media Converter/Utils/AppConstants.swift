@@ -424,6 +424,13 @@ enum AppConstants {
     static let avcIntraAudioChannelsKey = "avcIntraAudioChannels"
     static let defaultAVCIntraAudioChannels = "8 Channels"
 
+    // AVC-Intra default MCA labels (per channel count). Stored value is
+    // MCAStandardSoundfield.rawValue, or "" for "None — emit no labels".
+    static let avcIntraDefaultMCASoundfield1ChKey = "avcIntraDefaultMCASoundfield1Ch"
+    static let avcIntraDefaultMCASoundfield2ChKey = "avcIntraDefaultMCASoundfield2Ch"
+    static let avcIntraDefaultMCASoundfield6ChKey = "avcIntraDefaultMCASoundfield6Ch"
+    static let avcIntraDefaultMCASoundfield8ChKey = "avcIntraDefaultMCASoundfield8Ch"
+
     // DCP preset settings
     static let dcpResolutionKey = "dcpResolution"
     static let defaultDCPResolution = "2K Full (2048x1080)"

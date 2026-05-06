@@ -149,14 +149,15 @@ enum MCALabelsBuilder {
     }
 
     /// Returns labels derived in priority order. We deliberately do *not* fall back to a
-    /// standard SMPTE layout when neither source MCA nor a user override is present —
-    /// auto-labelling 2-ch as "ST", 6-ch as "5.1", etc. is plausible but may be wrong
-    /// (e.g. dual-mono delivered on two channels would be mislabelled as stereo) and
-    /// some downstream tools reject unsolicited labels. Returning nil here causes the
-    /// caller to omit `--track-mca-labels` entirely, which is the safe default.
+    /// hardcoded standard SMPTE layout — auto-labelling 2-ch as "ST", 6-ch as "5.1", etc.
+    /// is plausible but may be wrong (e.g. dual-mono delivered on two channels would be
+    /// mislabelled as stereo) and some downstream tools reject unsolicited labels. The
+    /// per-channel-count user default in step 3 restores opt-in auto-labelling for users
+    /// who want it; nil at the end causes the caller to omit `--track-mca-labels` entirely.
     ///
     ///   1. User override (when its soundfield's channel count matches the stream)
     ///   2. Input MCA descriptors (when channel labels align with the stream)
+    ///   3. Per-channel-count user default from Settings → Presets → AVC-Intra
     private static func deriveLabelGroup(stream: InputStreamInfo, inputMCA: AudioTrackMCALabels?, override: MCALabelOverride?) -> LabelGroup? {
         // Manual override wins when its soundfield channel count matches the stream;
         // a mismatched override (e.g. "Stereo" picked on a 6-channel input) falls
@@ -181,7 +182,32 @@ enum MCALabelsBuilder {
             }
         }
 
+        // Per-channel-count user default (Settings → Presets → AVC-Intra → Default MCA Labels).
+        if let sf = defaultAVCIntraSoundfield(for: stream.channelCount) {
+            return LabelGroup(soundfieldSymbol: sf.bmxSymbol, channelSymbols: sf.bmxChannelSymbols)
+        }
+
         return nil
+    }
+
+    /// Reads the user-configured AVC-Intra default soundfield for the given channel count.
+    /// Returns nil when the user hasn't set a default for that count, when "None" is
+    /// selected (empty string), or when the persisted soundfield's own channel count
+    /// disagrees with the requested one (defensive — guards against a settings file
+    /// mutated by a different version).
+    private static func defaultAVCIntraSoundfield(for channelCount: Int) -> MCAStandardSoundfield? {
+        let key: String
+        switch channelCount {
+        case 1: key = AppConstants.avcIntraDefaultMCASoundfield1ChKey
+        case 2: key = AppConstants.avcIntraDefaultMCASoundfield2ChKey
+        case 6: key = AppConstants.avcIntraDefaultMCASoundfield6ChKey
+        case 8: key = AppConstants.avcIntraDefaultMCASoundfield8ChKey
+        default: return nil
+        }
+        guard let raw = UserDefaults.standard.string(forKey: key), !raw.isEmpty,
+              let sf = MCAStandardSoundfield(rawValue: raw),
+              sf.channelCount == channelCount else { return nil }
+        return sf
     }
 
     /// Maps MCA Tag Names / Symbols (as parsed from mxf2raw) to the bmx tag symbols.
