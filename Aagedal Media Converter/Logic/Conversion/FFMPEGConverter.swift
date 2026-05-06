@@ -1075,11 +1075,42 @@ actor FFMPEGConverter {
                             success = false
                         }
 
-                        if let wavURL = audioWavURL {
+                        if let originalWavURL = audioWavURL {
                             progressUpdate(0.90, "Wrapping audio essence")
                             print("[IMF] wrapping audio essence")
                             let tmpAudioMXF = FileManager.default.temporaryDirectory
                                 .appendingPathComponent("imf_audio_\(UUID().uuidString).mxf")
+
+                            // Pad the WAV to match the picture frame count so asdcp-wrap's
+                            // edit-unit index matches the actual essence length. Without this,
+                            // sources whose duration doesn't quantise cleanly to picture frames
+                            // (e.g. 156.36 s → 3754 frames @ 24 fps but only ~3752.6 audio
+                            // frames worth of samples) produce a truncated MXF that Resolve
+                            // refuses to play even though mpv tolerates it.
+                            let jp2FrameCount: Int
+                            if capturedIsIMFJ2KExport {
+                                let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
+                                jp2FrameCount = (try? fm.contentsOfDirectory(atPath: jp2Dir.path))?
+                                    .filter { $0.hasSuffix(".jp2") }.count ?? 0
+                            } else {
+                                let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
+                                jp2FrameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
+                            }
+                            let wavURL: URL
+                            if jp2FrameCount > 0,
+                               let padded = await Self.padWAVToFrameCount(
+                                   inputWAV: originalWavURL,
+                                   frameCount: jp2FrameCount,
+                                   editRateNumerator: frameRate.editRateNumerator,
+                                   editRateDenominator: frameRate.editRateDenominator,
+                                   ffmpegPath: capturedFfmpegPath
+                               ) {
+                                wavURL = padded
+                                Self.cleanupTempFile(at: originalWavURL, label: "IMF audio WAV (pre-pad)")
+                            } else {
+                                wavURL = originalWavURL
+                                print("[IMF] WAV padding skipped (frameCount=\(jp2FrameCount))")
+                            }
 
                             // Wrap PCM WAV → IMF audio MXF using asdcp-wrap. bmxtranswrap is
                             // MXF-only (it cannot ingest WAV), so the prior call always failed
@@ -1802,6 +1833,75 @@ actor FFMPEGConverter {
 
     static func getVideoDuration(url: URL) async -> Double? {
         await FFMPEGProbeService.getVideoDuration(for: url)
+    }
+
+    /// Pads (or, if already long enough, leaves alone) a 48 kHz PCM WAV so it has
+    /// at least `frameCount` picture frames worth of samples. Required by the
+    /// IMF audio path: asdcp-wrap writes a frame-rate-keyed edit-unit index
+    /// claiming one entry per picture frame, but the index is computed from the
+    /// expected duration — if the WAV is short of that by even a fractional
+    /// frame, the resulting MXF has an index entry pointing past the end of the
+    /// essence and Resolve refuses to play it (mxf2raw also reports the file as
+    /// "general error" with a "last edit unit not available" message).
+    ///
+    /// For non-integer rates (29.97, 59.94) the per-frame sample count is not
+    /// integer, so we use a ceiling on `frameCount × 48000 × den / num` — a
+    /// slight overshoot is fine, asdcp-wrap takes only what it needs.
+    private static func padWAVToFrameCount(
+        inputWAV: URL,
+        frameCount: Int,
+        editRateNumerator: Int,
+        editRateDenominator: Int,
+        ffmpegPath: String
+    ) async -> URL? {
+        guard frameCount > 0, editRateNumerator > 0, editRateDenominator > 0 else { return nil }
+        let totalSamples = Int(ceil(Double(frameCount) * 48000.0 * Double(editRateDenominator) / Double(editRateNumerator)))
+        let outputWAV = inputWAV.deletingLastPathComponent()
+            .appendingPathComponent("audio_padded_\(UUID().uuidString).wav")
+
+        let args: [String] = [
+            "-y", "-nostdin",
+            "-i", inputWAV.path,
+            "-af", "apad=whole_len=\(totalSamples)",
+            "-c:a", "pcm_s24le",
+            "-ar", "48000",
+            outputWAV.path
+        ]
+        print("[IMF] padding WAV to \(totalSamples) samples (\(frameCount) frames × \(editRateNumerator)/\(editRateDenominator))")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = args
+        process.standardInput = FileHandle.nullDevice
+        let stderrPipe = Pipe()
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrPipe
+        // Drain stderr to avoid pipe-buffer deadlock on long runs.
+        let stderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
+        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            stderrBuffer.withLock { $0.append(chunk) }
+        }
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            try? stderrPipe.fileHandleForReading.close()
+            print("[IMF] WAV pad ffmpeg launch threw: \(error.localizedDescription)")
+            return nil
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = nil
+        try? stderrPipe.fileHandleForReading.close()
+        guard process.terminationStatus == 0 else {
+            let stderrData = stderrBuffer.withLock { $0 }
+            let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
+            print("[IMF] WAV pad ffmpeg exited \(process.terminationStatus): \(stderrStr.prefix(400))")
+            try? FileManager.default.removeItem(at: outputWAV)
+            return nil
+        }
+        return outputWAV
     }
 
     // MARK: - Audio Pre-Processing for AVC-Intra
