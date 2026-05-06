@@ -59,6 +59,11 @@ enum BinaryPathResolver {
         Bundle.main.path(forResource: "asdcp-wrap", ofType: nil)
     }
 
+    /// Resolves the path to raw2bmx binary (IMF App #2e J2C → MXF wrapping with full picture descriptor)
+    static var raw2bmxPath: String? {
+        Bundle.main.path(forResource: "raw2bmx", ofType: nil)
+    }
+
     // MARK: - Version Info
 
     /// Gets the version of a binary by running it with --version

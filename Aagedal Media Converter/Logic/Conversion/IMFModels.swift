@@ -198,6 +198,17 @@ enum IMFColorEncoding: String, CaseIterable, Identifiable, Sendable {
         case .rec2020SDR, .rec2020PQ, .rec2020HLG: return "bt2020nc"
         }
     }
+
+    /// Flags to pass to bmx tools (raw2bmx, bmxtranswrap) for IMF wrapping.
+    /// `transferCharacteristic == nil` means omit `--transfer-ch` and let bmx default.
+    var bmxFlags: (colorPrimaries: String, transferCharacteristic: String?, codingEquations: String) {
+        switch self {
+        case .rec709:     return ("709", "709", "709")
+        case .rec2020SDR: return ("2020", nil, "2020")
+        case .rec2020PQ:  return ("2020", "smpte2084", "2020")
+        case .rec2020HLG: return ("2020", "hlg", "2020")
+        }
+    }
 }
 
 // MARK: - IMF ProRes Profile (App #5)

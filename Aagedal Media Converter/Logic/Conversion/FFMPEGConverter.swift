@@ -848,11 +848,14 @@ actor FFMPEGConverter {
 
                     // ----- Video essence wrap -----
                     if capturedIsIMFJ2KExport {
-                        // J2K → asdcp-wrap (mirror DCP path; SMPTE Universal Labels via -L work for IMF App #2e too).
+                        // J2K → raw2bmx with `-t imf` writes a full ST 2067-21 CDCIPictureEssenceDescriptor
+                        // including ColorPrimaries/TransferCharacteristic/CodingEquations/ChromaSubsampling
+                        // ULs. asdcp-wrap (a DCP tool) cannot, and the resulting sparse descriptor caused
+                        // Resolve to read the YCbCr essence as RGBA — see the colour-magenta bug.
                         let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
-                        let resolvedAsdcpPath = BinaryPathResolver.asdcpWrapPath
-                        print("[IMF] App 2e branch — asdcp-wrap path: \(resolvedAsdcpPath ?? "<nil>"), jp2Dir=\(jp2Dir.path)")
-                        if let asdcpWrapPath = resolvedAsdcpPath {
+                        let resolvedRaw2bmxPath = BinaryPathResolver.raw2bmxPath
+                        print("[IMF] App 2e branch — raw2bmx path: \(resolvedRaw2bmxPath ?? "<nil>"), jp2Dir=\(jp2Dir.path)")
+                        if let raw2bmxPath = resolvedRaw2bmxPath {
                             progressUpdate(0.78, "Creating IMF video essence")
                             let tmpVideoMXF = FileManager.default.temporaryDirectory
                                 .appendingPathComponent("imf_video_\(UUID().uuidString).mxf")
@@ -873,8 +876,8 @@ actor FFMPEGConverter {
 
                                 // Strip JP2 box wrapper to raw J2C codestreams. For long sources
                                 // this loop can take many seconds; emit throttled progress so the
-                                // UI shows what's happening between FFmpeg finishing and asdcp-wrap.
-                                // Also accumulate total J2C bytes so the asdcp-wrap poller below
+                                // UI shows what's happening between FFmpeg finishing and the wrap.
+                                // Also accumulate total J2C bytes so the wrap-progress poller below
                                 // can estimate real progress against expected MXF essence size.
                                 let socMarker = Data([0xFF, 0x4F])
                                 let totalFrames = jp2Files.count
@@ -902,28 +905,41 @@ actor FFMPEGConverter {
                                 let expectedMXFBytes = totalJ2CBytes
                                 print("[IMF] J2C extraction complete (\(totalFrames) frames, \(ByteCountFormatter.string(fromByteCount: expectedMXFBytes, countStyle: .file)))")
 
-                                let videoWrapArgs: [String] = [
-                                    "-v",
-                                    "-p", frameRate.ffmpegValue,
-                                    "-L",
-                                    j2cDir.path + "/",
-                                    tmpVideoMXF.path
+                                // raw2bmx accepts the same frame-rate syntax as ffmpeg ("24" / "24000/1001").
+                                // --j2c_cdci tells raw2bmx the codestream is YCbCr (CDCI descriptor); the
+                                // alternative --j2c_rgba would reproduce the original RGBA-mislabelling bug.
+                                // The input is a printf-style %d pattern matched against the J2C frames
+                                // (extracted above from frame_%06d.jp2 → frame_%06d.j2c).
+                                // Per-input flags (--color-prim/--transfer-ch/--coding-eq) bind to the
+                                // following --j2c_cdci input, so they must appear before it.
+                                let bmxFlags = color.bmxFlags
+                                let j2cPattern = j2cDir.appendingPathComponent("frame_%d.j2c").path
+                                var videoWrapArgs: [String] = [
+                                    "-t", "imf",
+                                    "-o", tmpVideoMXF.path,
+                                    "-f", frameRate.ffmpegValue,
+                                    "--clip", capturedInputBaseName,
+                                    "--color-prim", bmxFlags.colorPrimaries,
                                 ]
+                                if let transfer = bmxFlags.transferCharacteristic {
+                                    videoWrapArgs.append(contentsOf: ["--transfer-ch", transfer])
+                                }
+                                videoWrapArgs.append(contentsOf: [
+                                    "--coding-eq", bmxFlags.codingEquations,
+                                    "--j2c_cdci", j2cPattern
+                                ])
                                 let videoWrapProcess = Process()
-                                videoWrapProcess.executableURL = URL(fileURLWithPath: asdcpWrapPath)
+                                videoWrapProcess.executableURL = URL(fileURLWithPath: raw2bmxPath)
                                 videoWrapProcess.arguments = videoWrapArgs
                                 videoWrapProcess.standardInput = FileHandle.nullDevice
                                 let stderrPipe = Pipe()
                                 videoWrapProcess.standardOutput = stderrPipe
                                 videoWrapProcess.standardError = stderrPipe
                                 progressUpdate(0.80, "Wrapping J2C → MXF")
-                                print("[IMF] launching asdcp-wrap: \(videoWrapArgs.joined(separator: " "))")
-                                // Drain the merged stdout/stderr pipe in real time. asdcp-wrap is
-                                // launched with `-v` (verbose) and emits one informational line per
-                                // wrapped frame; without an active reader the pipe (16–64 KB on
-                                // macOS) fills, asdcp-wrap blocks on `write()`, and the MXF stops
-                                // growing — exactly the "frozen at 82%" deadlock observed on long
-                                // sources. The buffer keeps the bytes around for error reporting.
+                                print("[IMF] launching raw2bmx: \(videoWrapArgs.joined(separator: " "))")
+                                // Drain the merged stdout/stderr pipe in real time. Same pipe-deadlock
+                                // hazard as asdcp-wrap (commit 631dc39): without an active reader the
+                                // OS pipe buffer fills, the child blocks on write(), and progress stalls.
                                 let stderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
                                 stderrPipe.fileHandleForReading.readabilityHandler = { handle in
                                     let chunk = handle.availableData
@@ -932,10 +948,10 @@ actor FFMPEGConverter {
                                 }
                                 do {
                                     try videoWrapProcess.run()
-                                    // asdcp-wrap has no progress flag; poll the output MXF size
-                                    // and estimate progress as bytes-written / expected-essence-size.
-                                    // The MXF holds the J2C codestreams plus a small index/header
-                                    // overhead, so total J2C bytes is a tight lower-bound estimate.
+                                    // Poll the output MXF size and estimate progress as
+                                    // bytes-written / expected-essence-size. The MXF holds the J2C
+                                    // codestreams plus a small index/header overhead, so total J2C
+                                    // bytes is a tight lower-bound estimate.
                                     let pollerTask = Task.detached { [tmpVideoMXF, expectedMXFBytes] in
                                         let pollFM = FileManager.default
                                         while !Task.isCancelled {
@@ -966,14 +982,14 @@ actor FFMPEGConverter {
                                     try? stderrPipe.fileHandleForReading.close()
                                     let stderrData = stderrBuffer.withLock { $0 }
                                     let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
-                                    print("[IMF] asdcp-wrap exited with status \(videoWrapProcess.terminationStatus)")
+                                    print("[IMF] raw2bmx exited with status \(videoWrapProcess.terminationStatus)")
                                     if videoWrapProcess.terminationStatus == 0 {
                                         imfVideoMXF = tmpVideoMXF
                                         Self.logger.info("IMF video essence created (App #2e)")
                                     } else {
-                                        Self.logger.error("asdcp-wrap failed for IMF video (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
+                                        Self.logger.error("raw2bmx failed for IMF video (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
                                         errorReason = Self.dcpIMFErrorReason(
-                                            base: String(localized: "IMF video wrap failed (asdcp-wrap exit \(Int(videoWrapProcess.terminationStatus)))", comment: "Shown when asdcp-wrap exits with a non-zero status while wrapping the IMF App 2e video essence."),
+                                            base: String(localized: "IMF video wrap failed (raw2bmx exit \(Int(videoWrapProcess.terminationStatus)))", comment: "Shown when raw2bmx exits with a non-zero status while wrapping the IMF App 2e video essence."),
                                             stderr: stderrStr
                                         )
                                         success = false
@@ -982,16 +998,16 @@ actor FFMPEGConverter {
                                 } catch {
                                     stderrPipe.fileHandleForReading.readabilityHandler = nil
                                     try? stderrPipe.fileHandleForReading.close()
-                                    Self.logger.error("Failed to run asdcp-wrap for IMF video: \(error.localizedDescription)")
-                                    print("[IMF] asdcp-wrap launch threw: \(error.localizedDescription)")
-                                    errorReason = String(localized: "IMF video wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for IMF video throws an exception.")
+                                    Self.logger.error("Failed to run raw2bmx for IMF video: \(error.localizedDescription)")
+                                    print("[IMF] raw2bmx launch threw: \(error.localizedDescription)")
+                                    errorReason = String(localized: "IMF video wrap failed: \(error.localizedDescription)", comment: "Shown when launching the raw2bmx process for IMF video throws an exception.")
                                     success = false
                                 }
                                 Self.cleanupTempFile(at: j2cDir, label: "IMF J2C frames")
                             }
                         } else {
-                            Self.logger.error("asdcp-wrap not found — cannot create IMF App 2e essence")
-                            errorReason = String(localized: "IMF video wrap failed: asdcp-wrap not found", comment: "Shown when the bundled asdcp-wrap binary cannot be located, blocking the IMF App 2e export.")
+                            Self.logger.error("raw2bmx not found — cannot create IMF App 2e essence")
+                            errorReason = String(localized: "IMF video wrap failed: raw2bmx not found", comment: "Shown when the bundled raw2bmx binary cannot be located, blocking the IMF App 2e export.")
                             success = false
                         }
 
@@ -1007,22 +1023,14 @@ actor FFMPEGConverter {
                         let tmpVideoMXF = FileManager.default.temporaryDirectory
                             .appendingPathComponent("imf_video_\(UUID().uuidString).mxf")
 
-                        let bmxColorPrimaries: String?
-                        let bmxTransfer: String?
-                        let bmxCodingEq: String?
-                        switch color {
-                        case .rec709:
-                            bmxColorPrimaries = "709"; bmxTransfer = "709"; bmxCodingEq = "709"
-                        case .rec2020SDR, .rec2020PQ, .rec2020HLG:
-                            bmxColorPrimaries = "2020"; bmxTransfer = nil; bmxCodingEq = "2020"
-                        }
+                        let bmxFlags = color.bmxFlags
 
                         let bmxResult = await BMXService.shared.rewrapToIMFOP1a(
                             inputURL: capturedFinalOutputURL,
                             outputURL: tmpVideoMXF,
-                            colorPrimaries: bmxColorPrimaries,
-                            transferCharacteristic: bmxTransfer,
-                            codingEquations: bmxCodingEq,
+                            colorPrimaries: bmxFlags.colorPrimaries,
+                            transferCharacteristic: bmxFlags.transferCharacteristic,
+                            codingEquations: bmxFlags.codingEquations,
                             clipName: capturedInputBaseName,
                             mcaLabelsFile: nil,
                             progress: { bmxProgress in
