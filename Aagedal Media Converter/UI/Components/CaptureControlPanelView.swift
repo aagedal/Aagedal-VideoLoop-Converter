@@ -14,6 +14,7 @@ struct CaptureControlPanelView: View {
     let onHidePanel: () -> Void
     let onRegionModeChanged: (Bool) -> Void
     let onDisplayChanged: (NSScreen, CGRect?) -> Void
+    let onSetOverlayClickThrough: (Bool) -> Void
 
     @AppStorage(AppConstants.captureDirectoryKey) private var captureDirectoryPath = AppConstants.defaultCaptureDirectory.path
     @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
@@ -39,6 +40,7 @@ struct CaptureControlPanelView: View {
     @State private var showAudioExclusionPopover = false
     @State private var availableApps: [SCRunningApplication] = []
     @State private var excludedAppBundleIDs: Set<String> = []
+    @State private var overlayClickThrough = false
 
     // Schedule state
     @State private var showSchedulePopover = false
@@ -99,6 +101,21 @@ struct CaptureControlPanelView: View {
             .onDisappear {
                 isViewActive = false
                 cancelSchedule()
+            }
+            .onChange(of: captureRegionMode) { _, newValue in
+                // Leaving region mode tears down the selection overlay, so the toggle has nothing
+                // to act on. Reset so we start fresh next time region mode is re-enabled.
+                if !newValue && overlayClickThrough {
+                    overlayClickThrough = false
+                    onSetOverlayClickThrough(false)
+                }
+            }
+            .onChange(of: captureManager.isRecording) { _, newValue in
+                // Recording dismisses the region overlay too.
+                if newValue && overlayClickThrough {
+                    overlayClickThrough = false
+                    onSetOverlayClickThrough(false)
+                }
             }
             .task(id: scheduledStart) {
                 guard let start = scheduledStart else { return }
@@ -307,6 +324,9 @@ struct CaptureControlPanelView: View {
                 cursorToggleButton
                 excludeAppToggleButton
                 audioExclusionButton
+                if captureRegionMode {
+                    overlayClickThroughToggleButton
+                }
                 Spacer()
             }
 
@@ -559,6 +579,30 @@ struct CaptureControlPanelView: View {
         }
         .buttonStyle(.plain)
         .help(captureHideCursor ? "Cursor hidden in capture" : "Cursor visible in capture")
+    }
+
+    private var overlayClickThroughToggleButton: some View {
+        Button {
+            overlayClickThrough.toggle()
+            onSetOverlayClickThrough(overlayClickThrough)
+        } label: {
+            Image(systemName: overlayClickThrough ? "hand.raised.slash.fill" : "hand.raised.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(overlayClickThrough ? .orange : .primary)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(overlayClickThrough ? Color.orange.opacity(0.15) : Color.primary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(overlayClickThrough ? Color.orange.opacity(0.6) : Color.primary.opacity(0.2), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(overlayClickThrough
+              ? "Selection overlay disabled — clicks pass through to other apps. Tip: hold ⌘ to pass through temporarily."
+              : "Disable the selection overlay temporarily so clicks pass through. Tip: hold ⌘ for momentary pass-through.")
     }
 
     private var excludeAppToggleButton: some View {

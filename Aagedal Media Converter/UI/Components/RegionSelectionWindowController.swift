@@ -43,9 +43,9 @@ final class RegionSelectionWindowController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        // .statusBar (25) sits above other apps but below system permission/TCC dialogs,
-        // so a screen-recording-permission prompt remains clickable on top of this overlay.
-        panel.level = .statusBar
+        // Sit above other apps. If a system dialog (e.g. TCC permission prompt) is hidden behind
+        // the overlay, the user can press Escape to dismiss and try again.
+        panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.delegate = self

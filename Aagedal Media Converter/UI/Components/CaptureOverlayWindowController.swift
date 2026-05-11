@@ -17,11 +17,26 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
     private var processingObserver: AnyCancellable?
     private var escapeKeyLocalMonitor: Any?
     private var escapeKeyGlobalMonitor: Any?
+    private var modifierKeyLocalMonitor: Any?
+    private var modifierKeyGlobalMonitor: Any?
 
     // Menu bar status item for showing/hiding the control panel
     private var showPanelStatusItem: NSStatusItem?
 
     private(set) var isShowing = false
+
+    // Click-through state — when either is true, the region overlay passes mouse events through.
+    // The control panel passes events through only while CMD is held, so the toggle button stays usable.
+    private var isCmdHeld = false
+    private(set) var isRegionOverlayClickThrough = false
+
+    // Base window levels — high enough to sit above other apps. Users can hold CMD or use the
+    // toggle button on the control panel to click through to anything underneath (e.g. a TCC dialog).
+    private let regionOverlayLevel: NSWindow.Level = .popUpMenu
+    private var controlPanelLevelWhenRegionShown: NSWindow.Level {
+        .init(rawValue: NSWindow.Level.popUpMenu.rawValue + 1)
+    }
+    private let controlPanelLevelWhenAlone: NSWindow.Level = .popUpMenu
 
     private override init() {
         super.init()
@@ -56,6 +71,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
             self.createControlPanel(on: targetScreen)
             self.setupRecordingObservers()
             self.installEscapeKeyMonitor()
+            self.installModifierKeyMonitor()
         }
     }
 
@@ -65,6 +81,8 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
 
         processingObserver = nil
         removeEscapeKeyMonitor()
+        removeModifierKeyMonitor()
+        isRegionOverlayClickThrough = false
 
         let captureManager = ScreenCaptureManager.shared
         Task {
@@ -120,6 +138,8 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
         overlayPanel = nil
         hideStatusItems()
         removeEscapeKeyMonitor()
+        removeModifierKeyMonitor()
+        isRegionOverlayClickThrough = false
 
         processingObserver = nil
         isShowing = false
@@ -153,13 +173,14 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        // .statusBar (25) sits above other apps but below system permission/TCC dialogs.
-        // Using .screenSaver here would block clicks to the screen-recording-permission prompt.
-        panel.level = .statusBar
+        // Sit above other apps. If a system dialog (e.g. TCC permission prompt) gets stuck behind
+        // the overlay, the user can hold CMD or press the click-through toggle on the control
+        // panel to make this panel ignore mouse events.
+        panel.level = regionOverlayLevel
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.acceptsMouseMovedEvents = true
-        panel.ignoresMouseEvents = false
+        panel.ignoresMouseEvents = isRegionOverlayClickThrough || isCmdHeld
         panel.hidesOnDeactivate = false
 
         let overlayView = CaptureRegionOverlayView(
@@ -188,14 +209,17 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
 
         // Ensure control panel stays above the overlay
-        controlPanel?.level = .init(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        controlPanel?.level = controlPanelLevelWhenRegionShown
     }
 
     func hideRegionOverlay() {
         overlayPanel?.close()
         overlayPanel = nil
         // Reset control panel level
-        controlPanel?.level = .floating
+        controlPanel?.level = controlPanelLevelWhenAlone
+        // The region overlay no longer exists, so the manual click-through toggle has nothing to
+        // act on. Reset it so the next time the overlay appears, it starts in the default state.
+        isRegionOverlayClickThrough = false
     }
 
     func moveToDisplay(_ screen: NSScreen, initialRegion: CGRect?) {
@@ -253,10 +277,11 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.level = overlayPanel != nil ? .init(rawValue: NSWindow.Level.statusBar.rawValue + 1) : .floating
+        panel.level = overlayPanel != nil ? controlPanelLevelWhenRegionShown : controlPanelLevelWhenAlone
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.isMovableByWindowBackground = true
+        panel.ignoresMouseEvents = isCmdHeld
         panel.hidesOnDeactivate = false
         panel.delegate = self
 
@@ -291,6 +316,9 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
             },
             onDisplayChanged: { [weak self] screen, initialRegion in
                 self?.moveToDisplay(screen, initialRegion: initialRegion)
+            },
+            onSetOverlayClickThrough: { [weak self] enabled in
+                self?.setRegionOverlayClickThrough(enabled)
             }
         )
 
@@ -382,6 +410,60 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
             NSEvent.removeMonitor(monitor)
             escapeKeyGlobalMonitor = nil
         }
+    }
+
+    // MARK: - Click-Through
+
+    /// Public toggle used by the floating control panel's button. Affects only the region overlay
+    /// so the control panel itself stays clickable for un-toggling.
+    func setRegionOverlayClickThrough(_ enabled: Bool) {
+        isRegionOverlayClickThrough = enabled
+        applyClickThroughState()
+    }
+
+    private func applyClickThroughState() {
+        overlayPanel?.ignoresMouseEvents = isRegionOverlayClickThrough || isCmdHeld
+        // Holding CMD also passes events through the control panel, so a TCC dialog (or any
+        // window) hidden behind it can be reached. The manual toggle does not affect the control
+        // panel — that would lock the user out of the toggle itself.
+        controlPanel?.ignoresMouseEvents = isCmdHeld
+    }
+
+    // MARK: - Modifier Key Handling
+
+    private func installModifierKeyMonitor() {
+        guard modifierKeyLocalMonitor == nil else { return }
+
+        let handleFlags = { [weak self] (event: NSEvent) in
+            guard let self else { return }
+            let cmdNow = event.modifierFlags.contains(.command)
+            if cmdNow != self.isCmdHeld {
+                self.isCmdHeld = cmdNow
+                self.applyClickThroughState()
+            }
+        }
+
+        modifierKeyLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            handleFlags(event)
+            return event
+        }
+
+        modifierKeyGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { event in
+            handleFlags(event)
+        }
+    }
+
+    private func removeModifierKeyMonitor() {
+        if let monitor = modifierKeyLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            modifierKeyLocalMonitor = nil
+        }
+        if let monitor = modifierKeyGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            modifierKeyGlobalMonitor = nil
+        }
+        isCmdHeld = false
+        applyClickThroughState()
     }
 
     // MARK: - Menu Bar Status Items
