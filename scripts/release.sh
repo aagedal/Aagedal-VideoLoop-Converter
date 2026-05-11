@@ -23,6 +23,30 @@
 #
 set -euo pipefail
 
+echo "==> scripts/release.sh starting"
+
+# -----------------------------------------------------------------------------
+# Toolchain resolution
+# -----------------------------------------------------------------------------
+# `xcode-select` is sometimes left pointing at /Library/Developer/CommandLineTools
+# (e.g. after a CLI-tools update). In that state `xcodebuild` errors out and,
+# combined with `set -e`, would kill this script silently on the first line that
+# touches it. Resolve a usable Xcode here so the rest of the script can assume
+# it works.
+if [[ -z "${DEVELOPER_DIR:-}" ]]; then
+    if ! xcrun --find xcodebuild >/dev/null 2>&1; then
+        if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
+            export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+            echo "    (auto-set DEVELOPER_DIR=$DEVELOPER_DIR — \`xcode-select -p\` pointed at CommandLineTools)"
+        else
+            echo "ERROR: xcodebuild not available. Run:" >&2
+            echo "    sudo xcode-select -s /Applications/Xcode.app/Contents/Developer" >&2
+            echo "or export DEVELOPER_DIR to a valid Xcode install." >&2
+            exit 1
+        fi
+    fi
+fi
+
 # -----------------------------------------------------------------------------
 # Config — edit these once after running `generate_keys` / setting up notarytool
 # -----------------------------------------------------------------------------
@@ -46,17 +70,19 @@ TAP_CASK_FILE="${TAP_CASK_FILE:-Casks/$TAP_CASK_NAME.rb}"
 PROJECT="Aagedal Media Converter.xcodeproj"
 SCHEME="Aagedal Media Converter"
 
+if [[ -z "${1:-}" || -z "${2:-}" ]]; then
+    echo "    Reading version from xcodebuild -showBuildSettings (takes a few seconds)…"
+    BUILD_SETTINGS=$(xcodebuild -project "$PROJECT" -showBuildSettings -scheme "$SCHEME")
+fi
 if [[ -n "${1:-}" ]]; then
     MARKETING_VERSION="$1"
 else
-    MARKETING_VERSION=$(xcodebuild -project "$PROJECT" -showBuildSettings -scheme "$SCHEME" 2>/dev/null \
-        | awk -F' = ' '/^[[:space:]]*MARKETING_VERSION/{print $2; exit}')
+    MARKETING_VERSION=$(echo "$BUILD_SETTINGS" | awk -F' = ' '/^[[:space:]]*MARKETING_VERSION/{print $2; exit}')
 fi
 if [[ -n "${2:-}" ]]; then
     CURRENT_PROJECT_VERSION="$2"
 else
-    CURRENT_PROJECT_VERSION=$(xcodebuild -project "$PROJECT" -showBuildSettings -scheme "$SCHEME" 2>/dev/null \
-        | awk -F' = ' '/^[[:space:]]*CURRENT_PROJECT_VERSION/{print $2; exit}')
+    CURRENT_PROJECT_VERSION=$(echo "$BUILD_SETTINGS" | awk -F' = ' '/^[[:space:]]*CURRENT_PROJECT_VERSION/{print $2; exit}')
 fi
 
 echo "==> Building $MARKETING_VERSION ($CURRENT_PROJECT_VERSION)"
@@ -85,11 +111,17 @@ cat > "$EXPORT_OPTIONS_PLIST" <<EOF
 </plist>
 EOF
 
+# ARCHS=arm64 ONLY_ACTIVE_ARCH=NO: keep SwiftPM dependencies (SwiftExif, etc.)
+# from also compiling an x86_64 slice that the arm64-only main target would
+# discard at link time. The main target already sets EXCLUDED_ARCHS=x86_64
+# but that setting doesn't always propagate into SPM package builds.
 xcodebuild archive \
     -project "$PROJECT" \
     -scheme "$SCHEME" \
     -configuration Release \
-    -archivePath "$ARCHIVE_PATH"
+    -archivePath "$ARCHIVE_PATH" \
+    ARCHS=arm64 \
+    ONLY_ACTIVE_ARCH=NO
 
 xcodebuild -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
