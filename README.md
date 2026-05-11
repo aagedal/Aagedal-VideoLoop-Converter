@@ -1,6 +1,6 @@
 # Aagedal Media Converter
 
-<img width="1576" height="1026" alt="SCR-20260426-ugrc" src="https://github.com/user-attachments/assets/213e64a6-f382-4562-b4cf-797ad1e0f368" />
+<img alt="SCR-20260426-ugrc" src="https://github.com/user-attachments/assets/213e64a6-f382-4562-b4cf-797ad1e0f368" />
 
 
 
@@ -182,7 +182,7 @@ Ten custom presets (C1–C10) let you supply your own output arguments, suffixes
 ## Screenshots
 
 #### Trim View
-<img width="2304" height="1704" alt="SCR-20260426-ulyb-2" src="https://github.com/user-attachments/assets/0a48088d-e770-402a-a989-dc93d9fcb2c8" />
+<img alt="SCR-20260426-ulyb-2" src="https://github.com/user-attachments/assets/0a48088d-e770-402a-a989-dc93d9fcb2c8" />
 
 
 #### Crop view
@@ -190,27 +190,27 @@ Ten custom presets (C1–C10) let you supply your own output arguments, suffixes
 
 
 #### Audio rerouting
-<img width="702" height="535" alt="SCR-20251217-nqcb" src="https://github.com/user-attachments/assets/b7f0ab61-a6f1-4f90-8ec6-2f90b05c6022" />
+<img alt="SCR-20251217-nqcb" src="https://github.com/user-attachments/assets/b7f0ab61-a6f1-4f90-8ec6-2f90b05c6022" />
 
 
 #### Download view
-<img width="1300" height="1062" alt="SCR-20260426-umjw" src="https://github.com/user-attachments/assets/b2704580-464a-473d-9cac-9f1991ba4bb5" />
+<img alt="SCR-20260426-umjw" src="https://github.com/user-attachments/assets/b2704580-464a-473d-9cac-9f1991ba4bb5" />
 
 
 #### Metadata view
-<img width="3600" height="2338" alt="SCR-20260426-unem" src="https://github.com/user-attachments/assets/77f2c209-bc92-4cca-8e6c-36414bb0ecf3" />
+<img alt="SCR-20260426-unem" src="https://github.com/user-attachments/assets/77f2c209-bc92-4cca-8e6c-36414bb0ecf3" />
 
 
 #### Timecode override view
-<img width="522" height="402" alt="SCR-20251217-nqlo" src="https://github.com/user-attachments/assets/7c3d951d-9bbb-402c-9984-2fe46fa7d713" />
+<img alt="SCR-20251217-nqlo" src="https://github.com/user-attachments/assets/7c3d951d-9bbb-402c-9984-2fe46fa7d713" />
 
 
 #### Settings view
-<img width="900" height="632" alt="SCR-20260426-uoiq" src="https://github.com/user-attachments/assets/26b71bfa-e947-42c8-bc0c-4e3e66e81099" />
+<img alt="SCR-20260426-uoiq" src="https://github.com/user-attachments/assets/26b71bfa-e947-42c8-bc0c-4e3e66e81099" />
 
 
 #### Full screen player
-<img width="3600" height="2338" alt="SCR-20260426-uomf" src="https://github.com/user-attachments/assets/c9af806f-279e-4a1c-a2ee-a4cae8572911" />
+<img alt="SCR-20260426-uomf" src="https://github.com/user-attachments/assets/c9af806f-279e-4a1c-a2ee-a4cae8572911" />
 
 
 
