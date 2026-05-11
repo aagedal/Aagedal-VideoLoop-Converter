@@ -201,6 +201,22 @@ fi
 # Append appcast.xml entry
 # -----------------------------------------------------------------------------
 PUB_DATE=$(date "+%a, %d %b %Y %H:%M:%S %z")
+
+# Generate inline release notes from CHANGELOG.md. Fall back to a "see release
+# notes" link if the version isn't documented yet — Sparkle still renders that
+# fine, and we'd rather ship than block on a missing CHANGELOG entry.
+RELEASE_NOTES_HTML=""
+if python3 scripts/changelog-to-html.py CHANGELOG.md "$MARKETING_VERSION" > /tmp/release-notes-$$.html 2>/dev/null; then
+    # Indent each line so the CDATA reads nicely in raw XML.
+    RELEASE_NOTES_HTML=$(sed 's/^/                /' /tmp/release-notes-$$.html)
+    rm -f /tmp/release-notes-$$.html
+    echo "==> Inline release notes extracted from CHANGELOG.md"
+else
+    rm -f /tmp/release-notes-$$.html
+    RELEASE_NOTES_HTML="                <p>See <a href=\"https://codeberg.org/$CODEBERG_OWNER/$CODEBERG_REPO/releases/tag/$MARKETING_VERSION\">release notes</a>.</p>"
+    echo "==> WARNING: $MARKETING_VERSION not found in CHANGELOG.md — using bare link in appcast"
+fi
+
 NEW_ITEM=$(cat <<EOF
         <item>
             <title>Version $MARKETING_VERSION</title>
@@ -214,7 +230,7 @@ NEW_ITEM=$(cat <<EOF
                 type="application/octet-stream"
                 sparkle:edSignature="$ED_SIGNATURE" />
             <description><![CDATA[
-                <p>See <a href="https://codeberg.org/$CODEBERG_OWNER/$CODEBERG_REPO/releases/tag/$MARKETING_VERSION">release notes</a>.</p>
+$RELEASE_NOTES_HTML
             ]]></description>
         </item>
 EOF

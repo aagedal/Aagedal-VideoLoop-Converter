@@ -56,7 +56,26 @@
                 type="application/octet-stream"
                 sparkle:edSignature="FpHTl2JbEy4okdnkLpbGnt1TpLjMdFcKHJW3eIc8AbEDQzaVcYzOOuz5Je6vcmEjQ88XSocWm66h4vSld73SCg==" />
             <description><![CDATA[
-                <p>See <a href="https://codeberg.org/taagedal/Aagedal-Media-Converter/releases/tag/4.1.2">release notes</a>.</p>
+                <p>The headline is auto-update support for direct-download installs and a move of the project repository from GitHub to Codeberg. Also rolls up the small fixes that landed since 4.1.0 was tagged.</p>
+                <h2>Auto-update</h2>
+                <ul>
+                <li><strong>Direct-download installs now auto-update.</strong> A new updater (built on the Sparkle framework) checks for new releases on a configurable schedule, downloads them in the background, and — if you've opted in — installs the update on next launch. Daily / weekly / monthly cadence and an <strong>Install updates automatically</strong> toggle live under <strong>Settings → Updates</strong>, alongside a <strong>Check for Updates…</strong> item that's also reachable from the app menu. Update binaries are EdDSA-signed against a key embedded in this release; tampered or downgrade attempts are rejected before install.</li>
+                <li><strong>Homebrew installs are detected and routed through <code>brew upgrade</code> instead.</strong> The auto-updater never replaces a bundle that brew manages — that would create a checksum mismatch on the next <code>brew upgrade --cask</code>. When the in-app check finds an update on a brew install, the notification offers a one-click <strong>Copy brew Command</strong> button (<code>brew upgrade --cask aagedal-media-converter</code>) in place of the Download button, and Settings → Updates shows the same command with a copy-to-clipboard helper.</li>
+                </ul>
+                <h2>Moved to Codeberg</h2>
+                <ul>
+                <li><strong>Source code is now at <a href="https://codeberg.org/taagedal/Aagedal-Media-Converter">codeberg.org/taagedal/Aagedal-Media-Converter</a>.</strong> All in-app links — the About window and the Settings → Updates source-code link — point at Codeberg now. The GitHub mirror is no longer the source of truth.</li>
+                <li><strong>Homebrew tap moved to <a href="https://codeberg.org/taagedal/homebrew-tap">codeberg.org/taagedal/homebrew-tap</a>.</strong> If you installed via brew, switch taps once: <code>brew untap aagedal/tap &amp;&amp; brew tap taagedal/tap https://codeberg.org/taagedal/homebrew-tap</code>. After that, <code>brew upgrade --cask aagedal-media-converter</code> works as before.</li>
+                <li><strong>The in-app update check now polls Codeberg's releases API</strong>, so existing 4.1.1 installs surface this release in the update banner and can manually download it. After installing 4.1.2, Sparkle takes over for direct-download users; brew users continue to get notified by the in-app check and routed to brew.</li>
+                </ul>
+                <h2>Bug fixes (rolled up from 4.1.1 and 4.1.2)</h2>
+                <ul>
+                <li><strong>Capture region overlay can now be set to pass mouse clicks through</strong> to the windows underneath, so the recording region selector doesn't block interaction with whatever's behind it while you frame a shot.</li>
+                <li><strong>Upload settings now persist the full password.</strong> A truncation bug was storing a shortened version, which broke authentication after relaunch. Existing entries continue to work — just re-enter the password if upload fails.</li>
+                <li><strong>Tab key in the Upload and General settings panes</strong> is no longer captured by the queue's table view. Settings now tracks its own NSWindow via <code>viewDidMoveToWindow</code>, so Tab cycles between fields the way it should.</li>
+                <li><strong>Merged-group upload counter</strong> showed "1/N" instead of "1/1" when uploading a merged group — fixed.</li>
+                <li><strong>README screenshots scale correctly on Codeberg.</strong> The inline <code>width</code>/<code>height</code> attributes that GitHub respects were being mis-applied by Codeberg's renderer, leaving the images either huge or tiny. Letting them flow at their natural size fixes the layout.</li>
+                </ul>
             ]]></description>
         </item>
     </channel>
