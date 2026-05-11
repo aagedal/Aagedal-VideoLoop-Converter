@@ -63,8 +63,8 @@ class UpdateChecker: ObservableObject {
     // Codeberg runs Forgejo, whose API is Gitea-compatible: the JSON shape
     // (tag_name, html_url, assets[].name, assets[].browser_download_url) matches
     // GitHub's, so the parsing logic below works unchanged.
-    private let releasesAPIURL = URL(string: "https://codeberg.org/api/v1/repos/aagedal/Aagedal-Media-Converter/releases/latest")!
-    private let fallbackReleasesPageURL = URL(string: "https://codeberg.org/aagedal/Aagedal-Media-Converter/releases/latest")!
+    private let releasesAPIURL = URL(string: "https://codeberg.org/api/v1/repos/taagedal/Aagedal-Media-Converter/releases/latest")!
+    private let fallbackReleasesPageURL = URL(string: "https://codeberg.org/taagedal/Aagedal-Media-Converter/releases/latest")!
 
     private init() {}
 

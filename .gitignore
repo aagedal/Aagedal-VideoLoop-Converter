@@ -68,6 +68,10 @@ fastlane/test_output
 /release/
 /dist/
 
+# Sparkle CLI tools (sign_update, generate_keys) — copied from the SPM
+# artifacts dir, not source-controlled. See scripts/release.sh.
+/bin/
+
 
 
 # Testing

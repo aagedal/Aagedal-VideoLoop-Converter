@@ -28,12 +28,12 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-AagedalMediaConverter}"
 SIGN_UPDATE_BIN="${SIGN_UPDATE_BIN:-./bin/sign_update}"   # Sparkle tool path
-CODEBERG_OWNER="aagedal"
+CODEBERG_OWNER="taagedal"
 CODEBERG_REPO="Aagedal-Media-Converter"
 APPCAST="appcast.xml"
 
 # Homebrew tap automation. Set TAP_LOCAL_PATH to a local checkout of the
-# tap repo (codeberg.org/aagedal/homebrew-tap) to have this script bump
+# tap repo (codeberg.org/taagedal/homebrew-tap) to have this script bump
 # the cask formula automatically. Leave unset to skip the tap update and
 # get manual instructions printed instead.
 TAP_LOCAL_PATH="${TAP_LOCAL_PATH:-}"
