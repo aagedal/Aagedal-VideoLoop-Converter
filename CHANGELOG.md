@@ -1,3 +1,26 @@
+# v.4.1.2
+
+The headline is auto-update support for direct-download installs and a move of the project repository from GitHub to Codeberg. Also rolls up the small fixes that landed since 4.1.0 was tagged.
+
+## Auto-update
+
+- **Direct-download installs now auto-update.** A new updater (built on the Sparkle framework) checks for new releases on a configurable schedule, downloads them in the background, and — if you've opted in — installs the update on next launch. Daily / weekly / monthly cadence and an **Install updates automatically** toggle live under **Settings → Updates**, alongside a **Check for Updates…** item that's also reachable from the app menu. Update binaries are EdDSA-signed against a key embedded in this release; tampered or downgrade attempts are rejected before install.
+- **Homebrew installs are detected and routed through `brew upgrade` instead.** The auto-updater never replaces a bundle that brew manages — that would create a checksum mismatch on the next `brew upgrade --cask`. When the in-app check finds an update on a brew install, the notification offers a one-click **Copy brew Command** button (`brew upgrade --cask aagedal-media-converter`) in place of the Download button, and Settings → Updates shows the same command with a copy-to-clipboard helper.
+
+## Moved to Codeberg
+
+- **Source code is now at [codeberg.org/taagedal/Aagedal-Media-Converter](https://codeberg.org/taagedal/Aagedal-Media-Converter).** All in-app links — the About window and the Settings → Updates source-code link — point at Codeberg now. The GitHub mirror is no longer the source of truth.
+- **Homebrew tap moved to [codeberg.org/taagedal/homebrew-tap](https://codeberg.org/taagedal/homebrew-tap).** If you installed via brew, switch taps once: `brew untap aagedal/tap && brew tap taagedal/tap https://codeberg.org/taagedal/homebrew-tap`. After that, `brew upgrade --cask aagedal-media-converter` works as before.
+- **The in-app update check now polls Codeberg's releases API**, so existing 4.1.1 installs surface this release in the update banner and can manually download it. After installing 4.1.2, Sparkle takes over for direct-download users; brew users continue to get notified by the in-app check and routed to brew.
+
+## Bug fixes (rolled up from 4.1.1 and 4.1.2)
+
+- **Capture region overlay can now be set to pass mouse clicks through** to the windows underneath, so the recording region selector doesn't block interaction with whatever's behind it while you frame a shot.
+- **Upload settings now persist the full password.** A truncation bug was storing a shortened version, which broke authentication after relaunch. Existing entries continue to work — just re-enter the password if upload fails.
+- **Tab key in the Upload and General settings panes** is no longer captured by the queue's table view. Settings now tracks its own NSWindow via `viewDidMoveToWindow`, so Tab cycles between fields the way it should.
+- **Merged-group upload counter** showed "1/N" instead of "1/1" when uploading a merged group — fixed.
+- **README screenshots scale correctly on Codeberg.** The inline `width`/`height` attributes that GitHub respects were being mis-applied by Codeberg's renderer, leaving the images either huge or tiny. Letting them flow at their natural size fixes the layout.
+
 # v.4.1.0
 
 A broadcast and cinema-leaning release: full IMF package export, per-item DCP/IMF metadata, MCA labels carried through audio routing, and a second OCR engine for bitmap subtitles.

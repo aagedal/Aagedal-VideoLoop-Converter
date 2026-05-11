@@ -44,5 +44,20 @@
             ]]></description>
         </item>
         -->
+        <item>
+            <title>Version 4.1.2</title>
+            <pubDate>Mon, 11 May 2026 22:52:03 +0200</pubDate>
+            <sparkle:version>520</sparkle:version>
+            <sparkle:shortVersionString>4.1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure
+                url="https://codeberg.org/taagedal/Aagedal-Media-Converter/releases/download/4.1.2/Aagedal_Media_Converter_4-1-2.zip"
+                length="100373333"
+                type="application/octet-stream"
+                sparkle:edSignature="FpHTl2JbEy4okdnkLpbGnt1TpLjMdFcKHJW3eIc8AbEDQzaVcYzOOuz5Je6vcmEjQ88XSocWm66h4vSld73SCg==" />
+            <description><![CDATA[
+                <p>See <a href="https://codeberg.org/taagedal/Aagedal-Media-Converter/releases/tag/4.1.2">release notes</a>.</p>
+            ]]></description>
+        </item>
     </channel>
 </rss>
