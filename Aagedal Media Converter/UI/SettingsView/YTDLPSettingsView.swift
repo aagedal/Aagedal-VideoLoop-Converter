@@ -1007,7 +1007,7 @@ struct YTDLPSettingsView: View {
         panel.directoryURL = URL(fileURLWithPath: downloadFolder)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        // Persist a writable bookmark so the sandbox can re-grant access after relaunch.
+        // Persist a writable bookmark so the folder survives across launches.
         _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
         downloadFolder = url.path
     }

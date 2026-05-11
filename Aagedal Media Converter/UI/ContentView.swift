@@ -842,7 +842,7 @@ struct ContentView: View {
         if response == .OK, let url = panel.url {
             // Ensure the directory exists
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            // Save a writable bookmark for persistent sandbox access
+            // Persist a writable bookmark so the folder survives across launches.
             _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
             return url
         }

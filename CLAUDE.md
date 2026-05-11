@@ -219,11 +219,10 @@ Aagedal Media Converter/
 - Incompatible with `splitToMono` audio routing (needs separate audio output)
 - Falls back to synthesized solid color video if waveform disabled
 
-### Sandboxing & File Access
-- App is fully sandboxed
-- Uses `SecurityScopedBookmarkManager` for persistent access
-- Watch folder feature requires security-scoped bookmark
-- Output folder selection uses security-scoped bookmarks
+### File Access (not sandboxed)
+- `ENABLE_APP_SANDBOX = NO`; entitlements carry only `com.apple.security.cs.disable-library-validation` (for the hardened runtime + bundled dylib loading), nothing sandbox-related.
+- `SecurityScopedBookmarkManager` is still used to persist user folder/file choices (output folder, watch folder, custom binary paths) across launches — `URL.bookmarkData` survives relaunch even without the sandbox. The matching `startAccessingSecurityScopedResource()` / `stopAccessingSecurityScopedResource()` pairs in call sites are no-ops without the sandbox; they remain in the code as cheap, harmless defence in case sandboxing is ever re-enabled.
+- A common pattern in I/O paths (conversion, preview, metadata probe) is "try direct file access first, fall back to bookmark on failure." The bookmark fallback is effectively dead code without the sandbox but harmless; only remove it if you also remove the upstream bookmark plumbing.
 
 ### Concurrency
 - Heavy use of Swift Concurrency (async/await, actors)
@@ -277,4 +276,4 @@ The codebase is "vibe-coded" with minimal test coverage. When making changes:
 - Verify preview playback works for both native and VLC fallback
 - Check merge feature with compatible/incompatible files
 - Test audio routing with different channel configurations
-- Validate sandboxing with fresh security-scoped bookmark access
+- Confirm bookmark persistence: after selecting an output / watch folder, quit and relaunch, then verify the folder is still active without a re-prompt

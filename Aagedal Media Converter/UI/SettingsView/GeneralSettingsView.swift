@@ -326,7 +326,7 @@ struct GeneralSettingsView: View {
             // Ensure directory exists
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             outputFolder = url.path
-            // Save a writable bookmark for persistent sandbox access
+            // Persist a writable bookmark so the folder survives across launches.
             _ = SecurityScopedBookmarkManager.shared.saveWritableBookmark(for: url)
         }
     }

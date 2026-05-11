@@ -246,9 +246,10 @@ final class PreviewPlayerController: ObservableObject {
             return
         }
 
-        // Try AVPlayer directly first with security-scoped resource access.
-        // Bookmark-first is more reliable for sandboxed apps; track which method
-        // won so teardown only releases the one we actually acquired.
+        // Try the persisted bookmark first, fall back to direct access. Track
+        // which method won so teardown only releases the one we actually
+        // acquired. (The accessing calls themselves are no-ops without the
+        // sandbox, but the bookmark *resolves* the URL across launches.)
         if SecurityScopedBookmarkManager.shared.startAccessingSecurityScopedResource(for: url) {
             primaryAccess = .bookmark(url)
         } else if url.startAccessingSecurityScopedResource() {
