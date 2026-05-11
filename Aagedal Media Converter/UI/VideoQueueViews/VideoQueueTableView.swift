@@ -1125,7 +1125,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 concatOutputURL: concatOutputURL,
                 concatOutputAlreadyExists: concatExists,
                 concatOutputExistingURL: existingURL,
-                uploadSummary: buildGroupUploadSummary(items: group.items)
+                uploadSummary: buildGroupUploadSummary(items: group.items, concatEnabled: group.concatEnabled)
             )
         }
 
@@ -1153,9 +1153,15 @@ struct VideoQueueTableView: NSViewRepresentable {
             return nil
         }
 
-        private func buildGroupUploadSummary(items: [VideoItem]) -> EncodingGroupCellConfiguration.UploadSummaryState {
-            let uploadItems = items.filter { $0.uploadEnabled }
-            guard !uploadItems.isEmpty else { return .hidden }
+        private func buildGroupUploadSummary(items: [VideoItem], concatEnabled: Bool) -> EncodingGroupCellConfiguration.UploadSummaryState {
+            let enabledItems = items.filter { $0.uploadEnabled }
+            guard !enabledItems.isEmpty else { return .hidden }
+
+            // Merged groups produce a single output file, and ConversionManager triggers
+            // exactly one upload (anchored on the first uploadEnabled item — see
+            // ConversionManager.completeMerge). The other source items keep status .pending
+            // forever, so counting them would surface "1/7" instead of "1/1".
+            let uploadItems = concatEnabled ? Array(enabledItems.prefix(1)) : enabledItems
 
             let uploaded = uploadItems.filter { $0.uploadStatus.isComplete }.count
             let failed = uploadItems.filter { $0.uploadStatus.hasFailed }.count
