@@ -1858,6 +1858,21 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                     return event
                 }
 
+                // Pass through when the focused window is not the app's main document window
+                // (e.g. Settings or About). Local NSEvent monitors fire app-wide, so without
+                // this guard the queue would steal Tab and other keys from other windows'
+                // text fields — Tab navigation in Settings was being hijacked by onForward.
+                // `mainWindow` tracks the primary document window even when Settings is key,
+                // so a mismatch with keyWindow reliably identifies auxiliary windows.
+                let isInMainWindow = MainActor.assumeIsolated { () -> Bool in
+                    guard let keyWindow = NSApp.keyWindow,
+                          let mainWindow = NSApp.mainWindow else { return true }
+                    return keyWindow === mainWindow
+                }
+                if !isInMainWindow {
+                    return event
+                }
+
                 // Check if a text field or text view is the first responder
                 // If so, pass through Arrow keys for cursor movement within the text
                 // Note: Tab is NOT passed through - it's handled by focusComment to move between fields

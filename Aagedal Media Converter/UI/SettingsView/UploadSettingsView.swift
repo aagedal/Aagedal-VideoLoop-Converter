@@ -75,13 +75,33 @@ struct UploadSettingsView: View {
         }
         .formStyle(.grouped)
         .task { await loadInitialState() }
-        .onChange(of: selectedProfileID) { _, _ in
+        .onChange(of: selectedProfileID) { oldValue, _ in
+            commitPendingCredentials(forProfileID: oldValue)
             refreshCredentialState()
             UploadManager.shared.refreshConfiguredStatus()
             testResult = nil
         }
+        .onChange(of: focusedField) { oldValue, newValue in
+            // Save credentials when focus leaves the password/secret field,
+            // rather than on every keystroke (which would overwrite the
+            // Keychain entry with each character).
+            if oldValue == .password, newValue != .password, !password.isEmpty {
+                savePassword()
+            }
+            if oldValue == .s3SecretKey, newValue != .s3SecretKey, !s3SecretKey.isEmpty {
+                saveS3SecretKey()
+            }
+        }
         .onChange(of: rcloneBinarySource) { _, _ in
             Task { await refreshRcloneStatus() }
+        }
+        .onKeyPress(.tab, phases: .down) { keyPress in
+            guard let current = focusedField else { return .ignored }
+            let goingBackward = keyPress.modifiers.contains(.shift)
+            let target = goingBackward ? previousField(before: current) : nextField(after: current)
+            guard let target else { return .ignored }
+            focusedField = target
+            return .handled
         }
         .sheet(isPresented: $isFileZillaSheetPresented) {
             FileZillaImportSheet(
@@ -466,8 +486,9 @@ struct UploadSettingsView: View {
                     SecureField(hasStoredS3SecretKey ? "••••••••" : "Secret Access Key", text: $s3SecretKey)
                         .textFieldStyle(.roundedBorder)
                         .focused($focusedField, equals: .s3SecretKey)
-                        .onChange(of: s3SecretKey) { _, newValue in
-                            if !newValue.isEmpty { saveS3SecretKey() }
+                        .onSubmit {
+                            saveS3SecretKey()
+                            focusedField = .remotePath
                         }
                     if hasStoredS3SecretKey {
                         Image(systemName: "checkmark.circle.fill")
@@ -551,12 +572,12 @@ struct UploadSettingsView: View {
     private var passwordField: some View {
         LabeledContent("Password") {
             HStack {
-                SecureField(hasStoredPassword ? "" : "", text: $password)
+                SecureField(hasStoredPassword ? "••••••••" : "Password", text: $password)
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedField, equals: .password)
-                    .onSubmit { focusedField = .remotePath }
-                    .onChange(of: password) { _, newValue in
-                        if !newValue.isEmpty { savePassword() }
+                    .onSubmit {
+                        savePassword()
+                        focusedField = .remotePath
                     }
                 if hasStoredPassword {
                     Image(systemName: "checkmark.circle.fill")
@@ -855,6 +876,119 @@ struct UploadSettingsView: View {
             candidate = "\(seed) \(index)"
         }
         return candidate
+    }
+
+    /// Returns the next field to focus when the user presses Tab in the given field.
+    /// The chain is backend-aware so we skip fields that aren't visible for the
+    /// current profile (e.g. password is hidden for SFTP+key auth).
+    private func nextField(after current: Field) -> Field? {
+        let backend = selectedProfile?.backend ?? .ftp
+        let useKeyAuth = selectedProfile?.useKeyAuth ?? false
+        switch current {
+        case .name:
+            return backend == .s3 ? .s3Bucket : .server
+        case .server:
+            return .port
+        case .port:
+            return .username
+        case .username:
+            switch backend {
+            case .ftp: return .password
+            case .sftp: return useKeyAuth ? .sftpKeyFile : .password
+            case .smb: return .smbShare
+            case .s3, .gdrive: return nil
+            }
+        case .smbShare:
+            return .smbDomain
+        case .smbDomain:
+            return .password
+        case .sftpKeyFile:
+            return .remotePath
+        case .password:
+            return .remotePath
+        case .remotePath:
+            return nil
+        case .s3Bucket:
+            return .s3Endpoint
+        case .s3Endpoint:
+            return .s3AccessKey
+        case .s3AccessKey:
+            return .s3SecretKey
+        case .s3SecretKey:
+            return .remotePath
+        case .s3Region:
+            return .s3Endpoint
+        }
+    }
+
+    private func previousField(before current: Field) -> Field? {
+        let backend = selectedProfile?.backend ?? .ftp
+        let useKeyAuth = selectedProfile?.useKeyAuth ?? false
+        switch current {
+        case .name:
+            return nil
+        case .server:
+            return .name
+        case .port:
+            return .server
+        case .username:
+            return .port
+        case .smbShare:
+            return .username
+        case .smbDomain:
+            return .smbShare
+        case .sftpKeyFile:
+            return .username
+        case .password:
+            switch backend {
+            case .ftp: return .username
+            case .sftp: return useKeyAuth ? .sftpKeyFile : .username
+            case .smb: return .smbDomain
+            case .s3, .gdrive: return nil
+            }
+        case .remotePath:
+            switch backend {
+            case .ftp: return .password
+            case .sftp: return useKeyAuth ? .sftpKeyFile : .password
+            case .smb: return .password
+            case .s3: return .s3SecretKey
+            case .gdrive: return nil
+            }
+        case .s3Bucket:
+            return .name
+        case .s3Endpoint:
+            return .s3Bucket
+        case .s3AccessKey:
+            return .s3Endpoint
+        case .s3SecretKey:
+            return .s3AccessKey
+        case .s3Region:
+            return .s3Bucket
+        }
+    }
+
+    /// Persists any password/secret-key that was typed but not yet committed,
+    /// using the profile that was selected *before* the switch. Without this,
+    /// switching profiles via the picker would discard unsaved credentials.
+    private func commitPendingCredentials(forProfileID profileID: String) {
+        guard let oldProfile = profiles.first(where: { $0.id.uuidString == profileID }) else { return }
+
+        if !password.isEmpty,
+           !oldProfile.server.isEmpty,
+           !oldProfile.username.isEmpty {
+            try? KeychainCredentialManager.shared.saveCredential(
+                server: oldProfile.server,
+                username: oldProfile.username,
+                password: password
+            )
+        }
+
+        if !s3SecretKey.isEmpty, !oldProfile.accessKeyID.isEmpty {
+            try? KeychainCredentialManager.shared.saveS3SecretKey(
+                accessKeyID: oldProfile.accessKeyID,
+                secretKey: s3SecretKey
+            )
+        }
     }
 
     private func refreshCredentialState() {
