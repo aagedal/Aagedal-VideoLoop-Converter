@@ -1631,6 +1631,20 @@ struct VideoFileListView_Previews: PreviewProvider {
     }
 }
 
+/// NSView subclass that pushes its current window into the coordinator the
+/// moment it's attached. `updateNSView` alone isn't sufficient because SwiftUI
+/// only invokes it when bound state changes — if the user opens Settings without
+/// otherwise mutating queue state, the coordinator's `queueWindow` can remain
+/// nil and the local NSEvent monitor would fall back to swallowing Tab.
+private final class WindowTrackingView: NSView {
+    weak var coordinator: KeyEventHandlingView.Coordinator?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        coordinator?.queueWindow = window
+    }
+}
+
 private struct KeyEventHandlingView: NSViewRepresentable {
     var onTabForward: () -> Void
     var onTabBackward: () -> Void
@@ -1698,12 +1712,17 @@ private struct KeyEventHandlingView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         context.coordinator.install()
-        let view = NSView(frame: .zero)
+        let view = WindowTrackingView(frame: .zero)
         view.isHidden = true
+        view.coordinator = context.coordinator
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        // Belt-and-suspenders: WindowTrackingView.viewDidMoveToWindow handles the
+        // initial attachment, but if SwiftUI re-parents the view we want the
+        // coordinator's queueWindow to stay in sync.
+        context.coordinator.queueWindow = nsView.window
         context.coordinator.onForward = onTabForward
         context.coordinator.onBackward = onTabBackward
         context.coordinator.onTrim = onTrim
@@ -1737,6 +1756,12 @@ private struct KeyEventHandlingView: NSViewRepresentable {
     }
 
     final class Coordinator {
+        // Tracks the NSWindow hosting the queue view, so the local NSEvent
+        // monitor can ignore key events targeting other windows (Settings, etc.).
+        // Updated on the main thread from updateNSView; the monitor closure also
+        // runs on the main thread (per AppKit), so `nonisolated(unsafe)` is safe
+        // and lets us read the value without crossing into MainActor.assumeIsolated.
+        nonisolated(unsafe) weak var queueWindow: NSWindow?
         var onForward: () -> Void
         var onBackward: () -> Void
         var onTrim: () -> Void
@@ -1858,18 +1883,18 @@ private struct KeyEventHandlingView: NSViewRepresentable {
                     return event
                 }
 
-                // Pass through when the focused window is not the app's main document window
+                // Pass through when the focused window is not the queue's own window
                 // (e.g. Settings or About). Local NSEvent monitors fire app-wide, so without
                 // this guard the queue would steal Tab and other keys from other windows'
                 // text fields — Tab navigation in Settings was being hijacked by onForward.
-                // `mainWindow` tracks the primary document window even when Settings is key,
-                // so a mismatch with keyWindow reliably identifies auxiliary windows.
-                let isInMainWindow = MainActor.assumeIsolated { () -> Bool in
-                    guard let keyWindow = NSApp.keyWindow,
-                          let mainWindow = NSApp.mainWindow else { return true }
-                    return keyWindow === mainWindow
-                }
-                if !isInMainWindow {
+                // SwiftUI's Settings window becomes both keyWindow AND mainWindow when
+                // focused, so comparing those two doesn't distinguish it; compare against
+                // the actual NSWindow hosting the queue instead.
+                // If we can't identify the queue's window yet, fail open (pass through) so
+                // we don't silently swallow keys for other windows.
+                let hostWindow = self.queueWindow
+                let keyWindow = MainActor.assumeIsolated { NSApp.keyWindow }
+                if hostWindow == nil || keyWindow == nil || keyWindow !== hostWindow {
                     return event
                 }
 
