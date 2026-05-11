@@ -754,6 +754,7 @@ struct ContentView: View {
         if showUpdateNotification {
             UpdateNotificationView(
                 latestVersion: updateChecker.latestVersion,
+                installSource: InstallSource.current,
                 onReleaseNotes: {
                     updateChecker.openReleaseNotes()
                     withAnimation {

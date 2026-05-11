@@ -12,10 +12,16 @@ import SwiftData
 import AppKit
 import OSLog
 import Combine
+import Sparkle
 
 @main
 struct Aagedal_Media_Converter_App: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
+    /// Construct Sparkle eagerly so the updater attaches to the run loop
+    /// before the first window appears. Inert for Homebrew installs and when
+    /// SUFeedURL is unset — see `SparkleUpdater.isActive`.
+    private let sparkleUpdater = SparkleUpdater.shared
 
     init() {
         // Suppress MoltenVK info logs (level 2 = warnings only, no info spam)
@@ -101,7 +107,7 @@ struct Aagedal_Media_Converter_App: App {
         .windowToolbarStyle(.automatic)
         .windowResizability(.contentMinSize)
         .commands {
-            MainAppCommands()
+            MainAppCommands(sparkleUpdater: sparkleUpdater)
         }
         Settings {
             SettingsView().keyboardShortcut(",",modifiers: .command)
@@ -116,6 +122,7 @@ struct Aagedal_Media_Converter_App: App {
 
 struct MainAppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    let sparkleUpdater: SparkleUpdater
 
     var body: some Commands {
         // Disable "New Window" — replaced by "New Encoding Group"
@@ -124,6 +131,16 @@ struct MainAppCommands: Commands {
                 NotificationCenter.default.post(name: .createEncodingGroup, object: nil)
             }
             .keyboardShortcut("n", modifiers: .command)
+        }
+
+        // "Check for Updates…" for direct-download installs. Hidden for
+        // Homebrew installs — those users get the brew-upgrade hint instead.
+        if sparkleUpdater.isActive {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    sparkleUpdater.controller.checkForUpdates(nil)
+                }
+            }
         }
 
         CommandGroup(after: .importExport) {

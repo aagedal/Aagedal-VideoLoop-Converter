@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>Aagedal Media Converter</title>
+        <link>https://codeberg.org/aagedal/Aagedal-Media-Converter/raw/branch/main/appcast.xml</link>
+        <description>Most recent changes for Aagedal Media Converter.</description>
+        <language>en</language>
+
+        <!--
+            Each release adds an <item> below. Replace the example fields with real values
+            produced by scripts/release.sh, which runs Sparkle's `sign_update` tool.
+
+            Required fields per item:
+              - <title>             — human-readable release name
+              - <pubDate>           — RFC 822 date (the `date -R` output on Linux, or
+                                      `date "+%a, %d %b %Y %H:%M:%S %z"` on macOS)
+              - <sparkle:version>   — CFBundleVersion (build number, e.g. 520)
+              - <sparkle:shortVersionString> — CFBundleShortVersionString (e.g. 4.1.2)
+              - <sparkle:minimumSystemVersion> — macOS minimum (15.0)
+              - <enclosure>:
+                  url           — Codeberg release-asset URL of the signed .zip
+                  length        — file size in bytes
+                  type          — application/octet-stream
+                  sparkle:edSignature — EdDSA signature from `sign_update`
+              - <description>       — release notes (CDATA-wrapped HTML)
+        -->
+
+        <!-- Example placeholder (delete once the first real release ships):
+        <item>
+            <title>Version 4.1.2</title>
+            <pubDate>Mon, 11 May 2026 12:00:00 +0000</pubDate>
+            <sparkle:version>520</sparkle:version>
+            <sparkle:shortVersionString>4.1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure
+                url="https://codeberg.org/aagedal/Aagedal-Media-Converter/releases/download/4.1.2/Aagedal_Media_Converter_4-1-2.zip"
+                length="0"
+                type="application/octet-stream"
+                sparkle:edSignature="REPLACE_WITH_OUTPUT_OF_sign_update" />
+            <description><![CDATA[
+                <ul>
+                    <li>First Sparkle-enabled release.</li>
+                </ul>
+            ]]></description>
+        </item>
+        -->
+    </channel>
+</rss>

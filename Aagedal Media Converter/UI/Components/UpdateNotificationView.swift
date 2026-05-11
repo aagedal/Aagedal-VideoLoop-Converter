@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import AppKit
 
 struct UpdateNotificationView: View {
     let latestVersion: String
+    let installSource: InstallSource
     let onReleaseNotes: () -> Void
     let onDownload: () -> Void
     let onDismiss: () -> Void
@@ -19,7 +21,7 @@ struct UpdateNotificationView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("New Version Available")
                     .font(.headline)
-                Text("Version \(latestVersion) is ready to download.")
+                Text(subtitle)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -29,10 +31,7 @@ struct UpdateNotificationView: View {
             }
             .buttonStyle(.bordered)
 
-            Button("Download") {
-                onDownload()
-            }
-            .buttonStyle(.borderedProminent)
+            actionButton
 
             Button {
                 onDismiss()
@@ -53,20 +52,57 @@ struct UpdateNotificationView: View {
                 .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
         )
     }
+
+    private var subtitle: String {
+        switch installSource {
+        case .homebrew:
+            return "Version \(latestVersion) is available via Homebrew."
+        case .directDownload:
+            return "Version \(latestVersion) is ready to download."
+        }
+    }
+
+    @ViewBuilder
+    private var actionButton: some View {
+        switch installSource {
+        case .homebrew:
+            Button("Copy brew Command") {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(UpdateChecker.homebrewUpgradeCommand, forType: .string)
+                onDismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .help(UpdateChecker.homebrewUpgradeCommand)
+        case .directDownload:
+            Button("Download") {
+                onDownload()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
 }
 
 struct UpdateNotificationView_Previews: PreviewProvider {
     static var previews: some View {
-        ZStack {
-            Color.gray.opacity(0.2)
+        VStack(spacing: 16) {
             UpdateNotificationView(
                 latestVersion: "1.2.3",
+                installSource: .directDownload,
+                onReleaseNotes: {},
+                onDownload: {},
+                onDismiss: {}
+            )
+            UpdateNotificationView(
+                latestVersion: "1.2.3",
+                installSource: .homebrew,
                 onReleaseNotes: {},
                 onDownload: {},
                 onDismiss: {}
             )
         }
-        .frame(width: 400, height: 100)
+        .frame(width: 500)
         .padding()
+        .background(Color.gray.opacity(0.2))
     }
 }

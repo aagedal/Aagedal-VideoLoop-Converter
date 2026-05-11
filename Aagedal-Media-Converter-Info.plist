@@ -44,6 +44,10 @@
 	<string>Screen capture is used to record your screen with system audio.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Microphone access is used to capture your voice on a separate audio track during screen recording.</string>
+	<key>SUFeedURL</key>
+	<string>https://codeberg.org/aagedal/Aagedal-Media-Converter/raw/branch/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>i3xudeqe+09I7n+FVFHmPxBa8cEWc3/ljLk3Y9bTEkY=</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
