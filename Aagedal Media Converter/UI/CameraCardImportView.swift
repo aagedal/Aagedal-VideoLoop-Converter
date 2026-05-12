@@ -66,6 +66,22 @@ struct CameraCardImportView: View {
         !trimmedMasterName.isEmpty && invalidCharactersFound.isEmpty
     }
 
+    /// True when the user has concat on for 2+ clips, the compatibility check has
+    /// run, and the clips are not mergeable. In that state, plain "Import" would
+    /// silently fall back to individual encoding (and N uploads instead of 1), so
+    /// we promote Auto-split to the primary action instead.
+    private var shouldOfferAutoSplit: Bool {
+        guard concatEnabled,
+              clipCount >= 2,
+              !isCheckingCompatibility,
+              onAutoSplit != nil,
+              let result = mergeCompatibilityResult else {
+            return false
+        }
+        if case .compatible = result { return false }
+        return true
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Import Camera Card")
@@ -164,7 +180,7 @@ struct CameraCardImportView: View {
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                             Spacer()
-                            if let onAutoSplit {
+                            if let onAutoSplit, !shouldOfferAutoSplit {
                                 Button("Auto-split into groups") {
                                     onAutoSplit()
                                 }
@@ -197,12 +213,22 @@ struct CameraCardImportView: View {
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
-                Button("Import") {
-                    applySelectedServer()
-                    onImport()
+                if shouldOfferAutoSplit, let onAutoSplit {
+                    Button("Auto-split") {
+                        applySelectedServer()
+                        onAutoSplit()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!isNameValid)
+                    .help("Clips have different formats and cannot be concatenated into one file. Auto-split creates one encoding group per format. Toggle \u{201C}Concatenate clips\u{201D} off to import them as separate files instead.")
+                } else {
+                    Button("Import") {
+                        applySelectedServer()
+                        onImport()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!isNameValid)
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!isNameValid)
             }
         }
         .padding(20)

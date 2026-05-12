@@ -1078,25 +1078,50 @@ struct ContentView: View {
         let compatibleGroups = ConversionManager.groupByCompatibility(items: allItems, metadata: metadataMap)
         let baseName = masterName.isEmpty ? state.folderURL.lastPathComponent : masterName
 
+        // First pass: compute a tentative name for each group from its format signature.
+        // Includes height + scan type + frame rate + audio channels + video codec, since
+        // codec is one of the criteria that splits clips into different groups (see
+        // ConversionManager.checkMergeCompatibility) but isn't reflected in res/fps/ch.
+        var tentativeNames: [String] = compatibleGroups.map { groupItems in
+            guard compatibleGroups.count > 1,
+                  let first = groupItems.first,
+                  let meta = metadataMap[first.id] else { return baseName }
+            var parts: [String] = []
+            if let video = meta.primaryVideoStream, let h = video.height {
+                let scanType = (video.isInterlaced == true) ? "i" : "p"
+                let fr = video.frameRate?.value.map { String(Int($0.rounded())) } ?? ""
+                parts.append("\(h)\(scanType)\(fr)")
+            }
+            if let audio = meta.audioStreams.first, let ch = audio.channels {
+                parts.append("\(ch)ch")
+            }
+            if let codec = meta.primaryVideoStream?.codec?.lowercased(), !codec.isEmpty {
+                parts.append(codec)
+            }
+            let suffix = parts.isEmpty ? "" : "_" + parts.joined(separator: "_")
+            return "\(baseName)\(suffix)"
+        }
+
+        // Tie-breaker pass: any tentative name that appears more than once gets
+        // `_g2`, `_g3`, … appended in creation order (the first occurrence keeps the
+        // clean name). Catches the metadata-missing case (empty suffix collapses two
+        // groups to bare baseName) and any future splitting criterion that doesn't
+        // make it into the suffix above.
+        let totalOccurrences = tentativeNames.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        var occurrenceIndex: [String: Int] = [:]
+        for idx in tentativeNames.indices {
+            let name = tentativeNames[idx]
+            guard (totalOccurrences[name] ?? 0) > 1 else { continue }
+            let occurrence = (occurrenceIndex[name] ?? 0) + 1
+            occurrenceIndex[name] = occurrence
+            if occurrence > 1 {
+                tentativeNames[idx] = "\(name)_g\(occurrence)"
+            }
+        }
+
         var createdGroupIDs: [UUID] = []
-        for (_, groupItems) in compatibleGroups.enumerated() {
-            // Build format suffix from the first item's metadata (e.g. "1080p50_4ch")
-            let formatSuffix: String = {
-                guard compatibleGroups.count > 1,
-                      let first = groupItems.first,
-                      let meta = metadataMap[first.id] else { return "" }
-                var parts: [String] = []
-                if let video = meta.primaryVideoStream, let h = video.height {
-                    let scanType = (video.isInterlaced == true) ? "i" : "p"
-                    let fr = video.frameRate?.value.map { String(Int($0.rounded())) } ?? ""
-                    parts.append("\(h)\(scanType)\(fr)")
-                }
-                if let audio = meta.audioStreams.first, let ch = audio.channels {
-                    parts.append("\(ch)ch")
-                }
-                return parts.isEmpty ? "" : "_" + parts.joined(separator: "_")
-            }()
-            let groupName = compatibleGroups.count > 1 ? "\(baseName)\(formatSuffix)" : baseName
+        for (groupIdx, groupItems) in compatibleGroups.enumerated() {
+            let groupName = tentativeNames[groupIdx]
 
             // Apply sequential naming within each group
             var namedItems = groupItems
