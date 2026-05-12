@@ -28,22 +28,22 @@ struct SettingsView: View {
 
         var label: String {
             switch self {
-            case .general: return "General"
-            case .encoding: return "Encoding Groups"
-            case .fileNames: return "File Names"
-            case .metadata: return "Metadata"
-            case .presets: return "Presets"
-            case .screenshots: return "Screenshots"
-            case .screenCapture: return "Screen Capture"
-            case .waveform: return "Audio Waveform"
-            case .watchFolder: return "Watch Folder"
-            case .ytdlp: return "Downloads"
-            case .upload: return "Upload"
-            case .whisper: return "Transcription"
-            case .ocr: return "OCR"
-            case .analytics: return "Analytics"
-            case .updates: return "Updates"
-            case .shortcuts: return "Shortcuts"
+            case .general: return String(localized: "General", comment: "Settings sidebar tab.")
+            case .encoding: return String(localized: "Encoding Groups", comment: "Settings sidebar tab.")
+            case .fileNames: return String(localized: "File Names", comment: "Settings sidebar tab.")
+            case .metadata: return String(localized: "Metadata", comment: "Settings sidebar tab.")
+            case .presets: return String(localized: "Presets", comment: "Settings sidebar tab.")
+            case .screenshots: return String(localized: "Screenshots", comment: "Settings sidebar tab.")
+            case .screenCapture: return String(localized: "Screen Capture", comment: "Settings sidebar tab.")
+            case .waveform: return String(localized: "Audio Waveform", comment: "Settings sidebar tab.")
+            case .watchFolder: return String(localized: "Watch Folder", comment: "Settings sidebar tab.")
+            case .ytdlp: return String(localized: "Downloads", comment: "Settings sidebar tab.")
+            case .upload: return String(localized: "Upload", comment: "Settings sidebar tab.")
+            case .whisper: return String(localized: "Transcription", comment: "Settings sidebar tab.")
+            case .ocr: return String(localized: "OCR", comment: "Settings sidebar tab.")
+            case .analytics: return String(localized: "Analytics", comment: "Settings sidebar tab.")
+            case .updates: return String(localized: "Updates", comment: "Settings sidebar tab.")
+            case .shortcuts: return String(localized: "Shortcuts", comment: "Settings sidebar tab.")
             }
         }
 
