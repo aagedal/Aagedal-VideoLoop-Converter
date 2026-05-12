@@ -553,6 +553,7 @@ struct ContentView: View {
                     selectedPreset: cameraCardPresetBinding,
                     concatEnabled: $cameraCardConcatEnabled,
                     uploadEnabled: $cameraCardUploadEnabled,
+                    autoEncodeEnabled: $cameraCardAutoEncodeEnabled,
                     mergeCompatibilityResult: cardMergeCompatibilityResult,
                     isCheckingCompatibility: isCheckingCardCompatibility,
                     onImport: {
@@ -853,6 +854,7 @@ struct ContentView: View {
     @AppStorage("cameraCardConcatEnabled") private var cameraCardConcatEnabled = true
     @AppStorage("cameraCardMasterName") private var cameraCardMasterName = ""
     @AppStorage("cameraCardPreset") private var cameraCardPresetRaw = ExportPreset.streamCopy.rawValue
+    @AppStorage("cameraCardAutoEncodeEnabled") private var cameraCardAutoEncodeEnabled = false
 
     private var cameraCardPresetBinding: Binding<ExportPreset> {
         Binding(
@@ -972,6 +974,11 @@ struct ContentView: View {
         Task {
             await loadGroupItemDetails(groupID: group.id, itemIDs: itemIDs, preset: cardPreset)
         }
+
+        if cameraCardAutoEncodeEnabled {
+            let createdGroupID = group.id
+            Task { await encodeOnlyGroup(groupID: createdGroupID) }
+        }
     }
 
     /// Runs merge compatibility check for the card import dialog in background.
@@ -1056,6 +1063,7 @@ struct ContentView: View {
         let compatibleGroups = ConversionManager.groupByCompatibility(items: allItems, metadata: metadataMap)
         let baseName = masterName.isEmpty ? state.folderURL.lastPathComponent : masterName
 
+        var createdGroupIDs: [UUID] = []
         for (_, groupItems) in compatibleGroups.enumerated() {
             // Build format suffix from the first item's metadata (e.g. "1080p50_4ch")
             let formatSuffix: String = {
@@ -1103,10 +1111,19 @@ struct ContentView: View {
 
             encodingGroups.append(group)
             queueOrder.append(group.id)
+            createdGroupIDs.append(group.id)
 
             let itemIDs = namedItems.map { $0.id }
             Task {
                 await loadGroupItemDetails(groupID: group.id, itemIDs: itemIDs, preset: cardPreset)
+            }
+        }
+
+        if cameraCardAutoEncodeEnabled {
+            Task {
+                for gid in createdGroupIDs {
+                    await encodeOnlyGroup(groupID: gid)
+                }
             }
         }
     }
@@ -1161,6 +1178,11 @@ struct ContentView: View {
         let itemIDs = groupItems.map { $0.id }
         Task {
             await loadGroupItemDetails(groupID: group.id, itemIDs: itemIDs, preset: cardPreset)
+        }
+
+        if cameraCardAutoEncodeEnabled {
+            let createdGroupID = group.id
+            Task { await encodeOnlyGroup(groupID: createdGroupID) }
         }
     }
 

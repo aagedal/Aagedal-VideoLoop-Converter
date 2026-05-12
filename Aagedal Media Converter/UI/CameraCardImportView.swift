@@ -28,6 +28,7 @@ struct CameraCardImportView: View {
     @Binding var selectedPreset: ExportPreset
     @Binding var concatEnabled: Bool
     @Binding var uploadEnabled: Bool
+    @Binding var autoEncodeEnabled: Bool
     let mergeCompatibilityResult: ConversionManager.MergeCompatibilityResult?
     let isCheckingCompatibility: Bool
     let onImport: () -> Void
@@ -187,6 +188,8 @@ struct CameraCardImportView: View {
             if uploadEnabled {
                 serverPickerSection
             }
+
+            Toggle("Start encoding after import", isOn: $autoEncodeEnabled)
 
             HStack {
                 Spacer()
