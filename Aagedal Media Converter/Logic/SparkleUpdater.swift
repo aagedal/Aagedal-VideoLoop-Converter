@@ -48,11 +48,21 @@ final class SparkleUpdater: ObservableObject {
     var updater: SPUUpdater { controller.updater }
 
     /// One-time notice that automatic updates are on, so users discover the
-    /// opt-out without having to find Settings → Updates on their own. Fires
-    /// once per install (gated on `AppConstants.didShowAutoUpdateNoticeKey`).
-    /// Skipped for Homebrew installs — they use a different update path.
+    /// opt-out without having to find Settings → Updates on their own.
+    ///
+    /// The "have I shown this yet" flag lives in `UserDefaults.standard` under
+    /// `AppConstants.didShowAutoUpdateNoticeKey`, which survives every app
+    /// update (UserDefaults is at `~/Library/Preferences/<bundle>.plist`,
+    /// untouched when Sparkle / brew swaps the bundle).
+    ///
+    /// Three gates, all required:
+    ///   - `isActive` — Sparkle is the update path here (skips brew installs).
+    ///   - `updater.automaticallyDownloadsUpdates == true` — the message
+    ///     would be a lie for users who explicitly turned auto-install off.
+    ///   - flag not already set — one-shot for the lifetime of this install.
     func presentFirstLaunchNoticeIfNeeded() {
         guard isActive else { return }
+        guard updater.automaticallyDownloadsUpdates else { return }
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: AppConstants.didShowAutoUpdateNoticeKey) else { return }
         defaults.set(true, forKey: AppConstants.didShowAutoUpdateNoticeKey)

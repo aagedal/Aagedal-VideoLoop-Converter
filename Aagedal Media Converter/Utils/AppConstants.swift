@@ -331,6 +331,10 @@ enum AppConstants {
     static let checkForUpdatesKey = "checkForUpdates"
     static let updateCheckFrequencyKey = "updateCheckFrequency"
     static let lastUpdateCheckDateKey = "lastUpdateCheckDate"
+    /// Tracks whether the one-time "automatic updates are on" notice has been
+    /// shown. Stored in `UserDefaults.standard` so it survives every app /
+    /// Sparkle update. **Do not rename this string** — changing it would
+    /// invalidate every existing user's flag and cause the notice to re-fire.
     static let didShowAutoUpdateNoticeKey = "didShowAutoUpdateNotice"
 
     // Timecode defaults
