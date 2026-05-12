@@ -2380,6 +2380,11 @@ private struct ContentViewLifecycle: ViewModifier {
                 }
                 scheduleMergeCompatibilityEvaluation()
                 updateChecker.checkForUpdatesIfNeeded()
+                // One-time policy notice on first launch under Sparkle. No-op
+                // afterwards; no-op for Homebrew installs.
+                DispatchQueue.main.async {
+                    SparkleUpdater.shared.presentFirstLaunchNoticeIfNeeded()
+                }
             }
     }
 }

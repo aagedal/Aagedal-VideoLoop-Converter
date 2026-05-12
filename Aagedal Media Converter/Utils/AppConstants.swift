@@ -331,6 +331,7 @@ enum AppConstants {
     static let checkForUpdatesKey = "checkForUpdates"
     static let updateCheckFrequencyKey = "updateCheckFrequency"
     static let lastUpdateCheckDateKey = "lastUpdateCheckDate"
+    static let didShowAutoUpdateNoticeKey = "didShowAutoUpdateNotice"
 
     // Timecode defaults
     static let defaultTimecodeModeKey = "defaultTimecodeMode"

@@ -48,6 +48,8 @@
 	<string>https://codeberg.org/taagedal/Aagedal-Media-Converter/raw/branch/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>i3xudeqe+09I7n+FVFHmPxBa8cEWc3/ljLk3Y9bTEkY=</string>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

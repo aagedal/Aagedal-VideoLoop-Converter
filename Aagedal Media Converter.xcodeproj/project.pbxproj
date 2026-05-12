@@ -29,6 +29,8 @@
 		67BAE582711E2F5E020591AA /* ConversionRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67BAE582711E2F5E020591A9 /* ConversionRequest.swift */; };
 		69E06BBF03A135EC5011AF14 /* RcloneProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */; };
 		6FEB07F32A610D999000F78C /* mxf2raw in Resources */ = {isa = PBXBuildFile; fileRef = D8EBD41EE1711E209C16F57C /* mxf2raw */; };
+		7E5111202605110001A03A01 /* InstallSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5111202605110001A03A02 /* InstallSource.swift */; };
+		7E5111202605110002A03A01 /* SparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5111202605110002A03A02 /* SparkleUpdater.swift */; };
 		7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */; };
 		8567742F36A93E24233F8006 /* YTDLPProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */; };
 		8ABB9EA264C8772C2537FED2 /* MetadataWindowState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596BC21F86AEFDA304EF948F /* MetadataWindowState.swift */; };
@@ -44,13 +46,11 @@
 		8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */; };
 		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
 		8E1477472ECF453900C805AA /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477462ECF453900C805AA /* UpdateChecker.swift */; };
-		7E5111202605110002A03A01 /* SparkleUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5111202605110002A03A02 /* SparkleUpdater.swift */; };
 		8E1477492ECF4DAB00C805AA /* UpdateNotificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */; };
 		8E14774B2ECF6BDE00C805AA /* UpdateSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */; };
 		8E2C6BAF2E059AFC00A9379F /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */; };
 		8E2C6BBD2E05EA3B00A9379F /* VideoFileRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */; };
 		8E2C6BBF2E084BC200A9379F /* SecurityScopedBookmarkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */; };
-		7E5111202605110001A03A01 /* InstallSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5111202605110001A03A02 /* InstallSource.swift */; };
 		8E37A8C2E5334343AD98BD43 /* ShortcutsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E13CD4050F24D1788FD6C8C /* ShortcutsSettingsView.swift */; };
 		8E3D35652F9F91EB00160565 /* rclone in Resources */ = {isa = PBXBuildFile; fileRef = 8E3D35642F9F91EB00160565 /* rclone */; };
 		8E4DF26D2ECBACFC007B6277 /* GeneralSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */; };
@@ -262,6 +262,8 @@
 		727051829930996EE4E50306 /* RcloneUpdateService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneUpdateService.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneUpdateService.swift"; sourceTree = "<group>"; };
 		74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataWindowController.swift; sourceTree = "<group>"; };
 		7AE24C0F6CCD5518CB708EE9 /* WhisperService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperService.swift; sourceTree = "<group>"; };
+		7E5111202605110001A03A02 /* InstallSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallSource.swift; sourceTree = "<group>"; };
+		7E5111202605110002A03A02 /* SparkleUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdater.swift; sourceTree = "<group>"; };
 		8488177BC5403EC6637A5C25 /* bmxtranswrap */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = bmxtranswrap; sourceTree = "<group>"; };
 		8DB61275F62951C0011F36D8 /* MetadataWindowContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataWindowContent.swift; sourceTree = "<group>"; };
 		8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSpeedIndicator.swift; sourceTree = "<group>"; };
@@ -285,13 +287,11 @@
 		8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParsingUtils.swift; sourceTree = "<group>"; };
 		8E13CD4050F24D1788FD6C8C /* ShortcutsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsView.swift; sourceTree = "<group>"; };
 		8E1477462ECF453900C805AA /* UpdateChecker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateChecker.swift; sourceTree = "<group>"; };
-		7E5111202605110002A03A02 /* SparkleUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdater.swift; sourceTree = "<group>"; };
 		8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateNotificationView.swift; sourceTree = "<group>"; };
 		8E14774A2ECF6BDE00C805AA /* UpdateSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateSettingsView.swift; sourceTree = "<group>"; };
 		8E2C6BAD2E059AFC00A9379F /* AppConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConstants.swift; sourceTree = "<group>"; };
 		8E2C6BBC2E05EA3B00A9379F /* VideoFileRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFileRowView.swift; sourceTree = "<group>"; };
 		8E2C6BBE2E084BC200A9379F /* SecurityScopedBookmarkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityScopedBookmarkManager.swift; sourceTree = "<group>"; };
-		7E5111202605110001A03A02 /* InstallSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallSource.swift; sourceTree = "<group>"; };
 		8E2CA2A52E09AA03008D93F1 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		8E3D35642F9F91EB00160565 /* rclone */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = rclone; sourceTree = "<group>"; };
 		8E4DF26C2ECBACF8007B6277 /* GeneralSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralSettingsView.swift; sourceTree = "<group>"; };
@@ -1527,7 +1527,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 520;
+				CURRENT_PROJECT_VERSION = 521;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2162,7 +2162,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 4.1.2;
+				MARKETING_VERSION = 4.1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2188,7 +2188,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 520;
+				CURRENT_PROJECT_VERSION = 521;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2823,7 +2823,7 @@
 					"$(PROJECT_DIR)/Aagedal\\ Media\\ Converter/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
-				MARKETING_VERSION = 4.1.2;
+				MARKETING_VERSION = 4.1.3;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.aagedal.Aagedal-Media-Converter";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
