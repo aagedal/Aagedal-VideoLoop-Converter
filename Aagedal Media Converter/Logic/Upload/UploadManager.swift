@@ -114,12 +114,17 @@ class UploadManager {
                     self?.logger.debug("[UploadManager] Progress callback: \(Int(progress * 100), privacy: .public)%, speed: \(speed ?? "nil", privacy: .public)")
                     Task { @MainActor in
                         guard let self = self,
-                              let idx = self.findItemIndex(itemID) else {
-                            self?.logger.warning("[UploadManager] Could not find item \(itemID) for progress update")
+                              let binding = self.videoItems,
+                              let idx = binding.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                              idx < binding.wrappedValue.count
+                        else {
+                            // Item was removed (e.g. its group was deleted) between the rclone
+                            // callback firing and this MainActor hop. Drop the update — the upload
+                            // task will be cancelled separately by the removal handler.
                             return
                         }
-                        self.videoItems?.wrappedValue[idx].uploadProgress = progress
-                        self.videoItems?.wrappedValue[idx].uploadSpeed = speed
+                        binding.wrappedValue[idx].uploadProgress = progress
+                        binding.wrappedValue[idx].uploadSpeed = speed
                     }
                 }
 

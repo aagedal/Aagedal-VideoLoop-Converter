@@ -314,8 +314,23 @@ struct ContentView: View {
                 await encodeOnlyGroup(groupID: groupID)
             },
             onDeleteGroup: { groupID in
+                // Cancel any in-flight uploads for items in this group before
+                // removing the group. Without this, rclone keeps running and its
+                // progress callback fires into an items array that no longer
+                // contains the uploading item (caused index-out-of-range crash).
+                if let group = encodingGroups.first(where: { $0.id == groupID }) {
+                    for item in group.items where item.uploadStatus.isActive {
+                        Task { await UploadManager.shared.cancelUpload(itemID: item.id) }
+                    }
+                }
                 encodingGroups.removeAll { $0.id == groupID }
                 queueOrder.removeAll { $0 == groupID }
+            },
+            onCancelGroupUpload: { groupID in
+                guard let group = encodingGroups.first(where: { $0.id == groupID }) else { return }
+                for item in group.items where item.uploadStatus.isActive {
+                    Task { await UploadManager.shared.cancelUpload(itemID: item.id) }
+                }
             },
             onAddFilesToGroup: { groupID in
                 Task { await addFilesToGroup(groupID: groupID) }

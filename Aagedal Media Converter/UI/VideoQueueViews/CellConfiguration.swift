@@ -273,6 +273,8 @@ enum CellAction {
     case deleteGroup
     case addFilesToGroup
     case resetGroup
+    /// Cancels all active uploads belonging to a group without deleting the group.
+    case cancelGroupUpload
     /// Cycles the group's internal sort mode (filename A–Z → Z–A → date old–new → new–old).
     case cycleGroupSort
     /// Opens the standalone group editor window for the current group.

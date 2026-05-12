@@ -103,6 +103,10 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private let uploadIcon = NSImageView()
     private let uploadLabel = NSTextField(labelWithString: "")
     private let uploadProgress = NSProgressIndicator()
+    /// Small inline button shown at the trailing edge of the upload row while
+    /// an upload is active or queued. Lets the user stop the rclone transfer
+    /// without removing the entire group.
+    private let cancelUploadButton = NSButton()
 
     // Status row (mirrors VideoFileCellView's status capsule + label)
     private let statusCapsule = NSView()
@@ -771,9 +775,23 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
         uploadProgress.heightAnchor.constraint(equalToConstant: 4).isActive = true
         uploadProgress.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
+        cancelUploadButton.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: nil)
+        cancelUploadButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+        cancelUploadButton.bezelStyle = .inline
+        cancelUploadButton.isBordered = false
+        cancelUploadButton.imagePosition = .imageOnly
+        cancelUploadButton.contentTintColor = .systemRed
+        cancelUploadButton.target = self
+        cancelUploadButton.action = #selector(cancelUploadClicked)
+        cancelUploadButton.toolTip = String(localized: "Cancel upload")
+        cancelUploadButton.translatesAutoresizingMaskIntoConstraints = false
+        cancelUploadButton.setContentHuggingPriority(.required, for: .horizontal)
+        cancelUploadButton.isHidden = true
+
         uploadRow.addArrangedSubview(uploadIcon)
         uploadRow.addArrangedSubview(uploadLabel)
         uploadRow.addArrangedSubview(uploadProgress)
+        uploadRow.addArrangedSubview(cancelUploadButton)
         uploadRow.isHidden = true
     }
 
@@ -1207,11 +1225,13 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
     private func updateUploadSummary(config: EncodingGroupCellConfiguration) {
         if config.isCompactMode {
             uploadRow.isHidden = true
+            cancelUploadButton.isHidden = true
             return
         }
         switch config.uploadSummary {
         case .hidden:
             uploadRow.isHidden = true
+            cancelUploadButton.isHidden = true
         case .uploaded(let count, let total):
             uploadRow.isHidden = false
             uploadIcon.image = GroupSymbol.uploadedCheck
@@ -1221,6 +1241,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
                 comment: "Group header upload status when all uploads have finished. First placeholder is the number uploaded, second is the total."
             )
             uploadProgress.isHidden = true
+            cancelUploadButton.isHidden = true
         case .failed(let count, let total):
             uploadRow.isHidden = false
             uploadIcon.image = GroupSymbol.uploadFailed
@@ -1230,6 +1251,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
                 comment: "Group header upload status when uploads have failed. First placeholder is the number failed, second is the total."
             )
             uploadProgress.isHidden = true
+            cancelUploadButton.isHidden = true
         case .uploading(let completed, let total, let progress, let speed):
             uploadRow.isHidden = false
             uploadIcon.image = VideoFileCellView.Symbol.cloudArrowUp
@@ -1241,6 +1263,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             )
             uploadProgress.isHidden = false
             uploadProgress.doubleValue = progress
+            cancelUploadButton.isHidden = false
         case .pending(let uploaded, let total):
             uploadRow.isHidden = false
             uploadIcon.image = GroupSymbol.uploadPending
@@ -1251,6 +1274,7 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             )
             uploadProgress.isHidden = false
             uploadProgress.doubleValue = total > 0 ? Double(uploaded) / Double(total) : 0
+            cancelUploadButton.isHidden = false
         }
     }
 
@@ -1373,6 +1397,8 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
             actionHandler?(.deleteGroup)
         }
     }
+
+    @objc private func cancelUploadClicked() { actionHandler?(.cancelGroupUpload) }
 
     @objc private func sequentialClicked() { actionHandler?(.toggleSequentialNaming) }
     @objc private func concatClicked() { actionHandler?(.toggleConcat) }

@@ -67,6 +67,8 @@ struct VideoFileListView: View {
     /// button). Mirrors `encodeOnly` for items.
     var encodeOnlyGroup: ((UUID) async -> Void)?
     var onDeleteGroup: ((UUID) -> Void)?
+    /// Cancels in-flight uploads for a group without deleting the group.
+    var onCancelGroupUpload: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
     /// Called when files are dragged from Finder directly onto a group header.
@@ -249,6 +251,7 @@ struct VideoFileListView: View {
                         await analyzeMetrics(itemID: itemID, metrics: metrics)
                     },
                     onDeleteGroup: onDeleteGroup,
+                    onCancelGroupUpload: onCancelGroupUpload,
                     onAddFilesToGroup: onAddFilesToGroup,
                     onResetGroup: onResetGroup,
                     queueOrder: queueOrder,

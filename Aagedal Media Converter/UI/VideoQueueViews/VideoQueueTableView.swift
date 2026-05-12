@@ -143,6 +143,9 @@ struct VideoQueueTableView: NSViewRepresentable {
     var analyzeOnly: ((UUID) async -> Void)?
     var analyzeMetrics: ((UUID, [QualityMetric]) async -> Void)?
     var onDeleteGroup: ((UUID) -> Void)?
+    /// Called when the user clicks the cancel-upload button on a group card.
+    /// Cancels any in-flight uploads for the group's items without deleting the group.
+    var onCancelGroupUpload: ((UUID) -> Void)?
     var onAddFilesToGroup: ((UUID) -> Void)?
     var onResetGroup: ((UUID) -> Void)?
     var queueOrder: [UUID]
@@ -1230,6 +1233,8 @@ struct VideoQueueTableView: NSViewRepresentable {
                 parent.onAddFilesToGroup?(groupID)
             case .resetGroup:
                 parent.onResetGroup?(groupID)
+            case .cancelGroupUpload:
+                parent.onCancelGroupUpload?(groupID)
             case .cycleGroupSort:
                 parent.onCycleGroupSort?(groupID)
             case .openGroupEditor:
