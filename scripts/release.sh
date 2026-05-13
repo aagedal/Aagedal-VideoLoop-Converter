@@ -148,10 +148,19 @@ xcrun stapler validate "$APP_PATH"
 # -----------------------------------------------------------------------------
 # Final zip for distribution + Sparkle signature
 # -----------------------------------------------------------------------------
+# --norsrc --noextattr --noacl --noqtn: skip AppleDouble metadata. Without
+# these flags ditto encodes xattrs (com.apple.provenance et al.), ACLs, and
+# creation dates as `._<name>` companion files inside the zip. macOS Sequoia's
+# Archive Utility no longer transparently merges those companions back into
+# xattrs on extract; they instead surface as visible files inside the .app,
+# which breaks the codesignature seal ("a sealed resource is missing or
+# invalid") and Gatekeeper rejects the bundle as "damaged". The signature and
+# notarization staple live inside the bundle (CodeResources + Mach-O LC), not
+# in xattrs, so dropping the AppleDouble layer is safe.
 SAFE_VERSION="${MARKETING_VERSION//./-}"
 RELEASE_ZIP_NAME="Aagedal_Media_Converter_${SAFE_VERSION}.zip"
 RELEASE_ZIP="$BUILD_DIR/$RELEASE_ZIP_NAME"
-/usr/bin/ditto -c -k --keepParent "$APP_PATH" "$RELEASE_ZIP"
+/usr/bin/ditto -c -k --keepParent --norsrc --noextattr --noacl --noqtn "$APP_PATH" "$RELEASE_ZIP"
 
 ZIP_SIZE=$(/usr/bin/stat -f%z "$RELEASE_ZIP")
 echo "==> Release zip: $RELEASE_ZIP ($ZIP_SIZE bytes)"

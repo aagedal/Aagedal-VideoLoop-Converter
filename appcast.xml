@@ -86,9 +86,9 @@
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <enclosure
                 url="https://codeberg.org/taagedal/Aagedal-Media-Converter/releases/download/4.1.3/Aagedal_Media_Converter_4-1-3.zip"
-                length="100427901"
+                length="100250703"
                 type="application/octet-stream"
-                sparkle:edSignature="tb8T1r5JiHtOilU+83yI78PXyv3kD0sTEpQ9JccXZXVuYDSYCGO1FeLfx4JX6mWjBW1UIkurqHS5rCKSaN3VBg==" />
+                sparkle:edSignature="3O8ginUY4Hxo855cLOjenIHX7YIhSxYGBlQRGIxd411P4/xxoi4wOKSeGaOsJUMWiZ9MJrFJAGz9K4u2vjWFCw==" />
             <description><![CDATA[
                 <p>A focused follow-up to 4.1.2. The recording-region picker now feels native — aspect-ratio lock plus macOS-style Shift / Option / Space modifiers during a drag — camera-card imports gained an opt-in "start encoding after import" toggle and finally do the right thing on multi-format cards, deleting an encoding group mid-upload no longer crashes, and new installs are opted in to automatic updates with a friendly first-launch opt-out notice.</p>
                 <h2>Recording region</h2>
