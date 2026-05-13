@@ -46,6 +46,10 @@ struct CaptureRegionOverlayView: View {
     @State private var spacePressCursor: CGPoint? = nil
     @State private var dragStartPointAtSpacePress: CGPoint? = nil
 
+    // Shift-axis-lock snapshot: captured when Shift is pressed mid-drag so the locked
+    // axis stays at the dimension it had at that moment, instead of collapsing to a line.
+    @State private var shiftPressedRect: CGRect? = nil
+
     // For replaying the last drag value when a modifier flips mid-drag
     @State private var lastDragLocation: CGPoint? = nil
     @State private var lastDragTranslation: CGSize? = nil
@@ -94,8 +98,8 @@ struct CaptureRegionOverlayView: View {
                     phase = .refining
                 }
             }
-            .onChange(of: isShiftHeld) { _, _ in
-                replayDragForModifierChange()
+            .onChange(of: isShiftHeld) { _, newValue in
+                handleShiftTransition(isHeld: newValue)
             }
             .onChange(of: isOptionHeld) { _, _ in
                 replayDragForModifierChange()
@@ -582,6 +586,18 @@ struct CaptureRegionOverlayView: View {
 
         switch dragMode {
         case .draw:
+            // If Shift was pressed mid-drag, freeze the non-dominant axis at the size
+            // and position it had at that moment.
+            if let frozen = shiftPressedRect {
+                if horizontalDominant {
+                    return CGRect(x: rect.minX, y: frozen.minY, width: rect.width, height: frozen.height)
+                } else {
+                    return CGRect(x: frozen.minX, y: rect.minY, width: frozen.width, height: rect.height)
+                }
+            }
+
+            // Shift held from the very start of the drag — collapse to a 1pt line so
+            // the user can draw a perfectly horizontal/vertical guide.
             guard let start = dragStartPoint else { return rect }
             if horizontalDominant {
                 if isOptionHeld {
@@ -598,33 +614,25 @@ struct CaptureRegionOverlayView: View {
             }
 
         case .resizeTopLeft, .resizeTopRight, .resizeBottomLeft, .resizeBottomRight:
-            guard let startRect = dragStartRect else { return rect }
+            // Prefer the snapshot taken when Shift was pressed; fall back to the rect
+            // the resize started from when Shift was held before the drag began.
+            let basePreShift = shiftPressedRect ?? dragStartRect
+            guard let base = basePreShift else { return rect }
+
             if horizontalDominant {
-                if isOptionHeld {
-                    let cy = startRect.midY
-                    return CGRect(x: rect.minX, y: cy - startRect.height / 2, width: rect.width, height: startRect.height)
-                } else {
-                    let yAnchor: CGFloat
-                    if dragMode == .resizeBottomRight || dragMode == .resizeBottomLeft {
-                        yAnchor = startRect.minY
-                    } else {
-                        yAnchor = startRect.maxY - startRect.height
-                    }
-                    return CGRect(x: rect.minX, y: yAnchor, width: rect.width, height: startRect.height)
-                }
+                return CGRect(
+                    x: rect.minX,
+                    y: base.minY,
+                    width: rect.width,
+                    height: base.height
+                )
             } else {
-                if isOptionHeld {
-                    let cx = startRect.midX
-                    return CGRect(x: cx - startRect.width / 2, y: rect.minY, width: startRect.width, height: rect.height)
-                } else {
-                    let xAnchor: CGFloat
-                    if dragMode == .resizeBottomRight || dragMode == .resizeTopRight {
-                        xAnchor = startRect.minX
-                    } else {
-                        xAnchor = startRect.maxX - startRect.width
-                    }
-                    return CGRect(x: xAnchor, y: rect.minY, width: startRect.width, height: rect.height)
-                }
+                return CGRect(
+                    x: base.minX,
+                    y: rect.minY,
+                    width: base.width,
+                    height: rect.height
+                )
             }
 
         default:
@@ -681,6 +689,20 @@ struct CaptureRegionOverlayView: View {
               let location = lastDragLocation,
               let translation = lastDragTranslation else { return }
         applyDragPipeline(location: location, translation: translation, in: screenSize)
+    }
+
+    private func handleShiftTransition(isHeld: Bool) {
+        if isHeld {
+            // Snapshot the current rect ONLY if a drag is already in progress with a
+            // visible rectangle. Shift held before a drag begins keeps the original
+            // "collapse to a line" behavior so users can intentionally draw a line.
+            if isDragging, let rect = selectionRect, rect.width > 1, rect.height > 1 {
+                shiftPressedRect = rect
+            }
+        } else {
+            shiftPressedRect = nil
+        }
+        replayDragForModifierChange()
     }
 
     private func handleSpaceTransition(isHeld: Bool) {
@@ -755,6 +777,7 @@ struct CaptureRegionOverlayView: View {
         dragStartRect = nil
         spacePressCursor = nil
         dragStartPointAtSpacePress = nil
+        shiftPressedRect = nil
         lastDragLocation = nil
         lastDragTranslation = nil
     }

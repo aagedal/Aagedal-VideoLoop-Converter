@@ -45,6 +45,10 @@ struct RegionSelectionOverlayView: View {
     @State private var spacePressCursor: CGPoint? = nil
     @State private var dragStartPointAtSpacePress: CGPoint? = nil
 
+    // Shift-axis-lock snapshot: captured when Shift is pressed mid-drag so the locked
+    // axis stays at the dimension it had at that moment.
+    @State private var shiftPressedRect: CGRect? = nil
+
     // For replaying the last drag value when a modifier flips mid-drag
     @State private var lastDragLocation: CGPoint? = nil
     @State private var lastDragTranslation: CGSize? = nil
@@ -100,8 +104,8 @@ struct RegionSelectionOverlayView: View {
                     phase = .refining
                 }
             }
-            .onChange(of: isShiftHeld) { _, _ in
-                replayDragForModifierChange()
+            .onChange(of: isShiftHeld) { _, newValue in
+                handleShiftTransition(isHeld: newValue)
             }
             .onChange(of: isOptionHeld) { _, _ in
                 replayDragForModifierChange()
@@ -645,9 +649,16 @@ struct RegionSelectionOverlayView: View {
 
         switch dragMode {
         case .draw:
+            if let frozen = shiftPressedRect {
+                if horizontalDominant {
+                    return CGRect(x: rect.minX, y: frozen.minY, width: rect.width, height: frozen.height)
+                } else {
+                    return CGRect(x: frozen.minX, y: rect.minY, width: frozen.width, height: rect.height)
+                }
+            }
+
             guard let start = dragStartPoint else { return rect }
             if horizontalDominant {
-                // Collapse height; keep x range driven by cursor
                 if isOptionHeld {
                     return CGRect(x: rect.minX, y: start.y - 0.5, width: rect.width, height: 1)
                 } else {
@@ -662,35 +673,23 @@ struct RegionSelectionOverlayView: View {
             }
 
         case .resizeTopLeft, .resizeTopRight, .resizeBottomLeft, .resizeBottomRight:
-            guard let startRect = dragStartRect else { return rect }
+            let basePreShift = shiftPressedRect ?? dragStartRect
+            guard let base = basePreShift else { return rect }
+
             if horizontalDominant {
-                // Lock vertical extent to dragStartRect
-                if isOptionHeld {
-                    let cy = startRect.midY
-                    return CGRect(x: rect.minX, y: cy - startRect.height / 2, width: rect.width, height: startRect.height)
-                } else {
-                    // Vertical anchor depends on which corner is being dragged
-                    let yAnchor: CGFloat
-                    if dragMode == .resizeBottomRight || dragMode == .resizeBottomLeft {
-                        yAnchor = startRect.minY
-                    } else {
-                        yAnchor = startRect.maxY - startRect.height
-                    }
-                    return CGRect(x: rect.minX, y: yAnchor, width: rect.width, height: startRect.height)
-                }
+                return CGRect(
+                    x: rect.minX,
+                    y: base.minY,
+                    width: rect.width,
+                    height: base.height
+                )
             } else {
-                if isOptionHeld {
-                    let cx = startRect.midX
-                    return CGRect(x: cx - startRect.width / 2, y: rect.minY, width: startRect.width, height: rect.height)
-                } else {
-                    let xAnchor: CGFloat
-                    if dragMode == .resizeBottomRight || dragMode == .resizeTopRight {
-                        xAnchor = startRect.minX
-                    } else {
-                        xAnchor = startRect.maxX - startRect.width
-                    }
-                    return CGRect(x: xAnchor, y: rect.minY, width: startRect.width, height: rect.height)
-                }
+                return CGRect(
+                    x: base.minX,
+                    y: rect.minY,
+                    width: base.width,
+                    height: rect.height
+                )
             }
 
         default:
@@ -752,6 +751,17 @@ struct RegionSelectionOverlayView: View {
               let location = lastDragLocation,
               let translation = lastDragTranslation else { return }
         applyDragPipeline(location: location, translation: translation)
+    }
+
+    private func handleShiftTransition(isHeld: Bool) {
+        if isHeld {
+            if isDragging, let rect = selectionRect, rect.width > 1, rect.height > 1 {
+                shiftPressedRect = rect
+            }
+        } else {
+            shiftPressedRect = nil
+        }
+        replayDragForModifierChange()
     }
 
     private func handleSpaceTransition(isHeld: Bool) {
@@ -826,6 +836,7 @@ struct RegionSelectionOverlayView: View {
         dragStartRect = nil
         spacePressCursor = nil
         dragStartPointAtSpacePress = nil
+        shiftPressedRect = nil
         lastDragLocation = nil
         lastDragTranslation = nil
     }
