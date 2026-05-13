@@ -52,9 +52,9 @@
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <enclosure
                 url="https://codeberg.org/taagedal/Aagedal-Media-Converter/releases/download/4.1.2/Aagedal_Media_Converter_4-1-2.zip"
-                length="100373333"
+                length="100196871"
                 type="application/octet-stream"
-                sparkle:edSignature="FpHTl2JbEy4okdnkLpbGnt1TpLjMdFcKHJW3eIc8AbEDQzaVcYzOOuz5Je6vcmEjQ88XSocWm66h4vSld73SCg==" />
+                sparkle:edSignature="juMtv5737GuJrhT7b4ZqpY5QjFFqmODBX9ahsxuOoSOmT34j6eEAC4u14XEsgCaWiiJbsjbyI9KJosdiCj2XCg==" />
             <description><![CDATA[
                 <p>The headline is auto-update support for direct-download installs and a move of the project repository from GitHub to Codeberg. Also rolls up the small fixes that landed since 4.1.0 was tagged.</p>
                 <h2>Auto-update</h2>
