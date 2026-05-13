@@ -78,5 +78,51 @@
                 </ul>
             ]]></description>
         </item>
+        <item>
+            <title>Version 4.1.3</title>
+            <pubDate>Wed, 13 May 2026 14:10:45 +0200</pubDate>
+            <sparkle:version>521</sparkle:version>
+            <sparkle:shortVersionString>4.1.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure
+                url="https://codeberg.org/taagedal/Aagedal-Media-Converter/releases/download/4.1.3/Aagedal_Media_Converter_4-1-3.zip"
+                length="100427901"
+                type="application/octet-stream"
+                sparkle:edSignature="tb8T1r5JiHtOilU+83yI78PXyv3kD0sTEpQ9JccXZXVuYDSYCGO1FeLfx4JX6mWjBW1UIkurqHS5rCKSaN3VBg==" />
+            <description><![CDATA[
+                <p>A focused follow-up to 4.1.2. The recording-region picker now feels native — aspect-ratio lock plus macOS-style Shift / Option / Space modifiers during a drag — camera-card imports gained an opt-in "start encoding after import" toggle and finally do the right thing on multi-format cards, deleting an encoding group mid-upload no longer crashes, and new installs are opted in to automatic updates with a friendly first-launch opt-out notice.</p>
+                <h2>Recording region</h2>
+                <ul>
+                <li><strong>Aspect-ratio lock for the capture region.</strong> A new menu in the floating control panel offers <strong>16:9</strong>, <strong>9:16</strong>, <strong>1:1</strong>, <strong>3:2</strong>, <strong>2:3</strong>, <strong>4:3</strong>, and <strong>3:4</strong> (persisted per app launch). When a ratio is locked, the rectangle snaps to it while you draw and resize, so you don't have to eyeball the proportions.</li>
+                <li><strong>macOS-native modifier keys during a region drag.</strong> Hold <strong>Space</strong> to move the rectangle rigidly while drawing, then release to resume drawing from the new anchor. Hold <strong>Shift</strong> to lock the non-dominant axis (aspect-ratio takes precedence when both apply). Hold <strong>Option</strong> to scale symmetrically from the start point when drawing, or from the rect center when resizing. Modifier transitions replay the last drag value, so the region updates the moment you press or release a key — no extra mouse motion required.</li>
+                <li><strong>Shift mid-drag now preserves the size you already drew</strong> instead of collapsing the locked axis to a 1pt line. Holding Shift <em>before</em> the drag starts still produces the perfectly horizontal or vertical guide as before.</li>
+                <li><strong>The capture overlay now holds keyboard focus</strong> while the app is hidden, so Shift / Option / Space actually reach the drag pipeline. The previous build's <code>nonactivatingPanel</code> + <code>NSApp.hide</code> combo sent keystrokes to whichever app was previously frontmost, which is why modifiers silently did nothing during a drag. Space is now swallowed by the overlay too, instead of leaking through to whatever's playing underneath.</li>
+                </ul>
+                <h2>Camera-card imports</h2>
+                <ul>
+                <li><strong>"Start encoding after import" toggle in the camera-card sheet</strong> (persisted across launches). Honoured by the regular, auto-split, and force-merge import paths — so multi-clip imports start encoding the moment they hit the queue when the option is on.</li>
+                <li><strong>Multi-format card imports now honour the concat + upload intent.</strong> When clips on the same card can't merge into one file (e.g. the operator switched to 4K or slow-mo mid-shoot), plain <strong>Import</strong> is no longer the primary action — <strong>Auto-split</strong> takes over with a tooltip pointing at the concat toggle, so Return picks the safe path that actually preserves your intent. Per-group filenames now include codec in the suffix, with <code>_g2</code>/<code>_g3</code>/… tie-breakers if any names still collide. Previously, H.264 1080p25 + H.265 1080p25 on the same card produced two outputs with the same base name.</li>
+                </ul>
+                <h2>Stability</h2>
+                <ul>
+                <li><strong>Deleting an encoding group while it's uploading no longer crashes.</strong> Removing a group with an active rclone upload used to crash with "Index out of range" — the deletion handler tore down the group's array slot while the upload kept running and its progress callback fired into a binding whose backing array had just shrunk. The handler now cancels every in-flight upload in the group via <code>UploadManager.cancelUpload(itemID:)</code> first, and the upload-progress callback bounds-checks against a snapshot of the binding so any late-arriving rclone tick for a removed item is dropped silently.</li>
+                <li><strong>New per-group Cancel upload button</strong> on the group header's upload row gives you a non-destructive way to stop an upload — you no longer have to delete the whole group to abort. Visible only while the group is actively uploading or pending upload; hidden once the upload settles.</li>
+                </ul>
+                <h2>Auto-update</h2>
+                <ul>
+                <li><strong>New installs are opted in to automatic updates</strong> by default. Sparkle's update dialog doesn't surface the auto-install preference, so users would otherwise have to dig into Settings to enable it. A one-time first-launch notice ("Automatic updates are on … turn off in Settings → Updates") with an <strong>Open Settings…</strong> shortcut lets you flip it back if you'd rather review each update by hand.</li>
+                <li><strong>The first-launch notice is suppressed on Homebrew installs</strong> (brew owns the bundle there), and is hardened against drift: the "have I shown this yet" flag survives across app updates via <code>UserDefaults.standard</code>, and the notice only fires when Sparkle is actually configured to install updates automatically — so a user who explicitly turned the preference off doesn't see a notice claiming otherwise.</li>
+                </ul>
+                <h2>Localization</h2>
+                <ul>
+                <li><strong>Norwegian translations caught up</strong> across recent additions: Settings sidebar tabs (the labels were plain <code>String</code>s, so <code>Label.init</code> bypassed catalog lookup), FileZilla import, IMF / DCP wrap errors, MCA default labels, custom-filename template, capture overlay, the Sparkle / Homebrew update flow, and various settings and help text.</li>
+                <li><strong>Typo and half-translation fixes</strong> — "Vesjon" → "Versjon", "S3-kompatibel Storage" → "S3-kompatibel lagring", and positional placeholder fixes for the plural <code>%lld clip%@</code> forms.</li>
+                </ul>
+                <h2>Housekeeping</h2>
+                <ul>
+                <li>Drops the <code>com.apple.security.network.client</code> entitlement from both Debug and Release builds. It's a sandbox-only restriction; under the hardened runtime without the sandbox, it does nothing. The <code>com.apple.security.cs.disable-library-validation</code> entitlement stays — still required to load the bundled FFmpeg / MPV / VLCKit dylibs. No behavioural change for users.</li>
+                </ul>
+            ]]></description>
+        </item>
     </channel>
 </rss>
