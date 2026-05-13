@@ -31,6 +31,7 @@ struct CaptureControlPanelView: View {
     @AppStorage(AppConstants.captureRegionYKey) private var captureRegionY: Double = 0
     @AppStorage(AppConstants.captureRegionWidthKey) private var captureRegionWidth: Double = 0
     @AppStorage(AppConstants.captureRegionHeightKey) private var captureRegionHeight: Double = 0
+    @AppStorage("screenRecordingAspectRatio") private var lockedAspectRatioRaw: String = AspectRatio.free.rawValue
 
     @StateObject private var captureManager = ScreenCaptureManager.shared
     @State private var availableDisplays: [CaptureDisplay] = []
@@ -326,6 +327,7 @@ struct CaptureControlPanelView: View {
                 audioExclusionButton
                 if captureRegionMode {
                     overlayClickThroughToggleButton
+                    aspectRatioButton
                 }
                 Spacer()
             }
@@ -579,6 +581,62 @@ struct CaptureControlPanelView: View {
         }
         .buttonStyle(.plain)
         .help(captureHideCursor ? "Cursor hidden in capture" : "Cursor visible in capture")
+    }
+
+    private var lockedAspectRatio: AspectRatio {
+        AspectRatio(rawValue: lockedAspectRatioRaw) ?? .free
+    }
+
+    /// Short label for the aspect ratio (e.g. "16:9", "1:1", "Free") — strips the parenthetical
+    /// description that the full `displayName` carries for some cases.
+    private var aspectRatioShortLabel: String {
+        String(lockedAspectRatio.displayName.split(separator: " ").first ?? "Free")
+    }
+
+    private var aspectRatioButton: some View {
+        Menu {
+            ForEach(AspectRatio.allCases.filter { $0 != .ratio21_9 }) { ratio in
+                Button {
+                    lockedAspectRatioRaw = ratio.rawValue
+                } label: {
+                    if ratio == lockedAspectRatio {
+                        Label(ratio.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(ratio.displayName)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "aspectratio")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(aspectRatioShortLabel)
+                    .font(.system(size: 11, weight: .semibold))
+                    .monospacedDigit()
+            }
+            .foregroundColor(lockedAspectRatio == .free ? .primary : .accentColor)
+            .frame(height: 28)
+            .padding(.horizontal, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(lockedAspectRatio == .free
+                          ? Color.primary.opacity(0.06)
+                          : Color.accentColor.opacity(0.2))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(lockedAspectRatio == .free
+                            ? Color.primary.opacity(0.2)
+                            : Color.accentColor,
+                            lineWidth: 1)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(lockedAspectRatio == .free
+              ? "Lock the recording region to an aspect ratio"
+              : "Recording region locked to \(lockedAspectRatio.displayName) — choose another or Free to unlock")
     }
 
     private var overlayClickThroughToggleButton: some View {

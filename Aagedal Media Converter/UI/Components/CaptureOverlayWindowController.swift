@@ -163,7 +163,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
         let screenFrame = screen.frame
         let scaleFactor = screen.backingScaleFactor
 
-        let panel = NSPanel(
+        let panel = CaptureRegionPanel(
             contentRect: screenFrame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -508,4 +508,16 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
             }
         }
     }
+}
+
+// MARK: - Capture Region Panel
+
+/// `.nonactivatingPanel` keeps the app from foregrounding when the overlay appears, but it also
+/// blocks the panel from becoming key — which means keystrokes (Shift/Option/Space modifiers
+/// during a drag, Escape, etc.) flow to whichever app was previously active instead of to our
+/// local event monitors. Overriding `canBecomeKey` to `true` lets the panel hold keyboard focus
+/// while the app itself stays in the background, so local monitors fire and Space can be
+/// swallowed before the underlying app sees it.
+private final class CaptureRegionPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }

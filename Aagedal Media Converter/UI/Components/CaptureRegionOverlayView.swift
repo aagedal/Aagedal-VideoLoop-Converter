@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import SwiftUI
+import AppKit
 
 struct CaptureRegionOverlayView: View {
     let screenSize: CGSize
@@ -24,6 +25,8 @@ struct CaptureRegionOverlayView: View {
         case resizeTop, resizeBottom, resizeLeft, resizeRight
     }
 
+    private static let aspectRatioStorageKey = "screenRecordingAspectRatio"
+
     private let minimumSize: CGFloat = 64
     private let handleHitSize: CGFloat = 20
 
@@ -33,6 +36,27 @@ struct CaptureRegionOverlayView: View {
     @State private var dragMode: DragMode = .none
     @State private var dragStartPoint: CGPoint? = nil
     @State private var dragStartRect: CGRect? = nil
+
+    // Modifier state, kept in sync by RegionModifierKeyView (NSView local event monitor)
+    @State private var isShiftHeld = false
+    @State private var isOptionHeld = false
+    @State private var isSpaceHeld = false
+
+    // Space-to-move tracking
+    @State private var spacePressCursor: CGPoint? = nil
+    @State private var dragStartPointAtSpacePress: CGPoint? = nil
+
+    // For replaying the last drag value when a modifier flips mid-drag
+    @State private var lastDragLocation: CGPoint? = nil
+    @State private var lastDragTranslation: CGSize? = nil
+
+    // Aspect ratio lock, persisted across launches
+    @AppStorage(CaptureRegionOverlayView.aspectRatioStorageKey)
+    private var lockedAspectRatioRaw: String = AspectRatio.free.rawValue
+
+    private var lockedAspectRatio: AspectRatio {
+        AspectRatio(rawValue: lockedAspectRatioRaw) ?? .free
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -56,6 +80,11 @@ struct CaptureRegionOverlayView: View {
                 if phase == .drawing, selectionRect == nil {
                     crosshairOverlay
                 }
+
+                // Center crosshair when Option is held mid-drag
+                if isOptionHeld, isDragging, let rect = selectionRect {
+                    centerCrosshair(for: rect)
+                }
             }
             .contentShape(Rectangle())
             .gesture(mainDragGesture(in: geometry.size))
@@ -65,8 +94,27 @@ struct CaptureRegionOverlayView: View {
                     phase = .refining
                 }
             }
+            .onChange(of: isShiftHeld) { _, _ in
+                replayDragForModifierChange()
+            }
+            .onChange(of: isOptionHeld) { _, _ in
+                replayDragForModifierChange()
+            }
+            .onChange(of: isSpaceHeld) { _, newValue in
+                handleSpaceTransition(isHeld: newValue)
+            }
+            .onChange(of: lockedAspectRatioRaw) { _, _ in
+                handleAspectRatioMenuChange()
+            }
         }
         .ignoresSafeArea()
+        .background(
+            RegionModifierKeyView(
+                isShiftHeld: $isShiftHeld,
+                isOptionHeld: $isOptionHeld,
+                isSpaceHeld: $isSpaceHeld
+            )
+        )
     }
 
     /// Maps internal DragMode to a cursor-friendly integer for the NSView
@@ -140,6 +188,11 @@ struct CaptureRegionOverlayView: View {
             }
 
             dimensionLabel(for: rect)
+
+            // Aspect-ratio badge (only when locked)
+            if lockedAspectRatio != .free {
+                aspectRatioBadge(for: rect)
+            }
         }
         .allowsHitTesting(false)
     }
@@ -239,6 +292,32 @@ struct CaptureRegionOverlayView: View {
             .position(x: rect.midX, y: rect.maxY + 24)
     }
 
+    private func aspectRatioBadge(for rect: CGRect) -> some View {
+        Text(lockedAspectRatio.displayName)
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundColor(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.accentColor.opacity(0.9))
+            .clipShape(Capsule())
+            .position(x: rect.midX, y: rect.minY - 18)
+    }
+
+    private func centerCrosshair(for rect: CGRect) -> some View {
+        let arm: CGFloat = 8
+        return ZStack {
+            Path { path in
+                path.move(to: CGPoint(x: rect.midX - arm, y: rect.midY))
+                path.addLine(to: CGPoint(x: rect.midX + arm, y: rect.midY))
+                path.move(to: CGPoint(x: rect.midX, y: rect.midY - arm))
+                path.addLine(to: CGPoint(x: rect.midX, y: rect.midY + arm))
+            }
+            .stroke(Color.white, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+            .shadow(color: .black.opacity(0.6), radius: 1)
+        }
+        .allowsHitTesting(false)
+    }
+
     // MARK: - Gesture Handling
 
     private func mainDragGesture(in size: CGSize) -> some Gesture {
@@ -268,84 +347,393 @@ struct CaptureRegionOverlayView: View {
                     dragStartRect = nil
                 }
             }
+
+            // If Space was already held when the drag started, prime the move state
+            if isSpaceHeld {
+                spacePressCursor = value.location
+                dragStartPointAtSpacePress = dragStartPoint
+            }
+        }
+
+        // Save for replay when a modifier flips without mouse motion
+        lastDragLocation = value.location
+        lastDragTranslation = value.translation
+
+        applyDragPipeline(location: value.location, translation: value.translation, in: size)
+    }
+
+    private func applyDragPipeline(location: CGPoint, translation: CGSize, in size: CGSize) {
+        // Space-to-move: shift dragStartPoint by the cursor delta since Space was pressed
+        if isSpaceHeld,
+           let pressCursor = spacePressCursor,
+           let startAtPress = dragStartPointAtSpacePress {
+            dragStartPoint = CGPoint(
+                x: startAtPress.x + (location.x - pressCursor.x),
+                y: startAtPress.y + (location.y - pressCursor.y)
+            )
+        }
+
+        // Step 1: candidate rect from drag mode geometry (Option center-scaling handled inline)
+        var rect = computeCandidateRect(location: location, translation: translation)
+
+        // Step 2: aspect ratio lock OR Shift axis lock (ratio wins)
+        let ratioCG: CGFloat? = lockedAspectRatio.numericRatio.map { CGFloat($0) }
+        if let ratio = ratioCG, dragMode != .move, dragMode != .none {
+            rect = applyAspectRatioConstraint(rect, ratio: ratio)
+        } else if isShiftHeld, !isSpaceHeld, supportsShiftAxisLock(dragMode) {
+            rect = applyShiftAxisLock(rect, translation: translation)
+        }
+
+        // Step 3: clamp to screen
+        rect = clampToScreen(rect, in: size, ratio: ratioCG)
+
+        selectionRect = rect
+    }
+
+    private func computeCandidateRect(location: CGPoint, translation: CGSize) -> CGRect {
+        guard let start = dragStartPoint else { return selectionRect ?? .zero }
+
+        switch dragMode {
+        case .draw:
+            if isOptionHeld {
+                let halfW = max(abs(location.x - start.x), 0.5)
+                let halfH = max(abs(location.y - start.y), 0.5)
+                return CGRect(
+                    x: start.x - halfW,
+                    y: start.y - halfH,
+                    width: halfW * 2,
+                    height: halfH * 2
+                )
+            } else {
+                let x = min(start.x, location.x)
+                let y = min(start.y, location.y)
+                let w = max(abs(location.x - start.x), 1)
+                let h = max(abs(location.y - start.y), 1)
+                return CGRect(x: x, y: y, width: w, height: h)
+            }
+
+        case .move:
+            guard let startRect = dragStartRect else { return selectionRect ?? .zero }
+            return CGRect(
+                x: startRect.origin.x + translation.width,
+                y: startRect.origin.y + translation.height,
+                width: startRect.width,
+                height: startRect.height
+            )
+
+        case .resizeTopLeft, .resizeTopRight, .resizeBottomLeft, .resizeBottomRight,
+             .resizeTop, .resizeBottom, .resizeLeft, .resizeRight:
+            return computeResizeRect(translation: translation)
+
+        case .none:
+            return selectionRect ?? .zero
+        }
+    }
+
+    private func computeResizeRect(translation: CGSize) -> CGRect {
+        guard let startRect = dragStartRect else { return selectionRect ?? .zero }
+        let dx = translation.width
+        let dy = translation.height
+        let centerScale = isOptionHeld
+
+        var newMinX = startRect.minX
+        var newMaxX = startRect.maxX
+        var newMinY = startRect.minY
+        var newMaxY = startRect.maxY
+        let cx = startRect.midX
+        let cy = startRect.midY
+
+        switch dragMode {
+        case .resizeBottomRight:
+            newMaxX += dx
+            newMaxY += dy
+            if centerScale {
+                newMinX = 2 * cx - newMaxX
+                newMinY = 2 * cy - newMaxY
+            }
+        case .resizeBottomLeft:
+            newMinX += dx
+            newMaxY += dy
+            if centerScale {
+                newMaxX = 2 * cx - newMinX
+                newMinY = 2 * cy - newMaxY
+            }
+        case .resizeTopRight:
+            newMaxX += dx
+            newMinY += dy
+            if centerScale {
+                newMinX = 2 * cx - newMaxX
+                newMaxY = 2 * cy - newMinY
+            }
+        case .resizeTopLeft:
+            newMinX += dx
+            newMinY += dy
+            if centerScale {
+                newMaxX = 2 * cx - newMinX
+                newMaxY = 2 * cy - newMinY
+            }
+        case .resizeRight:
+            newMaxX += dx
+            if centerScale {
+                newMinX = 2 * cx - newMaxX
+            }
+        case .resizeLeft:
+            newMinX += dx
+            if centerScale {
+                newMaxX = 2 * cx - newMinX
+            }
+        case .resizeBottom:
+            newMaxY += dy
+            if centerScale {
+                newMinY = 2 * cy - newMaxY
+            }
+        case .resizeTop:
+            newMinY += dy
+            if centerScale {
+                newMaxY = 2 * cy - newMinY
+            }
+        default:
+            break
+        }
+
+        // Normalize in case the drag inverted the rectangle
+        let minX = min(newMinX, newMaxX)
+        let maxX = max(newMinX, newMaxX)
+        let minY = min(newMinY, newMaxY)
+        let maxY = max(newMinY, newMaxY)
+
+        return CGRect(
+            x: minX,
+            y: minY,
+            width: max(maxX - minX, 1),
+            height: max(maxY - minY, 1)
+        )
+    }
+
+    // MARK: - Aspect Ratio Constraint
+
+    private func applyAspectRatioConstraint(_ rect: CGRect, ratio: CGFloat) -> CGRect {
+        // Edge resizes: dragged axis determines the other; perpendicular axis centers
+        switch dragMode {
+        case .resizeRight, .resizeLeft:
+            let newH = rect.width / ratio
+            let newY = rect.midY - newH / 2
+            return CGRect(x: rect.minX, y: newY, width: rect.width, height: newH)
+        case .resizeTop, .resizeBottom:
+            let newW = rect.height * ratio
+            let newX = rect.midX - newW / 2
+            return CGRect(x: newX, y: rect.minY, width: newW, height: rect.height)
+        default:
+            break
+        }
+
+        let curW = rect.width
+        let curH = rect.height
+        let curRatio = curW / max(curH, 0.001)
+
+        let newW: CGFloat
+        let newH: CGFloat
+        if curRatio > ratio {
+            newH = curH
+            newW = curH * ratio
+        } else {
+            newW = curW
+            newH = curW / ratio
+        }
+
+        if isOptionHeld {
+            let cx = rect.midX
+            let cy = rect.midY
+            return CGRect(x: cx - newW / 2, y: cy - newH / 2, width: newW, height: newH)
         }
 
         switch dragMode {
         case .draw:
-            guard let start = dragStartPoint else { return }
-            let current = value.location
-            let x = min(start.x, current.x)
-            let y = min(start.y, current.y)
-            let w = abs(current.x - start.x)
-            let h = abs(current.y - start.y)
-            selectionRect = CGRect(x: x, y: y, width: max(w, 1), height: max(h, 1))
-
-        case .move:
-            guard let startRect = dragStartRect else { return }
-            let dx = value.translation.width
-            let dy = value.translation.height
-            var newX = startRect.origin.x + dx
-            var newY = startRect.origin.y + dy
-            newX = max(0, min(newX, size.width - startRect.width))
-            newY = max(0, min(newY, size.height - startRect.height))
-            selectionRect = CGRect(x: newX, y: newY, width: startRect.width, height: startRect.height)
-
-        case .resizeTopLeft:
-            guard let startRect = dragStartRect else { return }
-            let dx = value.translation.width
-            let dy = value.translation.height
-            applyResize(newX: startRect.minX + dx, newY: startRect.minY + dy, newW: startRect.width - dx, newH: startRect.height - dy, in: size)
-
-        case .resizeTopRight:
-            guard let startRect = dragStartRect else { return }
-            let dx = value.translation.width
-            let dy = value.translation.height
-            applyResize(newX: startRect.minX, newY: startRect.minY + dy, newW: startRect.width + dx, newH: startRect.height - dy, in: size)
-
-        case .resizeBottomLeft:
-            guard let startRect = dragStartRect else { return }
-            let dx = value.translation.width
-            let dy = value.translation.height
-            applyResize(newX: startRect.minX + dx, newY: startRect.minY, newW: startRect.width - dx, newH: startRect.height + dy, in: size)
-
+            guard let start = dragStartPoint else { return rect }
+            let newX = (start.x <= rect.midX) ? start.x : start.x - newW
+            let newY = (start.y <= rect.midY) ? start.y : start.y - newH
+            return CGRect(x: newX, y: newY, width: newW, height: newH)
         case .resizeBottomRight:
-            guard let startRect = dragStartRect else { return }
-            let dx = value.translation.width
-            let dy = value.translation.height
-            applyResize(newX: startRect.minX, newY: startRect.minY, newW: startRect.width + dx, newH: startRect.height + dy, in: size)
-
-        case .resizeTop:
-            guard let startRect = dragStartRect else { return }
-            let dy = value.translation.height
-            applyResize(newX: startRect.minX, newY: startRect.minY + dy, newW: startRect.width, newH: startRect.height - dy, in: size)
-
-        case .resizeBottom:
-            guard let startRect = dragStartRect else { return }
-            let dy = value.translation.height
-            applyResize(newX: startRect.minX, newY: startRect.minY, newW: startRect.width, newH: startRect.height + dy, in: size)
-
-        case .resizeLeft:
-            guard let startRect = dragStartRect else { return }
-            let dx = value.translation.width
-            applyResize(newX: startRect.minX + dx, newY: startRect.minY, newW: startRect.width - dx, newH: startRect.height, in: size)
-
-        case .resizeRight:
-            guard let startRect = dragStartRect else { return }
-            let dx = value.translation.width
-            applyResize(newX: startRect.minX, newY: startRect.minY, newW: startRect.width + dx, newH: startRect.height, in: size)
-
-        case .none:
-            break
+            return CGRect(x: rect.minX, y: rect.minY, width: newW, height: newH)
+        case .resizeBottomLeft:
+            return CGRect(x: rect.maxX - newW, y: rect.minY, width: newW, height: newH)
+        case .resizeTopRight:
+            return CGRect(x: rect.minX, y: rect.maxY - newH, width: newW, height: newH)
+        case .resizeTopLeft:
+            return CGRect(x: rect.maxX - newW, y: rect.maxY - newH, width: newW, height: newH)
+        default:
+            return rect
         }
     }
 
-    private func applyResize(newX: CGFloat, newY: CGFloat, newW: CGFloat, newH: CGFloat, in size: CGSize) {
-        let clampedW = max(minimumSize, newW)
-        let clampedH = max(minimumSize, newH)
-        let clampedX = max(0, min(newX, size.width - clampedW))
-        let clampedY = max(0, min(newY, size.height - clampedH))
-        selectionRect = CGRect(x: clampedX, y: clampedY, width: min(clampedW, size.width - clampedX), height: min(clampedH, size.height - clampedY))
+    // MARK: - Shift Axis Lock
+
+    private func supportsShiftAxisLock(_ mode: DragMode) -> Bool {
+        switch mode {
+        case .draw, .resizeTopLeft, .resizeTopRight, .resizeBottomLeft, .resizeBottomRight:
+            return true
+        default:
+            return false
+        }
     }
+
+    private func applyShiftAxisLock(_ rect: CGRect, translation: CGSize) -> CGRect {
+        let horizontalDominant = abs(translation.width) >= abs(translation.height)
+
+        switch dragMode {
+        case .draw:
+            guard let start = dragStartPoint else { return rect }
+            if horizontalDominant {
+                if isOptionHeld {
+                    return CGRect(x: rect.minX, y: start.y - 0.5, width: rect.width, height: 1)
+                } else {
+                    return CGRect(x: rect.minX, y: start.y, width: rect.width, height: 1)
+                }
+            } else {
+                if isOptionHeld {
+                    return CGRect(x: start.x - 0.5, y: rect.minY, width: 1, height: rect.height)
+                } else {
+                    return CGRect(x: start.x, y: rect.minY, width: 1, height: rect.height)
+                }
+            }
+
+        case .resizeTopLeft, .resizeTopRight, .resizeBottomLeft, .resizeBottomRight:
+            guard let startRect = dragStartRect else { return rect }
+            if horizontalDominant {
+                if isOptionHeld {
+                    let cy = startRect.midY
+                    return CGRect(x: rect.minX, y: cy - startRect.height / 2, width: rect.width, height: startRect.height)
+                } else {
+                    let yAnchor: CGFloat
+                    if dragMode == .resizeBottomRight || dragMode == .resizeBottomLeft {
+                        yAnchor = startRect.minY
+                    } else {
+                        yAnchor = startRect.maxY - startRect.height
+                    }
+                    return CGRect(x: rect.minX, y: yAnchor, width: rect.width, height: startRect.height)
+                }
+            } else {
+                if isOptionHeld {
+                    let cx = startRect.midX
+                    return CGRect(x: cx - startRect.width / 2, y: rect.minY, width: startRect.width, height: rect.height)
+                } else {
+                    let xAnchor: CGFloat
+                    if dragMode == .resizeBottomRight || dragMode == .resizeTopRight {
+                        xAnchor = startRect.minX
+                    } else {
+                        xAnchor = startRect.maxX - startRect.width
+                    }
+                    return CGRect(x: xAnchor, y: rect.minY, width: startRect.width, height: rect.height)
+                }
+            }
+
+        default:
+            return rect
+        }
+    }
+
+    // MARK: - Clamping
+
+    private func clampToScreen(_ rect: CGRect, in size: CGSize, ratio: CGFloat?) -> CGRect {
+        var r = rect
+
+        r.size.width = max(1, r.size.width)
+        r.size.height = max(1, r.size.height)
+
+        if let ratio {
+            let maxWidthForScreen = size.width
+            let maxHeightForScreen = size.height
+            let widthIfBoundedByWidth = maxWidthForScreen
+            let heightIfBoundedByWidth = widthIfBoundedByWidth / ratio
+            let heightIfBoundedByHeight = maxHeightForScreen
+            let widthIfBoundedByHeight = heightIfBoundedByHeight * ratio
+
+            let maxW: CGFloat
+            let maxH: CGFloat
+            if heightIfBoundedByWidth <= maxHeightForScreen {
+                maxW = widthIfBoundedByWidth
+                maxH = heightIfBoundedByWidth
+            } else {
+                maxW = widthIfBoundedByHeight
+                maxH = heightIfBoundedByHeight
+            }
+
+            if r.width > maxW || r.height > maxH {
+                r.size = CGSize(width: maxW, height: maxH)
+            }
+
+            r.origin.x = max(0, min(size.width - r.width, r.origin.x))
+            r.origin.y = max(0, min(size.height - r.height, r.origin.y))
+        } else {
+            r.size.width = min(r.size.width, size.width)
+            r.size.height = min(r.size.height, size.height)
+            r.origin.x = max(0, min(size.width - r.width, r.origin.x))
+            r.origin.y = max(0, min(size.height - r.height, r.origin.y))
+        }
+
+        return r
+    }
+
+    // MARK: - Modifier Change Replay
+
+    private func replayDragForModifierChange() {
+        guard isDragging,
+              let location = lastDragLocation,
+              let translation = lastDragTranslation else { return }
+        applyDragPipeline(location: location, translation: translation, in: screenSize)
+    }
+
+    private func handleSpaceTransition(isHeld: Bool) {
+        guard isDragging else { return }
+
+        if isHeld {
+            spacePressCursor = lastDragLocation
+            dragStartPointAtSpacePress = dragStartPoint
+        } else {
+            if let pressCursor = spacePressCursor,
+               let startAtPress = dragStartPointAtSpacePress,
+               let location = lastDragLocation {
+                dragStartPoint = CGPoint(
+                    x: startAtPress.x + (location.x - pressCursor.x),
+                    y: startAtPress.y + (location.y - pressCursor.y)
+                )
+            }
+            spacePressCursor = nil
+            dragStartPointAtSpacePress = nil
+        }
+
+        replayDragForModifierChange()
+    }
+
+    private func handleAspectRatioMenuChange() {
+        if isDragging {
+            replayDragForModifierChange()
+        } else if let rect = selectionRect,
+                  let ratio = lockedAspectRatio.numericRatio.map({ CGFloat($0) }) {
+            var newRect = fitRect(rect, toRatio: ratio)
+            newRect = clampToScreen(newRect, in: screenSize, ratio: ratio)
+            selectionRect = newRect
+            onRegionChanged(newRect)
+        }
+    }
+
+    private func fitRect(_ rect: CGRect, toRatio ratio: CGFloat) -> CGRect {
+        let curRatio = rect.width / max(rect.height, 0.001)
+        let newW: CGFloat
+        let newH: CGFloat
+        if curRatio > ratio {
+            newH = rect.height
+            newW = rect.height * ratio
+        } else {
+            newW = rect.width
+            newH = rect.width / ratio
+        }
+        let newX = rect.midX - newW / 2
+        let newY = rect.midY - newH / 2
+        return CGRect(x: newX, y: newY, width: newW, height: newH)
+    }
+
+    // MARK: - Drag End
 
     private func handleDragEnded() {
         isDragging = false
@@ -365,6 +753,10 @@ struct CaptureRegionOverlayView: View {
         dragMode = .none
         dragStartPoint = nil
         dragStartRect = nil
+        spacePressCursor = nil
+        dragStartPointAtSpacePress = nil
+        lastDragLocation = nil
+        lastDragTranslation = nil
     }
 
     private func determineDragMode(location: CGPoint, rect: CGRect) -> DragMode {
@@ -407,6 +799,129 @@ struct CaptureRegionOverlayView: View {
         }
 
         return .none
+    }
+}
+
+// MARK: - Modifier Key Tracking (Shift, Option, Space)
+
+/// Installs a local NSEvent monitor for Shift/Option flags and Space key, and bridges them
+/// to SwiftUI @State via @Binding. Coexists with CaptureOverlayWindowController's CMD monitor;
+/// that one runs at the controller level for click-through, this one runs at the view level
+/// for drag-modifier behaviors.
+private struct RegionModifierKeyView: NSViewRepresentable {
+    @Binding var isShiftHeld: Bool
+    @Binding var isOptionHeld: Bool
+    @Binding var isSpaceHeld: Bool
+
+    func makeNSView(context: Context) -> ModifierKeyNSView {
+        let view = ModifierKeyNSView()
+        view.isShiftHeld = $isShiftHeld
+        view.isOptionHeld = $isOptionHeld
+        view.isSpaceHeld = $isSpaceHeld
+        return view
+    }
+
+    func updateNSView(_ nsView: ModifierKeyNSView, context: Context) {
+        nsView.isShiftHeld = $isShiftHeld
+        nsView.isOptionHeld = $isOptionHeld
+        nsView.isSpaceHeld = $isSpaceHeld
+    }
+
+    final class ModifierKeyNSView: NSView {
+        var isShiftHeld: Binding<Bool>?
+        var isOptionHeld: Binding<Bool>?
+        var isSpaceHeld: Binding<Bool>?
+
+        private var localMonitor: Any?
+        private var globalMonitor: Any?
+
+        // Pass through hit testing so gestures still flow to SwiftUI
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil {
+                installMonitors()
+            }
+        }
+
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            if newWindow == nil {
+                removeMonitors()
+            }
+        }
+
+        deinit {
+            removeMonitors()
+        }
+
+        private func installMonitors() {
+            // Local catches events that ARE delivered to this app's responder chain
+            // (e.g. when our panel is key). Returning nil swallows the event.
+            if localMonitor == nil {
+                let mask: NSEvent.EventTypeMask = [.keyDown, .keyUp, .flagsChanged]
+                localMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+                    guard let self else { return event }
+                    return self.handleLocal(event: event)
+                }
+            }
+            // Global catches events going to OTHER apps. Because the capture overlay panel
+            // is .nonactivatingPanel and the app is hidden, keystrokes typically flow to the
+            // user's previously-active app — the global monitor is what makes Shift/Option/
+            // Space track during a drag. Global monitors can only observe; they cannot
+            // swallow the event from the underlying app.
+            if globalMonitor == nil {
+                let mask: NSEvent.EventTypeMask = [.keyDown, .keyUp, .flagsChanged]
+                globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+                    _ = self?.handleLocal(event: event)
+                }
+            }
+        }
+
+        private func removeMonitors() {
+            if let monitor = localMonitor {
+                NSEvent.removeMonitor(monitor)
+                localMonitor = nil
+            }
+            if let monitor = globalMonitor {
+                NSEvent.removeMonitor(monitor)
+                globalMonitor = nil
+            }
+        }
+
+        @discardableResult
+        private func handleLocal(event: NSEvent) -> NSEvent? {
+            switch event.type {
+            case .keyDown:
+                if event.keyCode == 49 { // Space
+                    if !event.isARepeat {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.isSpaceHeld?.wrappedValue = true
+                        }
+                    }
+                    return nil  // swallow so the system doesn't beep (local only)
+                }
+                return event
+            case .keyUp:
+                if event.keyCode == 49 {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.isSpaceHeld?.wrappedValue = false
+                    }
+                    return nil
+                }
+                return event
+            case .flagsChanged:
+                let flags = event.modifierFlags
+                DispatchQueue.main.async { [weak self] in
+                    self?.isShiftHeld?.wrappedValue = flags.contains(.shift)
+                    self?.isOptionHeld?.wrappedValue = flags.contains(.option)
+                }
+                return event
+            default:
+                return event
+            }
+        }
     }
 }
 
@@ -467,8 +982,6 @@ private struct CaptureRegionCursorView: NSViewRepresentable {
                     }
                 }
                 if mouseEventMonitor == nil {
-                    // Use a global monitor to track mouse movement during drags,
-                    // since hitTest returns nil and we won't receive mouseDragged directly.
                     mouseEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
                         guard let self else { return event }
                         if self.currentDragging {
