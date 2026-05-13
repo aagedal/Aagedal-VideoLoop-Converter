@@ -1211,8 +1211,17 @@ struct VideoQueueTableView: NSViewRepresentable {
                     parent.encodingGroups[idx].sequentialNamingEnabled = false
                     parent.encodingGroups[idx].normalizeSequentialNaming()
                 }
-            case .toggleGroupUpload:
-                parent.encodingGroups[idx].uploadEnabled.toggle()
+            case .toggleGroupUpload(let optionPressed):
+                if optionPressed {
+                    let failedItemIDs = parent.encodingGroups[idx].items
+                        .filter { $0.uploadStatus.hasFailed }
+                        .map { $0.id }
+                    for failedID in failedItemIDs {
+                        Task { await UploadManager.shared.retryUpload(itemID: failedID) }
+                    }
+                } else {
+                    parent.encodingGroups[idx].uploadEnabled.toggle()
+                }
             case .toggleGroupTranscription:
                 parent.encodingGroups[idx].transcriptionEnabled.toggle()
             case .toggleGroupAnalytics:

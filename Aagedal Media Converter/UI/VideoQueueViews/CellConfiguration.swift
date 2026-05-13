@@ -265,7 +265,7 @@ enum CellAction {
     // Group-specific actions
     case groupNameChanged(String)
     case toggleConcat
-    case toggleGroupUpload
+    case toggleGroupUpload(optionPressed: Bool)
     case toggleGroupTranscription
     case toggleGroupAnalytics
     case toggleSequentialNaming

@@ -1402,7 +1402,10 @@ final class EncodingGroupHeaderCellView: NSTableCellView, NSTextFieldDelegate {
 
     @objc private func sequentialClicked() { actionHandler?(.toggleSequentialNaming) }
     @objc private func concatClicked() { actionHandler?(.toggleConcat) }
-    @objc private func uploadClicked() { actionHandler?(.toggleGroupUpload) }
+    @objc private func uploadClicked() {
+        let opt = NSEvent.modifierFlags.contains(.option)
+        actionHandler?(.toggleGroupUpload(optionPressed: opt))
+    }
     @objc private func transcriptionClicked() { actionHandler?(.toggleGroupTranscription) }
     @objc private func analyticsClicked() { actionHandler?(.toggleGroupAnalytics) }
     @objc private func encodeClicked() {
