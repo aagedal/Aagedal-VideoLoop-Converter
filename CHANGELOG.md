@@ -1,3 +1,38 @@
+# v.4.1.3
+
+A focused follow-up to 4.1.2. The recording-region picker now feels native — aspect-ratio lock plus macOS-style Shift / Option / Space modifiers during a drag — camera-card imports gained an opt-in "start encoding after import" toggle and finally do the right thing on multi-format cards, deleting an encoding group mid-upload no longer crashes, and new installs are opted in to automatic updates with a friendly first-launch opt-out notice.
+
+## Recording region
+
+- **Aspect-ratio lock for the capture region.** A new menu in the floating control panel offers **16:9**, **9:16**, **1:1**, **3:2**, **2:3**, **4:3**, and **3:4** (persisted per app launch). When a ratio is locked, the rectangle snaps to it while you draw and resize, so you don't have to eyeball the proportions.
+- **macOS-native modifier keys during a region drag.** Hold **Space** to move the rectangle rigidly while drawing, then release to resume drawing from the new anchor. Hold **Shift** to lock the non-dominant axis (aspect-ratio takes precedence when both apply). Hold **Option** to scale symmetrically from the start point when drawing, or from the rect center when resizing. Modifier transitions replay the last drag value, so the region updates the moment you press or release a key — no extra mouse motion required.
+- **Shift mid-drag now preserves the size you already drew** instead of collapsing the locked axis to a 1pt line. Holding Shift *before* the drag starts still produces the perfectly horizontal or vertical guide as before.
+- **The capture overlay now holds keyboard focus** while the app is hidden, so Shift / Option / Space actually reach the drag pipeline. The previous build's `nonactivatingPanel` + `NSApp.hide` combo sent keystrokes to whichever app was previously frontmost, which is why modifiers silently did nothing during a drag. Space is now swallowed by the overlay too, instead of leaking through to whatever's playing underneath.
+
+## Camera-card imports
+
+- **"Start encoding after import" toggle in the camera-card sheet** (persisted across launches). Honoured by the regular, auto-split, and force-merge import paths — so multi-clip imports start encoding the moment they hit the queue when the option is on.
+- **Multi-format card imports now honour the concat + upload intent.** When clips on the same card can't merge into one file (e.g. the operator switched to 4K or slow-mo mid-shoot), plain **Import** is no longer the primary action — **Auto-split** takes over with a tooltip pointing at the concat toggle, so Return picks the safe path that actually preserves your intent. Per-group filenames now include codec in the suffix, with `_g2`/`_g3`/… tie-breakers if any names still collide. Previously, H.264 1080p25 + H.265 1080p25 on the same card produced two outputs with the same base name.
+
+## Stability
+
+- **Deleting an encoding group while it's uploading no longer crashes.** Removing a group with an active rclone upload used to crash with "Index out of range" — the deletion handler tore down the group's array slot while the upload kept running and its progress callback fired into a binding whose backing array had just shrunk. The handler now cancels every in-flight upload in the group via `UploadManager.cancelUpload(itemID:)` first, and the upload-progress callback bounds-checks against a snapshot of the binding so any late-arriving rclone tick for a removed item is dropped silently.
+- **New per-group Cancel upload button** on the group header's upload row gives you a non-destructive way to stop an upload — you no longer have to delete the whole group to abort. Visible only while the group is actively uploading or pending upload; hidden once the upload settles.
+
+## Auto-update
+
+- **New installs are opted in to automatic updates** by default. Sparkle's update dialog doesn't surface the auto-install preference, so users would otherwise have to dig into Settings to enable it. A one-time first-launch notice ("Automatic updates are on … turn off in Settings → Updates") with an **Open Settings…** shortcut lets you flip it back if you'd rather review each update by hand.
+- **The first-launch notice is suppressed on Homebrew installs** (brew owns the bundle there), and is hardened against drift: the "have I shown this yet" flag survives across app updates via `UserDefaults.standard`, and the notice only fires when Sparkle is actually configured to install updates automatically — so a user who explicitly turned the preference off doesn't see a notice claiming otherwise.
+
+## Localization
+
+- **Norwegian translations caught up** across recent additions: Settings sidebar tabs (the labels were plain `String`s, so `Label.init` bypassed catalog lookup), FileZilla import, IMF / DCP wrap errors, MCA default labels, custom-filename template, capture overlay, the Sparkle / Homebrew update flow, and various settings and help text.
+- **Typo and half-translation fixes** — "Vesjon" → "Versjon", "S3-kompatibel Storage" → "S3-kompatibel lagring", and positional placeholder fixes for the plural `%lld clip%@` forms.
+
+## Housekeeping
+
+- Drops the `com.apple.security.network.client` entitlement from both Debug and Release builds. It's a sandbox-only restriction; under the hardened runtime without the sandbox, it does nothing. The `com.apple.security.cs.disable-library-validation` entitlement stays — still required to load the bundled FFmpeg / MPV / VLCKit dylibs. No behavioural change for users.
+
 # v.4.1.2
 
 The headline is auto-update support for direct-download installs and a move of the project repository from GitHub to Codeberg. Also rolls up the small fixes that landed since 4.1.0 was tagged.
