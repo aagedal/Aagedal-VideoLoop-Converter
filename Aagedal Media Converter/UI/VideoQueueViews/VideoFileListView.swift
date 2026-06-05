@@ -895,43 +895,61 @@ struct VideoFileListView: View {
         let nextMode: QueueSortMode = currentSortMode?.next() ?? .filenameAscending
         currentSortMode = nextMode
 
+        // A sort compares each entry O(n log n) times. Resolving the sort keys
+        // lazily inside the comparator used to (a) linear-scan `droppedFiles` to
+        // map an ID back to its item and (b) re-`stat` the disk for a file's
+        // creation date — on *every* comparison. For one keypress that is
+        // thousands of O(n) scans and thousands of blocking `resourceValues`
+        // calls on the main thread, even for filename sorts that never use the
+        // date. Instead, decorate-sort-undecorate: stat each file at most once
+        // (and only when the mode needs dates), then sort on cached keys.
+        let needsDate = (nextMode == .dateOldest || nextMode == .dateNewest)
+        var dateMap: [URL: Date] = [:]
+        if needsDate {
+            for file in droppedFiles where dateMap[file.url] == nil {
+                dateMap[file.url] = fileCreationDate(for: file.url)
+            }
+            for group in encodingGroups {
+                for item in group.items where dateMap[item.url] == nil {
+                    dateMap[item.url] = fileCreationDate(for: item.url)
+                }
+            }
+        }
+        let dateByURL = dateMap
+        let cachedDate: (URL) -> Date = { dateByURL[$0] ?? .distantPast }
+
         // Keep `droppedFiles` sorted for any consumer that iterates it directly.
-        droppedFiles.sort(by: comparator(for: nextMode))
+        droppedFiles.sort(by: comparator(for: nextMode, dateProvider: needsDate ? cachedDate : nil))
 
         // Sort the actual render order (which is `queueOrder`, not `droppedFiles`).
         // Groups are sorted alongside singles — groups use their name as the
         // filename key and the earliest child's creation date as the date key —
         // but items *inside* a group are left alone; only per-group sort touches
-        // those.
-        queueOrder.sort { queueEntryLessThan($0, $1, mode: nextMode) }
+        // those. Pre-resolve each entry's (name, date) key once so every
+        // comparison is a pair of O(1) dictionary lookups.
+        var entryKeys: [UUID: (name: String, date: Date)] = [:]
+        entryKeys.reserveCapacity(droppedFiles.count + encodingGroups.count)
+        for file in droppedFiles {
+            entryKeys[file.id] = (file.name, needsDate ? cachedDate(file.url) : .distantPast)
+        }
+        for group in encodingGroups {
+            let earliest = needsDate
+                ? (group.items.map { cachedDate($0.url) }.min() ?? .distantPast)
+                : .distantPast
+            entryKeys[group.id] = (group.name, earliest)
+        }
+        queueOrder.sort { a, b in
+            let ka = entryKeys[a] ?? ("", .distantPast)
+            let kb = entryKeys[b] ?? ("", .distantPast)
+            switch nextMode {
+            case .filenameAscending:  return ka.name.localizedStandardCompare(kb.name) == .orderedAscending
+            case .filenameDescending: return ka.name.localizedStandardCompare(kb.name) == .orderedDescending
+            case .dateOldest:         return ka.date < kb.date
+            case .dateNewest:         return ka.date > kb.date
+            }
+        }
 
         showSortToast(nextMode.displayName)
-    }
-
-    /// Resolves a queue-order ID (single item OR group) into the two keys the
-    /// sort modes compare against: a display name and a representative date.
-    /// For groups, the date is the oldest child's creation date — that way
-    /// "sort by date" keeps groups next to items with similar recency.
-    private func queueEntryLessThan(_ a: UUID, _ b: UUID, mode: QueueSortMode) -> Bool {
-        let (nameA, dateA) = queueEntrySortKey(a)
-        let (nameB, dateB) = queueEntrySortKey(b)
-        switch mode {
-        case .filenameAscending:  return nameA.localizedStandardCompare(nameB) == .orderedAscending
-        case .filenameDescending: return nameA.localizedStandardCompare(nameB) == .orderedDescending
-        case .dateOldest:         return dateA < dateB
-        case .dateNewest:         return dateA > dateB
-        }
-    }
-
-    private func queueEntrySortKey(_ id: UUID) -> (name: String, date: Date) {
-        if let file = droppedFiles.first(where: { $0.id == id }) {
-            return (file.name, fileCreationDate(for: file.url))
-        }
-        if let group = encodingGroups.first(where: { $0.id == id }) {
-            let earliest = group.items.map { fileCreationDate(for: $0.url) }.min() ?? Date.distantPast
-            return (group.name, earliest)
-        }
-        return ("", Date.distantPast)
     }
 
     /// Shows the bottom-leading toast with `text` for 3.5s. Replaces any in-flight
@@ -951,16 +969,24 @@ struct VideoFileListView: View {
 
     /// Shared comparator used by main-queue sort and per-group sort so ordering is
     /// consistent whether you sort the whole queue or just one group's contents.
-    private func comparator(for mode: QueueSortMode) -> (VideoItem, VideoItem) -> Bool {
+    /// `dateProvider` lets callers inject a memoized creation-date lookup so a sort
+    /// doesn't re-`stat` the same file on every comparison; it defaults to a direct
+    /// (uncached) disk read for callers that don't care.
+    private func comparator(
+        for mode: QueueSortMode,
+        dateProvider: ((URL) -> Date)? = nil
+    ) -> (VideoItem, VideoItem) -> Bool {
         switch mode {
         case .filenameAscending:
             return { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .filenameDescending:
             return { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
         case .dateOldest:
-            return { [self] in fileCreationDate(for: $0.url) < fileCreationDate(for: $1.url) }
+            let date = dateProvider ?? { [self] url in fileCreationDate(for: url) }
+            return { date($0.url) < date($1.url) }
         case .dateNewest:
-            return { [self] in fileCreationDate(for: $0.url) > fileCreationDate(for: $1.url) }
+            let date = dateProvider ?? { [self] url in fileCreationDate(for: url) }
+            return { date($0.url) > date($1.url) }
         }
     }
 
