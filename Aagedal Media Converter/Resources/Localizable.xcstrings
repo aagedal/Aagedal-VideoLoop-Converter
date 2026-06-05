@@ -1974,10 +1974,10 @@
     "avmenc --target-bitrate in kilobits per second. The encoder aims for this average bitrate across the clip." : {
 
     },
-    "avmenc --tile-columns. 0 disables explicit tiling. Tiles enable more parallelism on large frames at a small efficiency cost." : {
+    "avmenc --tile-columns (log2: 1 = 2 columns, 2 = 4, …). Tiling is the only way AVM uses multiple CPU cores, so it's the main speed control. 0 = Auto, which picks a tile count from the resolution to spread work across cores — increasing it adds parallelism at a small compression cost." : {
 
     },
-    "avmenc --tile-rows. 0 disables explicit tiling." : {
+    "avmenc --tile-rows (log2). 0 = Auto (chosen from the frame height)." : {
 
     },
     "avmenc -t. 0 lets the app use all available cores." : {
@@ -10919,10 +10919,10 @@
     "Threads: %@" : {
 
     },
-    "Tile Columns (log2): %lld" : {
+    "Tile Columns (log2): %@" : {
 
     },
-    "Tile Rows (log2): %lld" : {
+    "Tile Rows (log2): %@" : {
 
     },
     "Timecode Configuration" : {
