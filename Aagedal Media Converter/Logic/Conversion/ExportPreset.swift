@@ -455,6 +455,59 @@ enum AV1VarianceBoostCurve: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - AV2 (experimental, avmenc) option models
+
+/// Rate-control mode for the experimental AV2 (avmenc) preset.
+enum AV2RateControlMode: String, CaseIterable, Identifiable {
+    case constantQuality = "Constant Quality"
+    case targetBitrate = "Target Bitrate"
+
+    var id: String { rawValue }
+
+    /// avmenc `--end-usage` value.
+    var endUsage: String {
+        switch self {
+        case .constantQuality: return "q"
+        case .targetBitrate: return "vbr"
+        }
+    }
+}
+
+/// Encoding speed for AV2 (avmenc `--cpu-used`, 0 = slowest/best … 9 = fastest).
+enum AV2EncodingSpeed: Int, CaseIterable, Identifiable {
+    case cpu0 = 0, cpu1 = 1, cpu2 = 2, cpu3 = 3, cpu4 = 4
+    case cpu5 = 5, cpu6 = 6, cpu7 = 7, cpu8 = 8, cpu9 = 9
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .cpu0: return "0 (Slowest, best quality)"
+        case .cpu4: return "4 (Balanced)"
+        case .cpu9: return "9 (Fastest)"
+        default: return "\(rawValue)"
+        }
+    }
+}
+
+/// Input bit depth choice for AV2. "Auto" derives from the source's bit depth.
+enum AV2BitDepthOption: String, CaseIterable, Identifiable {
+    case auto = "Auto"
+    case eight = "8-bit"
+    case ten = "10-bit"
+
+    var id: String { rawValue }
+
+    /// Resolves to a concrete bit depth (8 or 10) given the source's detected depth.
+    func resolved(sourceBitDepth: Int?) -> Int {
+        switch self {
+        case .auto: return (sourceBitDepth ?? 8) >= 10 ? 10 : 8
+        case .eight: return 8
+        case .ten: return 10
+        }
+    }
+}
+
 /// Resolution limit for codec presets
 enum CodecResolutionLimit: String, CaseIterable, Identifiable {
     case r720 = "720p"
@@ -679,6 +732,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     case h264 = "H.264 / AVC"
     case h265 = "H.265 / HEVC"
     case av1 = "AV1"
+    case av2 = "AV2"
     case tvHEVC = "TV (HEVC 10-bit 4:2:2)"
     case tvAVCIntra = "TV (AVC-Intra MXF)"
     case prores = "ProRes"
@@ -715,6 +769,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .av1:
             let containerRaw = UserDefaults.standard.string(forKey: AppConstants.av1ContainerKey) ?? AppConstants.defaultAV1Container
             return CodecContainer(rawValue: containerRaw)?.fileExtension ?? "mp4"
+        case .av2:
+            // AV2 is always a raw, video-only IVF bitstream (no container carries AV2 + audio yet).
+            return "ivf"
         case .prores, .tvHEVC:
             return "mov"
         case .tvAVCIntra:
@@ -802,6 +859,12 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return NSLocalizedString("PRESET_H265_DESCRIPTION", comment: "Description for H.265 preset")
         case .av1:
             return NSLocalizedString("PRESET_AV1_DESCRIPTION", comment: "Description for AV1 preset")
+        case .av2:
+            return NSLocalizedString(
+                "PRESET_AV2_DESCRIPTION",
+                value: "Experimental AV2 encoding via the bundled avmenc (AOM AVM) encoder. Produces a video-only .ivf bitstream — no audio, and not previewable in-app yet. For enthusiasts evaluating the next-generation codec.",
+                comment: "Description for experimental AV2 preset"
+            )
         case .tvHEVC:
             return NSLocalizedString("PRESET_TV_HEVC_DESCRIPTION", comment: "Description for TV HEVC preset")
         case .tvAVCIntra:
@@ -841,6 +904,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return "_h265"
         case .av1:
             return "_av1"
+        case .av2:
+            return "_av2"
         case .tvHEVC:
             return "_tv"
         case .tvAVCIntra:
@@ -884,6 +949,9 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return CodecResolutionLimit(rawValue: raw).flatMap(Self.label(for:))
         case .av1:
             let raw = UserDefaults.standard.string(forKey: AppConstants.av1ResolutionLimitKey) ?? AppConstants.defaultAV1ResolutionLimit
+            return CodecResolutionLimit(rawValue: raw).flatMap(Self.label(for:))
+        case .av2:
+            let raw = UserDefaults.standard.string(forKey: AppConstants.av2ResolutionLimitKey) ?? AppConstants.defaultAV2ResolutionLimit
             return CodecResolutionLimit(rawValue: raw).flatMap(Self.label(for:))
         case .tvHEVC, .tvAVCIntra:
             let raw = UserDefaults.standard.string(forKey: AppConstants.tvResolutionLimitKey) ?? AppConstants.defaultTVResolutionLimit
@@ -1158,6 +1226,11 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")
             return args
+        case .av2:
+            // AV2 does NOT use ffmpegArguments — it is encoded by the external `avmenc`
+            // binary via a dedicated two-process pipe built in `AV2CommandBuilder`.
+            // This branch only exists to satisfy the exhaustive switch.
+            return commonArgs
         case .av1:
             // Get container setting
             let containerRaw = UserDefaults.standard.string(forKey: AppConstants.av1ContainerKey) ?? AppConstants.defaultAV1Container
@@ -1624,6 +1697,12 @@ enum ExportPreset: String, CaseIterable, Identifiable {
     
     var isCustom: Bool { customSlotIndex != nil }
 
+    /// Whether this preset is an early/experimental codec path that should be surfaced
+    /// to the user with an "Experimental" badge and extra warnings (e.g. AV2 / avmenc).
+    var isExperimental: Bool {
+        self == .av2
+    }
+
     var appliesCrop: Bool {
         switch self {
         case .streamCopy:
@@ -1646,6 +1725,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             return false // DCP audio is extracted separately as 24-bit PCM MXF
         case .imfJ2K, .imfProRes:
             return false // IMF audio is extracted separately into a per-package PCM MXF essence
+        case .av2:
+            return false // AV2 IVF output has no audio track to route
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesAudioRouting(for: slot)
@@ -1686,6 +1767,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .h264: key = AppConstants.h264VisibleKey
         case .h265: key = AppConstants.h265VisibleKey
         case .av1: key = AppConstants.av1VisibleKey
+        case .av2: key = AppConstants.av2VisibleKey
         case .tvHEVC: key = AppConstants.tvHEVCVisibleKey
         case .tvAVCIntra: key = AppConstants.tvAVCIntraVisibleKey
         case .prores: key = AppConstants.proresVisibleKey
@@ -1733,6 +1815,8 @@ extension ExportPreset {
             return false // DCP audio is in a separate MXF file
         case .imfJ2K, .imfProRes:
             return false // IMF audio essence is a separate MXF file alongside the video essence
+        case .av2:
+            return false // AV2 IVF output is video-only — avmenc does not encode audio
         case .videoLoopWithSound:
             return true
         case .audioOnly:

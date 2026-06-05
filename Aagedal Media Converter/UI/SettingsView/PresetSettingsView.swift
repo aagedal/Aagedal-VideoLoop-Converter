@@ -91,6 +91,18 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.av1FastDecodeKey) private var av1FastDecode = false
     @AppStorage(AppConstants.av1VarianceBoostKey) private var av1VarianceBoost = AppConstants.defaultAV1VarianceBoost
     @AppStorage(AppConstants.av1VarianceBoostCurveKey) private var av1VarianceBoostCurve = AppConstants.defaultAV1VarianceBoostCurve
+
+    // AV2 (experimental, avmenc) preset settings
+    @AppStorage(AppConstants.av2RateControlModeKey) private var av2RateControlMode = AppConstants.defaultAV2RateControlMode
+    @AppStorage(AppConstants.av2QualityKey) private var av2Quality = AppConstants.defaultAV2Quality
+    @AppStorage(AppConstants.av2TargetBitrateKey) private var av2TargetBitrate = AppConstants.defaultAV2TargetBitrate
+    @AppStorage(AppConstants.av2SpeedKey) private var av2Speed = AppConstants.defaultAV2Speed
+    @AppStorage(AppConstants.av2BitDepthKey) private var av2BitDepth = AppConstants.defaultAV2BitDepth
+    @AppStorage(AppConstants.av2ResolutionLimitKey) private var av2ResolutionLimit = AppConstants.defaultAV2ResolutionLimit
+    @AppStorage(AppConstants.av2ThreadsKey) private var av2Threads = AppConstants.defaultAV2Threads
+    @AppStorage(AppConstants.av2TileColumnsKey) private var av2TileColumns = AppConstants.defaultAV2TileColumns
+    @AppStorage(AppConstants.av2TileRowsKey) private var av2TileRows = AppConstants.defaultAV2TileRows
+
     @AppStorage(AppConstants.keepSubtitlesKey) private var keepSubtitles = AppConstants.defaultKeepSubtitles
 
     // Built-in preset visibility (default to true)
@@ -100,6 +112,7 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.h264VisibleKey) private var h264Visible = true
     @AppStorage(AppConstants.h265VisibleKey) private var h265Visible = true
     @AppStorage(AppConstants.av1VisibleKey) private var av1Visible = true
+    @AppStorage(AppConstants.av2VisibleKey) private var av2Visible = true
     @AppStorage(AppConstants.tvHEVCVisibleKey) private var tvHEVCVisible = true
     @AppStorage(AppConstants.tvAVCIntraVisibleKey) private var tvAVCIntraVisible = true
     @AppStorage(AppConstants.proresVisibleKey) private var proresVisible = true
@@ -210,8 +223,19 @@ struct PresetsSettingsView: View {
             // Header with preset name and default button
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(selectedPreset.displayName)
-                        .font(.title2.bold())
+                    HStack(spacing: 8) {
+                        Text(selectedPreset.displayName)
+                            .font(.title2.bold())
+                        if selectedPreset.isExperimental {
+                            Text("EXPERIMENTAL")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.2))
+                                .foregroundColor(.orange)
+                                .clipShape(Capsule())
+                        }
+                    }
                     HStack(spacing: 8) {
                         Text(selectedPreset.fileSuffix)
                         Text(".\(selectedPreset.fileExtension)")
@@ -1145,6 +1169,129 @@ struct PresetsSettingsView: View {
                             .labelsHidden()
                             .help("Higher bitrate = better audio quality and larger files.")
                         }
+                    }
+                }
+            }
+        }
+
+        if selectedPreset == .av2 {
+            settingsCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text("Experimental. AV2 is encoded by the bundled avmenc (AOM AVM) encoder and written as a video-only .ivf bitstream — no audio. The output cannot be previewed or played inside this app yet, and needs an AV2-capable decoder to view.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(8)
+                    .background(Color.orange.opacity(0.12))
+                    .cornerRadius(6)
+
+                    HStack {
+                        Text("Rate Control")
+                        Spacer()
+                        Picker("", selection: $av2RateControlMode) {
+                            ForEach(AV2RateControlMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Constant Quality targets a fixed visual quality (avmenc --qp). Target Bitrate aims for a specific average bitrate (avmenc VBR mode).")
+                    }
+
+                    if av2RateControlMode == AV2RateControlMode.constantQuality.rawValue {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Quality (QP)")
+                                Spacer()
+                                Text("\(av2Quality)")
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                            }
+                            Slider(
+                                value: Binding(
+                                    get: { Double(av2Quality) },
+                                    set: { av2Quality = Int($0.rounded()) }
+                                ),
+                                in: 0...255,
+                                step: 1
+                            )
+                            .help("avmenc --qp. Lower values mean higher quality and larger files (0 = best, 255 = smallest). Around 100–130 is a reasonable starting point for visually good quality.")
+                            HStack {
+                                Text("Best quality").font(.caption2).foregroundColor(.secondary)
+                                Spacer()
+                                Text("Smallest file").font(.caption2).foregroundColor(.secondary)
+                            }
+                        }
+                    } else {
+                        HStack {
+                            Text("Target Bitrate")
+                            Spacer()
+                            TextField("", value: $av2TargetBitrate, format: .number)
+                                .frame(width: 80)
+                                .multilineTextAlignment(.trailing)
+                                .textFieldStyle(.roundedBorder)
+                            Text("kbps").foregroundColor(.secondary)
+                        }
+                        .help("avmenc --target-bitrate in kilobits per second. The encoder aims for this average bitrate across the clip.")
+                    }
+
+                    HStack {
+                        Text("Encoding Speed")
+                        Spacer()
+                        Picker("", selection: $av2Speed) {
+                            ForEach(AV2EncodingSpeed.allCases) { speed in
+                                Text(speed.displayName).tag(speed.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("avmenc --cpu-used. Lower values encode slower but produce better quality at the same setting. AV2 reference encoding is very slow — higher values are useful for quick tests.")
+                    }
+
+                    HStack {
+                        Text("Bit Depth")
+                        Spacer()
+                        Picker("", selection: $av2BitDepth) {
+                            ForEach(AV2BitDepthOption.allCases) { depth in
+                                Text(depth.rawValue).tag(depth.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Auto matches the source (10-bit sources encode as 10-bit, otherwise 8-bit). Force 8-bit or 10-bit if you need a specific depth.")
+                    }
+
+                    HStack {
+                        Text("Resolution Limit")
+                        Spacer()
+                        Picker("", selection: $av2ResolutionLimit) {
+                            ForEach(CodecResolutionLimit.allCases) { limit in
+                                Text(limit.rawValue).tag(limit.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("Caps the short edge of the output, scaling down larger sources while preserving aspect ratio.")
+                    }
+
+                    DisclosureGroup("Advanced") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Stepper("Threads: \(av2Threads == 0 ? "Auto" : "\(av2Threads)")", value: $av2Threads, in: 0...64)
+                                .help("avmenc -t. 0 lets the app use all available cores.")
+                            Stepper("Tile Columns (log2): \(av2TileColumns)", value: $av2TileColumns, in: 0...6)
+                                .help("avmenc --tile-columns. 0 disables explicit tiling. Tiles enable more parallelism on large frames at a small efficiency cost.")
+                            Stepper("Tile Rows (log2): \(av2TileRows)", value: $av2TileRows, in: 0...6)
+                                .help("avmenc --tile-rows. 0 disables explicit tiling.")
+                        }
+                        .padding(.top, 6)
                     }
                 }
             }

@@ -538,6 +538,27 @@ enum AppConstants {
     static let av1VarianceBoostCurveKey = "av1VarianceBoostCurve"
     static let defaultAV1VarianceBoostCurve = "Linear (0)"
 
+    // AV2 (experimental) preset settings — encoded by the bundled external `avmenc` (AOM AVM
+    // reference encoder), not FFmpeg. Output is a video-only `.ivf` AV2 bitstream.
+    static let av2RateControlModeKey = "av2RateControlMode"
+    static let defaultAV2RateControlMode = "Constant Quality"   // AV2RateControlMode raw value
+    static let av2QualityKey = "av2Quality"                     // avmenc --qp (0–255, lower = better)
+    static let defaultAV2Quality = 110
+    static let av2TargetBitrateKey = "av2TargetBitrate"         // avmenc --target-bitrate (kbps, VBR mode)
+    static let defaultAV2TargetBitrate = 4000
+    static let av2SpeedKey = "av2Speed"                         // avmenc --cpu-used (0 slow/best … 9 fast)
+    static let defaultAV2Speed = 4
+    static let av2BitDepthKey = "av2BitDepth"                   // AV2BitDepthOption raw value
+    static let defaultAV2BitDepth = "Auto"
+    static let av2ThreadsKey = "av2Threads"                     // avmenc -t (0 = auto / all cores)
+    static let defaultAV2Threads = 0
+    static let av2TileColumnsKey = "av2TileColumns"             // avmenc --tile-columns log2 (0 = auto)
+    static let defaultAV2TileColumns = 0
+    static let av2TileRowsKey = "av2TileRows"                   // avmenc --tile-rows log2 (0 = auto)
+    static let defaultAV2TileRows = 0
+    static let av2ResolutionLimitKey = "av2ResolutionLimit"     // CodecResolutionLimit raw value
+    static let defaultAV2ResolutionLimit = "Unlimited"
+
     // Subtitle preservation
     static let keepSubtitlesKey = "keepSubtitles"
     static let defaultKeepSubtitles = false
@@ -553,6 +574,7 @@ enum AppConstants {
     static let h264VisibleKey = "h264Visible"
     static let h265VisibleKey = "h265Visible"
     static let av1VisibleKey = "av1Visible"
+    static let av2VisibleKey = "av2Visible"
     static let tvHEVCVisibleKey = "tvHEVCVisible"
     static let tvAVCIntraVisibleKey = "tvAVCIntraVisible"
     static let proresVisibleKey = "proresVisible"

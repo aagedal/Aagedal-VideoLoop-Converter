@@ -25,6 +25,9 @@ private actor StderrCollector {
 
 actor FFMPEGConverter {
     private var currentProcess: Process?
+    /// Secondary process for multi-process pipelines (e.g. the AV2 ffmpeg→avmenc pipe).
+    /// Tracked separately so `cancelConversion()` can terminate both halves.
+    private var auxProcess: Process?
 
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGConverter")
 
@@ -350,6 +353,21 @@ actor FFMPEGConverter {
                 tempMXFURL: tempMXFURL,
                 outputFileURL: outputFileURL,
                 waveformBackgroundImageURL: request.waveformBackgroundImageURL,
+                progressUpdate: progressUpdate,
+                completion: completion
+            )
+            return
+        }
+
+        // MARK: Experimental AV2 branch (ffmpeg decode → avmenc encode, two-process pipe)
+        if preset == .av2 {
+            await runAV2Conversion(
+                inputURL: inputURL,
+                outputFileURL: outputFileURL,
+                ffmpegPath: ffmpegPath,
+                trimStart: request.trimStart,
+                trimEnd: request.trimEnd,
+                cropConfig: request.cropConfig,
                 progressUpdate: progressUpdate,
                 completion: completion
             )
@@ -1316,6 +1334,24 @@ actor FFMPEGConverter {
         return truncateForDisplay("\(base): \(lastLine)")
     }
 
+    /// Extracts a concise reason from avmenc stderr. The encoder's actionable message
+    /// (e.g. "Fatal: …", "Error: …") is typically the last meaningful line it prints.
+    private static func extractAvmencErrorReason(from stderr: String, exitCode: Int32) -> String {
+        let lines = stderr.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if let explicit = lines.last(where: {
+            let lower = $0.lowercased()
+            return lower.hasPrefix("fatal") || lower.contains("error") || lower.contains("unsupported")
+        }) {
+            return truncateForDisplay("AV2 encoder: \(explicit)")
+        }
+        if let last = lines.last {
+            return truncateForDisplay("AV2 encoder failed: \(last)")
+        }
+        return "AV2 encoder failed (exit \(exitCode))"
+    }
+
     /// Extracts a concise, user-facing error reason from FFmpeg stderr output.
     private static func extractErrorReason(from stderr: String, exitCode: Int32) -> String {
         let lines = stderr.components(separatedBy: .newlines).reversed()
@@ -1408,6 +1444,180 @@ actor FFMPEGConverter {
     // MARK: - Native Waveform Conversion (Swift Renderer)
 
     /// Runs the native waveform pipeline: decode PCM → FFT → Swift-rendered frames → pipe to FFmpeg.
+    /// Runs the experimental AV2 export as a two-process pipe: ffmpeg decodes/trims/scales
+    /// the source to y4m on stdout, which is piped into avmenc's stdin; avmenc writes the
+    /// final video-only `.ivf`. ffmpeg's stderr drives the standard progress parser — pipe
+    /// backpressure makes its frame counter advance at avmenc's actual encode rate.
+    private func runAV2Conversion(
+        inputURL: URL,
+        outputFileURL: URL,
+        ffmpegPath: String,
+        trimStart: Double?,
+        trimEnd: Double?,
+        cropConfig: CropConfig?,
+        progressUpdate: @escaping @Sendable (Double, String?) -> Void,
+        completion: @escaping @Sendable (Bool, String?) -> Void
+    ) async {
+        guard let avmencPath = BinaryPathResolver.avmencPath else {
+            Self.logger.error("avmenc binary not found in app bundle")
+            completion(false, "AV2 encoder (avmenc) not found in the app bundle")
+            return
+        }
+
+        guard let command = await AV2CommandBuilder.build(
+            inputURL: inputURL,
+            outputURL: outputFileURL,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            cropConfig: cropConfig
+        ) else {
+            completion(false, "Could not determine source video dimensions for AV2 encoding")
+            return
+        }
+
+        let ffmpeg = Process()
+        ffmpeg.executableURL = URL(fileURLWithPath: ffmpegPath)
+        ffmpeg.arguments = command.ffmpegArguments
+
+        let avmenc = Process()
+        avmenc.executableURL = URL(fileURLWithPath: avmencPath)
+        avmenc.arguments = command.avmencArguments
+
+        // Bridge: ffmpeg stdout → avmenc stdin (same Pipe object on both ends).
+        let bridgePipe = Pipe()
+        ffmpeg.standardOutput = bridgePipe
+        avmenc.standardInput = bridgePipe
+
+        let ffmpegErrPipe = Pipe()
+        let avmencErrPipe = Pipe()
+        ffmpeg.standardError = ffmpegErrPipe
+        ffmpeg.standardInput = FileHandle.nullDevice
+        avmenc.standardError = avmencErrPipe
+        avmenc.standardOutput = FileHandle.nullDevice
+
+        await setCurrentProcess(ffmpeg)
+        await setAuxProcess(avmenc)
+
+        Self.logger.info("AV2 ffmpeg: \(ffmpegPath, privacy: .public) \(command.ffmpegArguments.joined(separator: " "), privacy: .public)")
+        Self.logger.info("AV2 avmenc: \(avmencPath, privacy: .public) \(command.avmencArguments.joined(separator: " "), privacy: .public)")
+
+        // Progress wiring on ffmpeg's stderr — identical to the standard single-process path.
+        let totalDurationBox = DurationBox()
+        let effectiveDurationBox = DurationBox()
+        totalDurationBox.value = command.effectiveDuration
+        effectiveDurationBox.value = command.effectiveDuration
+        let frameStallTracker = FrameStallTracker()
+        let progressThrottler = ProgressThrottler()
+        let frameRate = command.frameRate ?? 24.0
+        let ffmpegStderr = StderrCollector()
+        let avmencStderr = StderrCollector()
+
+        ffmpegErrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if let output = String(data: data, encoding: .utf8), !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let (newTotal, _) = FFMPEGProgressParser.handleOutput(
+                    output,
+                    totalDuration: totalDurationBox.value,
+                    effectiveDuration: effectiveDurationBox.value,
+                    frameRate: frameRate,
+                    frameStallTracker: frameStallTracker,
+                    progressThrottler: progressThrottler,
+                    progressUpdate: progressUpdate
+                )
+                if let newTotal { totalDurationBox.value = newTotal }
+            }
+            if !data.isEmpty { Task { await ffmpegStderr.append(data) } }
+        }
+
+        // avmenc prints per-frame progress and any errors to stderr; drain it continuously so
+        // the encoder never blocks on a full stderr buffer, and keep it for diagnostics.
+        avmencErrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty { Task { await avmencStderr.append(data) } }
+        }
+
+        // 2-of-2 termination barrier: finalize only after BOTH processes have exited
+        // (the .ivf isn't fully flushed until avmenc terminates).
+        let exitState = OSAllocatedUnfairLock<(ffmpeg: Int32?, avmenc: Int32?, resumed: Bool)>(initialState: (nil, nil, false))
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            @Sendable func resumeIfBothFinished() {
+                let shouldResume = exitState.withLock { state -> Bool in
+                    guard state.ffmpeg != nil, state.avmenc != nil, !state.resumed else { return false }
+                    state.resumed = true
+                    return true
+                }
+                if shouldResume { continuation.resume() }
+            }
+
+            ffmpeg.terminationHandler = { process in
+                exitState.withLock { $0.ffmpeg = process.terminationStatus }
+                resumeIfBothFinished()
+            }
+            avmenc.terminationHandler = { process in
+                exitState.withLock { $0.avmenc = process.terminationStatus }
+                resumeIfBothFinished()
+            }
+
+            do {
+                // Start the consumer (avmenc) before the producer (ffmpeg).
+                try avmenc.run()
+                try ffmpeg.run()
+                // Release the parent's copies of the bridge fds so EOF propagates correctly:
+                // when ffmpeg exits, the last writer closes and avmenc sees end-of-input; if
+                // avmenc dies first, ffmpeg's next write gets SIGPIPE and it exits.
+                try? bridgePipe.fileHandleForWriting.close()
+                try? bridgePipe.fileHandleForReading.close()
+            } catch {
+                Self.logger.error("AV2: failed to launch pipeline: \(error.localizedDescription, privacy: .public)")
+                if avmenc.isRunning { avmenc.terminate() }
+                if ffmpeg.isRunning { ffmpeg.terminate() }
+                // Synthesize terminations for whichever side never started so the barrier resumes.
+                exitState.withLock { state in
+                    if state.ffmpeg == nil { state.ffmpeg = -1 }
+                    if state.avmenc == nil { state.avmenc = -1 }
+                }
+                resumeIfBothFinished()
+            }
+        }
+
+        // Both processes have exited.
+        ffmpegErrPipe.fileHandleForReading.readabilityHandler = nil
+        avmencErrPipe.fileHandleForReading.readabilityHandler = nil
+        await setCurrentProcess(nil)
+        await setAuxProcess(nil)
+
+        let (ffmpegStatus, avmencStatus) = exitState.withLock { ($0.ffmpeg ?? -1, $0.avmenc ?? -1) }
+        var success = ffmpegStatus == 0 && avmencStatus == 0
+        var errorReason: String? = nil
+
+        if success, let validationError = Self.validateOutputFile(at: outputFileURL) {
+            success = false
+            errorReason = validationError
+        }
+
+        if !success {
+            // Prefer avmenc's stderr when avmenc failed: if avmenc dies first, ffmpeg exits via
+            // SIGPIPE (141) — a symptom, not the root cause.
+            if avmencStatus != 0 {
+                let stderrString = String(data: await avmencStderr.snapshot(), encoding: .utf8) ?? ""
+                errorReason = Self.extractAvmencErrorReason(from: stderrString, exitCode: avmencStatus)
+            } else if errorReason == nil {
+                let stderrString = String(data: await ffmpegStderr.snapshot(), encoding: .utf8) ?? ""
+                errorReason = Self.extractErrorReason(from: stderrString, exitCode: ffmpegStatus)
+            }
+            if FileManager.default.fileExists(atPath: outputFileURL.path) {
+                Self.cleanupTempFile(at: outputFileURL, label: "partial AV2 .ivf")
+            }
+            Self.logger.error("AV2 failed (ffmpeg=\(ffmpegStatus), avmenc=\(avmencStatus)): \(errorReason ?? "unknown", privacy: .public)")
+        } else {
+            progressUpdate(1.0, nil)
+            Self.logger.info("AV2 encode complete: \(outputFileURL.lastPathComponent, privacy: .public)")
+        }
+
+        completion(success, errorReason)
+    }
+
     private func runNativeWaveformConversion(
         inputURL: URL,
         ffmpegOutputURL: URL,
@@ -1823,11 +2033,17 @@ actor FFMPEGConverter {
 
     func cancelConversion() async {
         currentProcess?.terminate()
+        auxProcess?.terminate()
         await setCurrentProcess(nil)
+        await setAuxProcess(nil)
     }
 
     private func setCurrentProcess(_ process: Process?) async {
         self.currentProcess = process
+    }
+
+    private func setAuxProcess(_ process: Process?) async {
+        self.auxProcess = process
     }
 
     private final class DurationBox: Sendable {

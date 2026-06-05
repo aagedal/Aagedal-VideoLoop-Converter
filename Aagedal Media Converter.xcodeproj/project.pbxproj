@@ -125,6 +125,7 @@
 		8EEE45202EBF81FD0049F017 /* VideoMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE451F2EBF81FD0049F017 /* VideoMetadataService.swift */; };
 		8EEE452B2EC139000049F017 /* ExportPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452A2EC138FA0049F017 /* ExportPreset.swift */; };
 		8EEE452D2EC1390F0049F017 /* FFMPEGCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */; };
+		AF23AF23AF23AF23AF23AF23 /* AV2CommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */; };
 		8EEE452F2EC139190049F017 /* FFMPEGProbeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE452E2EC139120049F017 /* FFMPEGProbeService.swift */; };
 		8EEE45312EC139270049F017 /* FFMPEGProgressParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE45302EC1391C0049F017 /* FFMPEGProgressParser.swift */; };
 		8EEE453B2EC13E8C0049F017 /* ConversionToolbarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EEE453A2EC13E840049F017 /* ConversionToolbarView.swift */; };
@@ -167,6 +168,7 @@
 		DCAB5042D7F99ED919EF7D29 /* WaveformFramePipeWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F6F70AFCCF6F2348370C3A /* WaveformFramePipeWriter.swift */; };
 		DLHIST001SERV00000001 /* DownloadHistoryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DLHIST001SERV00000002 /* DownloadHistoryService.swift */; };
 		E22C3CB47572F41BA23EAF92 /* bmxtranswrap in Resources */ = {isa = PBXBuildFile; fileRef = 8488177BC5403EC6637A5C25 /* bmxtranswrap */; };
+		AF21AF21AF21AF21AF21AF21 /* avmenc in Resources */ = {isa = PBXBuildFile; fileRef = AF20AF20AF20AF20AF20AF20 /* avmenc */; };
 		E69050ED114BBF6B493BE257 /* URLInputOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */; };
 		ENCGRP00000000001 /* EncodingGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRP00000000002 /* EncodingGroup.swift */; };
 		ENCGRPCELL00000001 /* EncodingGroupHeaderCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ENCGRPCELL00000002 /* EncodingGroupHeaderCellView.swift */; };
@@ -265,6 +267,7 @@
 		7E5111202605110001A03A02 /* InstallSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstallSource.swift; sourceTree = "<group>"; };
 		7E5111202605110002A03A02 /* SparkleUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SparkleUpdater.swift; sourceTree = "<group>"; };
 		8488177BC5403EC6637A5C25 /* bmxtranswrap */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = bmxtranswrap; sourceTree = "<group>"; };
+		AF20AF20AF20AF20AF20AF20 /* avmenc */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = avmenc; sourceTree = "<group>"; };
 		8DB61275F62951C0011F36D8 /* MetadataWindowContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataWindowContent.swift; sourceTree = "<group>"; };
 		8E04BE112ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSpeedIndicator.swift; sourceTree = "<group>"; };
 		8E04BE132ED274D7005AD3D8 /* Aagedal-Media-Converter-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Aagedal-Media-Converter-Info.plist"; sourceTree = SOURCE_ROOT; };
@@ -365,6 +368,7 @@
 		8EEE451F2EBF81FD0049F017 /* VideoMetadataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadataService.swift; sourceTree = "<group>"; };
 		8EEE452A2EC138FA0049F017 /* ExportPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportPreset.swift; sourceTree = "<group>"; };
 		8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGCommandBuilder.swift; sourceTree = "<group>"; };
+		AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV2CommandBuilder.swift; sourceTree = "<group>"; };
 		8EEE452E2EC139120049F017 /* FFMPEGProbeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGProbeService.swift; sourceTree = "<group>"; };
 		8EEE45302EC1391C0049F017 /* FFMPEGProgressParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFMPEGProgressParser.swift; sourceTree = "<group>"; };
 		8EEE453A2EC13E840049F017 /* ConversionToolbarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionToolbarView.swift; sourceTree = "<group>"; };
@@ -544,6 +548,7 @@
 			children = (
 				8EFBDA8F2EA56F8E005ADDCF /* ffmpeg */,
 				8488177BC5403EC6637A5C25 /* bmxtranswrap */,
+				AF20AF20AF20AF20AF20AF20 /* avmenc */,
 				D8EBD41EE1711E209C16F57C /* mxf2raw */,
 				8EA817D32F71840E00F9F10C /* asdcp-wrap */,
 				8EA25FEA2F82D6730087B1F1 /* tesseract */,
@@ -791,6 +796,7 @@
 				8EEE45302EC1391C0049F017 /* FFMPEGProgressParser.swift */,
 				8EEE452E2EC139120049F017 /* FFMPEGProbeService.swift */,
 				8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */,
+				AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */,
 				8EEE452A2EC138FA0049F017 /* ExportPreset.swift */,
 				8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */,
 				67BAE582711E2F5E020591A9 /* ConversionRequest.swift */,
@@ -1124,6 +1130,7 @@
 				8EE424DF2FAB6AB600AE0A1E /* bmxparse in Resources */,
 				8EE424E02FAB6AB600AE0A1E /* raw2bmx in Resources */,
 				E22C3CB47572F41BA23EAF92 /* bmxtranswrap in Resources */,
+				AF21AF21AF21AF21AF21AF21 /* avmenc in Resources */,
 				6FEB07F32A610D999000F78C /* mxf2raw in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1243,6 +1250,7 @@
 				8E08B2822EAA2871000148A8 /* WatchFolderManager.swift in Sources */,
 				8E545D832C33FD4A0088C274 /* DragAndDropView.swift in Sources */,
 				8EEE452D2EC1390F0049F017 /* FFMPEGCommandBuilder.swift in Sources */,
+				AF23AF23AF23AF23AF23AF23 /* AV2CommandBuilder.swift in Sources */,
 				8EC9A6F72EC149010082C67F /* PreviewTrimControls.swift in Sources */,
 				8EC9A6F82EC149010082C67F /* PreviewPlayerFooter.swift in Sources */,
 				8E4DF2712ECBAD4B007B6277 /* WaveformSettingsView.swift in Sources */,

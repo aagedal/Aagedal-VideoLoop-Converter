@@ -64,6 +64,14 @@ enum BinaryPathResolver {
         Bundle.main.path(forResource: "raw2bmx", ofType: nil)
     }
 
+    // MARK: - AV2 (experimental)
+
+    /// Resolves the path to the bundled avmenc binary (AOM AVM reference AV2 encoder).
+    /// Bundled-only — there is no homebrew/custom override for this experimental encoder.
+    static var avmencPath: String? {
+        Bundle.main.path(forResource: "avmenc", ofType: nil)
+    }
+
     // MARK: - Version Info
 
     /// Gets the version of a binary by running it with --version

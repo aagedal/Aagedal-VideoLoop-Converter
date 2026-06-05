@@ -33,6 +33,7 @@ final class PresetManager {
     private var h264Visible: Bool
     private var h265Visible: Bool
     private var av1Visible: Bool
+    private var av2Visible: Bool
     private var tvHEVCVisible: Bool
     private var tvAVCIntraVisible: Bool
     private var proresVisible: Bool
@@ -69,6 +70,7 @@ final class PresetManager {
         h264Visible = defaults.object(forKey: AppConstants.h264VisibleKey) as? Bool ?? true
         h265Visible = defaults.object(forKey: AppConstants.h265VisibleKey) as? Bool ?? true
         av1Visible = defaults.object(forKey: AppConstants.av1VisibleKey) as? Bool ?? true
+        av2Visible = defaults.object(forKey: AppConstants.av2VisibleKey) as? Bool ?? true
         tvHEVCVisible = defaults.object(forKey: AppConstants.tvHEVCVisibleKey) as? Bool ?? true
         tvAVCIntraVisible = defaults.object(forKey: AppConstants.tvAVCIntraVisibleKey) as? Bool ?? true
         proresVisible = defaults.object(forKey: AppConstants.proresVisibleKey) as? Bool ?? true
@@ -96,6 +98,7 @@ final class PresetManager {
             case .h264: return h264Visible
             case .h265: return h265Visible
             case .av1: return av1Visible
+            case .av2: return av2Visible
             case .tvHEVC: return tvHEVCVisible
             case .tvAVCIntra: return tvAVCIntraVisible
             case .prores: return proresVisible
@@ -173,6 +176,7 @@ final class PresetManager {
         h264Visible = defaults.object(forKey: AppConstants.h264VisibleKey) as? Bool ?? true
         h265Visible = defaults.object(forKey: AppConstants.h265VisibleKey) as? Bool ?? true
         av1Visible = defaults.object(forKey: AppConstants.av1VisibleKey) as? Bool ?? true
+        av2Visible = defaults.object(forKey: AppConstants.av2VisibleKey) as? Bool ?? true
         tvHEVCVisible = defaults.object(forKey: AppConstants.tvHEVCVisibleKey) as? Bool ?? true
         tvAVCIntraVisible = defaults.object(forKey: AppConstants.tvAVCIntraVisibleKey) as? Bool ?? true
         proresVisible = defaults.object(forKey: AppConstants.proresVisibleKey) as? Bool ?? true
