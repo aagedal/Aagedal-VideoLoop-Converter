@@ -982,14 +982,15 @@ struct CaptureControlPanelView: View {
 
     private func notifyDisplayChanged() {
         let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
-        let screen: NSScreen
+        let screen: NSScreen?
         if let displayID, let s = NSScreen.screens.first(where: {
             ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
         }) {
             screen = s
         } else {
-            screen = NSScreen.main ?? NSScreen.screens[0]
+            screen = NSScreen.main ?? NSScreen.screens.first
         }
+        guard let screen else { return } // no active displays — nothing to notify about
         onDisplayChanged(screen, selectedRegionRect)
     }
 }

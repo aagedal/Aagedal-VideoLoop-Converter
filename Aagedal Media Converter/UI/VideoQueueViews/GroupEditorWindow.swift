@@ -374,7 +374,17 @@ struct GroupEditorView: View {
     private func applySort(_ mode: GroupEditorSortMode) {
         group.lastSortMode = mode.queueSortMode
         guard let sortMode = mode.queueSortMode else { return }
-        group.items.sort(by: GroupEditorComparators.comparator(for: sortMode))
+        // Stat each file at most once instead of on every comparison.
+        let needsDate = (sortMode == .dateOldest || sortMode == .dateNewest)
+        var dateMap: [URL: Date] = [:]
+        if needsDate {
+            for item in group.items where dateMap[item.url] == nil {
+                dateMap[item.url] = GroupEditorComparators.creationDate(for: item.url)
+            }
+        }
+        let dateByURL = dateMap
+        let provider: ((URL) -> Date)? = needsDate ? { dateByURL[$0] ?? .distantPast } : nil
+        group.items.sort(by: GroupEditorComparators.comparator(for: sortMode, dateProvider: provider))
         if group.sequentialNamingEnabled {
             group.normalizeSequentialNaming()
         }
@@ -401,20 +411,28 @@ struct GroupEditorView: View {
 /// Shared sort comparators. Kept in this file so the editor is self-contained;
 /// the main-queue equivalent in `VideoFileListView` uses the same logic.
 enum GroupEditorComparators {
-    static func comparator(for mode: QueueSortMode) -> (VideoItem, VideoItem) -> Bool {
+    /// `dateProvider` lets callers inject a memoized creation-date lookup so a sort
+    /// doesn't re-`stat` the same file on every comparison; it defaults to a direct
+    /// (uncached) disk read for callers that don't care.
+    static func comparator(
+        for mode: QueueSortMode,
+        dateProvider: ((URL) -> Date)? = nil
+    ) -> (VideoItem, VideoItem) -> Bool {
         switch mode {
         case .filenameAscending:
             return { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .filenameDescending:
             return { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
         case .dateOldest:
-            return { creationDate(for: $0.url) < creationDate(for: $1.url) }
+            let date = dateProvider ?? creationDate
+            return { date($0.url) < date($1.url) }
         case .dateNewest:
-            return { creationDate(for: $0.url) > creationDate(for: $1.url) }
+            let date = dateProvider ?? creationDate
+            return { date($0.url) > date($1.url) }
         }
     }
 
-    private static func creationDate(for url: URL) -> Date {
+    static func creationDate(for url: URL) -> Date {
         let values = try? url.resourceValues(forKeys: [.creationDateKey])
         return values?.creationDate ?? Date.distantPast
     }

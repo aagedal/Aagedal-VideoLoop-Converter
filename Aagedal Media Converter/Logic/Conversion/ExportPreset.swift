@@ -2179,44 +2179,55 @@ extension ExportPreset {
         var current = ""
         var quote: Character?
         var isEscaping = false
-        
+        // Tracks whether a token is in progress so an *explicitly* empty quoted
+        // argument (e.g. `-vf ""`) is emitted as "" rather than silently dropped.
+        // Dropping it would shift every following token onto the wrong flag.
+        var hasToken = false
+
+        func flush() {
+            if hasToken {
+                args.append(current)
+                current = ""
+                hasToken = false
+            }
+        }
+
         for char in command {
             if isEscaping {
                 current.append(char)
+                hasToken = true
                 isEscaping = false
                 continue
             }
-            
+
             if char == "\\" {
                 isEscaping = true
                 continue
             }
-            
+
             if char == "\"" || char == "'" {
                 if quote == char {
                     quote = nil
                 } else if quote == nil {
                     quote = char
+                    hasToken = true // an opening quote starts a token even if it stays empty
                 } else {
                     current.append(char)
+                    hasToken = true
                 }
                 continue
             }
-            
+
             if char.isWhitespace && quote == nil {
-                if !current.isEmpty {
-                    args.append(current)
-                    current = ""
-                }
+                flush()
             } else {
                 current.append(char)
+                hasToken = true
             }
         }
-        
-        if !current.isEmpty {
-            args.append(current)
-        }
-        
+
+        flush()
+
         return args
     }
 

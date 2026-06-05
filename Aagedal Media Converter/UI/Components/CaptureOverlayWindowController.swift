@@ -61,7 +61,10 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
 
         isShowing = true
 
-        let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens[0]
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            isShowing = false // no active displays — abort the overlay
+            return
+        }
 
         NSApp.hide(nil)
 
@@ -300,8 +303,8 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate {
             },
             onRegionModeChanged: { [weak self] isRegion in
                 guard let self else { return }
-                let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens[0]
                 if isRegion {
+                    guard let screen = panel.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
                     let regionX = UserDefaults.standard.double(forKey: AppConstants.captureRegionXKey)
                     let regionY = UserDefaults.standard.double(forKey: AppConstants.captureRegionYKey)
                     let regionW = UserDefaults.standard.double(forKey: AppConstants.captureRegionWidthKey)
