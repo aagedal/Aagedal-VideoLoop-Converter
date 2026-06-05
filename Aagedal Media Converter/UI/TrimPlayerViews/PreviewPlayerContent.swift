@@ -33,6 +33,29 @@ struct PreviewPlayerContent: View {
         controller.player != nil || (controller.useMPV && controller.mpvPlayer != nil) || controller.useImageSequence
     }
 
+    /// True for input formats the app accepts but cannot decode for preview (e.g. AV2 .ivf).
+    private var isFormatUnsupportedForPreview: Bool {
+        AppConstants.previewUnsupportedExtensions.contains(item.url.pathExtension.lowercased())
+    }
+
+    private var formatUnsupportedView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "eye.slash")
+                .foregroundColor(.white.opacity(0.7))
+                .font(.system(size: 40))
+            Text("Preview not available for this format")
+                .font(.headline)
+                .foregroundColor(.white)
+            Text("\(item.url.pathExtension.uppercased()) files can be queued and encoded, but can't be played back inside the app yet.")
+                .font(.footnote)
+                .foregroundColor(.white.opacity(0.8))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var previewAvailabilityKey: PreviewAvailabilityKey {
         PreviewAvailabilityKey(
             isPreviewAvailable: isPreviewAvailable,
@@ -61,7 +84,9 @@ struct PreviewPlayerContent: View {
 
     var body: some View {
         Group {
-            if let player = controller.player {
+            if isFormatUnsupportedForPreview {
+                formatUnsupportedView
+            } else if let player = controller.player {
                 ZStack {
                     playbackBackground()
 

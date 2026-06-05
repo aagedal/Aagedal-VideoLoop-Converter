@@ -229,6 +229,16 @@ final class PreviewPlayerController: ObservableObject {
         let url = videoItem.url
         let fileExtension = url.pathExtension.lowercased()
 
+        // Formats with no in-app decoder (e.g. AV2 .ivf): don't attempt any player or asset
+        // generation — the preview UI shows a "not previewable" message for these instead.
+        if AppConstants.previewUnsupportedExtensions.contains(fileExtension) {
+            logger.info("Preview unavailable for unsupported format: \(url.lastPathComponent, privacy: .public)")
+            isPreparing = false
+            isReady = false
+            isLoadingPreviewAssets = false
+            return
+        }
+
         // Force MPV for container formats that AVPlayer doesn't support well
         // MKV, WebM, AVI, FLV etc. often fail silently with AVPlayer
         let avPlayerUnsupportedContainers = ["mkv", "webm", "avi", "flv", "wmv", "ogv", "ts", "mts", "m2ts"]

@@ -105,8 +105,14 @@ enum AppConstants {
         "ogg", "ogm", "ogv", "opus", "qt",
         "rm", "rmvb", "roq", "svi", "tod",
         "trp", "ts", "vob", "wav", "webm",
-        "wma", "wmv", "wtv", "y4m"
+        "wma", "wmv", "wtv", "y4m", "ivf"
     ]
+
+    /// Input extensions the app accepts but cannot decode for in-app preview, because no
+    /// available decoder (AVFoundation, VLCKit, or the bundled FFmpeg) supports the codec.
+    /// Currently AV2 `.ivf` bitstreams produced by the experimental AV2 preset — they can be
+    /// queued, but the preview shows a "format not previewable" message instead of a player.
+    static let previewUnsupportedExtensions: Set<String> = ["ivf"]
 
     // Supported image sequence file extensions (lowercase)
     static let supportedImageSequenceExtensions: Set<String> = [
