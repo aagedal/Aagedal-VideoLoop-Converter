@@ -312,6 +312,26 @@ actor VideoMetadataService {
 
     /// Checks whether the file has at least one timed video track (excluding cover art).
     /// SwiftExif memory-maps the file so this stays fast even for multi-gigabyte inputs.
+    /// AV2 `.ivf` sources can't be read by SwiftExif or AVFoundation, so derive their essential
+    /// video info (dimensions, frame-rate-derived duration) directly from the IVF container
+    /// header. Without this they're misclassified as non-video and routed through the audio /
+    /// waveform-synthesis path. Returns nil for anything that isn't a recognizable AV2 `.ivf`.
+    private func av2EssentialInfo(for url: URL) -> EssentialVideoInfo? {
+        guard url.pathExtension.lowercased() == "ivf",
+              let header = IVFHeaderParser.parse(url: url), header.isAV2 else {
+            return nil
+        }
+        return EssentialVideoInfo(
+            duration: header.durationSeconds ?? 0,
+            hasVideoStream: true,
+            videoStreamCount: 1,
+            hasAudioStream: false,
+            primaryCodec: "av2",
+            width: header.width,
+            height: header.height
+        )
+    }
+
     func hasVideoStream(for url: URL) async -> Bool {
         if let cached = hasVideoStreamCache.object(forKey: url as NSURL) {
             return cached.value
@@ -320,6 +340,11 @@ actor VideoMetadataService {
         if let cached = essentialInfoCache.object(forKey: url as NSURL) {
             hasVideoStreamCache.setObject(CachedBool(value: cached.info.hasVideoStream), forKey: url as NSURL)
             return cached.info.hasVideoStream
+        }
+
+        if av2EssentialInfo(for: url) != nil {
+            hasVideoStreamCache.setObject(CachedBool(value: true), forKey: url as NSURL)
+            return true
         }
 
         let scope = startAccess(for: url)
@@ -380,6 +405,13 @@ actor VideoMetadataService {
     private func performFetchEssentialInfo(for url: URL) async throws -> EssentialVideoInfo {
         let scope = startAccess(for: url)
         defer { stopAccess(scope, for: url) }
+
+        // AV2 .ivf: derive video info from the IVF header (SwiftExif/AVFoundation can't read it).
+        if let av2Info = av2EssentialInfo(for: url) {
+            essentialInfoCache.setObject(CachedEssentialInfo(info: av2Info), forKey: url as NSURL)
+            hasVideoStreamCache.setObject(CachedBool(value: true), forKey: url as NSURL)
+            return av2Info
+        }
 
         let info: EssentialVideoInfo
         if SwiftExifMediaProbe.canReadVideo(url) {
