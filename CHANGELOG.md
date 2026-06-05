@@ -1,3 +1,46 @@
+# v.4.2.0
+
+The headline is experimental **AV2 encoding** via the bundled AOM AVM reference encoder — full round-trip (encode, decode, thumbnails, preview-not-available messaging), parallel chunked encoding that actually uses your cores, and Matroska muxing so the bitstream lands in a real container. Alongside it: opt-in **settings & custom-preset sync** across Macs, a much faster queue sort, and a handful of crash and correctness fixes.
+
+## AV2 encoding (experimental)
+
+> ⚠️ **Experimental.** AV2 isn't in FFmpeg yet, so encoding goes through the AOM AVM reference encoder, which is inherently very slow (tens of seconds per frame at HD even at the fastest preset). Output is a young, evolving bitstream — treat it as a preview, not a delivery format.
+
+- **New `.av2` export preset.** Encoded by the bundled `avmenc` over a two-process pipe: FFmpeg decodes / trims / scales to Y4M, piped into `avmenc`. Supports Constant-Quality (`--qp`) and VBR (`--target-bitrate`) modes, 8/10-bit, speed, and tiling, with an **EXPERIMENTAL** badge and a video-only warning in the AV2 settings card.
+- **Parallel chunked encoding.** The clip is split into one frame-range chunk per core and a separate `avmenc` runs per chunk, then the segment `.ivf` files are joined in Swift. This scales far better than AVM's tile threading and compresses better (no tile boundaries). Auto-on, with a single-process escape hatch; Constant-Quality only (VBR can't span chunk boundaries). A configurable chunk count lives in AV2 settings.
+- **Auto-tiling for single-process encodes.** AVM only parallelizes across tiles, so an untiled encode runs effectively single-threaded. When tiling is left on **Auto (0)**, tile columns/rows are now derived from the frame size (keeping each tile ≥ ~256px) — measured ~30% faster on an 18-core machine. Explicit tile values are still respected. Default speed is now the fastest `avmenc` setting (cpu-used 9).
+- **Matroska muxing.** FFmpeg can't write AV2, so a new in-app muxer writes a `.mkv` with a `V_AV2` video track plus audio (AAC in ADTS, or Opus in Ogg with proper `OpusHead` / CodecDelay / SeekPreRoll). The AV2 CodecPrivate is harvested from a one-frame `avmenc --webm` probe; video frames are copied verbatim from the IVF. New AV2 settings choose the container (IVF / Matroska) and audio codec + bitrate.
+- **Full decode round-trip.** `.ivf` and AV2-in-Matroska (`.mkv` / `.webm`) sources now decode through `avmdec` → FFmpeg, so AV2 is a real input, not encode-only. Decoding goes via self-describing **Y4M**, so 4:2:0 / 4:2:2 / 4:4:4 and 8/10-bit are all preserved instead of being silently downsampled to 4:2:0. Verified: AV2 `.mkv` → HEVC and ProRes 422 with audio intact.
+- **Queue rows and thumbnails for AV2.** `.ivf` files are classified as video (dimensions and duration read from the IVF header in pure Swift, since FFmpeg/SwiftExif can't probe AV2), so they show a real duration and a decoded thumbnail and route correctly when transcoded to another video preset. The interactive trim player shows a clear "Preview not available for this format" message — there's no AV2 decoder in AVFoundation / VLCKit / MPV yet.
+- **Accurate encode progress.** Progress is now driven by `avmenc`'s per-frame `POC:` output rather than FFmpeg (which only decodes the source and finishes in seconds), so the bar tracks the real encode instead of pinning at 100% while `avmenc` is still working.
+- **`avmenc` / `avmdec` are codesigned** with the Developer ID Application identity, hardened runtime, and a secure timestamp — matching the other bundled CLI tools so notarization passes.
+
+## Settings & custom-preset sync
+
+- **Sync an allowlisted slice of settings across Macs** — your 10 custom presets, codec settings, file-naming, waveform, and general preferences — as a single versioned JSON snapshot. Off by default.
+- Because this is a non-App-Store build with no iCloud entitlement, **"iCloud sync" writes the snapshot into the iCloud Drive folder on disk** (CloudDocs), which the OS syncs automatically. The same format also powers a **custom folder** target and manual **Export / Import** from the File menu.
+- Machine-specific data (folder paths, bookmarks, binary install state, upload credentials) is deliberately excluded from the allowlist. A rolling local backup is taken before every apply, with newest-wins-and-notify, loop guards, and graceful handling when iCloud Drive is off. New **Sync** settings tab; an "updated from <Mac>" toast confirms an incoming change.
+
+## Performance
+
+- **Much faster queue sort with many items.** Sorting resolved each item's sort key lazily inside the comparator, so every one of the O(n log n) comparisons did an O(n) scan *and* a synchronous disk stat for the creation date — one keypress fired thousands of blocking `stat` calls on the main thread (part of the "lagging with many queued items" symptom). Keys are now resolved once up front (each file stat'd at most once, and only when the sort mode needs dates), then sorted on cached keys. The group-editor sort got the same decorate-sort-undecorate treatment.
+- **Row-thumbnail generation is decoupled from encode start.** Starting an encode used to block on metadata probing *and* row-thumbnail generation together; for non-native card formats (MKV/MXF/MTS) the thumbnail is an FFmpeg seek+decode that can take several seconds, stalling conversion even though the encode never uses the thumbnail. Encode start now waits only for the metadata it needs; the thumbnail is generated independently on the import task.
+
+## Uploads
+
+- **Force-retry failed group uploads with Option-click.** Plain-clicking a group header's upload icon still toggles upload on/off; **Option-clicking** now restarts every item in the group whose upload failed or was cancelled, mirroring the existing per-item modifier-click.
+
+## Stability
+
+- **No more crash on Macs with zero active displays.** Four screen-capture sites used `NSScreen.main ?? NSScreen.screens[0]`, which traps when no display is active (`NSScreen.main` can be nil *and* `screens` can be empty). They now use `.screens.first` with a guard.
+- **Custom-command parsing no longer drops an empty quoted argument.** An explicitly empty quoted arg (e.g. `-vf ""`) used to vanish, shifting every following token onto the wrong flag. It's now emitted correctly as `""`.
+
+## Housekeeping
+
+- **SwiftExif now resolves from Codeberg** (`taagedal/SwiftExif`, 1.9.1). The GitHub mirror is frozen at 1.6.0, so "Update to Latest Package Versions" kept re-resolving the stale URL and finding nothing newer. Both consumers compile unchanged.
+- **Release zips strip AppleDouble metadata** (`--norsrc --noextattr --noacl --noqtn`). Without this, `ditto` encodes xattrs / ACLs / creation dates as `._<name>` companions inside the zip, which macOS Sequoia no longer merges back on extract — they surface as visible files inside the `.app`, break the codesignature seal, and trip Gatekeeper's "app is damaged". The 4.1.2 release zip was re-packaged retroactively with the same fix.
+- Removed the stale `GEMINI.md` project-context file (recoverable from git history).
+
 # v.4.1.3
 
 A focused follow-up to 4.1.2. The recording-region picker now feels native — aspect-ratio lock plus macOS-style Shift / Option / Space modifiers during a drag — camera-card imports gained an opt-in "start encoding after import" toggle and finally do the right thing on multi-format cards, deleting an encoding group mid-upload no longer crashes, and new installs are opted in to automatic updates with a friendly first-launch opt-out notice.

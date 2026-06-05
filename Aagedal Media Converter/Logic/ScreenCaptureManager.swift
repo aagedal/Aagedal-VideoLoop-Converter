@@ -90,7 +90,12 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     }
 
     static var availablePresets: [CapturePreset] {
-        [.hevc42210Bit, .proRes4444, .x264TS, .hevcVTTS]
+        // `.x264TS` / `.hevcVTTS` (growing-TS via FFmpeg pipe) are temporarily
+        // hidden: HEVC produced a 0 KB file and H.264 recorded only the first
+        // frame (with the preview freezing). The cases are kept so persisted
+        // defaults still decode — consumers fall back to `.hevc42210Bit` when a
+        // stored preset isn't in this list. Re-add once the pipe path is fixed.
+        [.hevc42210Bit, .proRes4444]
     }
 
     /// FFmpeg video codec arguments for `.ts` presets. Returns `[]` for AVAssetWriter-based presets.
