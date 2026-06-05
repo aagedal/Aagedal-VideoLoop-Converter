@@ -1628,9 +1628,21 @@ actor ConversionManager: Sendable {
             return
         }
         
-        // Ensure details are loaded before conversion
+        // Ensure the metadata an encode actually needs (duration, video-stream presence,
+        // output URL, full metadata) is loaded before conversion. We deliberately pass
+        // `generateRowThumbnailIfMissing: false` so encode start NEVER blocks on row-thumbnail
+        // generation: for non-native card formats (MKV/MXF/MTS) the row thumbnail is produced by
+        // an FFmpeg seek+decode that can take several seconds, and it is not needed to start
+        // encoding. The row thumbnail is populated independently on the import background task
+        // (`loadGroupItemDetails` / the per-item detail load). A thumbnail already cached on disk
+        // is still picked up cheaply here.
         if !droppedFiles.wrappedValue[idx].detailsLoaded {
-            let details = await VideoFileUtils.loadDetails(for: droppedFiles.wrappedValue[idx].url, outputFolder: outputFolder, preset: preset)
+            let details = await VideoFileUtils.loadDetails(
+                for: droppedFiles.wrappedValue[idx].url,
+                outputFolder: outputFolder,
+                preset: preset,
+                generateRowThumbnailIfMissing: false
+            )
             droppedFiles.wrappedValue[idx].apply(details: details)
             droppedFiles.wrappedValue[idx].detailsLoaded = true
         }

@@ -867,7 +867,13 @@ struct VideoItem: Identifiable, Equatable, Sendable {
         size = details.size
         duration = details.duration
         durationSeconds = details.durationSeconds
-        thumbnailData = details.thumbnailData
+        // Only adopt a thumbnail when the details actually carry one. A nil thumbnail means
+        // "not generated on this pass" (e.g. the encode-start path loads details with
+        // `generateRowThumbnailIfMissing: false`), NOT "this file has no thumbnail" — so we must
+        // never clobber a thumbnail a concurrent background detail-load already produced.
+        if let newThumbnail = details.thumbnailData {
+            thumbnailData = newThumbnail
+        }
         if outputFileNameOverride == nil {
             outputURL = details.outputURL
         }
