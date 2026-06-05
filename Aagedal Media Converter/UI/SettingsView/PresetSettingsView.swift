@@ -102,6 +102,10 @@ struct PresetsSettingsView: View {
     @AppStorage(AppConstants.av2ThreadsKey) private var av2Threads = AppConstants.defaultAV2Threads
     @AppStorage(AppConstants.av2TileColumnsKey) private var av2TileColumns = AppConstants.defaultAV2TileColumns
     @AppStorage(AppConstants.av2TileRowsKey) private var av2TileRows = AppConstants.defaultAV2TileRows
+    @AppStorage(AppConstants.av2ParallelChunksKey) private var av2ParallelChunks = AppConstants.defaultAV2ParallelChunks
+    @AppStorage(AppConstants.av2ContainerKey) private var av2Container = AppConstants.defaultAV2Container
+    @AppStorage(AppConstants.av2AudioCodecKey) private var av2AudioCodec = AppConstants.defaultAV2AudioCodec
+    @AppStorage(AppConstants.av2AudioBitrateKey) private var av2AudioBitrate = AppConstants.defaultAV2AudioBitrate
 
     @AppStorage(AppConstants.keepSubtitlesKey) private var keepSubtitles = AppConstants.defaultKeepSubtitles
 
@@ -1180,7 +1184,7 @@ struct PresetsSettingsView: View {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(.orange)
-                        Text("Experimental. AV2 is encoded by the bundled avmenc (AOM AVM) encoder and written as a video-only .ivf bitstream — no audio. The output cannot be previewed or played inside this app yet, and needs an AV2-capable decoder to view.")
+                        Text("Experimental. AV2 is encoded by the bundled avmenc (AOM AVM) encoder. The app can split the encode across all CPU cores for a large speed-up, and optionally mux the result with audio into a Matroska (.mkv) file. AV2 is very new — the output needs an AV2-capable decoder to play and cannot be previewed inside this app yet.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1188,6 +1192,44 @@ struct PresetsSettingsView: View {
                     .padding(8)
                     .background(Color.orange.opacity(0.12))
                     .cornerRadius(6)
+
+                    HStack {
+                        Text("Container")
+                        Spacer()
+                        Picker("", selection: $av2Container) {
+                            ForEach(AV2Container.allCases) { container in
+                                Text(container.rawValue).tag(container.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                        .labelsHidden()
+                        .help("IVF is the raw, video-only AV2 bitstream. Matroska (.mkv) wraps the AV2 video with a re-encoded audio track using the app's built-in muxer (FFmpeg can't write AV2 yet). mp4 isn't offered because there's no standard way to store AV2 in it.")
+                    }
+
+                    if av2Container == AV2Container.mkv.rawValue {
+                        HStack {
+                            Text("Audio")
+                            Spacer()
+                            Picker("", selection: $av2AudioCodec) {
+                                ForEach(AV2AudioCodec.allCases) { codec in
+                                    Text(codec.rawValue).tag(codec.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                            Picker("", selection: $av2AudioBitrate) {
+                                ForEach(AudioBitrate.allCases) { rate in
+                                    Text(rate.rawValue).tag(rate.rawValue)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .fixedSize()
+                            .labelsHidden()
+                        }
+                        .help("The source audio is re-encoded to this codec and muxed into the .mkv. Sources without audio produce a video-only .mkv.")
+                    }
 
                     HStack {
                         Text("Rate Control")
@@ -1284,12 +1326,15 @@ struct PresetsSettingsView: View {
 
                     DisclosureGroup("Advanced") {
                         VStack(alignment: .leading, spacing: 10) {
+                            Stepper("Parallel Chunks: \(av2ParallelChunks == 0 ? "Auto" : (av2ParallelChunks == 1 ? "Off (single process)" : "\(av2ParallelChunks)"))", value: $av2ParallelChunks, in: 0...64)
+                                .help("Splits the clip into independent ranges and encodes them simultaneously, one avmenc per CPU core — the biggest speed-up for AV2. 0 = Auto (one chunk per core). 1 = off (a single encoder using tiles). Higher values force a specific chunk count. Constant-Quality only; tiling below is disabled while chunking is active because chunks already use every core (and untiled chunks compress slightly better).")
+                            Divider()
                             Stepper("Threads: \(av2Threads == 0 ? "Auto" : "\(av2Threads)")", value: $av2Threads, in: 0...64)
-                                .help("avmenc -t. 0 lets the app use all available cores.")
+                                .help("avmenc -t for the single-process path. 0 lets the app use all available cores.")
                             Stepper("Tile Columns (log2): \(av2TileColumns == 0 ? "Auto" : "\(av2TileColumns)")", value: $av2TileColumns, in: 0...6)
-                                .help("avmenc --tile-columns (log2: 1 = 2 columns, 2 = 4, …). Tiling is the only way AVM uses multiple CPU cores, so it's the main speed control. 0 = Auto, which picks a tile count from the resolution to spread work across cores — increasing it adds parallelism at a small compression cost.")
+                                .help("avmenc --tile-columns (log2: 1 = 2 columns, 2 = 4, …) for the single-process path. 0 = Auto, which picks a tile count from the resolution. Ignored when Parallel Chunks is active.")
                             Stepper("Tile Rows (log2): \(av2TileRows == 0 ? "Auto" : "\(av2TileRows)")", value: $av2TileRows, in: 0...6)
-                                .help("avmenc --tile-rows (log2). 0 = Auto (chosen from the frame height).")
+                                .help("avmenc --tile-rows (log2) for the single-process path. 0 = Auto (chosen from the frame height). Ignored when Parallel Chunks is active.")
                         }
                         .padding(.top, 6)
                     }

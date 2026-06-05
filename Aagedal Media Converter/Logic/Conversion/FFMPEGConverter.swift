@@ -29,6 +29,11 @@ actor FFMPEGConverter {
     /// Tracked separately so `cancelConversion()` can terminate both halves.
     private var auxProcess: Process?
 
+    /// Live ffmpeg/avmenc processes for the parallel chunked AV2 encode (one ffmpeg + one avmenc
+    /// per chunk). Tracked as a set so `cancelConversion()` and the inter-worker abort path can
+    /// terminate every worker. Each worker removes its own pair once it exits.
+    private var av2Workers: Set<Process> = []
+
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGConverter")
 
     // MARK: - Temp File Cleanup
@@ -361,36 +366,110 @@ actor FFMPEGConverter {
 
         // MARK: Experimental AV2 branch (ffmpeg decode → avmenc encode, two-process pipe)
         if preset == .av2 {
-            await runAV2Conversion(
+            // Choose output container: a raw video-only `.ivf`, or `.mkv` (AV2 + audio) via the
+            // in-app Matroska muxer (FFmpeg can't write AV2). For `.mkv` the encode targets a temp
+            // intermediate `.ivf` that the muxer then wraps with the source audio.
+            let muxToMKV = (AV2Container.current == .mkv && BinaryPathResolver.avmencPath != nil)
+            let encodeURL: URL = muxToMKV
+                ? FileManager.default.temporaryDirectory.appendingPathComponent("av2enc_\(UUID().uuidString).ivf")
+                : outputFileURL
+
+            // Prefer the parallel chunked path (one avmenc per core) when the source can be split;
+            // buildSegments returns nil to fall back to the single-process pipe (chunking disabled,
+            // VBR mode, unknown frame count, or a clip too short to usefully split).
+            let encodeResult: AV2EncodeResult
+            if let plan = await AV2CommandBuilder.buildSegments(
                 inputURL: inputURL,
-                outputFileURL: outputFileURL,
-                ffmpegPath: ffmpegPath,
                 trimStart: request.trimStart,
                 trimEnd: request.trimEnd,
-                cropConfig: request.cropConfig,
-                progressUpdate: progressUpdate,
-                completion: completion
-            )
+                cropConfig: request.cropConfig
+            ), let avmencPath = BinaryPathResolver.avmencPath {
+                encodeResult = await runAV2ChunkedConversion(
+                    plan: plan,
+                    outputFileURL: encodeURL,
+                    ffmpegPath: ffmpegPath,
+                    avmencPath: avmencPath,
+                    progressUpdate: progressUpdate
+                )
+            } else {
+                encodeResult = await runAV2Conversion(
+                    inputURL: inputURL,
+                    outputFileURL: encodeURL,
+                    ffmpegPath: ffmpegPath,
+                    trimStart: request.trimStart,
+                    trimEnd: request.trimEnd,
+                    cropConfig: request.cropConfig,
+                    progressUpdate: progressUpdate
+                )
+            }
+
+            guard encodeResult.success else {
+                if muxToMKV { Self.cleanupTempFile(at: encodeURL, label: "AV2 intermediate .ivf") }
+                completion(false, encodeResult.errorReason)
+                return
+            }
+
+            if muxToMKV, let avmencPath = BinaryPathResolver.avmencPath {
+                let bitDepth = await AV2CommandBuilder.resolvedBitDepth(
+                    inputURL: inputURL,
+                    trimStart: request.trimStart,
+                    trimEnd: request.trimEnd,
+                    cropConfig: request.cropConfig
+                ) ?? 8
+                let (ok, reason) = await muxAV2ToMatroska(
+                    videoIvfURL: encodeURL,
+                    sourceURL: inputURL,
+                    trimStart: request.trimStart,
+                    trimEnd: request.trimEnd,
+                    bitDepth: bitDepth,
+                    keyframeIndices: encodeResult.keyframeIndices,
+                    outputURL: outputFileURL,
+                    ffmpegPath: ffmpegPath,
+                    avmencPath: avmencPath,
+                    progressUpdate: progressUpdate
+                )
+                Self.cleanupTempFile(at: encodeURL, label: "AV2 intermediate .ivf")
+                if ok { progressUpdate(1.0, nil) }
+                completion(ok, reason)
+                return
+            }
+
+            completion(true, nil)
             return
         }
 
-        // MARK: AV2 .ivf source decode front-end
-        // FFmpeg can't decode AV2, so for an .ivf source we run `avmdec` to produce raw frames
-        // and pipe them into FFmpeg's stdin. FFmpeg then runs the normal preset command (and any
-        // post-processing) on the decoded frames. Skipped for merges / AVC-Intra preproc / waveform.
+        // MARK: AV2 source decode front-end
+        // FFmpeg can't decode AV2, so we run `avmdec` to produce raw frames and pipe them into
+        // FFmpeg's stdin; FFmpeg then runs the normal preset command on the decoded frames.
+        // avmdec reads both raw `.ivf` bitstreams and AV2-in-Matroska (`.mkv`/`.webm`) directly.
+        // For Matroska sources the original file is added as a second FFmpeg input so its
+        // (FFmpeg-readable) audio track can be mapped in. Skipped for merges / AVC-Intra / waveform.
         var av2DecodeBridge: Pipe? = nil
         var av2DecodeProcess: Process? = nil
-        if inputURL.pathExtension.lowercased() == "ivf",
+        var av2MatroskaAudioFromInput1 = false
+        let av2SourceExt = inputURL.pathExtension.lowercased()
+        let av2IsIVF = (av2SourceExt == "ivf") && (IVFHeaderParser.parse(url: inputURL)?.isAV2 ?? false)
+        let av2IsMatroska = (av2SourceExt == "mkv" || av2SourceExt == "webm") && Self.matroskaContainsAV2(url: inputURL)
+        if (av2IsIVF || av2IsMatroska),
            tempAudioURL == nil,
            request.customInputArguments == nil,
            request.waveformRequest == nil,
            request.synthesizedVideoRequest == nil,
-           let header = IVFHeaderParser.parse(url: inputURL), header.isAV2,
            let avmdecPath = BinaryPathResolver.avmdecPath {
             // avmdec writes self-describing Y4M to stdout, so FFmpeg auto-detects the exact
             // chroma subsampling and bit depth (4:2:0/4:2:2/4:4:4, 8/10/12-bit) with no
             // assumptions — native depth is preserved (a 10-bit source stays 10-bit).
-            effectiveCustomInputArguments = ["-f", "yuv4mpegpipe", "-i", "pipe:0"]
+            if av2IsMatroska {
+                var customArgs = ["-f", "yuv4mpegpipe", "-i", "pipe:0"]
+                if let ts = request.trimStart, ts > 0 {
+                    customArgs += ["-ss", String(format: "%.6f", ts)] // seek the audio input to match
+                }
+                customArgs += ["-i", inputURL.path]
+                effectiveCustomInputArguments = customArgs
+                av2MatroskaAudioFromInput1 = true
+            } else {
+                effectiveCustomInputArguments = ["-f", "yuv4mpegpipe", "-i", "pipe:0"]
+            }
             let bridge = Pipe()
             let decoder = Process()
             decoder.executableURL = URL(fileURLWithPath: avmdecPath)
@@ -400,7 +479,7 @@ actor FFMPEGConverter {
             decoder.standardInput = FileHandle.nullDevice
             av2DecodeBridge = bridge
             av2DecodeProcess = decoder
-            Self.logger.info("AV2 decode front-end: avmdec → ffmpeg for \(inputURL.lastPathComponent, privacy: .public) (\(header.width)x\(header.height))")
+            Self.logger.info("AV2 decode front-end: avmdec → ffmpeg for \(inputURL.lastPathComponent, privacy: .public)\(av2IsMatroska ? " (Matroska + audio)" : "")")
         }
 
         let process = Process()
@@ -426,9 +505,16 @@ actor FFMPEGConverter {
             isMuted: request.isMuted
         )
 
-        process.arguments = command.arguments
+        // For an AV2 Matroska source the decoded video arrives on input 0 (the avmdec pipe) and the
+        // audio lives on input 1 (the original file). Redirect the preset's audio/subtitle maps,
+        // which default to input 0, over to input 1.
+        var finalArguments = command.arguments
+        if av2MatroskaAudioFromInput1 {
+            finalArguments = Self.redirectAudioSubtitleMapsToSecondInput(finalArguments)
+        }
+        process.arguments = finalArguments
 
-        Self.logger.info("FFmpeg command: \(ffmpegPath, privacy: .public) \(command.arguments.joined(separator: " "), privacy: .public)")
+        Self.logger.info("FFmpeg command: \(ffmpegPath, privacy: .public) \(finalArguments.joined(separator: " "), privacy: .public)")
 
         // Only process stderr as that's where FFMPEG sends its progress updates
         let errorPipe = Pipe()
@@ -1505,13 +1591,11 @@ actor FFMPEGConverter {
         trimStart: Double?,
         trimEnd: Double?,
         cropConfig: CropConfig?,
-        progressUpdate: @escaping @Sendable (Double, String?) -> Void,
-        completion: @escaping @Sendable (Bool, String?) -> Void
-    ) async {
+        progressUpdate: @escaping @Sendable (Double, String?) -> Void
+    ) async -> AV2EncodeResult {
         guard let avmencPath = BinaryPathResolver.avmencPath else {
             Self.logger.error("avmenc binary not found in app bundle")
-            completion(false, "AV2 encoder (avmenc) not found in the app bundle")
-            return
+            return AV2EncodeResult(success: false, errorReason: "AV2 encoder (avmenc) not found in the app bundle", keyframeIndices: [])
         }
 
         guard let command = await AV2CommandBuilder.build(
@@ -1521,8 +1605,7 @@ actor FFMPEGConverter {
             trimEnd: trimEnd,
             cropConfig: cropConfig
         ) else {
-            completion(false, "Could not determine source video dimensions for AV2 encoding")
-            return
+            return AV2EncodeResult(success: false, errorReason: "Could not determine source video dimensions for AV2 encoding", keyframeIndices: [])
         }
 
         let ffmpeg = Process()
@@ -1699,7 +1782,540 @@ actor FFMPEGConverter {
             Self.logger.info("AV2 encode complete: \(outputFileURL.lastPathComponent, privacy: .public)")
         }
 
-        completion(success, errorReason)
+        // The single-process encode forces a key frame only at frame 0; that is the lone guaranteed
+        // seek point we surface to the muxer (avmenc inserts more, but their positions aren't known
+        // here without parsing the bitstream).
+        return AV2EncodeResult(success: success, errorReason: errorReason, keyframeIndices: success ? [0] : [])
+    }
+
+    // MARK: - Chunked (parallel) AV2 Conversion
+
+    /// Result of an AV2 encode (single-process or chunked). `keyframeIndices` are global frame
+    /// indices known to be key frames — used by the `.mkv` muxer to place Cue points.
+    struct AV2EncodeResult: Sendable {
+        let success: Bool
+        let errorReason: String?
+        let keyframeIndices: [Int]
+    }
+
+    private struct AV2SegmentOutcome: Sendable {
+        let index: Int
+        let success: Bool
+        let errorReason: String?
+    }
+
+    /// Runs a parallel chunked AV2 encode: one ffmpeg│avmenc pipe per chunk, all concurrent, with
+    /// `POC:` progress aggregated across workers. When every chunk succeeds the segment `.ivf`
+    /// files are joined (in order) by ``IVFConcatenator`` into the final video-only `.ivf`. A single
+    /// failing chunk aborts the rest. Each chunk is an independent AV2 sequence (key frame at its
+    /// first frame), which is what makes the bitstream-level concatenation valid.
+    private func runAV2ChunkedConversion(
+        plan: AV2CommandBuilder.AV2SegmentPlan,
+        outputFileURL: URL,
+        ffmpegPath: String,
+        avmencPath: String,
+        progressUpdate: @escaping @Sendable (Double, String?) -> Void
+    ) async -> AV2EncodeResult {
+        let totalFrames = plan.totalFrames
+        let chunkCount = plan.segments.count
+        Self.logger.info("AV2 chunked encode: \(chunkCount) workers, \(totalFrames) frames → \(outputFileURL.lastPathComponent, privacy: .public)")
+
+        // Aggregate per-worker "POC:" frame counts into one progress value, throttled to per-mille
+        // steps so N workers don't flood the main thread.
+        let progressState = OSAllocatedUnfairLock<(total: Int, lastPermille: Int)>(initialState: (0, 0))
+        let onFrames: @Sendable (Int) -> Void = { delta in
+            let (total, emit) = progressState.withLock { st -> (Int, Bool) in
+                st.total += delta
+                let permille = totalFrames > 0 ? min(990, st.total * 1000 / totalFrames) : 0
+                if permille != st.lastPermille { st.lastPermille = permille; return (st.total, true) }
+                return (st.total, false)
+            }
+            if emit {
+                let fraction = totalFrames > 0 ? min(0.99, Double(total) / Double(totalFrames)) : 0
+                progressUpdate(fraction, "Encoding AV2 — \(chunkCount) chunks — frame \(min(total, totalFrames))/\(totalFrames)")
+            }
+        }
+
+        progressUpdate(0.0, "Encoding AV2 — \(chunkCount) chunks — frame 0/\(totalFrames)")
+
+        var outcomes: [AV2SegmentOutcome] = []
+        await withTaskGroup(of: AV2SegmentOutcome.self) { group in
+            for seg in plan.segments {
+                group.addTask {
+                    await self.encodeAV2Segment(seg, ffmpegPath: ffmpegPath, avmencPath: avmencPath, onFrames: onFrames)
+                }
+            }
+            for await outcome in group {
+                outcomes.append(outcome)
+                // First failure: kill the remaining workers so we don't burn cores on a doomed encode.
+                if !outcome.success { self.terminateAV2Workers() }
+            }
+        }
+
+        // All workers have exited (the task group is the 2N-of-2N termination barrier).
+        if let failed = outcomes.first(where: { !$0.success }) {
+            Self.cleanupDirectory(plan.segmentDirectory)
+            Self.logger.error("AV2 chunked failed at chunk \(failed.index): \(failed.errorReason ?? "unknown", privacy: .public)")
+            return AV2EncodeResult(success: false, errorReason: failed.errorReason ?? "AV2 chunked encode failed", keyframeIndices: [])
+        }
+
+        // Join the chunk bitstreams in order.
+        let ordered = plan.segments.sorted { $0.index < $1.index }.map { $0.outputURL }
+        do {
+            let result = try IVFConcatenator.concatenate(segmentURLs: ordered, into: outputFileURL)
+            Self.cleanupDirectory(plan.segmentDirectory)
+            if let validationError = Self.validateOutputFile(at: outputFileURL) {
+                Self.cleanupTempFile(at: outputFileURL, label: "invalid AV2 .ivf")
+                return AV2EncodeResult(success: false, errorReason: validationError, keyframeIndices: [])
+            }
+            progressUpdate(1.0, nil)
+            Self.logger.info("AV2 chunked encode complete: \(result.totalFrames) frames → \(outputFileURL.lastPathComponent, privacy: .public)")
+            return AV2EncodeResult(success: true, errorReason: nil, keyframeIndices: result.keyframeIndices)
+        } catch {
+            Self.cleanupDirectory(plan.segmentDirectory)
+            if FileManager.default.fileExists(atPath: outputFileURL.path) {
+                Self.cleanupTempFile(at: outputFileURL, label: "partial AV2 .ivf")
+            }
+            return AV2EncodeResult(success: false, errorReason: "Failed to assemble AV2 chunks: \(error.localizedDescription)", keyframeIndices: [])
+        }
+    }
+
+    /// Encodes a single chunk via an ffmpeg│avmenc pipe (mirrors `runAV2Conversion` for one range).
+    /// Registers both processes in `av2Workers` so they can be cancelled, counts `POC:` frames into
+    /// `onFrames`, and resolves only once both processes have exited (the per-chunk 2-of-2 barrier).
+    private func encodeAV2Segment(
+        _ seg: AV2CommandBuilder.AV2SegmentCommand,
+        ffmpegPath: String,
+        avmencPath: String,
+        onFrames: @escaping @Sendable (Int) -> Void
+    ) async -> AV2SegmentOutcome {
+        let ffmpeg = Process()
+        ffmpeg.executableURL = URL(fileURLWithPath: ffmpegPath)
+        ffmpeg.arguments = seg.ffmpegArguments
+
+        let avmenc = Process()
+        avmenc.executableURL = URL(fileURLWithPath: avmencPath)
+        avmenc.arguments = seg.avmencArguments
+
+        let bridgePipe = Pipe()
+        ffmpeg.standardOutput = bridgePipe
+        avmenc.standardInput = bridgePipe
+
+        let ffmpegErrPipe = Pipe()
+        let avmencErrPipe = Pipe()
+        let avmencOutPipe = Pipe()
+        ffmpeg.standardError = ffmpegErrPipe
+        ffmpeg.standardInput = FileHandle.nullDevice
+        avmenc.standardError = avmencErrPipe
+        avmenc.standardOutput = avmencOutPipe
+
+        let avmencStderr = StderrCollector()
+
+        avmencOutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            let newOnes = text.components(separatedBy: "POC:").count - 1
+            if newOnes > 0 { onFrames(newOnes) }
+        }
+        ffmpegErrPipe.fileHandleForReading.readabilityHandler = { handle in
+            _ = handle.availableData // drain so ffmpeg never blocks on a full stderr buffer
+        }
+        avmencErrPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if !data.isEmpty { Task { await avmencStderr.append(data) } }
+        }
+
+        av2Workers.insert(ffmpeg)
+        av2Workers.insert(avmenc)
+
+        let exitState = OSAllocatedUnfairLock<(ffmpeg: Int32?, avmenc: Int32?, resumed: Bool)>(initialState: (nil, nil, false))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            @Sendable func resumeIfBothFinished() {
+                let shouldResume = exitState.withLock { state -> Bool in
+                    guard state.ffmpeg != nil, state.avmenc != nil, !state.resumed else { return false }
+                    state.resumed = true
+                    return true
+                }
+                if shouldResume { continuation.resume() }
+            }
+            ffmpeg.terminationHandler = { process in
+                exitState.withLock { $0.ffmpeg = process.terminationStatus }
+                resumeIfBothFinished()
+            }
+            avmenc.terminationHandler = { process in
+                exitState.withLock { $0.avmenc = process.terminationStatus }
+                resumeIfBothFinished()
+            }
+            do {
+                try avmenc.run()
+                try ffmpeg.run()
+                try? bridgePipe.fileHandleForWriting.close()
+                try? bridgePipe.fileHandleForReading.close()
+            } catch {
+                if avmenc.isRunning { avmenc.terminate() }
+                if ffmpeg.isRunning { ffmpeg.terminate() }
+                exitState.withLock { state in
+                    if state.ffmpeg == nil { state.ffmpeg = -1 }
+                    if state.avmenc == nil { state.avmenc = -1 }
+                }
+                resumeIfBothFinished()
+            }
+        }
+
+        ffmpegErrPipe.fileHandleForReading.readabilityHandler = nil
+        avmencErrPipe.fileHandleForReading.readabilityHandler = nil
+        avmencOutPipe.fileHandleForReading.readabilityHandler = nil
+        av2Workers.remove(ffmpeg)
+        av2Workers.remove(avmenc)
+
+        let (ffmpegStatus, avmencStatus) = exitState.withLock { ($0.ffmpeg ?? -1, $0.avmenc ?? -1) }
+        if ffmpegStatus == 0, avmencStatus == 0, Self.fileHasContent(at: seg.outputURL) {
+            return AV2SegmentOutcome(index: seg.index, success: true, errorReason: nil)
+        }
+
+        let reason: String
+        if avmencStatus != 0 {
+            let stderrString = String(data: await avmencStderr.snapshot(), encoding: .utf8) ?? ""
+            reason = Self.extractAvmencErrorReason(from: stderrString, exitCode: avmencStatus)
+        } else {
+            reason = "AV2 chunk \(seg.index) failed (ffmpeg=\(ffmpegStatus), avmenc=\(avmencStatus))"
+        }
+        return AV2SegmentOutcome(index: seg.index, success: false, errorReason: reason)
+    }
+
+    /// Terminates every still-running chunked AV2 worker (used to abort siblings after one fails).
+    /// Workers remove themselves from `av2Workers` as they exit, so this does not clear the set.
+    private func terminateAV2Workers() {
+        for worker in av2Workers where worker.isRunning { worker.terminate() }
+    }
+
+    private static func fileHasContent(at url: URL) -> Bool {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
+        return size > 0
+    }
+
+    private static func cleanupDirectory(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    // MARK: - AV2 → Matroska (.mkv) muxing
+
+    /// Wraps an already-encoded AV2 `.ivf` plus the source audio into a `.mkv` using the in-app
+    /// ``MatroskaMuxer`` (FFmpeg cannot write AV2). The AV2 `CodecPrivate` is harvested from a tiny
+    /// `avmenc --webm` probe; the audio is re-encoded to AAC and packetised from its ADTS stream.
+    /// Audio is best-effort: a source with no audio (or an audio-extraction failure) yields a valid
+    /// video-only `.mkv`.
+    private func muxAV2ToMatroska(
+        videoIvfURL: URL,
+        sourceURL: URL,
+        trimStart: Double?,
+        trimEnd: Double?,
+        bitDepth: Int,
+        keyframeIndices: [Int],
+        outputURL: URL,
+        ffmpegPath: String,
+        avmencPath: String,
+        progressUpdate: @escaping @Sendable (Double, String?) -> Void
+    ) async -> (Bool, String?) {
+        guard let ivfHeader = IVFHeaderParser.parse(url: videoIvfURL), ivfHeader.isAV2 else {
+            return (false, "AV2 muxing: the encoded bitstream is not a valid AV2 IVF")
+        }
+        let width = ivfHeader.width
+        let height = ivfHeader.height
+        let fpsNum = ivfHeader.fpsNumerator > 0 ? ivfHeader.fpsNumerator : 24
+        let fpsDen = ivfHeader.fpsDenominator > 0 ? ivfHeader.fpsDenominator : 1
+
+        progressUpdate(0.99, "Muxing AV2 + audio…")
+
+        // 1. Harvest the authoritative V_AV2 CodecPrivate (level/bit-depth depend on the config).
+        let codecPrivate = await harvestAV2CodecPrivate(
+            width: width, height: height, bitDepth: bitDepth,
+            fpsNum: fpsNum, fpsDen: fpsDen, ffmpegPath: ffmpegPath, avmencPath: avmencPath
+        )
+        if codecPrivate == nil {
+            Self.logger.warning("AV2 muxing: failed to harvest CodecPrivate; writing track without it")
+        }
+
+        // 2. Read the video frames, flagging known key frames (chunk boundaries) for seeking.
+        let keyset = Set(keyframeIndices)
+        var videoFrames: [MatroskaMuxer.VideoFrame] = []
+        do {
+            var idx = 0
+            try IVFConcatenator.forEachFrame(in: videoIvfURL) { payload, _ in
+                videoFrames.append(MatroskaMuxer.VideoFrame(data: payload, isKeyframe: idx == 0 || keyset.contains(idx)))
+                idx += 1
+            }
+        } catch {
+            return (false, "AV2 muxing: \(error.localizedDescription)")
+        }
+        guard !videoFrames.isEmpty else { return (false, "AV2 muxing: no video frames in bitstream") }
+
+        // 3. Extract + parse audio (best-effort; a video-only .mkv is fine if absent).
+        var audioInfo: MatroskaMuxer.AudioTrackInfo? = nil
+        var audioFrames: [MatroskaMuxer.AudioFrame] = []
+        if let (info, frames) = await extractAudioForMux(sourceURL: sourceURL, trimStart: trimStart, trimEnd: trimEnd, ffmpegPath: ffmpegPath) {
+            audioInfo = info
+            audioFrames = frames
+        }
+
+        // 4. Write the Matroska file.
+        let video = MatroskaMuxer.VideoTrackInfo(
+            codecID: "V_AV2", codecPrivate: codecPrivate,
+            width: width, height: height, fpsNumerator: fpsNum, fpsDenominator: fpsDen
+        )
+        do {
+            try MatroskaMuxer.write(to: outputURL, video: video, videoFrames: videoFrames, audio: audioInfo, audioFrames: audioFrames)
+        } catch {
+            return (false, "AV2 muxing failed: \(error.localizedDescription)")
+        }
+        if let validationError = Self.validateOutputFile(at: outputURL) {
+            return (false, validationError)
+        }
+        Self.logger.info("AV2 mux complete: \(videoFrames.count) video + \(audioFrames.count) audio frames → \(outputURL.lastPathComponent, privacy: .public)")
+        return (true, nil)
+    }
+
+    /// Encodes a single black frame at the exact geometry/depth/fps to learn the authoritative
+    /// AV2 `CodecPrivate` from `avmenc --webm` (the field is config-dependent, not content-dependent).
+    private func harvestAV2CodecPrivate(
+        width: Int, height: Int, bitDepth: Int, fpsNum: Int, fpsDen: Int,
+        ffmpegPath: String, avmencPath: String
+    ) async -> Data? {
+        let dir = FileManager.default.temporaryDirectory
+        let y4m = dir.appendingPathComponent("av2probe_\(UUID().uuidString).y4m")
+        let webm = dir.appendingPathComponent("av2probe_\(UUID().uuidString).webm")
+        defer {
+            Self.cleanupTempFile(at: y4m, label: "AV2 probe y4m")
+            Self.cleanupTempFile(at: webm, label: "AV2 probe webm")
+        }
+        let pix = bitDepth >= 10 ? "yuv420p10le" : "yuv420p"
+        let ff = ["-y", "-nostdin", "-hide_banner", "-f", "lavfi",
+                  "-i", "color=c=black:s=\(width)x\(height):r=\(fpsNum)/\(fpsDen)",
+                  "-frames:v", "1", "-pix_fmt", pix, "-f", "yuv4mpegpipe", "-strict", "-1", y4m.path]
+        guard await runBinary(ffmpegPath, ff) == 0, Self.fileHasContent(at: y4m) else { return nil }
+        let av = ["--webm", "-w", "\(width)", "-h", "\(height)", "-b", "\(bitDepth)",
+                  "--input-bit-depth=\(bitDepth)", "--i420", "--fps=\(fpsNum)/\(fpsDen)",
+                  "--end-usage=q", "--qp=110", "--cpu-used=9", "--limit=1", "-o", webm.path, y4m.path]
+        guard await runBinary(avmencPath, av) == 0, Self.fileHasContent(at: webm) else { return nil }
+        return Self.extractMatroskaCodecPrivate(fromWebM: webm)
+    }
+
+    /// Re-encodes the source audio to the configured codec (AAC or Opus), parses the elementary
+    /// stream, and returns the Matroska track info + per-frame data ready to mux. Trim-aware.
+    /// Returns nil when the source has no audio or extraction/parsing produces nothing.
+    private func extractAudioForMux(
+        sourceURL: URL, trimStart: Double?, trimEnd: Double?, ffmpegPath: String
+    ) async -> (MatroskaMuxer.AudioTrackInfo, [MatroskaMuxer.AudioFrame])? {
+        let codec = AV2AudioCodec.current
+        let bitrate = AudioBitrate(rawValue: UserDefaults.standard.string(forKey: AppConstants.av2AudioBitrateKey) ?? AppConstants.defaultAV2AudioBitrate)?.ffmpegValue ?? "192k"
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("av2audio_\(UUID().uuidString).\(codec.intermediateExtension)")
+        defer { Self.cleanupTempFile(at: tmp, label: "AV2 mux audio") }
+
+        var args = ["-y", "-nostdin", "-hide_banner"]
+        if let trimStart, trimStart > 0 { args += ["-ss", String(format: "%.6f", trimStart)] }
+        args += ["-i", sourceURL.path]
+        if let trimStart, let trimEnd, trimEnd > trimStart {
+            args += ["-t", String(format: "%.6f", trimEnd - trimStart)]
+        } else if let trimEnd, trimEnd > 0, trimStart == nil {
+            args += ["-t", String(format: "%.6f", trimEnd)]
+        }
+        args += ["-vn", "-map", "0:a:0?", "-c:a", codec.ffmpegEncoder, "-b:a", bitrate]
+        args += codec == .opus ? ["-f", "ogg"] : ["-f", "adts"]
+        args += [tmp.path]
+        guard await runBinary(ffmpegPath, args) == 0, Self.fileHasContent(at: tmp) else { return nil }
+
+        switch codec {
+        case .aac:
+            guard let parsed = Self.parseADTS(tmp) else { return nil }
+            let info = MatroskaMuxer.AudioTrackInfo(codecID: "A_AAC", codecPrivate: parsed.asc, sampleRate: parsed.sampleRate, channels: parsed.channels)
+            let frames = parsed.frames.map { MatroskaMuxer.AudioFrame(data: $0, durationSamples: 1024) }
+            return (info, frames)
+        case .opus:
+            guard let parsed = Self.parseOggOpus(tmp) else { return nil }
+            // Opus always runs on a 48 kHz timestamp clock in Matroska. CodecDelay carries the
+            // encoder pre-skip; SeekPreRoll is the standard 80 ms.
+            let codecDelayNs = Int64((Double(parsed.preSkip) * 1_000_000_000.0 / 48000.0).rounded())
+            let info = MatroskaMuxer.AudioTrackInfo(
+                codecID: "A_OPUS", codecPrivate: parsed.codecPrivate, sampleRate: 48000, channels: parsed.channels,
+                codecDelayNs: codecDelayNs, seekPreRollNs: 80_000_000
+            )
+            return (info, parsed.frames)
+        }
+    }
+
+    /// Parses an Ogg-Opus stream into Opus packets (with per-packet sample durations from each TOC
+    /// byte), plus the `OpusHead` CodecPrivate, pre-skip and channel count from the identification
+    /// header. Reassembles packets across Ogg segment/page boundaries.
+    private static func parseOggOpus(_ url: URL) -> (frames: [MatroskaMuxer.AudioFrame], codecPrivate: Data, preSkip: Int, channels: Int)? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let bytes = [UInt8](data)
+        var packets: [[UInt8]] = []
+        var partial: [UInt8] = []
+        var off = 0
+        while off + 27 <= bytes.count {
+            guard bytes[off] == 0x4F, bytes[off + 1] == 0x67, bytes[off + 2] == 0x67, bytes[off + 3] == 0x53 else { break } // "OggS"
+            let nsegs = Int(bytes[off + 26])
+            let segStart = off + 27
+            guard segStart + nsegs <= bytes.count else { break }
+            let segTable = Array(bytes[segStart..<(segStart + nsegs)])
+            var bi = segStart + nsegs
+            let bodyLen = segTable.reduce(0) { $0 + Int($1) }
+            guard bi + bodyLen <= bytes.count else { break }
+            for lace in segTable {
+                let len = Int(lace)
+                partial.append(contentsOf: bytes[bi..<(bi + len)])
+                bi += len
+                if lace < 255 { packets.append(partial); partial = [] } // packet boundary
+            }
+            off = bi
+        }
+        // packet 0 = OpusHead, packet 1 = OpusTags, packets 2… = audio
+        guard packets.count >= 3, packets[0].starts(with: Array("OpusHead".utf8)) else { return nil }
+        let head = packets[0]
+        let channels = head.count > 9 ? Int(head[9]) : 2
+        let preSkip = head.count > 11 ? Int(head[10]) | (Int(head[11]) << 8) : 0
+        let frames = packets[2...].map { MatroskaMuxer.AudioFrame(data: Data($0), durationSamples: opusPacketSamples($0)) }
+        guard !frames.isEmpty else { return nil }
+        return (frames, Data(head), preSkip, channels)
+    }
+
+    /// Number of 48 kHz samples a single Opus packet decodes to, from its TOC byte (and, for
+    /// code 3, the following frame-count byte).
+    private static func opusPacketSamples(_ packet: [UInt8]) -> Int {
+        guard let toc = packet.first else { return 960 }
+        // Frame size (samples @ 48 kHz) indexed by the 5-bit config (TOC >> 3).
+        let frameSizes = [
+            480, 960, 1920, 2880,   // 0–3   SILK NB  10/20/40/60 ms
+            480, 960, 1920, 2880,   // 4–7   SILK MB
+            480, 960, 1920, 2880,   // 8–11  SILK WB
+            480, 960,               // 12–13 Hybrid SWB 10/20 ms
+            480, 960,               // 14–15 Hybrid FB  10/20 ms
+            120, 240, 480, 960,     // 16–19 CELT NB  2.5/5/10/20 ms
+            120, 240, 480, 960,     // 20–23 CELT WB
+            120, 240, 480, 960,     // 24–27 CELT SWB
+            120, 240, 480, 960,     // 28–31 CELT FB
+        ]
+        let config = Int(toc >> 3)
+        let frameSize = config < frameSizes.count ? frameSizes[config] : 960
+        let code = Int(toc & 0x03)
+        var frameCount = 1
+        switch code {
+        case 0: frameCount = 1
+        case 1, 2: frameCount = 2
+        case 3: frameCount = packet.count > 1 ? Int(packet[1] & 0x3F) : 1
+        default: frameCount = 1
+        }
+        return frameSize * max(1, frameCount)
+    }
+
+    /// Runs a binary to completion (output discarded), tracked in `av2Workers` for cancellation.
+    private func runBinary(_ path: String, _ arguments: [String]) async -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        av2Workers.insert(process)
+        let status: Int32 = await withCheckedContinuation { continuation in
+            process.terminationHandler = { proc in continuation.resume(returning: proc.terminationStatus) }
+            do { try process.run() } catch { continuation.resume(returning: -1) }
+        }
+        av2Workers.remove(process)
+        return status
+    }
+
+    /// Scans an avmenc-written WebM for the `V_AV2` track's `CodecPrivate` (`0x63A2`) payload.
+    private static func extractMatroskaCodecPrivate(fromWebM url: URL) -> Data? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let needle = Data("V_AV2".utf8)
+        guard let r = data.range(of: needle) else { return nil }
+        // Find the CodecPrivate element id (0x63 0xA2) shortly after the CodecID value.
+        var i = r.upperBound
+        let limit = min(data.count - 1, i + 16)
+        var found = -1
+        while i < limit {
+            if data[i] == 0x63 && data[i + 1] == 0xA2 { found = i; break }
+            i += 1
+        }
+        guard found >= 0 else { return nil }
+        let sizeIdx = found + 2
+        guard sizeIdx < data.count else { return nil }
+        // Decode the size VINT (CodecPrivate is tiny, but parse it properly).
+        let first = data[sizeIdx]
+        var marker: UInt8 = 0x80
+        var len = 1
+        while marker != 0 && (first & marker) == 0 { marker >>= 1; len += 1 }
+        guard marker != 0, sizeIdx + len <= data.count else { return nil }
+        var value = UInt64(first & (marker &- 1))
+        for k in 1..<len { value = (value << 8) | UInt64(data[sizeIdx + k]) }
+        let payloadStart = sizeIdx + len
+        guard value > 0, value < 256, payloadStart + Int(value) <= data.count else { return nil }
+        return data.subdata(in: payloadStart..<(payloadStart + Int(value)))
+    }
+
+    /// Parses an ADTS AAC stream into raw AAC access units plus the derived AudioSpecificConfig,
+    /// sample rate and channel count (read from the first frame's header).
+    private static func parseADTS(_ url: URL) -> (frames: [Data], asc: Data, sampleRate: Double, channels: Int)? {
+        guard let data = try? Data(contentsOf: url), data.count > 7 else { return nil }
+        let bytes = [UInt8](data)
+        let rateTable: [Double] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350]
+        var frames: [Data] = []
+        var asc: Data? = nil
+        var sampleRate: Double = 48000
+        var channels = 2
+        var i = 0
+        while i + 7 <= bytes.count {
+            guard bytes[i] == 0xFF, (bytes[i + 1] & 0xF0) == 0xF0 else { break } // syncword
+            let protectionAbsent = bytes[i + 1] & 0x01
+            let headerLen = protectionAbsent == 1 ? 7 : 9
+            let profile = (bytes[i + 2] >> 6) & 0x03
+            let freqIdx = (bytes[i + 2] >> 2) & 0x0F
+            let chanCfg = ((bytes[i + 2] & 0x01) << 2) | ((bytes[i + 3] >> 6) & 0x03)
+            let frameLen = (Int(bytes[i + 3] & 0x03) << 11) | (Int(bytes[i + 4]) << 3) | (Int(bytes[i + 5] >> 5) & 0x07)
+            guard frameLen >= headerLen, i + frameLen <= bytes.count else { break }
+            if asc == nil {
+                let aot = UInt8(profile + 1) // ADTS profile = audioObjectType − 1
+                let b0 = (aot << 3) | (freqIdx >> 1)
+                let b1 = ((freqIdx & 0x01) << 7) | (chanCfg << 3)
+                asc = Data([b0, b1])
+                if Int(freqIdx) < rateTable.count { sampleRate = rateTable[Int(freqIdx)] }
+                channels = chanCfg == 0 ? 2 : Int(chanCfg)
+            }
+            let payloadStart = i + headerLen
+            frames.append(data.subdata(in: payloadStart..<(i + frameLen)))
+            i += frameLen
+        }
+        guard let asc, !frames.isEmpty else { return nil }
+        return (frames, asc, sampleRate, channels)
+    }
+
+    /// Returns true if a Matroska/WebM file carries an AV2 video track (CodecID `V_AV2`). Scans the
+    /// file head, where the Tracks element lives, so it's cheap and won't false-positive on normal
+    /// `.mkv` files. Used to route AV2-in-Matroska sources through the avmdec decode front-end.
+    static func matroskaContainsAV2(url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 1_000_000) else { return false }
+        return data.range(of: Data("V_AV2".utf8)) != nil
+    }
+
+    /// Rewrites `-map 0:a…` / `-map 0:s…` to input 1 (leaving `-map 0:v…` on input 0). Used when an
+    /// AV2 Matroska source is decoded via avmdec on input 0 (video) with the original file added as
+    /// input 1 (audio/subtitles).
+    private static func redirectAudioSubtitleMapsToSecondInput(_ args: [String]) -> [String] {
+        var out = args
+        var i = 0
+        while i + 1 < out.count {
+            if out[i] == "-map" {
+                let value = out[i + 1]
+                if value.hasPrefix("0:a") || value.hasPrefix("0:s") {
+                    out[i + 1] = "1:" + value.dropFirst(2)
+                }
+            }
+            i += 1
+        }
+        return out
     }
 
     private func runNativeWaveformConversion(
@@ -2118,6 +2734,8 @@ actor FFMPEGConverter {
     func cancelConversion() async {
         currentProcess?.terminate()
         auxProcess?.terminate()
+        for worker in av2Workers where worker.isRunning { worker.terminate() }
+        av2Workers.removeAll()
         await setCurrentProcess(nil)
         await setAuxProcess(nil)
     }

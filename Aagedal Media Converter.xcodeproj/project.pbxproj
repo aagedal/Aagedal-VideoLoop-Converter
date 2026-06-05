@@ -143,6 +143,8 @@
 		AF21AF21AF21AF21AF21AF21 /* avmenc in Resources */ = {isa = PBXBuildFile; fileRef = AF20AF20AF20AF20AF20AF20 /* avmenc */; };
 		AF25AF25AF25AF25AF25AF25 /* avmdec in Resources */ = {isa = PBXBuildFile; fileRef = AF24AF24AF24AF24AF24AF24 /* avmdec */; };
 		AF27AF27AF27AF27AF27AF27 /* IVFHeaderParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF26AF26AF26AF26AF26AF26 /* IVFHeaderParser.swift */; };
+		AF29AF29AF29AF29AF29AF29 /* IVFConcatenator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF28AF28AF28AF28AF28AF28 /* IVFConcatenator.swift */; };
+		AF2BAF2BAF2BAF2BAF2BAF2B /* MatroskaMuxer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2AAF2AAF2AAF2AAF2AAF2A /* MatroskaMuxer.swift */; };
 		AF23AF23AF23AF23AF23AF23 /* AV2CommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */; };
 		ANALYTICSEXP00000002 /* AnalyticsExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANALYTICSEXP00000001 /* AnalyticsExporter.swift */; };
 		ANALYTICSMOD00000002 /* AnalyticsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANALYTICSMOD00000001 /* AnalyticsModels.swift */; };
@@ -393,6 +395,8 @@
 		AF20AF20AF20AF20AF20AF20 /* avmenc */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = avmenc; sourceTree = "<group>"; };
 		AF24AF24AF24AF24AF24AF24 /* avmdec */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = avmdec; sourceTree = "<group>"; };
 		AF26AF26AF26AF26AF26AF26 /* IVFHeaderParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IVFHeaderParser.swift; sourceTree = "<group>"; };
+		AF28AF28AF28AF28AF28AF28 /* IVFConcatenator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IVFConcatenator.swift; sourceTree = "<group>"; };
+		AF2AAF2AAF2AAF2AAF2AAF2A /* MatroskaMuxer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatroskaMuxer.swift; sourceTree = "<group>"; };
 		AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV2CommandBuilder.swift; sourceTree = "<group>"; };
 		ANALYTICSEXP00000001 /* AnalyticsExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsExporter.swift; sourceTree = "<group>"; };
 		ANALYTICSMOD00000001 /* AnalyticsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsModels.swift; sourceTree = "<group>"; };
@@ -812,6 +816,8 @@
 				8EEE452C2EC139060049F017 /* FFMPEGCommandBuilder.swift */,
 				AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */,
 				AF26AF26AF26AF26AF26AF26 /* IVFHeaderParser.swift */,
+				AF28AF28AF28AF28AF28AF28 /* IVFConcatenator.swift */,
+				AF2AAF2AAF2AAF2AAF2AAF2A /* MatroskaMuxer.swift */,
 				8EEE452A2EC138FA0049F017 /* ExportPreset.swift */,
 				8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */,
 				67BAE582711E2F5E020591A9 /* ConversionRequest.swift */,
@@ -1279,6 +1285,8 @@
 				8EEE452D2EC1390F0049F017 /* FFMPEGCommandBuilder.swift in Sources */,
 				AF23AF23AF23AF23AF23AF23 /* AV2CommandBuilder.swift in Sources */,
 				AF27AF27AF27AF27AF27AF27 /* IVFHeaderParser.swift in Sources */,
+				AF29AF29AF29AF29AF29AF29 /* IVFConcatenator.swift in Sources */,
+				AF2BAF2BAF2BAF2BAF2BAF2B /* MatroskaMuxer.swift in Sources */,
 				8EC9A6F72EC149010082C67F /* PreviewTrimControls.swift in Sources */,
 				8EC9A6F82EC149010082C67F /* PreviewPlayerFooter.swift in Sources */,
 				8E4DF2712ECBAD4B007B6277 /* WaveformSettingsView.swift in Sources */,

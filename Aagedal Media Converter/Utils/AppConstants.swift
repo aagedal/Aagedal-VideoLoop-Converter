@@ -564,6 +564,14 @@ enum AppConstants {
     static let defaultAV2TileRows = 0
     static let av2ResolutionLimitKey = "av2ResolutionLimit"     // CodecResolutionLimit raw value
     static let defaultAV2ResolutionLimit = "Unlimited"
+    static let av2ParallelChunksKey = "av2ParallelChunks"       // 0 = auto (all cores), 1 = single-process, N = explicit
+    static let defaultAV2ParallelChunks = 0                     // auto-on: split into one chunk per core
+    static let av2ContainerKey = "av2Container"                 // AV2Container raw value (ivf video-only / mkv with audio)
+    static let defaultAV2Container = "IVF (video only)"
+    static let av2AudioCodecKey = "av2AudioCodec"               // AV2AudioCodec raw value (used by the .mkv muxer)
+    static let defaultAV2AudioCodec = "AAC"
+    static let av2AudioBitrateKey = "av2AudioBitrate"           // AudioBitrate raw value for the muxed audio track
+    static let defaultAV2AudioBitrate = "192 kbps"
 
     // Subtitle preservation
     static let keepSubtitlesKey = "keepSubtitles"

@@ -508,6 +508,63 @@ enum AV2BitDepthOption: String, CaseIterable, Identifiable {
     }
 }
 
+/// Output container for the experimental AV2 preset.
+///
+/// `ivf` is the raw, video-only AV2 bitstream (no audio). `mkv` wraps the AV2 video together with
+/// a re-encoded audio track using the app's own Matroska muxer — FFmpeg cannot write AV2 yet, so
+/// the muxing is done in-app (see ``MatroskaMuxer``).
+enum AV2Container: String, CaseIterable, Identifiable {
+    case ivf = "IVF (video only)"
+    case mkv = "Matroska (.mkv, with audio)"
+
+    var id: String { rawValue }
+
+    var fileExtension: String { self == .mkv ? "mkv" : "ivf" }
+
+    static var current: AV2Container {
+        let raw = UserDefaults.standard.string(forKey: AppConstants.av2ContainerKey) ?? AppConstants.defaultAV2Container
+        return AV2Container(rawValue: raw) ?? .ivf
+    }
+}
+
+/// Audio codec used by the AV2 `.mkv` muxer. The source audio is re-encoded to this codec via
+/// FFmpeg and packetised into the Matroska container in-app.
+enum AV2AudioCodec: String, CaseIterable, Identifiable {
+    case aac = "AAC"
+    case opus = "Opus"
+
+    var id: String { rawValue }
+
+    /// Matroska CodecID string.
+    var matroskaCodecID: String {
+        switch self {
+        case .aac: return "A_AAC"
+        case .opus: return "A_OPUS"
+        }
+    }
+
+    /// FFmpeg encoder name used to produce the intermediate elementary stream.
+    var ffmpegEncoder: String {
+        switch self {
+        case .aac: return "aac"
+        case .opus: return "libopus"
+        }
+    }
+
+    /// Container/extension of the intermediate elementary stream FFmpeg writes.
+    var intermediateExtension: String {
+        switch self {
+        case .aac: return "aac"   // ADTS
+        case .opus: return "ogg"  // Ogg-Opus
+        }
+    }
+
+    static var current: AV2AudioCodec {
+        let raw = UserDefaults.standard.string(forKey: AppConstants.av2AudioCodecKey) ?? AppConstants.defaultAV2AudioCodec
+        return AV2AudioCodec(rawValue: raw) ?? .aac
+    }
+}
+
 /// Resolution limit for codec presets
 enum CodecResolutionLimit: String, CaseIterable, Identifiable {
     case r720 = "720p"
@@ -770,8 +827,8 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             let containerRaw = UserDefaults.standard.string(forKey: AppConstants.av1ContainerKey) ?? AppConstants.defaultAV1Container
             return CodecContainer(rawValue: containerRaw)?.fileExtension ?? "mp4"
         case .av2:
-            // AV2 is always a raw, video-only IVF bitstream (no container carries AV2 + audio yet).
-            return "ivf"
+            // Raw video-only `.ivf`, or `.mkv` when the in-app muxer wraps AV2 + audio.
+            return AV2Container.current.fileExtension
         case .prores, .tvHEVC:
             return "mov"
         case .tvAVCIntra:
@@ -862,7 +919,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .av2:
             return NSLocalizedString(
                 "PRESET_AV2_DESCRIPTION",
-                value: "Experimental AV2 encoding via the bundled avmenc (AOM AVM) encoder. Produces a video-only .ivf bitstream — no audio, and not previewable in-app yet. For enthusiasts evaluating the next-generation codec.",
+                value: "Experimental AV2 encoding via the bundled avmenc (AOM AVM) encoder, parallelised across all CPU cores. Outputs a video-only .ivf bitstream, or a Matroska (.mkv) with audio. AV2 is very new and not previewable in-app yet — playback needs an AV2-capable decoder. For enthusiasts evaluating the next-generation codec.",
                 comment: "Description for experimental AV2 preset"
             )
         case .tvHEVC:
