@@ -31,6 +31,7 @@ struct CaptureDisplay: Identifiable, Hashable {
 
 enum CapturePreset: String, CaseIterable, Identifiable {
     case x264TS
+    case hevcVTTS
     case hevc42210Bit
     case proRes4444
 
@@ -39,7 +40,9 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .x264TS:
-            return "Growing TS (x264)"
+            return "Growing TS (H.264, software)"
+        case .hevcVTTS:
+            return "Growing TS (HEVC, hardware)"
         case .hevc42210Bit:
             return "HEVC 10-bit 4:2:2 (Hardware)"
         case .proRes4444:
@@ -50,7 +53,9 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     var detail: String {
         switch self {
         case .x264TS:
-            return "Live growing .ts via FFmpeg pipe. Best for Resolve edit-while-recording."
+            return "Live growing .ts via FFmpeg + libx264. Best for Resolve edit-while-recording."
+        case .hevcVTTS:
+            return "Live growing .ts via FFmpeg + VideoToolbox HEVC. Best for Resolve edit-while-recording on Apple Silicon."
         case .hevc42210Bit:
             return "Hardware HEVC 10-bit 4:2:2. Source format determines chroma."
         case .proRes4444:
@@ -60,7 +65,7 @@ enum CapturePreset: String, CaseIterable, Identifiable {
 
     var fileExtension: String {
         switch self {
-        case .x264TS:
+        case .x264TS, .hevcVTTS:
             return "ts"
         case .hevc42210Bit, .proRes4444:
             return "mov"
@@ -76,11 +81,43 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     }
 
     var usesFFmpegPipe: Bool {
-        self == .x264TS
+        switch self {
+        case .x264TS, .hevcVTTS:
+            return true
+        case .hevc42210Bit, .proRes4444:
+            return false
+        }
     }
 
     static var availablePresets: [CapturePreset] {
-        [.hevc42210Bit, .proRes4444]
+        [.hevc42210Bit, .proRes4444, .x264TS, .hevcVTTS]
+    }
+
+    /// FFmpeg video codec arguments for `.ts` presets. Returns `[]` for AVAssetWriter-based presets.
+    /// These slot in after the input declarations and before the output muxer args.
+    func ffmpegVideoArgs(width: Int, height: Int, frameRate: Int) -> [String] {
+        switch self {
+        case .x264TS:
+            return [
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-b:v", "20M",
+                "-maxrate", "20M",
+                "-bufsize", "40M",
+                "-pix_fmt", "yuv420p"
+            ]
+        case .hevcVTTS:
+            return [
+                "-c:v", "hevc_videotoolbox",
+                "-b:v", "25M",
+                "-maxrate", "30M",
+                "-allow_sw", "0",
+                "-tag:v", "hvc1",
+                "-pix_fmt", "yuv420p"
+            ]
+        case .hevc42210Bit, .proRes4444:
+            return []
+        }
     }
 
     func videoSettings(width: Int, height: Int, frameRate: Int, hevcProfileOverride: String? = nil) -> [String: Any] {
@@ -89,7 +126,9 @@ enum CapturePreset: String, CaseIterable, Identifiable {
         let encoderSpec: [String: Any]?
 
         switch self {
-        case .x264TS:
+        case .x264TS, .hevcVTTS:
+            // Not reached at runtime — `.ts` presets bypass AVAssetWriter and go through FFmpegPipeWriter.
+            // Kept here for switch exhaustiveness; values are placeholders.
             codec = .h264
             compressionProperties = [
                 AVVideoAverageBitRateKey: 20_000_000,
@@ -148,6 +187,12 @@ enum CapturePreset: String, CaseIterable, Identifiable {
             AudioSettingKeys.linearPCMIsNonInterleaved: false
         ]
     }
+
+    /// System-audio sample rate consumed by the writers. Mirrors `audioSettings[AVSampleRateKey]`.
+    var audioSampleRate: Double { 48_000 }
+
+    /// System-audio channel count consumed by the writers. Mirrors `audioSettings[AVNumberOfChannelsKey]`.
+    var audioChannelCount: Int { 2 }
 
     private func hevcBitrate(width: Int, height: Int, frameRate: Int) -> (average: Int, dataRateLimits: [Int]) {
         let pixelsPerSecond = Double(width) * Double(height) * Double(frameRate)
@@ -218,7 +263,6 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         case unavailableDisplay
         case accessDenied
         case ffmpegMissing
-        case ffmpegDisabled
         case ffmpegFailed(String)
         case writerFailed(String)
 
@@ -230,8 +274,6 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 return "Unable to access the output folder."
             case .ffmpegMissing:
                 return "FFmpeg binary not found for TS post-processing."
-            case .ffmpegDisabled:
-                return "FFmpeg capture is temporarily disabled."
             case .ffmpegFailed(let message):
                 return "FFmpeg failed: \(message)"
             case .writerFailed(let message):
@@ -357,7 +399,26 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
             let writer: AnyCaptureOutputWriter
             if preset.usesFFmpegPipe {
-                throw CaptureError.ffmpegDisabled
+                guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+                    throw CaptureError.ffmpegMissing
+                }
+                writer = try await FFmpegPipeWriter.create(
+                    ffmpegPath: ffmpegPath,
+                    outputURL: outputURLs.recordingURL,
+                    width: Int(resolution.width),
+                    height: Int(resolution.height),
+                    frameRate: frameRate,
+                    audioSampleRate: preset.audioSampleRate,
+                    audioChannelCount: preset.audioChannelCount,
+                    codecArgs: preset.ffmpegVideoArgs(
+                        width: Int(resolution.width),
+                        height: Int(resolution.height),
+                        frameRate: frameRate
+                    ),
+                    includeMicrophone: microphoneCaptureEnabled,
+                    microphoneSampleRate: 48_000,
+                    microphoneChannelCount: 1
+                )
             } else {
                 writer = try ScreenCaptureWriter(
                     outputURL: outputURLs.recordingURL,
@@ -1669,9 +1730,12 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
     private let stderrPipe: Pipe
     private let videoPipeURL: URL
     private let audioPipeURL: URL
+    private let microphonePipeURL: URL?
     private let audioChannelCount: Int
+    private let microphoneChannelCount: Int
     private var videoHandle: FileHandle
     private var audioHandle: FileHandle
+    private var microphoneHandle: FileHandle?
     private var finished = false
     private var writeError: Error?
     private var errorHandler: (@Sendable (Error) -> Void)?
@@ -1683,53 +1747,93 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
         height: Int,
         frameRate: Int,
         audioSampleRate: Double,
-        audioChannelCount: Int
+        audioChannelCount: Int,
+        codecArgs: [String],
+        includeMicrophone: Bool,
+        microphoneSampleRate: Double,
+        microphoneChannelCount: Int
     ) async throws -> FFmpegPipeWriter {
         let pipeDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("AagedalCapturePipes", isDirectory: true)
         try FileManager.default.createDirectory(at: pipeDirectory, withIntermediateDirectories: true)
 
         let videoPipeURL = pipeDirectory.appendingPathComponent("capture_video_\(UUID().uuidString).pipe")
         let audioPipeURL = pipeDirectory.appendingPathComponent("capture_audio_\(UUID().uuidString).pipe")
+        let microphonePipeURL: URL? = includeMicrophone
+            ? pipeDirectory.appendingPathComponent("capture_microphone_\(UUID().uuidString).pipe")
+            : nil
 
         try createFIFO(at: videoPipeURL)
         try createFIFO(at: audioPipeURL)
+        if let microphonePipeURL {
+            try createFIFO(at: microphonePipeURL)
+        }
 
         let videoHandle: FileHandle
         let audioHandle: FileHandle
+        let microphoneHandle: FileHandle?
         do {
             videoHandle = try openPipeForReadWrite(url: videoPipeURL)
             audioHandle = try openPipeForReadWrite(url: audioPipeURL)
+            microphoneHandle = try microphonePipeURL.map { try openPipeForReadWrite(url: $0) }
         } catch {
-            try? FileManager.default.removeItem(at: videoPipeURL)
-            try? FileManager.default.removeItem(at: audioPipeURL)
+            cleanupPipes(videoPipeURL: videoPipeURL, audioPipeURL: audioPipeURL, microphonePipeURL: microphonePipeURL)
             throw error
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = [
+        var arguments: [String] = [
             "-hide_banner",
             "-loglevel", "error",
+            // Video input
             "-f", "rawvideo",
             "-pix_fmt", "bgra",
             "-video_size", "\(width)x\(height)",
             "-framerate", "\(frameRate)",
             "-i", videoPipeURL.path,
+            // System-audio input
             "-f", "f32le",
             "-ar", "\(Int(audioSampleRate))",
             "-ac", "\(audioChannelCount)",
-            "-i", audioPipeURL.path,
-            "-c:v", "libx264",
-            "-preset", "veryfast",
-            "-b:v", "20M",
-            "-maxrate", "20M",
-            "-bufsize", "40M",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-f", "mpegts",
-            outputURL.path
+            "-i", audioPipeURL.path
         ]
+
+        if let microphonePipeURL {
+            // Microphone input
+            arguments.append(contentsOf: [
+                "-f", "f32le",
+                "-ar", "\(Int(microphoneSampleRate))",
+                "-ac", "\(microphoneChannelCount)",
+                "-i", microphonePipeURL.path,
+                // Explicit stream mapping so both audio tracks land in the TS
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-map", "2:a:0",
+                // Per-stream audio codecs
+                "-c:a:0", "aac", "-b:a:0", "192k",
+                "-c:a:1", "aac", "-b:a:1", "192k",
+                "-metadata:s:a:0", "title=System Audio",
+                "-metadata:s:a:1", "title=Microphone"
+            ])
+        } else {
+            arguments.append(contentsOf: [
+                "-c:a", "aac",
+                "-b:a", "192k"
+            ])
+        }
+
+        // Codec/quality fragment from the preset
+        arguments.append(contentsOf: codecArgs)
+
+        // Output muxer — `-flush_packets 1` keeps latency low so readers see new
+        // packets promptly while the file is still being written.
+        arguments.append(contentsOf: [
+            "-f", "mpegts",
+            "-flush_packets", "1",
+            outputURL.path
+        ])
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = arguments
 
         let stderrPipe = Pipe()
         process.standardError = stderrPipe
@@ -1740,8 +1844,8 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
         } catch {
             videoHandle.closeFile()
             audioHandle.closeFile()
-            try? FileManager.default.removeItem(at: videoPipeURL)
-            try? FileManager.default.removeItem(at: audioPipeURL)
+            microphoneHandle?.closeFile()
+            cleanupPipes(videoPipeURL: videoPipeURL, audioPipeURL: audioPipeURL, microphonePipeURL: microphonePipeURL)
             throw PipeError.ffmpegLaunchFailed(error.localizedDescription)
         }
 
@@ -1750,9 +1854,12 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
             stderrPipe: stderrPipe,
             videoPipeURL: videoPipeURL,
             audioPipeURL: audioPipeURL,
+            microphonePipeURL: microphonePipeURL,
             audioChannelCount: audioChannelCount,
+            microphoneChannelCount: microphoneChannelCount,
             videoHandle: videoHandle,
-            audioHandle: audioHandle
+            audioHandle: audioHandle,
+            microphoneHandle: microphoneHandle
         )
     }
 
@@ -1761,17 +1868,23 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
         stderrPipe: Pipe,
         videoPipeURL: URL,
         audioPipeURL: URL,
+        microphonePipeURL: URL?,
         audioChannelCount: Int,
+        microphoneChannelCount: Int,
         videoHandle: FileHandle,
-        audioHandle: FileHandle
+        audioHandle: FileHandle,
+        microphoneHandle: FileHandle?
     ) {
         self.process = process
         self.stderrPipe = stderrPipe
         self.videoPipeURL = videoPipeURL
         self.audioPipeURL = audioPipeURL
+        self.microphonePipeURL = microphonePipeURL
         self.audioChannelCount = max(1, audioChannelCount)
+        self.microphoneChannelCount = max(1, microphoneChannelCount)
         self.videoHandle = videoHandle
         self.audioHandle = audioHandle
+        self.microphoneHandle = microphoneHandle
     }
 
     func append(sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) {
@@ -1783,8 +1896,12 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
             case .screen:
                 try writeVideo(sampleBuffer: sampleBuffer)
             case .audio:
-                try writeAudio(sampleBuffer: sampleBuffer)
-            default:
+                try writeAudio(sampleBuffer: sampleBuffer, to: audioHandle, outputChannelCount: audioChannelCount)
+            case .microphone:
+                if let microphoneHandle {
+                    try writeAudio(sampleBuffer: sampleBuffer, to: microphoneHandle, outputChannelCount: microphoneChannelCount)
+                }
+            @unknown default:
                 break
             }
         } catch {
@@ -1798,16 +1915,24 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
 
         videoHandle.closeFile()
         audioHandle.closeFile()
+        microphoneHandle?.closeFile()
         let process = process
         let stderrHandle = stderrPipe.fileHandleForReading
         let writeError = writeError
         let videoPipeURL = videoPipeURL
         let audioPipeURL = audioPipeURL
+        let microphonePipeURL = microphonePipeURL
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .utility).async {
                 process.waitUntilExit()
-                defer { FFmpegPipeWriter.cleanupPipes(videoPipeURL: videoPipeURL, audioPipeURL: audioPipeURL) }
+                defer {
+                    FFmpegPipeWriter.cleanupPipes(
+                        videoPipeURL: videoPipeURL,
+                        audioPipeURL: audioPipeURL,
+                        microphonePipeURL: microphonePipeURL
+                    )
+                }
 
                 if let error = writeError {
                     continuation.resume(throwing: error)
@@ -1859,7 +1984,7 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
         try writeData(data, to: videoHandle)
     }
 
-    private func writeAudio(sampleBuffer: CMSampleBuffer) throws {
+    private func writeAudio(sampleBuffer: CMSampleBuffer, to handle: FileHandle, outputChannelCount: Int) throws {
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
               let asbdPointer = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
             throw PipeError.unsupportedAudioFormat
@@ -1873,7 +1998,7 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
         let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
         let bitsPerChannel = Int(asbd.mBitsPerChannel)
 
-        guard channelCount > 0, frames > 0 else { return }
+        guard channelCount > 0, frames > 0, outputChannelCount > 0 else { return }
         let supportedFormat = (isFloat && bitsPerChannel == 32) || (isSignedInt && (bitsPerChannel == 16 || bitsPerChannel == 32))
         guard supportedFormat else {
             throw PipeError.unsupportedAudioFormat
@@ -1900,13 +2025,12 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
         }
 
         let audioBuffers = UnsafeMutableAudioBufferListPointer(bufferList.unsafeMutablePointer)
-        let outputChannels = audioChannelCount
-        var output = Data(count: frames * outputChannels * MemoryLayout<Float>.size)
+        var output = Data(count: frames * outputChannelCount * MemoryLayout<Float>.size)
 
         output.withUnsafeMutableBytes { rawBuffer in
             let out = rawBuffer.bindMemory(to: Float.self)
             for frame in 0..<frames {
-                for channel in 0..<outputChannels {
+                for channel in 0..<outputChannelCount {
                     let sample: Float
                     if channel < channelCount {
                         if isNonInterleaved {
@@ -1931,12 +2055,12 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
                     } else {
                         sample = 0
                     }
-                    out[frame * outputChannels + channel] = sample
+                    out[frame * outputChannelCount + channel] = sample
                 }
             }
         }
 
-        try writeData(output, to: audioHandle)
+        try writeData(output, to: handle)
     }
 
     private func readSample(
@@ -2004,9 +2128,12 @@ private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
         }
     }
 
-    private static func cleanupPipes(videoPipeURL: URL, audioPipeURL: URL) {
+    private static func cleanupPipes(videoPipeURL: URL, audioPipeURL: URL, microphonePipeURL: URL?) {
         try? FileManager.default.removeItem(at: videoPipeURL)
         try? FileManager.default.removeItem(at: audioPipeURL)
+        if let microphonePipeURL {
+            try? FileManager.default.removeItem(at: microphonePipeURL)
+        }
     }
 
     func setErrorHandler(_ handler: @escaping @Sendable (Error) -> Void) {
