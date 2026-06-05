@@ -886,36 +886,34 @@ actor PreviewAssetGenerator {
     ]
 
     /// Generates a row thumbnail for an AV2 `.ivf` source by decoding a single frame with
-    /// avmdec to a temporary raw file, then converting it to PNG with FFmpeg. Returns nil on
+    /// avmdec to a temporary Y4M file, then converting it to PNG with FFmpeg. Returns nil on
     /// any failure (the caller then falls back to the generic placeholder).
     private func generateAV2RowThumbnail(url: URL, destination: URL) async -> Data? {
-        guard let header = IVFHeaderParser.parse(url: url), header.isAV2,
+        guard IVFHeaderParser.parse(url: url)?.isAV2 == true,
               let avmdecPath = BinaryPathResolver.avmdecPath,
               let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             return nil
         }
-        let tempRaw = fileManager.temporaryDirectory.appendingPathComponent("av2thumb-\(UUID().uuidString).raw")
-        defer { try? fileManager.removeItem(at: tempRaw) }
+        let tempY4M = fileManager.temporaryDirectory.appendingPathComponent("av2thumb-\(UUID().uuidString).y4m")
+        defer { try? fileManager.removeItem(at: tempY4M) }
         do {
-            // Decode one frame to raw 10-bit I420.
+            // Decode one frame to self-describing Y4M (native chroma / bit depth).
             _ = try await runProcess(
                 executable: URL(fileURLWithPath: avmdecPath),
-                arguments: [url.path, "--rawvideo", "--output-bit-depth=10", "--limit=1", "-o", tempRaw.path],
+                arguments: [url.path, "--limit=1", "-o", tempY4M.path],
                 forURL: url
             ) { _, _ in true }
 
-            let rawSize = ((try? fileManager.attributesOfItem(atPath: tempRaw.path))?[.size] as? Int) ?? 0
+            let rawSize = ((try? fileManager.attributesOfItem(atPath: tempY4M.path))?[.size] as? Int) ?? 0
             guard rawSize > 0 else { return nil }
 
             let maxDim = max(2, Int(AppConstants.maxThumbnailSize.width))
-            // Convert the raw frame to a PNG thumbnail.
+            // Convert the decoded frame to a PNG thumbnail (FFmpeg reads Y4M format/depth itself).
             _ = try await runProcess(
                 executable: URL(fileURLWithPath: ffmpegPath),
                 arguments: [
                     "-y", "-nostdin",
-                    "-f", "rawvideo", "-pix_fmt", "yuv420p10le",
-                    "-s", "\(header.width)x\(header.height)",
-                    "-i", tempRaw.path,
+                    "-i", tempY4M.path,
                     "-frames:v", "1",
                     "-vf", "scale=\(maxDim):-2",
                     destination.path

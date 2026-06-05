@@ -387,20 +387,14 @@ actor FFMPEGConverter {
            request.synthesizedVideoRequest == nil,
            let header = IVFHeaderParser.parse(url: inputURL), header.isAV2,
            let avmdecPath = BinaryPathResolver.avmdecPath {
-            // Always decode to 10-bit yuv420p10le for determinism (8-bit promotes losslessly).
-            let fpsNum = header.fpsNumerator > 0 ? header.fpsNumerator : 25
-            let fpsDen = header.fpsDenominator > 0 ? header.fpsDenominator : 1
-            effectiveCustomInputArguments = [
-                "-f", "rawvideo",
-                "-pix_fmt", "yuv420p10le",
-                "-s", "\(header.width)x\(header.height)",
-                "-r", "\(fpsNum)/\(fpsDen)",
-                "-i", "pipe:0"
-            ]
+            // avmdec writes self-describing Y4M to stdout, so FFmpeg auto-detects the exact
+            // chroma subsampling and bit depth (4:2:0/4:2:2/4:4:4, 8/10/12-bit) with no
+            // assumptions — native depth is preserved (a 10-bit source stays 10-bit).
+            effectiveCustomInputArguments = ["-f", "yuv4mpegpipe", "-i", "pipe:0"]
             let bridge = Pipe()
             let decoder = Process()
             decoder.executableURL = URL(fileURLWithPath: avmdecPath)
-            decoder.arguments = [inputURL.path, "--rawvideo", "--output-bit-depth=10", "-o", "-"]
+            decoder.arguments = [inputURL.path, "-o", "-"]
             decoder.standardOutput = bridge
             decoder.standardError = FileHandle.nullDevice
             decoder.standardInput = FileHandle.nullDevice
