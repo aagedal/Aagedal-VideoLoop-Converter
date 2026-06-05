@@ -1286,10 +1286,10 @@ struct PresetsSettingsView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Stepper("Threads: \(av2Threads == 0 ? "Auto" : "\(av2Threads)")", value: $av2Threads, in: 0...64)
                                 .help("avmenc -t. 0 lets the app use all available cores.")
-                            Stepper("Tile Columns (log2): \(av2TileColumns)", value: $av2TileColumns, in: 0...6)
-                                .help("avmenc --tile-columns. 0 disables explicit tiling. Tiles enable more parallelism on large frames at a small efficiency cost.")
-                            Stepper("Tile Rows (log2): \(av2TileRows)", value: $av2TileRows, in: 0...6)
-                                .help("avmenc --tile-rows. 0 disables explicit tiling.")
+                            Stepper("Tile Columns (log2): \(av2TileColumns == 0 ? "Auto" : "\(av2TileColumns)")", value: $av2TileColumns, in: 0...6)
+                                .help("avmenc --tile-columns (log2: 1 = 2 columns, 2 = 4, …). Tiling is the only way AVM uses multiple CPU cores, so it's the main speed control. 0 = Auto, which picks a tile count from the resolution to spread work across cores — increasing it adds parallelism at a small compression cost.")
+                            Stepper("Tile Rows (log2): \(av2TileRows == 0 ? "Auto" : "\(av2TileRows)")", value: $av2TileRows, in: 0...6)
+                                .help("avmenc --tile-rows (log2). 0 = Auto (chosen from the frame height).")
                         }
                         .padding(.top, 6)
                     }

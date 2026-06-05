@@ -553,7 +553,7 @@ enum AppConstants {
     static let av2TargetBitrateKey = "av2TargetBitrate"         // avmenc --target-bitrate (kbps, VBR mode)
     static let defaultAV2TargetBitrate = 4000
     static let av2SpeedKey = "av2Speed"                         // avmenc --cpu-used (0 slow/best … 9 fast)
-    static let defaultAV2Speed = 4
+    static let defaultAV2Speed = 9                             // AVM is extremely slow; default to the fastest
     static let av2BitDepthKey = "av2BitDepth"                   // AV2BitDepthOption raw value
     static let defaultAV2BitDepth = "Auto"
     static let av2ThreadsKey = "av2Threads"                     // avmenc -t (0 = auto / all cores)
