@@ -1540,10 +1540,11 @@ actor FFMPEGConverter {
 
         let ffmpegErrPipe = Pipe()
         let avmencErrPipe = Pipe()
+        let avmencOutPipe = Pipe()  // avmenc prints per-frame "POC:" progress to stdout (not stderr)
         ffmpeg.standardError = ffmpegErrPipe
         ffmpeg.standardInput = FileHandle.nullDevice
         avmenc.standardError = avmencErrPipe
-        avmenc.standardOutput = FileHandle.nullDevice
+        avmenc.standardOutput = avmencOutPipe  // bitstream goes to the -o file; stdout is progress text
 
         await setCurrentProcess(ffmpeg)
         await setAuxProcess(avmenc)
@@ -1551,7 +1552,22 @@ actor FFMPEGConverter {
         Self.logger.info("AV2 ffmpeg: \(ffmpegPath, privacy: .public) \(command.ffmpegArguments.joined(separator: " "), privacy: .public)")
         Self.logger.info("AV2 avmenc: \(avmencPath, privacy: .public) \(command.avmencArguments.joined(separator: " "), privacy: .public)")
 
-        // Progress wiring on ffmpeg's stderr — identical to the standard single-process path.
+        // Progress is driven by AVMENC, not ffmpeg. ffmpeg only decodes the source and feeds y4m
+        // (fast — it finishes and exits within seconds), while avmenc does the slow encoding and
+        // buffers frames via lag-in-frames, so ffmpeg never back-pressures on short clips. Tracking
+        // ffmpeg would pin the bar at 100% for the entire real encode (the "stuck at 100%" report).
+        // avmenc prints one "POC:" line per encoded frame to stderr, so we count those against the
+        // known frame count. (A few extra hidden alt-ref frames may appear; we cap the bar at 99%
+        // until the 2-of-2 barrier confirms completion.)
+        let totalFrames: Int = {
+            guard let dur = command.effectiveDuration, let fps = command.frameRate, dur > 0, fps > 0 else { return 0 }
+            return max(1, Int((dur * fps).rounded()))
+        }()
+        let encodedFrames = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let ffmpegStderr = StderrCollector()
+        let avmencStderr = StderrCollector()
+
+        // Fallback time-based progress (only used when we can't determine a frame count).
         let totalDurationBox = DurationBox()
         let effectiveDurationBox = DurationBox()
         totalDurationBox.value = command.effectiveDuration
@@ -1559,12 +1575,11 @@ actor FFMPEGConverter {
         let frameStallTracker = FrameStallTracker()
         let progressThrottler = ProgressThrottler()
         let frameRate = command.frameRate ?? 24.0
-        let ffmpegStderr = StderrCollector()
-        let avmencStderr = StderrCollector()
 
         ffmpegErrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            if let output = String(data: data, encoding: .utf8), !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if totalFrames == 0,
+               let output = String(data: data, encoding: .utf8), !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let (newTotal, _) = FFMPEGProgressParser.handleOutput(
                     output,
                     totalDuration: totalDurationBox.value,
@@ -1579,12 +1594,30 @@ actor FFMPEGConverter {
             if !data.isEmpty { Task { await ffmpegStderr.append(data) } }
         }
 
-        // avmenc prints per-frame progress and any errors to stderr; drain it continuously so
-        // the encoder never blocks on a full stderr buffer, and keep it for diagnostics.
+        // avmenc prints one "POC:" line per encoded frame to STDOUT — count them to drive the
+        // encode progress bar. (The IVF bitstream itself goes to the -o file, not stdout.)
+        avmencOutPipe.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty, totalFrames > 0, let text = String(data: data, encoding: .utf8) else { return }
+            let newOnes = text.components(separatedBy: "POC:").count - 1
+            if newOnes > 0 {
+                let count = encodedFrames.withLock { state -> Int in state += newOnes; return state }
+                let shown = min(count, totalFrames)
+                let fraction = min(0.99, Double(count) / Double(totalFrames))
+                progressUpdate(fraction, "Encoding AV2 — frame \(shown)/\(totalFrames)")
+            }
+        }
+
+        // avmenc stderr carries warnings/errors; drain it continuously (so the encoder never
+        // blocks on a full stderr buffer) and keep it for the failure reason.
         avmencErrPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             if !data.isEmpty { Task { await avmencStderr.append(data) } }
         }
+
+        // Show an immediate status: avmenc buffers frames (lag-in-frames) before emitting the
+        // first "POC:" line, so there's a gap before frame-based progress starts climbing.
+        progressUpdate(0.0, totalFrames > 0 ? "Encoding AV2 — frame 0/\(totalFrames)" : "Encoding AV2…")
 
         // 2-of-2 termination barrier: finalize only after BOTH processes have exited
         // (the .ivf isn't fully flushed until avmenc terminates).
@@ -1634,6 +1667,7 @@ actor FFMPEGConverter {
         // Both processes have exited.
         ffmpegErrPipe.fileHandleForReading.readabilityHandler = nil
         avmencErrPipe.fileHandleForReading.readabilityHandler = nil
+        avmencOutPipe.fileHandleForReading.readabilityHandler = nil
         await setCurrentProcess(nil)
         await setAuxProcess(nil)
 
