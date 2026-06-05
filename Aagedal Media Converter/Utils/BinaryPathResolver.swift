@@ -72,6 +72,12 @@ enum BinaryPathResolver {
         Bundle.main.path(forResource: "avmenc", ofType: nil)
     }
 
+    /// Resolves the path to the bundled avmdec binary (AOM AVM reference AV2 decoder).
+    /// Used to decode AV2 `.ivf` sources to raw frames piped into FFmpeg.
+    static var avmdecPath: String? {
+        Bundle.main.path(forResource: "avmdec", ofType: nil)
+    }
+
     // MARK: - Version Info
 
     /// Gets the version of a binary by running it with --version

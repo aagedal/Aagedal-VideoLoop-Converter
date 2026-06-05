@@ -374,6 +374,41 @@ actor FFMPEGConverter {
             return
         }
 
+        // MARK: AV2 .ivf source decode front-end
+        // FFmpeg can't decode AV2, so for an .ivf source we run `avmdec` to produce raw frames
+        // and pipe them into FFmpeg's stdin. FFmpeg then runs the normal preset command (and any
+        // post-processing) on the decoded frames. Skipped for merges / AVC-Intra preproc / waveform.
+        var av2DecodeBridge: Pipe? = nil
+        var av2DecodeProcess: Process? = nil
+        if inputURL.pathExtension.lowercased() == "ivf",
+           tempAudioURL == nil,
+           request.customInputArguments == nil,
+           request.waveformRequest == nil,
+           request.synthesizedVideoRequest == nil,
+           let header = IVFHeaderParser.parse(url: inputURL), header.isAV2,
+           let avmdecPath = BinaryPathResolver.avmdecPath {
+            // Always decode to 10-bit yuv420p10le for determinism (8-bit promotes losslessly).
+            let fpsNum = header.fpsNumerator > 0 ? header.fpsNumerator : 25
+            let fpsDen = header.fpsDenominator > 0 ? header.fpsDenominator : 1
+            effectiveCustomInputArguments = [
+                "-f", "rawvideo",
+                "-pix_fmt", "yuv420p10le",
+                "-s", "\(header.width)x\(header.height)",
+                "-r", "\(fpsNum)/\(fpsDen)",
+                "-i", "pipe:0"
+            ]
+            let bridge = Pipe()
+            let decoder = Process()
+            decoder.executableURL = URL(fileURLWithPath: avmdecPath)
+            decoder.arguments = [inputURL.path, "--rawvideo", "--output-bit-depth=10", "-o", "-"]
+            decoder.standardOutput = bridge
+            decoder.standardError = FileHandle.nullDevice
+            decoder.standardInput = FileHandle.nullDevice
+            av2DecodeBridge = bridge
+            av2DecodeProcess = decoder
+            Self.logger.info("AV2 decode front-end: avmdec → ffmpeg for \(inputURL.lastPathComponent, privacy: .public) (\(header.width)x\(header.height))")
+        }
+
         let process = Process()
         await setCurrentProcess(process)
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
@@ -405,7 +440,11 @@ actor FFMPEGConverter {
         let errorPipe = Pipe()
         process.standardError = errorPipe
         process.standardOutput = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice  // Prevent FFmpeg from waiting for stdin
+        if let av2DecodeBridge {
+            process.standardInput = av2DecodeBridge  // Raw frames from avmdec
+        } else {
+            process.standardInput = FileHandle.nullDevice  // Prevent FFmpeg from waiting for stdin
+        }
 
         let totalDurationBox = DurationBox()
         let effectiveDurationBox = DurationBox()
@@ -483,6 +522,7 @@ actor FFMPEGConverter {
 
             Task { [weak self] in
                 await self?.setCurrentProcess(nil)
+                await self?.setAuxProcess(nil)  // Clears the AV2 avmdec decoder when present
                 var success = process.terminationStatus == 0
                 if capturedIsIMFExport || capturedIsDCPExport {
                     print("[IMF/DCP] termination handler entered, ffmpeg exit=\(process.terminationStatus), success=\(success), isIMF=\(capturedIsIMFExport), isDCP=\(capturedIsDCPExport)")
@@ -1313,6 +1353,22 @@ actor FFMPEGConverter {
 
         do {
             try process.run()
+            // For an AV2 .ivf source, start avmdec now (FFmpeg is already reading pipe:0) and
+            // release the parent's bridge fds so EOF/SIGPIPE propagate when either side finishes.
+            if let decoder = av2DecodeProcess, let bridge = av2DecodeBridge {
+                await setAuxProcess(decoder)
+                do {
+                    try decoder.run()
+                    try? bridge.fileHandleForWriting.close()
+                    try? bridge.fileHandleForReading.close()
+                } catch {
+                    // avmdec failed to launch — FFmpeg would block forever waiting for frames.
+                    Self.logger.error("Failed to run avmdec: \(error.localizedDescription, privacy: .public)")
+                    process.terminate()
+                    await setAuxProcess(nil)
+                    completion(false, "Failed to start AV2 decoder (avmdec): \(error.localizedDescription)")
+                }
+            }
         } catch {
             Self.logger.error("Failed to run process: \(error.localizedDescription, privacy: .public)")
             completion(false, "Failed to start FFmpeg: \(error.localizedDescription)")

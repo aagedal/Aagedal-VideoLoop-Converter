@@ -823,6 +823,11 @@ actor PreviewAssetGenerator {
             return try? Data(contentsOf: legacyRowThumbnailURL)
         }
 
+        // AV2 .ivf: no decoder (AVFoundation/FFmpeg) can read it — decode a frame with avmdec.
+        if url.pathExtension.lowercased() == "ivf" {
+            return await generateAV2RowThumbnail(url: url, destination: rowThumbnailURL)
+        }
+
         let hasVideoStream = await hasVideoStream(for: url)
 
         if hasVideoStream {
@@ -879,6 +884,51 @@ actor PreviewAssetGenerator {
         "ogv", "ogm", "ogg", "oga", "rm", "rmvb", "roq", "ts",
         "mts", "m2ts", "m2t", "trp", "vob", "webm", "wmv", "wtv", "y4m"
     ]
+
+    /// Generates a row thumbnail for an AV2 `.ivf` source by decoding a single frame with
+    /// avmdec to a temporary raw file, then converting it to PNG with FFmpeg. Returns nil on
+    /// any failure (the caller then falls back to the generic placeholder).
+    private func generateAV2RowThumbnail(url: URL, destination: URL) async -> Data? {
+        guard let header = IVFHeaderParser.parse(url: url), header.isAV2,
+              let avmdecPath = BinaryPathResolver.avmdecPath,
+              let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+            return nil
+        }
+        let tempRaw = fileManager.temporaryDirectory.appendingPathComponent("av2thumb-\(UUID().uuidString).raw")
+        defer { try? fileManager.removeItem(at: tempRaw) }
+        do {
+            // Decode one frame to raw 10-bit I420.
+            _ = try await runProcess(
+                executable: URL(fileURLWithPath: avmdecPath),
+                arguments: [url.path, "--rawvideo", "--output-bit-depth=10", "--limit=1", "-o", tempRaw.path],
+                forURL: url
+            ) { _, _ in true }
+
+            let rawSize = ((try? fileManager.attributesOfItem(atPath: tempRaw.path))?[.size] as? Int) ?? 0
+            guard rawSize > 0 else { return nil }
+
+            let maxDim = max(2, Int(AppConstants.maxThumbnailSize.width))
+            // Convert the raw frame to a PNG thumbnail.
+            _ = try await runProcess(
+                executable: URL(fileURLWithPath: ffmpegPath),
+                arguments: [
+                    "-y", "-nostdin",
+                    "-f", "rawvideo", "-pix_fmt", "yuv420p10le",
+                    "-s", "\(header.width)x\(header.height)",
+                    "-i", tempRaw.path,
+                    "-frames:v", "1",
+                    "-vf", "scale=\(maxDim):-2",
+                    destination.path
+                ],
+                forURL: url
+            ) { _, _ in true }
+
+            return try? Data(contentsOf: destination)
+        } catch {
+            logger.error("AV2 thumbnail generation failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
 
     /// Generates a row thumbnail using AVFoundation (fast, in-process, no subprocess spawning).
     /// Returns the PNG data on success, nil if AVFoundation can't handle the format.
