@@ -20,6 +20,14 @@ extension Notification.Name {
     /// Posted after the queue has appended a new group. `userInfo["groupID"]` holds
     /// the new group's UUID so the list view can highlight and scroll to it.
     static let encodingGroupCreated = Notification.Name("encodingGroupCreated")
+    /// Posted by `SettingsSyncService` after a newer remote snapshot replaced the
+    /// local settings. `userInfo["deviceName"]` holds the source Mac's name so the
+    /// UI can show an "updated from X" notice.
+    static let settingsSyncedFromRemote = Notification.Name("settingsSyncedFromRemote")
+    /// Posted by the File menu "Export Settings…" command.
+    static let exportSettingsRequested = Notification.Name("exportSettingsRequested")
+    /// Posted by the File menu "Import Settings…" command.
+    static let importSettingsRequested = Notification.Name("importSettingsRequested")
 }
 
 // MARK: - Add To Encode Queue Intent

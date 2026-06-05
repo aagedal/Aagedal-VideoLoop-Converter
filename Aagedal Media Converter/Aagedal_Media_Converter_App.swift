@@ -62,6 +62,9 @@ struct Aagedal_Media_Converter_App: App {
         applyPreviewCacheCleanupPolicy()
         TesseractService.purgeOrphanTempDirs()
         OutputFolderCleanupService.shared.start()
+        // Bring the settings-sync singleton (and its file/UserDefaults observers)
+        // online at launch so a snapshot that arrived while closed is pulled in.
+        SettingsSyncService.shared.activate()
     }
 
     /// One-time migration: consolidate 3 audio presets into unified Audio Only preset
@@ -153,6 +156,15 @@ struct MainAppCommands: Commands {
                 NotificationCenter.default.post(name: .showCameraCardImporter, object: nil)
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Export Settings…") {
+                NotificationCenter.default.post(name: .exportSettingsRequested, object: nil)
+            }
+            Button("Import Settings…") {
+                NotificationCenter.default.post(name: .importSettingsRequested, object: nil)
+            }
         }
         CommandGroup(after: .windowArrangement) {
             Button("Show Metadata") {

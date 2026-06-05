@@ -90,6 +90,10 @@ struct ContentView: View {
     @StateObject private var updateChecker = UpdateChecker.shared
     @State private var showUpdateNotification = false
     @State private var updateNotificationTask: Task<Void, Never>?
+    @State private var settingsSyncNotice: String?
+    @State private var settingsSyncNoticeTask: Task<Void, Never>?
+    @State private var settingsImportAlertMessage: String?
+    @State private var showSettingsImportAlert = false
     @State private var showURLInputOverlay = false
     @State private var showPresetQuickSelect = false
     @State private var showYTDLPNotConfiguredAlert = false
@@ -461,6 +465,7 @@ struct ContentView: View {
     var body: some View {
         mainContentView
             .overlay(alignment: .bottom) { updateNotificationOverlay }
+            .overlay(alignment: .top) { settingsSyncNoticeOverlay }
             .frame(minWidth: 860)
             .modifier(ContentViewSheets(
                 droppedFiles: $droppedFiles,
@@ -559,6 +564,21 @@ struct ContentView: View {
                     object: nil,
                     userInfo: ["groupID": group.id]
                 )
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .settingsSyncedFromRemote)) { note in
+                let device = note.userInfo?["deviceName"] as? String ?? "another Mac"
+                showSettingsSyncNotice("Settings updated from \(device)")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .exportSettingsRequested)) { _ in
+                exportSettingsFromMenu()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .importSettingsRequested)) { _ in
+                importSettingsFromMenu()
+            }
+            .alert("Settings", isPresented: $showSettingsImportAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(settingsImportAlertMessage ?? "")
             }
             .sheet(item: $cameraCardImportState) { state in
                 CameraCardImportView(
@@ -792,6 +812,62 @@ struct ContentView: View {
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .padding(.bottom, 20)
         }
+    }
+
+    @ViewBuilder
+    private var settingsSyncNoticeOverlay: some View {
+        if let notice = settingsSyncNotice {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.clockwise.icloud")
+                Text(notice)
+                    .font(.callout)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(.separator))
+            .shadow(radius: 4, y: 2)
+            .padding(.top, 12)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private func showSettingsSyncNotice(_ message: String) {
+        settingsSyncNoticeTask?.cancel()
+        withAnimation { settingsSyncNotice = message }
+        settingsSyncNoticeTask = Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { withAnimation { settingsSyncNotice = nil } }
+        }
+    }
+
+    private func exportSettingsFromMenu() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "Aagedal Media Converter Settings.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try SettingsSyncService.shared.exportSnapshot(to: url)
+        } catch {
+            settingsImportAlertMessage = error.localizedDescription
+            showSettingsImportAlert = true
+        }
+    }
+
+    private func importSettingsFromMenu() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let snapshot = try SettingsSyncService.shared.importSnapshot(from: url, notify: false)
+            settingsImportAlertMessage = "Imported settings from \(snapshot.deviceName) (\(snapshot.modifiedAt.formatted(date: .abbreviated, time: .shortened)))."
+        } catch {
+            settingsImportAlertMessage = error.localizedDescription
+        }
+        showSettingsImportAlert = true
     }
 
     private var keyboardShortcutHandler: some View {

@@ -23,6 +23,7 @@ struct SettingsView: View {
         case whisper
         case ocr
         case analytics
+        case sync
         case updates
         case shortcuts
 
@@ -42,6 +43,7 @@ struct SettingsView: View {
             case .whisper: return String(localized: "Transcription", comment: "Settings sidebar tab.")
             case .ocr: return String(localized: "OCR", comment: "Settings sidebar tab.")
             case .analytics: return String(localized: "Analytics", comment: "Settings sidebar tab.")
+            case .sync: return String(localized: "Sync", comment: "Settings sidebar tab.")
             case .updates: return String(localized: "Updates", comment: "Settings sidebar tab.")
             case .shortcuts: return String(localized: "Shortcuts", comment: "Settings sidebar tab.")
             }
@@ -63,6 +65,7 @@ struct SettingsView: View {
             case .whisper: return "captions.bubble"
             case .ocr: return "character.magnify"
             case .analytics: return "chart.bar.xaxis"
+            case .sync: return "arrow.clockwise.icloud"
             case .updates: return "arrow.triangle.2.circlepath"
             case .shortcuts: return "command"
             }
@@ -91,6 +94,7 @@ struct SettingsView: View {
         case .whisper: TranscriptionSettingsView()
         case .ocr: TesseractSettingsView()
         case .analytics: AnalyticsSettingsView()
+        case .sync: SyncSettingsView()
         case .updates: UpdateSettingsView()
         case .shortcuts: ShortcutsSettingsView()
         }

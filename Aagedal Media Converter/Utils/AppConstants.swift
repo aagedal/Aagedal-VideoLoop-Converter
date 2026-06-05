@@ -850,4 +850,24 @@ enum AppConstants {
     static let ssimulacra2CustomPathKey = "ssimulacra2CustomPath"
     static let ssimulacra2MaxFramesKey = "ssimulacra2MaxFrames"
     static let defaultSSIMULACRA2MaxFrames: Int = 50
+
+    // MARK: - Settings Sync
+
+    /// Whether automatic two-way settings sync is enabled.
+    static let settingsSyncEnabledKey = "settingsSyncEnabled"
+    /// Where the sync snapshot lives — `SettingsSyncLocationMode.rawValue`
+    /// ("iCloudDrive" or "customFolder").
+    static let settingsSyncLocationModeKey = "settingsSyncLocationMode"
+    /// `URL.path` of the user-chosen custom sync folder (a security-scoped
+    /// bookmark for it is stored separately via `SecurityScopedBookmarkManager`).
+    static let settingsSyncCustomFolderPathKey = "settingsSyncCustomFolderPath"
+    /// `modifiedAt` of the most recent snapshot this Mac wrote or applied, used to
+    /// avoid re-importing our own writes and to drive newest-wins. Stored as a
+    /// `Date` (timeIntervalSinceReferenceDate).
+    static let lastSettingsSyncDateKey = "lastSettingsSyncDate"
+
+    /// File name used for the settings snapshot in whichever sync folder is active.
+    static let settingsSyncFileName = "settings.json"
+    /// Subfolder created inside the sync location to hold the snapshot.
+    static let settingsSyncFolderName = "Aagedal Media Converter"
 }

@@ -195,6 +195,10 @@
 		METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = METAEXPVIEW000000000002 /* MetadataExportView.swift */; };
 		OUTCLEAN0BF00000001 /* OutputFolderCleanupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */; };
 		PRESET01MGR000000001 /* PresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PRESET01MGR000000002 /* PresetManager.swift */; };
+		SNAPSHOTSYNC000001 /* SettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = SNAPSHOTSYNC000002 /* SettingsSnapshot.swift */; };
+		SYNCKEYS00000001 /* SettingsSyncKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCKEYS00000002 /* SettingsSyncKeys.swift */; };
+		SYNCSVC000000001 /* SettingsSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCSVC000000002 /* SettingsSyncService.swift */; };
+		SYNCVIEW00000001 /* SyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCVIEW00000002 /* SyncSettingsView.swift */; };
 		RSEL000000000001000BUILD /* RegionSelectionOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RSEL000000000001000FREF1 /* RegionSelectionOverlayView.swift */; };
 		RSEL000000000002000BUILD /* RegionSelectionWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */; };
 		SCHEDDL01SERV00000001 /* ScheduledDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */; };
@@ -444,6 +448,10 @@
 		METAEXPVIEW000000000002 /* MetadataExportView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataExportView.swift; sourceTree = "<group>"; };
 		OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputFolderCleanupService.swift; sourceTree = "<group>"; };
 		PRESET01MGR000000002 /* PresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManager.swift; sourceTree = "<group>"; };
+		SNAPSHOTSYNC000002 /* SettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSnapshot.swift; sourceTree = "<group>"; };
+		SYNCKEYS00000002 /* SettingsSyncKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncKeys.swift; sourceTree = "<group>"; };
+		SYNCSVC000000002 /* SettingsSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncService.swift; sourceTree = "<group>"; };
+		SYNCVIEW00000002 /* SyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncSettingsView.swift; sourceTree = "<group>"; };
 		RSEL000000000001000FREF1 /* RegionSelectionOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionOverlayView.swift; sourceTree = "<group>"; };
 		RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionWindowController.swift; sourceTree = "<group>"; };
 		SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScheduledDownloadService.swift; path = YTDLP/ScheduledDownloadService.swift; sourceTree = "<group>"; };
@@ -606,6 +614,7 @@
 				8EEE45292EC137EA0049F017 /* Conversion */,
 				8EC9A6FD2EC149140082C67F /* TrimPlayer */,
 				PRESET01MGR000000003 /* Preset */,
+				SYNCGROUP0000003 /* Sync */,
 				IMPORT0GRP00000001 /* Import */,
 				8E4DF2742ECBD3F2007B6277 /* SoundManager.swift */,
 				8E1477462ECF453900C805AA /* UpdateChecker.swift */,
@@ -892,6 +901,7 @@
 				FILENAMESETV0000000000B2 /* FileNameSettingsView.swift */,
 				ENCSETV000000002 /* EncodingSettingsView.swift */,
 				SCRNSHOTSETV0000000000B2 /* ScreenshotSettingsView.swift */,
+				SYNCVIEW00000002 /* SyncSettingsView.swift */,
 			);
 			path = SettingsView;
 			sourceTree = "<group>";
@@ -1005,6 +1015,16 @@
 				PRESET01MGR000000002 /* PresetManager.swift */,
 			);
 			path = Preset;
+			sourceTree = "<group>";
+		};
+		SYNCGROUP0000003 /* Sync */ = {
+			isa = PBXGroup;
+			children = (
+				SNAPSHOTSYNC000002 /* SettingsSnapshot.swift */,
+				SYNCKEYS00000002 /* SettingsSyncKeys.swift */,
+				SYNCSVC000000002 /* SettingsSyncService.swift */,
+			);
+			path = Sync;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -1321,6 +1341,10 @@
 				METAEXPORT000000000001 /* MetadataExporter.swift in Sources */,
 				METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */,
 				PRESET01MGR000000001 /* PresetManager.swift in Sources */,
+				SNAPSHOTSYNC000001 /* SettingsSnapshot.swift in Sources */,
+				SYNCKEYS00000001 /* SettingsSyncKeys.swift in Sources */,
+				SYNCSVC000000001 /* SettingsSyncService.swift in Sources */,
+				SYNCVIEW00000001 /* SyncSettingsView.swift in Sources */,
 				VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */,
 				IMGSEQMOD00000002 /* ImageSequenceModels.swift in Sources */,
 				IMGSEQDET00000002 /* ImageSequenceDetector.swift in Sources */,
