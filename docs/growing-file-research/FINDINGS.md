@@ -1,7 +1,44 @@
 # Growing-file recording — reverse-engineering findings
 
-> Status: **unsolved for true-growing-in-Resolve with a small codec.** Captured 2026-06-07 so it can be picked up later.
-> The pragmatic fallback (small near-growing `.mov` via `AVAssetWriter`) is viable and also fixes the original `.ts` bug — see [§9](#9-pragmatic-fallback-recommended-if-not-resuming-rev-eng).
+> Status: **SOLVED.** True growing-in-Resolve with a small codec (H.264/HEVC) is achievable. The signal is a hidden **`.X.mov` sidecar index file**, not anything in the media file — see [§0](#0-solved--the-davinci-resolve-growing-file-mechanism). Captured 2026-06-07.
+
+---
+
+## 0. SOLVED — the "DaVinci Resolve Growing File" mechanism
+
+Resolve recognises a growing file by a **hidden sidecar** written next to the media, discovered by reverse-engineering **Softron MovieRecorder** (whose "DaVinci Resolve Growing File" checkbox toggles exactly this sidecar — confirmed by a controlled ON/OFF diff: the media files are byte-identical; only the sidecar's presence differs).
+
+**The recipe:**
+- **Main file** `X.mov` — the real media (Softron writes a fragmented `qt` MOV via AVAssetWriter; H.264 or HEVC, + audio + timecode). Holds the encoded samples.
+- **Sidecar** `.X.mov` (hidden, dot-prefixed, **same folder, same basename**) — a tiny **fragmented MP4** index:
+  - `ftyp` major `iso5`, compat `iso6`/`mp41`.
+  - `moov` = mvhd (timescale 50000, **duration pinned to 1 s**) + the **same 3 tracks** (video/audio/timecode, "Core Media …" handlers) + `mvex`(3×`trex`).
+  - Each track's `dref` → **`url ` box with flags = 0 (EXTERNAL) and content = `"X.mov"`** (the main file's basename). This is what ties the index to the media.
+  - Then a **`moof` appended per fragment (~1/s)**, each with `traf` for all 3 tracks:
+    - `tfhd` flags `0x000011` (base-data-offset-present + default-sample-size-present), **`base_data_offset` = absolute byte offset into the MAIN file** where that fragment's samples live.
+    - `trun` = per-sample sizes/durations/flags + `data_offset` relative to `base_data_offset`.
+  - The sidecar **grows** (more `moof`) in lockstep with the main file; Resolve polls it.
+- Both files in the same directory; Resolve imports `X.mov`, finds `.X.mov`, treats `X` as growing.
+
+**Why we couldn't find it earlier:** it's created only while recording and removed/irrelevant once stopped, and a finalized media file is byte-identical whether the toggle was on or off. The ON-vs-OFF media diff showed *only* `avcC`/SPS differences (normal encoder variation) — proving the signal is non-structural.
+
+**How to reproduce (implementation):**
+1. Write the main fragmented `.mov` with `AVAssetWriter` (HEVC/H.264 + audio + timecode + `movieFragmentInterval`), as in the existing prototype `tools/grow_avwriter.swift`.
+2. Generate the `.X.mov` sidecar in lockstep. Cleanest path: drive `AVAssetWriter` in **segmented mode** (`preferredOutputSegmentInterval` + `AVAssetWriterDelegate.assetWriter(_:didOutputSegmentData:segmentType:segmentReport:)`). For each delivered media segment (a `moof`+`mdat`):
+   - append the segment bytes to the main file at the current offset (so you know exactly where its `mdat` lands), and
+   - emit a sidecar `moof` = the segment's `moof` with `tfhd base_data_offset` rewritten to the absolute position in the main file (segment offset + payload offset within segment); the `trun` sample tables copy over unchanged.
+   - Write the sidecar init once (ftyp `iso5` + `moov` with `mvex` and external `dref url = "X.mov"`), derived from the init segment.
+   Alternative: let AVAssetWriter write the main file normally and **tail/parse its `moof`s** to build the sidecar — same result, just parse instead of using the delegate.
+3. Atomically keep `.X.mov` valid after each append (write to temp + rename, or append whole `moof` boxes) so Resolve never reads a torn index.
+
+This yields the original goal: **small (H.264/HEVC) + true-growing in Resolve + Premiere + crash-safe + in-process.** The `.ts` deadlock removal (§2) still applies. The pragmatic fallback (§9) is now only a fallback if the sidecar generator is deferred.
+
+Sidecar evidence (live Recording 7): sidecar `ftyp iso5`, 158 `moof` (≈158 s), `tfhd flags=0x000011 base_data_offset=1128282` (inside main), `url ` flags=0 content `"Untitled Recording 7.mov"`; main + sidecar grew together.
+
+---
+
+> Below: the original investigation that led here (still useful for context / the pragmatic fallback).
+> Pragmatic fallback (small near-growing `.mov` via `AVAssetWriter`, no sidecar) — see [§9](#9-pragmatic-fallback-recommended-if-not-resuming-rev-eng).
 
 ---
 
