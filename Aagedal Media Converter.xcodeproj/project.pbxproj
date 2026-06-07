@@ -157,6 +157,8 @@
 		BC6905B16FDDC57467098ECF /* KeychainCredentialManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8BDFDD325A4DF89E8766843 /* KeychainCredentialManager.swift */; };
 		C1DCF31F2FB2341100D617D4 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C1DCF31E2FB2341100D617D4 /* Sparkle */; };
 		C2D3E4F5061728394A5B6C7D /* ScreenCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */; };
+		VDISPMGR00001000BUILD /* VirtualDisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = VDISPMGR00001000FREF1 /* VirtualDisplayManager.swift */; };
+		VDISPMENU0001000BUILD /* VirtualDisplayMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = VDISPMENU0001000FREF1 /* VirtualDisplayMenu.swift */; };
 		C7166A0F2716B52C985E6275 /* MetadataWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74E3B8A6D800B9AF62A3BF1E /* MetadataWindowController.swift */; };
 		CAMCARDSCAN0000001 /* CameraCardScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMCARDSCAN0000002 /* CameraCardScanner.swift */; };
 		CAMCARDVIEW0000001 /* CameraCardImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMCARDVIEW0000002 /* CameraCardImportView.swift */; };
@@ -409,9 +411,12 @@
 		BF5B904C1C7B34D8CE907E7B /* RcloneProgressParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RcloneProgressParser.swift; path = "Aagedal Media Converter/Logic/Upload/RcloneProgressParser.swift"; sourceTree = "<group>"; };
 		C2018B1D061B2AD00DB22947 /* VideoFileCellView+Thumbnail.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "VideoFileCellView+Thumbnail.swift"; sourceTree = "<group>"; };
 		C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureManager.swift; sourceTree = "<group>"; };
+		VDISPMGR00001000FREF1 /* VirtualDisplayManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualDisplayManager.swift; sourceTree = "<group>"; };
+		VDISPHDR00001000FREF1 /* CGVirtualDisplay+Private.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "CGVirtualDisplay+Private.h"; sourceTree = "<group>"; };
 		CAMCARDSCAN0000002 /* CameraCardScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCardScanner.swift; sourceTree = "<group>"; };
 		CAMCARDVIEW0000002 /* CameraCardImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCardImportView.swift; sourceTree = "<group>"; };
 		CAPCTRL00000001000FREF1 /* CaptureControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureControlPanelView.swift; sourceTree = "<group>"; };
+		VDISPMENU0001000FREF1 /* VirtualDisplayMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualDisplayMenu.swift; sourceTree = "<group>"; };
 		CAPOVRL00000001000FREF1 /* CaptureOverlayWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOverlayWindowController.swift; sourceTree = "<group>"; };
 		CAPREGN00000001000FREF1 /* CaptureRegionOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureRegionOverlayView.swift; sourceTree = "<group>"; };
 		CC01A1C0PY00010000000001 /* CopyableCommandRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyableCommandRow.swift; sourceTree = "<group>"; };
@@ -609,6 +614,8 @@
 				8EEE45382EC13B670049F017 /* Previews */,
 				8EEE45322EC13A330049F017 /* WatchFolder */,
 				C2D3E4F5061728394A5B6C7E /* ScreenCaptureManager.swift */,
+				VDISPMGR00001000FREF1 /* VirtualDisplayManager.swift */,
+				VDISPHDR00001000FREF1 /* CGVirtualDisplay+Private.h */,
 				8E545D932C3412AE0088C274 /* ConversionManager.swift */,
 				ENCGRP00000000002 /* EncodingGroup.swift */,
 				8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */,
@@ -723,6 +730,7 @@
 				CAPOVRL00000001000FREF1 /* CaptureOverlayWindowController.swift */,
 				CAPCTRL00000001000FREF1 /* CaptureControlPanelView.swift */,
 				CAPREGN00000001000FREF1 /* CaptureRegionOverlayView.swift */,
+				VDISPMENU0001000FREF1 /* VirtualDisplayMenu.swift */,
 			);
 			path = Components;
 			sourceTree = "<group>";
@@ -1268,6 +1276,8 @@
 				8EC9A6FE2EC149140082C67F /* PreviewPlayerController.swift in Sources */,
 				8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */,
 				C2D3E4F5061728394A5B6C7D /* ScreenCaptureManager.swift in Sources */,
+				VDISPMGR00001000BUILD /* VirtualDisplayManager.swift in Sources */,
+				VDISPMENU0001000BUILD /* VirtualDisplayMenu.swift in Sources */,
 				CAMCARDVIEW0000001 /* CameraCardImportView.swift in Sources */,
 				8EE6EE9C2C31FC6B007B629D /* ContentView.swift in Sources */,
 				8E04BE122ED1F8C6005AD3D8 /* PlaybackSpeedIndicator.swift in Sources */,
@@ -1572,6 +1582,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = "Aagedal Media Converter/Aagedal Media Converter Debug.entitlements";
+				SWIFT_OBJC_BRIDGING_HEADER = "Aagedal Media Converter/Logic/CGVirtualDisplay+Private.h";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -2233,6 +2244,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = "Aagedal Media Converter/Aagedal_Media_Converter.entitlements";
+				SWIFT_OBJC_BRIDGING_HEADER = "Aagedal Media Converter/Logic/CGVirtualDisplay+Private.h";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;

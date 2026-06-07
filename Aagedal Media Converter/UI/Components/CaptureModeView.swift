@@ -251,7 +251,14 @@ struct CaptureModeView: View {
                     .pickerStyle(.menu)
                     .frame(width: 260)
                     .disabled(captureManager.isRecording || captureManager.isProcessing)
-                    
+
+                    VirtualDisplayMenu(
+                        captureDisplayID: $captureDisplayID,
+                        isDisabled: captureManager.isRecording || captureManager.isProcessing
+                    ) {
+                        await refreshAvailableDisplays()
+                    }
+
                     Spacer()
                     
                     if microphoneSelectionSupported {
@@ -715,6 +722,16 @@ struct CaptureModeView: View {
                 availableDisplays = []
                 captureDisplayID = 0
             }
+        }
+    }
+
+    /// Re-fetch the display list after a virtual display is added/removed so it
+    /// appears in (or disappears from) the picker.
+    private func refreshAvailableDisplays() async {
+        guard let content = try? await ScreenCaptureManager.shareableContent() else { return }
+        let displays = ScreenCaptureManager.displays(from: content)
+        await MainActor.run {
+            availableDisplays = displays
         }
     }
 

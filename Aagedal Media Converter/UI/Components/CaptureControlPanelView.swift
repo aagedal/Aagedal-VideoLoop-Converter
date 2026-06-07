@@ -404,6 +404,14 @@ struct CaptureControlPanelView: View {
                 .controlSize(.small)
                 .labelsHidden()
 
+                VirtualDisplayMenu(
+                    captureDisplayID: $captureDisplayID,
+                    isDisabled: captureManager.isRecording || captureManager.isProcessing
+                ) {
+                    await refreshAvailableDisplays()
+                }
+                .controlSize(.small)
+
                 Spacer()
 
                 Button {
@@ -1083,6 +1091,16 @@ struct CaptureControlPanelView: View {
     private var previewPixelWidth: CGFloat {
         let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
         return max(1280, (previewBoxSize.width * backingScale).rounded(.up))
+    }
+
+    /// Re-fetch the display list after a virtual display is added/removed so it
+    /// appears in (or disappears from) the picker.
+    private func refreshAvailableDisplays() async {
+        guard let content = try? await ScreenCaptureManager.shareableContent() else { return }
+        let displays = ScreenCaptureManager.displays(from: content)
+        await MainActor.run {
+            availableDisplays = displays
+        }
     }
 
     private func loadMicrophones() async {

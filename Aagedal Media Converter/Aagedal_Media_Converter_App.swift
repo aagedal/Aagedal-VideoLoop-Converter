@@ -201,6 +201,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Terminate any running FFmpeg/FFprobe processes spawned by preview asset generation
         // This prevents orphaned processes when the app closes
         PreviewAssetGenerator.shared.terminateAllProcessesSync()
+
+        // Tear down any virtual displays so none linger after the app quits.
+        MainActor.assumeIsolated {
+            VirtualDisplayManager.shared.destroyAll()
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
