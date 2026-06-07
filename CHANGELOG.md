@@ -1,6 +1,6 @@
 # v.4.2.0
 
-The headline is experimental **AV2 encoding** via the bundled AOM AVM reference encoder — full round-trip (encode, decode, thumbnails, preview-not-available messaging), parallel chunked encoding that actually uses your cores, and Matroska muxing so the bitstream lands in a real container. Also new: **growing-file screen recording** — record straight into DaVinci Resolve (and Premiere) and edit the clip while it's still being captured. Alongside: opt-in **settings & custom-preset sync** across Macs, a much faster queue sort, and a handful of crash and correctness fixes.
+The headline is experimental **AV2 encoding** via the bundled AOM AVM reference encoder — full round-trip (encode, decode, thumbnails, preview-not-available messaging), parallel chunked encoding that actually uses your cores, and Matroska muxing so the bitstream lands in a real container. Also new: **growing-file screen recording** — record straight into DaVinci Resolve (and Premiere) and edit the clip while it's still being captured — plus a redesigned recording menu-bar menu and a resizable capture overlay. Alongside: opt-in **settings & custom-preset sync** across Macs, a much faster queue sort, and a handful of crash and correctness fixes.
 
 ## Screen recording — growing files
 
@@ -8,6 +8,11 @@ The headline is experimental **AV2 encoding** via the bundled AOM AVM reference 
 - **Recognised as a true growing file by DaVinci Resolve** — the recording is tagged with the Blackmagic `com.blackmagicdesign.metadata:recording` extended attribute while capturing (reverse-engineered; see `docs/growing-file-research`), so Resolve shows the red REC overlay and fast-refreshes the clip (~5 s) instead of its generic ~1-min media rescan. The attribute is removed automatically on stop, leaving a normal finalized clip.
 - **Constant frame rate + timecode.** ScreenCaptureKit delivers frames only on change; a CFR pump re-emits the latest frame on a fixed clock so the file has a clean constant frame rate (important for NLEs), and a per-frame timecode track is written starting at wall-clock time-of-day.
 - **Removed the broken growing-`.ts` path.** The experimental FFmpeg-pipe `.ts` presets (which deadlocked — HEVC produced a 0 KB file, H.264 froze after one frame) are gone, along with their dead pipe writer. Stored defaults pointing at them fall back to a working preset automatically.
+
+## Screen recording — overlay controls
+
+- **One menu-bar menu instead of two icons.** While recording, the menu bar previously showed two separate icons — a red stop button and a rectangle to re-open the hidden preview. They're now a single red icon whose dropdown holds everything: **Stop Recording**, **Show / Hide Preview**, an **Extend Auto-Stop** submenu (**+1 / +5 / +10 / +30 min**, plus **Cancel Auto-Stop**), and a live status section showing how long you've recorded and — when an auto-stop is set — how long is left and the exact stop time. Extending when no auto-stop is active simply starts one from now.
+- **Resizable capture overlay.** The floating preview panel can now be scaled up by dragging the handle in its top-right corner — useful for keeping an eye on the capture from across the room on an external display, or while navigating a virtual screen. The audio meters keep their width (only their height grows with the video preview), the panel grows upward from its anchored bottom edge, and your chosen size is remembered across launches. The live preview's capture resolution scales up with the panel so it stays sharp.
 
 ## AV2 encoding (experimental)
 
