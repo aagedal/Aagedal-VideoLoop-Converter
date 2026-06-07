@@ -61,6 +61,9 @@ struct Aagedal_Media_Converter_App: App {
         applyPreviewCacheCleanupPolicy()
         TesseractService.purgeOrphanTempDirs()
         OutputFolderCleanupService.shared.start()
+        // Clear the Blackmagic "recording" xattr from any growing-file recording that a
+        // prior crash/quit left tagged, so DaVinci Resolve doesn't show a phantom REC overlay.
+        ScreenCaptureManager.sweepStaleGrowingRecordings()
         // Bring the settings-sync singleton (and its file/UserDefaults observers)
         // online at launch so a snapshot that arrived while closed is pulled in.
         SettingsSyncService.shared.activate()

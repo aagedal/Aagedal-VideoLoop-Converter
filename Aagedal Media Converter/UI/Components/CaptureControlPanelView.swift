@@ -18,7 +18,7 @@ struct CaptureControlPanelView: View {
     let onScaleChanged: () -> Void
 
     @AppStorage(AppConstants.captureDirectoryKey) private var captureDirectoryPath = AppConstants.defaultCaptureDirectory.path
-    @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
+    @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.defaultPreset.rawValue
     @AppStorage(AppConstants.captureDisplayIDKey) private var captureDisplayID = 0
     @AppStorage(AppConstants.captureFrameRateKey) private var captureFrameRateRaw = AppConstants.defaultCaptureFrameRate
     @AppStorage(AppConstants.captureDynamicRangeKey) private var captureDynamicRangeRaw = AppConstants.defaultCaptureDynamicRange
@@ -33,10 +33,9 @@ struct CaptureControlPanelView: View {
     @AppStorage(AppConstants.captureRegionWidthKey) private var captureRegionWidth: Double = 0
     @AppStorage(AppConstants.captureRegionHeightKey) private var captureRegionHeight: Double = 0
     @AppStorage("screenRecordingAspectRatio") private var lockedAspectRatioRaw: String = AspectRatio.free.rawValue
-    @AppStorage(AppConstants.captureOverlayScaleKey) private var overlayScaleRaw: Double = 1.0
+    @AppStorage(AppConstants.captureOverlayExpandedKey) private var isExpanded = false
 
     @StateObject private var captureManager = ScreenCaptureManager.shared
-    @State private var scaleAtDragStart: Double?
     @State private var availableDisplays: [CaptureDisplay] = []
     @State private var microphoneDevices: [AVCaptureDevice] = []
     @State private var isViewActive = false
@@ -60,8 +59,8 @@ struct CaptureControlPanelView: View {
     private var presetBinding: Binding<CapturePreset> {
         Binding(
             get: {
-                let preset = CapturePreset(rawValue: capturePresetRaw) ?? .hevc42210Bit
-                return CapturePreset.availablePresets.contains(preset) ? preset : .hevc42210Bit
+                let preset = CapturePreset(rawValue: capturePresetRaw) ?? .defaultPreset
+                return CapturePreset.availablePresets.contains(preset) ? preset : .defaultPreset
             },
             set: { capturePresetRaw = $0.rawValue }
         )
@@ -99,66 +98,104 @@ struct CaptureControlPanelView: View {
         return false
     }
 
-    // MARK: - Overlay Scaling
+    // MARK: - Overlay Sizing
     //
-    // Base (smallest) layout: 480pt-wide content with a center preview column ≈420pt wide, a
-    // 200pt-tall preview box, and 190pt-tall audio meters. The meters keep their fixed 12pt width
-    // at any scale — only their height and the video preview grow.
-    private static let baseContentWidth: CGFloat = 480
-    private static let basePreviewColumnWidth: CGFloat = 420
-    private static let basePreviewHeight: CGFloat = 200
-    private static let baseMeterHeight: CGFloat = 190
-    private static let minScale: Double = 1.0
-    private static let maxScale: Double = 3.0
+    // Two discrete states instead of a free-form drag: compact (default) and expanded.
+    // Expanded sizes the preview to the captured area's aspect ratio, as large as fits within
+    // ~90% of the screen, so it fills edge-to-edge with no letterboxing. The audio meters keep
+    // their fixed 12pt width in both states — only their height and the video preview grow.
+    // The panel sizes itself to the SwiftUI content via the controller's fitting-size resize;
+    // the horizontal chrome below must match the meter columns + spacing + padding in the layout.
+    private static let baseContentWidth: CGFloat = 480           // minimum panel width (keeps controls usable)
+    private static let horizontalChrome: CGFloat = 60            // 2×(meter 12 + spacing 6 + outer padding 12)
+    private static let compactPreviewBounds = CGSize(width: 420, height: 240)
+    private static let expandedScreenFraction: CGFloat = 0.9
+    /// Reserved vertical space for everything that isn't the preview (toggles, controls, bottom
+    /// bar, dividers, padding). An estimate — the controller clamps the final frame to the screen,
+    /// so a small error just means the expanded panel is slightly under 90%.
+    private static let verticalChromeEstimate: CGFloat = 185
 
-    private var overlayScale: CGFloat {
-        CGFloat(min(Self.maxScale, max(Self.minScale, overlayScaleRaw)))
+    /// Aspect (width / height) of the captured area: the region rect in region mode, otherwise the
+    /// selected display's resolution. Falls back to 16:9. Stable inputs (not the per-frame image)
+    /// so the size doesn't thrash while previewing.
+    private var captureAspect: CGFloat {
+        if captureRegionMode, captureRegionWidth > 1, captureRegionHeight > 1 {
+            return CGFloat(captureRegionWidth / captureRegionHeight)
+        }
+        if captureDisplayID != 0,
+           let display = availableDisplays.first(where: { Int($0.id) == captureDisplayID }),
+           display.width > 0, display.height > 0 {
+            return CGFloat(display.width) / CGFloat(display.height)
+        }
+        if let main = availableDisplays.first(where: { $0.isMain }) ?? availableDisplays.first,
+           main.width > 0, main.height > 0 {
+            return CGFloat(main.width) / CGFloat(main.height)
+        }
+        return 16.0 / 9.0
+    }
+
+    /// The screen the overlay sits on — the captured display (the panel follows it via
+    /// `moveToDisplay`), falling back to the main screen. Used so an expanded panel is sized for
+    /// the display it's actually on, not a larger one elsewhere.
+    private var targetScreen: NSScreen? {
+        if captureDisplayID != 0,
+           let match = NSScreen.screens.first(where: {
+               ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID)
+                   .map(Int.init) == captureDisplayID
+           }) {
+            return match
+        }
+        return NSScreen.main
+    }
+
+    /// Size of the central preview box, aspect-fit to `captureAspect`. The panel width derives from
+    /// this, and the preview fills the box exactly (no letterbox).
+    private var previewBoxSize: CGSize {
+        let aspect = max(0.1, captureAspect)
+        if isExpanded {
+            let screen = (targetScreen?.visibleFrame.size) ?? CGSize(width: 1440, height: 900)
+            let availW = max(320, screen.width * Self.expandedScreenFraction - Self.horizontalChrome)
+            let availH = max(240, screen.height * Self.expandedScreenFraction - Self.verticalChromeEstimate)
+            let height = min(availH, availW / aspect)
+            return CGSize(width: (height * aspect).rounded(), height: height.rounded())
+        } else {
+            let bounds = Self.compactPreviewBounds
+            let height = min(bounds.height, bounds.width / aspect)
+            return CGSize(width: (height * aspect).rounded(), height: height.rounded())
+        }
     }
 
     private var panelWidth: CGFloat {
-        (Self.baseContentWidth - Self.basePreviewColumnWidth) + Self.basePreviewColumnWidth * overlayScale
+        max(Self.baseContentWidth, previewBoxSize.width + Self.horizontalChrome)
     }
 
-    private var previewHeight: CGFloat {
-        Self.basePreviewHeight * overlayScale
+    private var previewHeight: CGFloat { previewBoxSize.height }
+    private var meterHeight: CGFloat { previewBoxSize.height }
+
+    /// Resizes the floating panel to match the current content. Deferred to the next runloop tick
+    /// so SwiftUI has applied the new layout before the controller reads its fitting size.
+    private func schedulePanelResize() {
+        DispatchQueue.main.async { onScaleChanged() }
     }
 
-    private var meterHeight: CGFloat {
-        Self.baseMeterHeight * overlayScale
-    }
-
-    private var resizeHandle: some View {
-        Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundColor(.secondary)
-            .padding(6)
-            .background(
-                Circle().fill(Color.black.opacity(0.25))
-            )
-            .padding(6)
-            .contentShape(Rectangle())
-            .help("Drag to resize the overlay")
-            .gesture(
-                DragGesture(coordinateSpace: .global)
-                    .onChanged { value in
-                        let start = scaleAtDragStart ?? overlayScaleRaw
-                        if scaleAtDragStart == nil { scaleAtDragStart = start }
-                        // The panel is anchored at its bottom and grows upward, so dragging the
-                        // top-trailing handle up enlarges it; 200pt of travel ≈ +1.0 scale.
-                        let delta = Double(-value.translation.height) / 200.0
-                        let newScale = min(Self.maxScale, max(Self.minScale, start + delta))
-                        if newScale != overlayScaleRaw {
-                            overlayScaleRaw = newScale
-                            onScaleChanged()
-                        }
-                    }
-                    .onEnded { _ in
-                        scaleAtDragStart = nil
-                        onScaleChanged()
-                        // Re-render the setup preview at a resolution matching the new size.
-                        Task { await refreshPreview() }
-                    }
-            )
+    private var sizeToggleButton: some View {
+        Button {
+            isExpanded.toggle()
+            // Re-render the setup preview stream at a resolution matching the new size.
+            Task { await refreshPreview() }
+        } label: {
+            Image(systemName: isExpanded
+                  ? "arrow.down.right.and.arrow.up.left"
+                  : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(.secondary)
+                .padding(6)
+                .background(Circle().fill(Color.black.opacity(0.25)))
+                .padding(6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isExpanded ? "Collapse preview" : "Expand preview to fill the screen")
     }
 
     var body: some View {
@@ -182,7 +219,13 @@ struct CaptureControlPanelView: View {
                     overlayClickThrough = false
                     onSetOverlayClickThrough(false)
                 }
+                // Setup ↔ recording views have different chrome heights — refit the panel.
+                schedulePanelResize()
             }
+            // Refit whenever the preview size changes (expand/collapse toggle, aspect change) or
+            // the finalizing state swaps the chrome.
+            .onChange(of: previewBoxSize) { _, _ in schedulePanelResize() }
+            .onChange(of: captureManager.isProcessing) { _, _ in schedulePanelResize() }
             .task(id: scheduledStart) {
                 guard let start = scheduledStart else { return }
                 while !Task.isCancelled {
@@ -235,18 +278,17 @@ struct CaptureControlPanelView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .shadow(color: .black.opacity(0.3), radius: 12)
         .overlay(alignment: .topTrailing) {
-            resizeHandle
+            sizeToggleButton
         }
     }
 
     private func handleOnAppear() {
         isViewActive = true
-        // Sync the panel size to a persisted scale (the panel is created at the base size).
-        if overlayScale != 1.0 {
-            DispatchQueue.main.async { onScaleChanged() }
-        }
+        // Fit the panel to the content (the panel is created at a fixed initial size, and a
+        // persisted expanded state needs the larger frame applied).
+        schedulePanelResize()
         if !CapturePreset.availablePresets.contains(presetBinding.wrappedValue) {
-            capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
+            capturePresetRaw = CapturePreset.defaultPreset.rawValue
         }
         Task {
             async let microphonesTask: () = loadMicrophones()
@@ -1036,12 +1078,11 @@ struct CaptureControlPanelView: View {
         )
     }
 
-    /// Target pixel width for the live preview stream — matches the displayed preview column
-    /// (in points) times the screen's backing scale so it stays sharp when the overlay is enlarged.
+    /// Target pixel width for the live preview stream — matches the displayed preview box
+    /// (in points) times the screen's backing scale so it stays sharp when the overlay is expanded.
     private var previewPixelWidth: CGFloat {
         let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        let displayedPoints = Self.basePreviewColumnWidth * overlayScale
-        return max(1280, (displayedPoints * backingScale).rounded(.up))
+        return max(1280, (previewBoxSize.width * backingScale).rounded(.up))
     }
 
     private func loadMicrophones() async {

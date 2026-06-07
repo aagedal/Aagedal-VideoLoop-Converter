@@ -11,7 +11,7 @@ import ScreenCaptureKit
 struct CaptureModeView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(AppConstants.captureDirectoryKey) private var captureDirectoryPath = AppConstants.defaultCaptureDirectory.path
-    @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
+    @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.defaultPreset.rawValue
     @AppStorage(AppConstants.captureDisplayIDKey) private var captureDisplayID = 0
     @AppStorage(AppConstants.captureFrameRateKey) private var captureFrameRateRaw = AppConstants.defaultCaptureFrameRate
     @AppStorage(AppConstants.captureDynamicRangeKey) private var captureDynamicRangeRaw = AppConstants.defaultCaptureDynamicRange
@@ -36,8 +36,8 @@ struct CaptureModeView: View {
     private var presetBinding: Binding<CapturePreset> {
         Binding(
             get: {
-                let preset = CapturePreset(rawValue: capturePresetRaw) ?? .hevc42210Bit
-                return CapturePreset.availablePresets.contains(preset) ? preset : .hevc42210Bit
+                let preset = CapturePreset(rawValue: capturePresetRaw) ?? .defaultPreset
+                return CapturePreset.availablePresets.contains(preset) ? preset : .defaultPreset
             },
             set: { capturePresetRaw = $0.rawValue }
         )
@@ -99,7 +99,7 @@ struct CaptureModeView: View {
         .onAppear {
             isViewActive = true
             if !CapturePreset.availablePresets.contains(presetBinding.wrappedValue) {
-                capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
+                capturePresetRaw = CapturePreset.defaultPreset.rawValue
             }
             Task {
                 // Fetch shareable content once and reuse for both displays and preview

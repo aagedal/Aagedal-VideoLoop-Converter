@@ -74,8 +74,14 @@ enum AppConstants {
     static let captureRegionHeightKey = "captureRegionHeight"
     static let defaultCaptureRegionMode = false
 
-    /// Scale factor for the floating capture overlay panel (1.0 = smallest/default size).
-    static let captureOverlayScaleKey = "captureOverlayScale"
+    /// Whether the floating capture overlay panel is in its expanded (large) state.
+    /// Compact (false) is the default; expanded fits the capture aspect within ~90% of the screen.
+    static let captureOverlayExpandedKey = "captureOverlayExpanded"
+
+    /// Paths of growing-file recordings that currently carry the Blackmagic "recording"
+    /// xattr. Tracked so a crash/quit mid-recording can be cleaned up on next launch —
+    /// otherwise the file stays tagged and DaVinci Resolve shows a phantom red REC overlay.
+    static let pendingGrowingRecordingPathsKey = "pendingGrowingRecordingPaths"
 
     // DCP / IMF metadata: remember the last `contentKind` the user picked so a
     // fresh queue item opening the editor lands on the same kind they last used

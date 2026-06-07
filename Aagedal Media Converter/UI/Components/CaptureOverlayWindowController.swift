@@ -24,6 +24,16 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
     private var showPanelStatusItem: NSStatusItem?
     private var statusMenuUpdateTimer: Timer?
 
+    // Dynamic items in the status dropdown. The menu structure is built once; the per-second
+    // timer only mutates these items' titles / visibility so an open menu (and its submenu)
+    // is never torn down underneath the user. Weak: the menu owns them.
+    private weak var statusTogglePreviewItem: NSMenuItem?
+    private weak var statusRecordedItem: NSMenuItem?
+    private weak var statusStopsInItem: NSMenuItem?
+    private weak var statusStopsAtItem: NSMenuItem?
+    private weak var statusCancelAutoStopItem: NSMenuItem?
+    private weak var statusCancelAutoStopSeparator: NSMenuItem?
+
     private(set) var isShowing = false
 
     // Click-through state — when either is true, the region overlay passes mouse events through.
@@ -128,7 +138,17 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
             x: oldFrame.midX - newSize.width / 2,
             y: oldFrame.minY
         )
-        panel.setFrame(NSRect(origin: newOrigin, size: newSize), display: true, animate: false)
+        var newFrame = NSRect(origin: newOrigin, size: newSize)
+        // Keep the panel on screen: at high scale the upward growth can otherwise push the
+        // top (resize handle) under the menu bar, or the width can spill past the edges.
+        if let screen = panel.screen ?? NSScreen.main {
+            let visible = screen.visibleFrame
+            if newFrame.maxY > visible.maxY { newFrame.origin.y = visible.maxY - newFrame.height }
+            if newFrame.minY < visible.minY { newFrame.origin.y = visible.minY }
+            if newFrame.maxX > visible.maxX { newFrame.origin.x = visible.maxX - newFrame.width }
+            if newFrame.minX < visible.minX { newFrame.origin.x = visible.minX }
+        }
+        panel.setFrame(newFrame, display: true, animate: false)
     }
 
     // MARK: - Recording Lifecycle
@@ -498,18 +518,26 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
         if showPanelStatusItem == nil {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
             if let button = item.button {
-                let image = NSImage(systemSymbolName: "record.circle.fill", accessibilityDescription: "Recording")
+                // Bake the red into the symbol via a palette color. A template image would be
+                // re-tinted to the menu-bar's monochrome appearance (rendering black); a
+                // non-template image with a palette color stays red in both light and dark menu bars.
+                let config = NSImage.SymbolConfiguration(paletteColors: [.systemRed])
+                let image = NSImage(
+                    systemSymbolName: "record.circle.fill",
+                    accessibilityDescription: String(localized: "Recording", comment: "Screen-recording menu-bar icon accessibility label.")
+                )?.withSymbolConfiguration(config)
                 image?.isTemplate = false
                 button.image = image
-                button.contentTintColor = .systemRed
-                button.toolTip = "Screen Recording"
+                button.toolTip = String(localized: "Screen Recording", comment: "Screen-recording menu-bar icon tooltip.")
             }
             let menu = NSMenu()
             menu.delegate = self
             menu.autoenablesItems = false
+            buildStatusMenu(menu)
             item.menu = menu
             showPanelStatusItem = item
         }
+        updateStatusMenuItems()
         showPanelStatusItem?.isVisible = true
     }
 
@@ -519,71 +547,105 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
         showPanelStatusItem?.isVisible = false
     }
 
-    /// Rebuilds the status-bar dropdown with the current recording / auto-stop state.
-    private func rebuildStatusMenu(_ menu: NSMenu) {
-        let manager = ScreenCaptureManager.shared
+    /// Builds the fixed structure of the status-bar dropdown once. Dynamic content
+    /// (titles, auto-stop row visibility) is refreshed separately by `updateStatusMenuItems()`
+    /// so the live menu — and any open submenu — is never rebuilt out from under the user.
+    private func buildStatusMenu(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        let stop = NSMenuItem(title: "Stop Recording", action: #selector(menuStopRecording), keyEquivalent: "")
+        let stop = NSMenuItem(
+            title: String(localized: "Stop Recording", comment: "Screen-recording menu-bar dropdown."),
+            action: #selector(menuStopRecording),
+            keyEquivalent: ""
+        )
         stop.target = self
         menu.addItem(stop)
 
         menu.addItem(.separator())
 
-        let panelVisible = controlPanel?.isVisible == true
-        let toggle = NSMenuItem(
-            title: panelVisible ? "Hide Preview" : "Show Preview",
-            action: #selector(menuTogglePanel),
-            keyEquivalent: ""
-        )
+        // Title is set by updateStatusMenuItems (Show/Hide depending on panel visibility).
+        let toggle = NSMenuItem(title: "", action: #selector(menuTogglePanel), keyEquivalent: "")
         toggle.target = self
         menu.addItem(toggle)
+        statusTogglePreviewItem = toggle
 
         // Extend auto-stop submenu — increments start a fresh auto-stop when none is active.
-        let extendItem = NSMenuItem(title: "Extend Auto-Stop", action: nil, keyEquivalent: "")
+        let extendItem = NSMenuItem(
+            title: String(localized: "Extend Auto-Stop", comment: "Screen-recording menu-bar dropdown submenu."),
+            action: nil,
+            keyEquivalent: ""
+        )
         let extendMenu = NSMenu()
         for minutes in [1, 5, 10, 30] {
-            let entry = NSMenuItem(title: "+\(minutes) min", action: #selector(menuExtendAutoStop(_:)), keyEquivalent: "")
+            let entry = NSMenuItem(
+                title: String(localized: "+\(minutes) min", comment: "Extend the recording auto-stop by N minutes."),
+                action: #selector(menuExtendAutoStop(_:)),
+                keyEquivalent: ""
+            )
             entry.target = self
             entry.representedObject = NSNumber(value: minutes * 60)
             extendMenu.addItem(entry)
         }
-        if manager.autoStopDate != nil {
-            extendMenu.addItem(.separator())
-            let cancel = NSMenuItem(title: "Cancel Auto-Stop", action: #selector(menuCancelAutoStop), keyEquivalent: "")
-            cancel.target = self
-            extendMenu.addItem(cancel)
-        }
+        // Cancel row is always present but hidden when no auto-stop is active.
+        let cancelSeparator = NSMenuItem.separator()
+        extendMenu.addItem(cancelSeparator)
+        statusCancelAutoStopSeparator = cancelSeparator
+        let cancel = NSMenuItem(
+            title: String(localized: "Cancel Auto-Stop", comment: "Screen-recording menu-bar dropdown submenu."),
+            action: #selector(menuCancelAutoStop),
+            keyEquivalent: ""
+        )
+        cancel.target = self
+        extendMenu.addItem(cancel)
+        statusCancelAutoStopItem = cancel
         extendItem.submenu = extendMenu
         menu.addItem(extendItem)
 
         menu.addItem(.separator())
 
-        let recorded = NSMenuItem(
-            title: "Recorded: \(Self.statusDurationFormatter.string(from: manager.elapsedTime) ?? "00:00:00")",
-            action: nil,
-            keyEquivalent: ""
-        )
+        // Titles for these read-only status rows are filled in by updateStatusMenuItems.
+        let recorded = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         recorded.isEnabled = false
         menu.addItem(recorded)
+        statusRecordedItem = recorded
+
+        let stopsIn = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        stopsIn.isEnabled = false
+        menu.addItem(stopsIn)
+        statusStopsInItem = stopsIn
+
+        let stopsAt = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        stopsAt.isEnabled = false
+        menu.addItem(stopsAt)
+        statusStopsAtItem = stopsAt
+    }
+
+    /// Refreshes only the dynamic titles / visibility of the (already-built) status dropdown.
+    /// Safe to call every second while the menu is open — it mutates no menu structure.
+    private func updateStatusMenuItems() {
+        let manager = ScreenCaptureManager.shared
+
+        statusTogglePreviewItem?.title = (controlPanel?.isVisible == true)
+            ? String(localized: "Hide Preview", comment: "Screen-recording menu-bar dropdown.")
+            : String(localized: "Show Preview", comment: "Screen-recording menu-bar dropdown.")
+        let recorded = Self.statusDurationFormatter.string(from: manager.elapsedTime) ?? "00:00:00"
+        statusRecordedItem?.title = String(localized: "Recorded: \(recorded)", comment: "Screen-recording menu-bar dropdown: elapsed time.")
 
         if let stopDate = manager.autoStopDate {
             let remaining = max(0, stopDate.timeIntervalSinceNow)
-            let stopsIn = NSMenuItem(
-                title: "Stops in: \(Self.statusDurationFormatter.string(from: remaining) ?? "00:00:00")",
-                action: nil,
-                keyEquivalent: ""
-            )
-            stopsIn.isEnabled = false
-            menu.addItem(stopsIn)
-
-            let stopsAt = NSMenuItem(
-                title: "Auto-stop at: \(Self.statusClockFormatter.string(from: stopDate))",
-                action: nil,
-                keyEquivalent: ""
-            )
-            stopsAt.isEnabled = false
-            menu.addItem(stopsAt)
+            let remainingText = Self.statusDurationFormatter.string(from: remaining) ?? "00:00:00"
+            let clockText = Self.statusClockFormatter.string(from: stopDate)
+            statusStopsInItem?.title = String(localized: "Stops in: \(remainingText)", comment: "Screen-recording menu-bar dropdown: time until auto-stop.")
+            statusStopsAtItem?.title = String(localized: "Auto-stop at: \(clockText)", comment: "Screen-recording menu-bar dropdown: clock time of auto-stop.")
+            statusStopsInItem?.isHidden = false
+            statusStopsAtItem?.isHidden = false
+            statusCancelAutoStopItem?.isHidden = false
+            statusCancelAutoStopSeparator?.isHidden = false
+        } else {
+            statusStopsInItem?.isHidden = true
+            statusStopsAtItem?.isHidden = true
+            statusCancelAutoStopItem?.isHidden = true
+            statusCancelAutoStopSeparator?.isHidden = true
         }
     }
 
@@ -628,7 +690,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
         // Avoid sending the non-Sendable `menu` parameter into the MainActor region; the controller
         // owns the same menu via `showPanelStatusItem`.
         MainActor.assumeIsolated {
-            statusMenuTick()
+            updateStatusMenuItems()
         }
     }
 
@@ -651,8 +713,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
     }
 
     @objc private func statusMenuTick() {
-        guard let menu = showPanelStatusItem?.menu else { return }
-        rebuildStatusMenu(menu)
+        updateStatusMenuItems()
     }
 
     // MARK: - NSWindowDelegate

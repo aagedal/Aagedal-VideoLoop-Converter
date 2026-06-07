@@ -7,7 +7,7 @@ import AppKit
 
 struct ScreenCaptureSettingsView: View {
     @AppStorage(AppConstants.captureDirectoryKey) private var captureDirectoryPath = AppConstants.defaultCaptureDirectory.path
-    @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
+    @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.defaultPreset.rawValue
     @AppStorage(AppConstants.captureFrameRateKey) private var captureFrameRateRaw = AppConstants.defaultCaptureFrameRate
     @AppStorage(AppConstants.captureDynamicRangeKey) private var captureDynamicRangeRaw = AppConstants.defaultCaptureDynamicRange
     @AppStorage(AppConstants.captureHideCursorKey) private var captureHideCursor = AppConstants.defaultCaptureHideCursor
@@ -16,8 +16,8 @@ struct ScreenCaptureSettingsView: View {
     private var presetBinding: Binding<CapturePreset> {
         Binding(
             get: {
-                let preset = CapturePreset(rawValue: capturePresetRaw) ?? .hevc42210Bit
-                return CapturePreset.availablePresets.contains(preset) ? preset : .hevc42210Bit
+                let preset = CapturePreset(rawValue: capturePresetRaw) ?? .defaultPreset
+                return CapturePreset.availablePresets.contains(preset) ? preset : .defaultPreset
             },
             set: { capturePresetRaw = $0.rawValue }
         )
@@ -126,7 +126,7 @@ struct ScreenCaptureSettingsView: View {
         .formStyle(.grouped)
         .onAppear {
             if !CapturePreset.availablePresets.contains(presetBinding.wrappedValue) {
-                capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
+                capturePresetRaw = CapturePreset.defaultPreset.rawValue
             }
             if CaptureFrameRateOption(rawValue: captureFrameRateRaw) == nil {
                 captureFrameRateRaw = CaptureFrameRateOption.auto.rawValue

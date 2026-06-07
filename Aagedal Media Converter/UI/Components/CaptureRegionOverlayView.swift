@@ -878,7 +878,13 @@ private struct RegionModifierKeyView: NSViewRepresentable {
         }
 
         deinit {
-            removeMonitors()
+            // NSEvent.removeMonitor must run on the main thread. The guaranteed teardown is
+            // viewWillMove(toWindow: nil) (main-actor); this deinit is only a fallback. Skip it
+            // if we're somehow off-main — the monitors' [weak self] closures no-op once self is
+            // gone, so a leaked monitor is harmless, whereas an off-main removeMonitor is not.
+            if Thread.isMainThread {
+                removeMonitors()
+            }
         }
 
         private func installMonitors() {

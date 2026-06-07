@@ -32,10 +32,16 @@ struct CaptureDisplay: Identifiable, Hashable {
 enum CapturePreset: String, CaseIterable, Identifiable {
     case hevcGrowing
     case avcGrowing
+    case proRes4444Growing
     case hevc42210Bit
     case proRes4444
 
     var id: String { rawValue }
+
+    /// The preset selected by default (and the fallback when a stored choice no longer
+    /// decodes or isn't available). Growing files are the recommended default — they can be
+    /// edited while still recording in DaVinci Resolve / Premiere.
+    static var defaultPreset: CapturePreset { .hevcGrowing }
 
     var displayName: String {
         switch self {
@@ -43,6 +49,8 @@ enum CapturePreset: String, CaseIterable, Identifiable {
             return "Growing HEVC 10-bit 4:2:2 (Resolve/Premiere)"
         case .avcGrowing:
             return "Growing H.264 (Compatibility)"
+        case .proRes4444Growing:
+            return "Growing ProRes 4444 (Visually Lossless)"
         case .hevc42210Bit:
             return "HEVC 10-bit 4:2:2 (Hardware)"
         case .proRes4444:
@@ -56,10 +64,12 @@ enum CapturePreset: String, CaseIterable, Identifiable {
             return "Edit while recording in DaVinci Resolve & Premiere. Hardware HEVC 10-bit 4:2:2, fragmented .mov."
         case .avcGrowing:
             return "Edit while recording with maximum compatibility. Hardware H.264, fragmented .mov."
+        case .proRes4444Growing:
+            return "Edit while recording in DaVinci Resolve & Premiere. ProRes 4444 at a constant frame rate (CFR) — visually lossless, but because ProRes can't compress duplicate frames, a mostly-static screen makes very large files. Needs a ProRes hardware encoder (M1 Pro/Max or later) for high frame rates."
         case .hevc42210Bit:
-            return "Hardware HEVC 10-bit 4:2:2. Source format determines chroma."
+            return "Hardware HEVC 10-bit 4:2:2; source format determines chroma. Variable frame rate, not flagged as a growing clip — best for importing after recording."
         case .proRes4444:
-            return "High-fidelity ProRes 4444 for grading-heavy workflows."
+            return "Visually lossless ProRes 4444 for grading. Variable frame rate (VFR) keeps files smaller when the screen is static. Not flagged as a growing clip, so DaVinci Resolve won't poll it for updates while recording — best for importing afterward."
         }
     }
 
@@ -80,7 +90,7 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     /// (red REC overlay + fast refresh). See docs/growing-file-research.
     var isGrowing: Bool {
         switch self {
-        case .hevcGrowing, .avcGrowing:
+        case .hevcGrowing, .avcGrowing, .proRes4444Growing:
             return true
         case .hevc42210Bit, .proRes4444:
             return false
@@ -90,8 +100,8 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     static var availablePresets: [CapturePreset] {
         // Growing presets first (recommended for edit-while-recording). Stored
         // defaults that don't decode (e.g. the removed `.x264TS`/`.hevcVTTS`
-        // FFmpeg-pipe presets) fall back to `.hevcGrowing` at the call sites.
-        [.hevcGrowing, .avcGrowing, .hevc42210Bit, .proRes4444]
+        // FFmpeg-pipe presets) fall back to `.defaultPreset` at the call sites.
+        [.hevcGrowing, .avcGrowing, .proRes4444Growing, .hevc42210Bit, .proRes4444]
     }
 
     func videoSettings(width: Int, height: Int, frameRate: Int, hevcProfileOverride: String? = nil) -> [String: Any] {
@@ -139,7 +149,7 @@ enum CapturePreset: String, CaseIterable, Identifiable {
             }
             compressionProperties = properties
             encoderSpec = nil
-        case .proRes4444:
+        case .proRes4444, .proRes4444Growing:
             codec = .proRes4444
             compressionProperties = [:]
             encoderSpec = nil
@@ -246,6 +256,13 @@ enum CaptureDynamicRangeOption: String, CaseIterable, Identifiable {
 @MainActor
 final class ScreenCaptureManager: NSObject, ObservableObject {
     static let shared = ScreenCaptureManager()
+
+    /// Strips the Blackmagic "recording" xattr from any growing-file recording left
+    /// tagged by a crash or quit that never reached `finish()`. Call once at launch so
+    /// DaVinci Resolve doesn't keep showing a phantom red REC overlay on a dead file.
+    nonisolated static func sweepStaleGrowingRecordings() {
+        ScreenCaptureWriter.sweepStalePendingGrowingFiles()
+    }
 
     enum CaptureError: LocalizedError {
         case unavailableDisplay
@@ -539,6 +556,9 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     /// Extends the current auto-stop by `delta` seconds. If no auto-stop is active, this starts a
     /// fresh one `delta` seconds from now (`base` is 0 when `autoStopDate` is nil).
     func extendAutoStop(by delta: TimeInterval) {
+        // Only meaningful while recording; otherwise we'd set a phantom autoStopDate that the
+        // status UI would surface for a recording that isn't running.
+        guard isRecording else { return }
         let base = max(0, autoStopDate?.timeIntervalSinceNow ?? 0)
         setAutoStop(after: base + delta)
     }
@@ -1602,6 +1622,13 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     /// Adds a per-frame `tmcd` timecode track (growing presets) starting at
     /// wall-clock time-of-day, associated with the video track. Must run before
     /// `startWriting()`.
+    ///
+    /// `resolvedFrameRate` always yields an integer rate (50, 60, or the display's
+    /// `maximumFramesPerSecond`) — never a fractional NTSC rate — so the track is correctly
+    /// non-drop-frame (`flags: 0`) with `frameQuanta == frameRate`. A fractional rate
+    /// (29.97/59.94) would instead need `kCMTimeCodeFlag_DropFrame` and a rounded quanta to
+    /// stay aligned with wall clock. The frame counter also does not wrap at 24h, so a
+    /// recording crossing midnight keeps counting past 24:00:00:00 rather than rolling over.
     private func setupTimecodeTrack(on writer: AVAssetWriter, videoInput: AVAssetWriterInput) {
         var tcFormat: CMTimeCodeFormatDescription?
         let status = CMTimeCodeFormatDescriptionCreate(
@@ -1673,7 +1700,9 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
             if let src = CVPixelBufferGetBaseAddress(source),
                let dst = CVPixelBufferGetBaseAddress(destination) {
                 let rowBytes = min(CVPixelBufferGetBytesPerRow(source), CVPixelBufferGetBytesPerRow(destination))
-                let height = CVPixelBufferGetHeight(source)
+                // The pool is sized from the first frame; clamp to the destination height so a
+                // later, taller frame can never memcpy past the destination allocation.
+                let height = min(CVPixelBufferGetHeight(source), CVPixelBufferGetHeight(destination))
                 let srcBpr = CVPixelBufferGetBytesPerRow(source)
                 let dstBpr = CVPixelBufferGetBytesPerRow(destination)
                 for row in 0..<height { memcpy(dst + row * dstBpr, src + row * srcBpr, rowBytes) }
@@ -1685,7 +1714,8 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
                 let srcBpr = CVPixelBufferGetBytesPerRowOfPlane(source, plane)
                 let dstBpr = CVPixelBufferGetBytesPerRowOfPlane(destination, plane)
                 let rowBytes = min(srcBpr, dstBpr)
-                let height = CVPixelBufferGetHeightOfPlane(source, plane)
+                // Clamp to the destination plane height (see note above).
+                let height = min(CVPixelBufferGetHeightOfPlane(source, plane), CVPixelBufferGetHeightOfPlane(destination, plane))
                 for row in 0..<height { memcpy(dst + row * dstBpr, src + row * srcBpr, rowBytes) }
             }
         }
@@ -1786,15 +1816,58 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         let json = "{\"r\":1, \"uuid\":\"\(uuid)\"}"
         let bytes = Array(json.utf8)
         let result = bytes.withUnsafeBytes { raw in
-            setxattr(outputURL.path, "com.blackmagicdesign.metadata:recording", raw.baseAddress, bytes.count, 0, 0)
+            setxattr(outputURL.path, Self.recordingXattrName, raw.baseAddress, bytes.count, 0, 0)
         }
         if result != 0 {
             logger.warning("Failed to set growing-file xattr (errno \(errno, privacy: .public)).")
+        } else {
+            // Remember the tagged file so a crash/quit before finish() can be swept on next launch.
+            Self.registerPendingGrowingPath(outputURL.path)
         }
     }
 
     private func clearRecordingXattr() {
-        removexattr(outputURL.path, "com.blackmagicdesign.metadata:recording", 0)
+        let result = removexattr(outputURL.path, Self.recordingXattrName, 0)
+        if result != 0 && errno != ENOATTR {
+            logger.warning("Failed to clear growing-file xattr (errno \(errno, privacy: .public)).")
+        }
+        Self.unregisterPendingGrowingPath(outputURL.path)
+    }
+
+    // MARK: - Growing-file xattr bookkeeping (crash/quit recovery)
+
+    fileprivate static let recordingXattrName = "com.blackmagicdesign.metadata:recording"
+
+    private static func registerPendingGrowingPath(_ path: String) {
+        let defaults = UserDefaults.standard
+        var paths = defaults.stringArray(forKey: AppConstants.pendingGrowingRecordingPathsKey) ?? []
+        guard !paths.contains(path) else { return }
+        paths.append(path)
+        defaults.set(paths, forKey: AppConstants.pendingGrowingRecordingPathsKey)
+    }
+
+    private static func unregisterPendingGrowingPath(_ path: String) {
+        let defaults = UserDefaults.standard
+        guard var paths = defaults.stringArray(forKey: AppConstants.pendingGrowingRecordingPathsKey),
+              paths.contains(path) else { return }
+        paths.removeAll { $0 == path }
+        if paths.isEmpty {
+            defaults.removeObject(forKey: AppConstants.pendingGrowingRecordingPathsKey)
+        } else {
+            defaults.set(paths, forKey: AppConstants.pendingGrowingRecordingPathsKey)
+        }
+    }
+
+    /// Strips the Blackmagic "recording" xattr from any growing file left tagged by a
+    /// recording that never reached `finish()` (app crash or quit). Call once at launch.
+    static func sweepStalePendingGrowingFiles() {
+        let defaults = UserDefaults.standard
+        guard let paths = defaults.stringArray(forKey: AppConstants.pendingGrowingRecordingPathsKey),
+              !paths.isEmpty else { return }
+        for path in paths {
+            removexattr(path, recordingXattrName, 0)
+        }
+        defaults.removeObject(forKey: AppConstants.pendingGrowingRecordingPathsKey)
     }
 
     private func recordError(_ error: Error) {
@@ -1803,6 +1876,13 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         logger.error("Capture writer error: \(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public) \(nsError.localizedDescription, privacy: .public)")
         if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
             logger.error("Underlying error: \(underlying.domain, privacy: .public) code=\(underlying.code, privacy: .public) \(underlying.localizedDescription, privacy: .public)")
+        }
+        // A write failure stops the file from growing further, so clear the "recording"
+        // tag now rather than leaving it stuck until the user manually stops. The pump
+        // self-guards on `writeError` and is fully torn down later in finish(); we must
+        // not call stopCFRPump() here because recordError can run on the pump's own queue.
+        if isGrowing {
+            clearRecordingXattr()
         }
         errorHandler?(error)
     }
