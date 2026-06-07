@@ -75,6 +75,14 @@ enum AppConstants {
     static let defaultCaptureIncludeSystemAudio = true
     static let defaultCaptureIncludeMicrophone = false
     static let defaultCaptureMicrophoneDeviceID = ""
+    /// Lifetime policy for virtual displays created from the recording overlay. When false (the
+    /// default), a virtual display is torn down as soon as it's removed from the recording grid or
+    /// when record mode closes — it only exists for the recording session that needed it. When true,
+    /// virtual displays persist until the app quits (so they survive closing and reopening the
+    /// overlay), and are only removed via the explicit "Remove Virtual Display" menu action.
+    static let captureKeepVirtualDisplaysAliveKey = "captureKeepVirtualDisplaysAlive"
+    static let defaultCaptureKeepVirtualDisplaysAlive = false
+
     static let captureRegionModeKey = "captureRegionMode"
     static let captureRegionXKey = "captureRegionX"
     static let captureRegionYKey = "captureRegionY"

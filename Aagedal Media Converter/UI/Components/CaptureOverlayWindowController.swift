@@ -111,6 +111,11 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
         controlHostingView = nil
         hideStatusItems()
 
+        // Record mode closed without recording (cancel/Escape). Under the default ephemeral policy,
+        // tear down any virtual displays that were spun up for this session. Safe here: this path is
+        // unreachable while recording or processing (see the Escape monitor's guard).
+        VirtualDisplayManager.shared.destroyAllIfEphemeral()
+
         NSApp.unhide(nil)
     }
 
@@ -184,6 +189,10 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
 
         processingObserver = nil
         isShowing = false
+
+        // Recording and processing have finished, so record mode is closing. Under the default
+        // ephemeral policy, tear down any virtual displays used for this session.
+        VirtualDisplayManager.shared.destroyAllIfEphemeral()
 
         NSApp.unhide(nil)
 

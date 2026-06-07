@@ -25,6 +25,11 @@ struct VirtualDisplayMenu: View {
 
     @ObservedObject private var manager = VirtualDisplayManager.shared
 
+    /// Lifetime policy. Off (default): a virtual display is torn down when removed from the grid or
+    /// when record mode closes. On: virtual displays persist until the app quits.
+    @AppStorage(AppConstants.captureKeepVirtualDisplaysAliveKey)
+    private var keepAlive = AppConstants.defaultCaptureKeepVirtualDisplaysAlive
+
     /// Common pixel-perfect feed/recording resolutions.
     private static let presets: [(label: String, width: Int, height: Int)] = [
         ("720p · 1280×720", 1280, 720),
@@ -52,6 +57,12 @@ struct VirtualDisplayMenu: View {
                             }
                         }
                     }
+                }
+
+                Divider()
+                Section("Lifetime") {
+                    Toggle("Keep Until App Quits", isOn: $keepAlive)
+                        .help("On: virtual displays persist for the whole session. Off: each is removed when you take it off the grid or close record mode.")
                 }
             } label: {
                 Image(systemName: "plus.rectangle.on.rectangle")

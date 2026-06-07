@@ -181,6 +181,30 @@ final class VirtualDisplayManager: ObservableObject {
         logger.info("Destroyed all virtual displays")
     }
 
+    // MARK: - Lifetime Policy
+
+    /// Whether virtual displays persist until the app quits. When false (the default), they are
+    /// "ephemeral": torn down as soon as they leave the recording grid or record mode closes.
+    /// See `AppConstants.captureKeepVirtualDisplaysAliveKey`.
+    var keepAliveForAppLifetime: Bool {
+        UserDefaults.standard.bool(forKey: AppConstants.captureKeepVirtualDisplaysAliveKey)
+    }
+
+    /// Destroy a virtual display because it was removed from the recording grid — but only under the
+    /// default ephemeral policy. A no-op when the user opted to keep displays alive for the app's
+    /// lifetime, or when the id isn't one of ours.
+    func destroyIfEphemeral(_ id: CGDirectDisplayID) {
+        guard !keepAliveForAppLifetime else { return }
+        destroy(id)
+    }
+
+    /// Tear down all virtual displays because record mode closed — but only under the default
+    /// ephemeral policy. A no-op when the user opted to keep displays alive for the app's lifetime.
+    func destroyAllIfEphemeral() {
+        guard !keepAliveForAppLifetime else { return }
+        destroyAll()
+    }
+
     /// Runs the blocking `applySettings:` on a background queue, racing it
     /// against a timeout. Returns the apply result, or false if it timed out.
     private nonisolated static func applySettings(_ box: VirtualDisplayApplyBox, timeoutSeconds: Double) async -> Bool {

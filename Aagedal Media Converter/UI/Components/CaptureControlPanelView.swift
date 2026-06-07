@@ -1070,6 +1070,13 @@ struct CaptureControlPanelView: View {
         ids.removeAll { $0 == id }
         setSelectedDisplayIDs(ids)
         // reconcileSelection runs via the captureDisplayIDsRaw onChange and finalizes a recording tile.
+
+        // Under the default ephemeral policy, a virtual display removed from the grid stops existing.
+        // Don't tear one down mid-recording — handleRecordingStopped sweeps those up afterwards.
+        let manager = VirtualDisplayManager.shared
+        if manager.isVirtual(id), !captureManager.recordingDisplayIDs.contains(id) {
+            manager.destroyIfEphemeral(id)
+        }
     }
 
     private func toggleDisplaySelection(_ id: CGDirectDisplayID) {
