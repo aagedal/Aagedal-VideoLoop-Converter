@@ -169,7 +169,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
     }
 
     func handleRecordingStopped() {
-        let lastURL = ScreenCaptureManager.shared.lastOutputURL
+        let urls = ScreenCaptureManager.shared.lastOutputURLs
 
         // Dismiss control panel and status items
         controlPanel?.close()
@@ -188,9 +188,9 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
         NSApp.unhide(nil)
 
         // Show post-recording dialog after a brief delay to let the app unhide
-        if let url = lastURL {
+        if !urls.isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.showPostRecordingDialog(for: url)
+                self.showPostRecordingDialog(for: urls)
             }
         }
     }
@@ -394,21 +394,29 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
             }
     }
 
-    private func showPostRecordingDialog(for url: URL) {
+    private func showPostRecordingDialog(for urls: [URL]) {
+        guard !urls.isEmpty else { return }
         let alert = NSAlert()
-        alert.messageText = "Recording Saved"
-        alert.informativeText = url.lastPathComponent
+        alert.messageText = urls.count == 1 ? "Recording Saved" : "\(urls.count) Recordings Saved"
+        if urls.count == 1 {
+            alert.informativeText = urls[0].lastPathComponent
+        } else {
+            let folder = urls[0].deletingLastPathComponent().lastPathComponent
+            alert.informativeText = "\(urls.count) files saved to \(folder)."
+        }
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Add to Encoding Queue")
+        alert.addButton(withTitle: urls.count == 1 ? "Add to Encoding Queue" : "Add All to Encoding Queue")
         alert.addButton(withTitle: "Show in Finder")
         alert.addButton(withTitle: "Dismiss")
 
         let response = alert.runModal()
         switch response {
         case .alertFirstButtonReturn:
-            NotificationCenter.default.post(name: .enqueueFileURL, object: url)
+            for url in urls {
+                NotificationCenter.default.post(name: .enqueueFileURL, object: url)
+            }
         case .alertSecondButtonReturn:
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+            NSWorkspace.shared.activateFileViewerSelecting(urls)
         default:
             break
         }

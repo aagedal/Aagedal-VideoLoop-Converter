@@ -19,7 +19,7 @@ struct CaptureControlPanelView: View {
 
     @AppStorage(AppConstants.captureDirectoryKey) private var captureDirectoryPath = AppConstants.defaultCaptureDirectory.path
     @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.defaultPreset.rawValue
-    @AppStorage(AppConstants.captureDisplayIDKey) private var captureDisplayID = 0
+    @AppStorage(AppConstants.captureDisplayIDsKey) private var captureDisplayIDsRaw = ""
     @AppStorage(AppConstants.captureFrameRateKey) private var captureFrameRateRaw = AppConstants.defaultCaptureFrameRate
     @AppStorage(AppConstants.captureDynamicRangeKey) private var captureDynamicRangeRaw = AppConstants.defaultCaptureDynamicRange
     @AppStorage(AppConstants.captureHideCursorKey) private var captureHideCursor = AppConstants.defaultCaptureHideCursor
@@ -41,9 +41,13 @@ struct CaptureControlPanelView: View {
     @State private var isViewActive = false
     @State private var isMicButtonHovering = false
     @State private var showAudioExclusionPopover = false
+    @State private var showDisplayMenu = false
     @State private var availableApps: [SCRunningApplication] = []
     @State private var excludedAppBundleIDs: Set<String> = []
     @State private var overlayClickThrough = false
+    @State private var hoveredDisplayID: CGDirectDisplayID?
+    /// When set, only this display's tile is shown, expanded to fill the panel (focus mode).
+    @State private var focusedDisplayID: CGDirectDisplayID?
 
     // Schedule state
     @State private var showSchedulePopover = false
@@ -98,34 +102,74 @@ struct CaptureControlPanelView: View {
         return false
     }
 
+    // MARK: - Display Selection
+
+    /// The user's explicit selection parsed from the comma-separated `@AppStorage` string.
+    private var selectedDisplayIDs: [CGDirectDisplayID] {
+        captureDisplayIDsRaw
+            .split(separator: ",")
+            .compactMap { CGDirectDisplayID($0.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    private func setSelectedDisplayIDs(_ ids: [CGDirectDisplayID]) {
+        // De-dupe, preserve order.
+        var seen = Set<CGDirectDisplayID>()
+        let unique = ids.filter { seen.insert($0).inserted }
+        captureDisplayIDsRaw = unique.map(String.init).joined(separator: ",")
+    }
+
+    private var primaryDisplayID: CGDirectDisplayID? {
+        availableDisplays.first(where: { $0.isMain })?.id ?? availableDisplays.first?.id
+    }
+
+    /// The displays actually shown/recorded — the explicit selection, or the main display when the
+    /// selection is empty (matching the manager's "empty == main" fallback). In region mode it is
+    /// always a single display.
+    private var effectiveDisplayIDs: [CGDirectDisplayID] {
+        let valid = selectedDisplayIDs.filter { id in availableDisplays.contains(where: { $0.id == id }) }
+        if captureRegionMode {
+            if let first = valid.first ?? primaryDisplayID { return [first] }
+            return []
+        }
+        if !valid.isEmpty { return valid }
+        if let main = primaryDisplayID { return [main] }
+        return []
+    }
+
+    private func display(for id: CGDirectDisplayID) -> CaptureDisplay? {
+        availableDisplays.first(where: { $0.id == id })
+    }
+
+    private func makeSettings() -> CaptureSettings {
+        var settings = CaptureSettings()
+        settings.frameRate = frameRateOption
+        settings.includeSystemAudio = captureIncludeSystemAudio
+        settings.includeMicrophone = captureIncludeMicrophone
+        settings.microphoneDeviceID = selectedMicrophoneDeviceID
+        settings.hideCursor = captureHideCursor
+        settings.excludeCurrentApp = captureExcludeCurrentApp
+        settings.excludedAppBundleIDs = excludedAppBundleIDs
+        settings.regionRect = (captureRegionMode && effectiveDisplayIDs.count == 1) ? selectedRegionRect : nil
+        return settings
+    }
+
     // MARK: - Overlay Sizing
-    //
-    // Two discrete states instead of a free-form drag: compact (default) and expanded.
-    // Expanded sizes the preview to the captured area's aspect ratio, as large as fits within
-    // ~90% of the screen, so it fills edge-to-edge with no letterboxing. The audio meters keep
-    // their fixed 12pt width in both states — only their height and the video preview grow.
-    // The panel sizes itself to the SwiftUI content via the controller's fitting-size resize;
-    // the horizontal chrome below must match the meter columns + spacing + padding in the layout.
-    private static let baseContentWidth: CGFloat = 480           // minimum panel width (keeps controls usable)
-    private static let horizontalChrome: CGFloat = 60            // 2×(meter 12 + spacing 6 + outer padding 12)
+
+    private static let baseContentWidth: CGFloat = 480
+    private static let horizontalChrome: CGFloat = 60
     private static let compactPreviewBounds = CGSize(width: 420, height: 240)
     private static let expandedScreenFraction: CGFloat = 0.9
-    /// Reserved vertical space for everything that isn't the preview (toggles, controls, bottom
-    /// bar, dividers, padding). An estimate — the controller clamps the final frame to the screen,
-    /// so a small error just means the expanded panel is slightly under 90%.
     private static let verticalChromeEstimate: CGFloat = 185
+    private static let tileSpacing: CGFloat = 6
 
-    /// Aspect (width / height) of the captured area: the region rect in region mode, otherwise the
-    /// selected display's resolution. Falls back to 16:9. Stable inputs (not the per-frame image)
-    /// so the size doesn't thrash while previewing.
-    private var captureAspect: CGFloat {
+    /// Aspect (width / height) of the primary captured display (or region), falling back to 16:9.
+    /// Used as the uniform tile aspect for grid layout; each frame still scales-to-fit inside its cell.
+    private var primaryAspect: CGFloat {
         if captureRegionMode, captureRegionWidth > 1, captureRegionHeight > 1 {
             return CGFloat(captureRegionWidth / captureRegionHeight)
         }
-        if captureDisplayID != 0,
-           let display = availableDisplays.first(where: { Int($0.id) == captureDisplayID }),
-           display.width > 0, display.height > 0 {
-            return CGFloat(display.width) / CGFloat(display.height)
+        if let id = effectiveDisplayIDs.first, let d = display(for: id), d.width > 0, d.height > 0 {
+            return CGFloat(d.width) / CGFloat(d.height)
         }
         if let main = availableDisplays.first(where: { $0.isMain }) ?? availableDisplays.first,
            main.width > 0, main.height > 0 {
@@ -134,46 +178,78 @@ struct CaptureControlPanelView: View {
         return 16.0 / 9.0
     }
 
-    /// The screen the overlay sits on — the captured display (the panel follows it via
-    /// `moveToDisplay`), falling back to the main screen. Used so an expanded panel is sized for
-    /// the display it's actually on, not a larger one elsewhere.
     private var targetScreen: NSScreen? {
-        if captureDisplayID != 0,
+        if let id = effectiveDisplayIDs.first,
            let match = NSScreen.screens.first(where: {
-               ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID)
-                   .map(Int.init) == captureDisplayID
+               ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == id
            }) {
             return match
         }
         return NSScreen.main
     }
 
-    /// Size of the central preview box, aspect-fit to `captureAspect`. The panel width derives from
-    /// this, and the preview fills the box exactly (no letterbox).
-    private var previewBoxSize: CGSize {
-        let aspect = max(0.1, captureAspect)
+    private var tileCount: Int { max(1, effectiveDisplayIDs.count) }
+
+    /// Columns grow horizontally first, then wrap into a grid: 1→1, 2→2, 3-4→2, 5-9→3 … (ceil(√n)).
+    private var gridColumns: Int { max(1, Int(ceil(Double(tileCount).squareRoot()))) }
+    private var gridRows: Int { Int(ceil(Double(tileCount) / Double(gridColumns))) }
+
+    private var availablePreviewBounds: CGSize {
+        if isExpanded {
+            let screen = (targetScreen?.visibleFrame.size) ?? CGSize(width: 1440, height: 900)
+            let w = max(320, screen.width * Self.expandedScreenFraction - Self.horizontalChrome)
+            let h = max(240, screen.height * Self.expandedScreenFraction - Self.verticalChromeEstimate)
+            return CGSize(width: w, height: h)
+        }
+        return Self.compactPreviewBounds
+    }
+
+    /// Size of the whole tile grid, aspect-fit so every cell keeps `primaryAspect` within the bounds.
+    private var gridBoxSize: CGSize {
+        let bounds = availablePreviewBounds
+        let aspect = max(0.1, primaryAspect)
+        let cols = CGFloat(gridColumns)
+        let rows = CGFloat(gridRows)
+        let tileWByWidth = (bounds.width - Self.tileSpacing * (cols - 1)) / cols
+        let tileHByHeight = (bounds.height - Self.tileSpacing * (rows - 1)) / rows
+        let tileH = max(40, min(tileHByHeight, tileWByWidth / aspect))
+        let tileW = tileH * aspect
+        return CGSize(
+            width: (tileW * cols + Self.tileSpacing * (cols - 1)).rounded(),
+            height: (tileH * rows + Self.tileSpacing * (rows - 1)).rounded()
+        )
+    }
+
+    /// Size of a single focused tile (focus mode), aspect-fit within ~90% of the screen.
+    private var focusedBoxSize: CGSize {
+        let aspect = max(0.1, primaryAspect)
         if isExpanded {
             let screen = (targetScreen?.visibleFrame.size) ?? CGSize(width: 1440, height: 900)
             let availW = max(320, screen.width * Self.expandedScreenFraction - Self.horizontalChrome)
             let availH = max(240, screen.height * Self.expandedScreenFraction - Self.verticalChromeEstimate)
             let height = min(availH, availW / aspect)
             return CGSize(width: (height * aspect).rounded(), height: height.rounded())
-        } else {
-            let bounds = Self.compactPreviewBounds
-            let height = min(bounds.height, bounds.width / aspect)
-            return CGSize(width: (height * aspect).rounded(), height: height.rounded())
         }
+        let bounds = Self.compactPreviewBounds
+        let height = min(bounds.height, bounds.width / aspect)
+        return CGSize(width: (height * aspect).rounded(), height: height.rounded())
     }
 
-    private var panelWidth: CGFloat {
-        max(Self.baseContentWidth, previewBoxSize.width + Self.horizontalChrome)
+    private var isFocused: Bool {
+        focusedDisplayID != nil && effectiveDisplayIDs.contains(focusedDisplayID!)
     }
 
-    private var previewHeight: CGFloat { previewBoxSize.height }
-    private var meterHeight: CGFloat { previewBoxSize.height }
+    private var currentPreviewBox: CGSize { isFocused ? focusedBoxSize : gridBoxSize }
+    private var panelWidth: CGFloat { max(Self.baseContentWidth, currentPreviewBox.width + Self.horizontalChrome) }
+    private var meterHeight: CGFloat { currentPreviewBox.height }
 
-    /// Resizes the floating panel to match the current content. Deferred to the next runloop tick
-    /// so SwiftUI has applied the new layout before the controller reads its fitting size.
+    /// Target pixel width for each live preview stream — matches the displayed tile times backing scale.
+    private var previewPixelWidth: CGFloat {
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let tileWidth = isFocused ? focusedBoxSize.width : (gridBoxSize.width / CGFloat(gridColumns))
+        return max(1280, (tileWidth * backingScale).rounded(.up))
+    }
+
     private func schedulePanelResize() {
         DispatchQueue.main.async { onScaleChanged() }
     }
@@ -181,8 +257,7 @@ struct CaptureControlPanelView: View {
     private var sizeToggleButton: some View {
         Button {
             isExpanded.toggle()
-            // Re-render the setup preview stream at a resolution matching the new size.
-            Task { await refreshPreview() }
+            Task { await refreshPreviews() }
         } label: {
             Image(systemName: isExpanded
                   ? "arrow.down.right.and.arrow.up.left"
@@ -206,26 +281,25 @@ struct CaptureControlPanelView: View {
                 cancelSchedule()
             }
             .onChange(of: captureRegionMode) { _, newValue in
-                // Leaving region mode tears down the selection overlay, so the toggle has nothing
-                // to act on. Reset so we start fresh next time region mode is re-enabled.
-                if !newValue && overlayClickThrough {
+                onRegionModeChanged(newValue)
+                if newValue {
+                    // Region capture is single-display: collapse the selection to the primary.
+                    if let first = effectiveDisplayIDs.first { setSelectedDisplayIDs([first]) }
+                    focusedDisplayID = nil
+                } else if !newValue && overlayClickThrough {
                     overlayClickThrough = false
                     onSetOverlayClickThrough(false)
                 }
+                Task { await refreshPreviews() }
             }
-            .onChange(of: captureManager.isRecording) { _, newValue in
-                // Recording dismisses the region overlay too.
-                if newValue && overlayClickThrough {
-                    overlayClickThrough = false
-                    onSetOverlayClickThrough(false)
-                }
-                // Setup ↔ recording views have different chrome heights — refit the panel.
-                schedulePanelResize()
+            .onChange(of: captureDisplayIDsRaw) { _, _ in
+                notifyDisplayChanged()
+                Task { await reconcileSelection() }
             }
-            // Refit whenever the preview size changes (expand/collapse toggle, aspect change) or
-            // the finalizing state swaps the chrome.
-            .onChange(of: previewBoxSize) { _, _ in schedulePanelResize() }
+            .onChange(of: captureManager.recordingDisplayIDs) { _, _ in schedulePanelResize() }
+            .onChange(of: currentPreviewBox) { _, _ in schedulePanelResize() }
             .onChange(of: captureManager.isProcessing) { _, _ in schedulePanelResize() }
+            .onChange(of: focusedDisplayID) { _, _ in schedulePanelResize() }
             .task(id: scheduledStart) {
                 guard let start = scheduledStart else { return }
                 while !Task.isCancelled {
@@ -238,15 +312,6 @@ struct CaptureControlPanelView: View {
                     try? await Task.sleep(for: .milliseconds(500))
                 }
             }
-            .modifier(DisplayAndModeModifier(
-                captureDisplayID: $captureDisplayID,
-                captureRegionMode: $captureRegionMode,
-                captureRegionWidth: $captureRegionWidth,
-                captureRegionHeight: $captureRegionHeight,
-                onRegionModeChanged: onRegionModeChanged,
-                notifyDisplayChanged: notifyDisplayChanged,
-                refreshPreview: { await self.refreshPreview() }
-            ))
             .modifier(PreviewRefreshModifier(
                 captureHideCursor: captureHideCursor,
                 captureExcludeCurrentApp: captureExcludeCurrentApp,
@@ -258,34 +323,25 @@ struct CaptureControlPanelView: View {
                 captureRegionY: captureRegionY,
                 captureRegionWidth: captureRegionWidth,
                 captureRegionHeight: captureRegionHeight,
-                isRecording: captureManager.isRecording,
-                refreshPreview: { await self.refreshPreview() }
+                refreshPreview: { await self.refreshPreviews() }
             ))
     }
 
     private var panelContent: some View {
-        Group {
-            if captureManager.isRecording || captureManager.isProcessing {
-                recordingStateView
-            } else {
-                setupStateView
+        mainView
+            .background(
+                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: .black.opacity(0.3), radius: 12)
+            .overlay(alignment: .topTrailing) {
+                sizeToggleButton
             }
-        }
-        .background(
-            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: .black.opacity(0.3), radius: 12)
-        .overlay(alignment: .topTrailing) {
-            sizeToggleButton
-        }
     }
 
     private func handleOnAppear() {
         isViewActive = true
-        // Fit the panel to the content (the panel is created at a fixed initial size, and a
-        // persisted expanded state needs the larger frame applied).
         schedulePanelResize()
         if !CapturePreset.availablePresets.contains(presetBinding.wrappedValue) {
             capturePresetRaw = CapturePreset.defaultPreset.rawValue
@@ -299,40 +355,35 @@ struct CaptureControlPanelView: View {
                 await MainActor.run {
                     availableDisplays = displays
                     availableApps = apps
-                    if captureDisplayID != 0,
-                       !displays.contains(where: { Int($0.id) == captureDisplayID }) {
-                        captureDisplayID = 0
+                    // Prune selected displays that no longer exist.
+                    let valid = selectedDisplayIDs.filter { id in displays.contains(where: { $0.id == id }) }
+                    if valid.count != selectedDisplayIDs.count {
+                        setSelectedDisplayIDs(valid)
                     }
                 }
                 captureManager.refreshMicrophoneAuthorizationStatus()
-                await startPreview(with: content)
+                await reconcileSelection()
             } catch {
-                await MainActor.run {
-                    availableDisplays = []
-                    captureDisplayID = 0
-                }
+                await MainActor.run { availableDisplays = [] }
             }
             await microphonesTask
         }
     }
 
-    // MARK: - Setup State View
+    // MARK: - Main Layout
 
-    private var setupStateView: some View {
+    private var mainView: some View {
         VStack(spacing: 0) {
-            // Preview
             previewSection
                 .padding(12)
 
             Divider()
 
-            // Controls
             controlsSection
                 .padding(12)
 
             Divider()
 
-            // Bottom bar
             bottomBar
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
@@ -342,33 +393,14 @@ struct CaptureControlPanelView: View {
 
     private var previewSection: some View {
         VStack(spacing: 6) {
-            // Sys meter | Preview | Mic meter
             HStack(spacing: 6) {
                 AudioMeterView(levels: captureManager.audioLevels, meterHeight: meterHeight, chrome: false)
                     .opacity(captureIncludeSystemAudio ? 1.0 : 0.3)
                     .frame(width: 12)
                     .help("System audio level")
 
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.black.opacity(0.3))
-                    if let image = captureManager.previewImage {
-                        Image(decorative: image, scale: 1.0)
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    } else {
-                        VStack(spacing: 4) {
-                            Image(systemName: "rectangle.inset.filled")
-                                .font(.system(size: 20))
-                                .foregroundColor(.secondary.opacity(0.7))
-                            Text("Preview")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                .frame(height: previewHeight)
+                previewArea
+                    .frame(width: currentPreviewBox.width, height: currentPreviewBox.height)
 
                 AudioMeterView(levels: captureManager.microphoneLevels, meterHeight: meterHeight, chrome: false)
                     .saturation(microphoneButtonActive ? 1.0 : 0.0)
@@ -377,64 +409,149 @@ struct CaptureControlPanelView: View {
                     .help("Microphone audio level")
             }
 
-            // Speaker toggle | Display picker | Mic toggle
-            HStack {
-                Button {
-                    captureIncludeSystemAudio.toggle()
-                } label: {
-                    Image(systemName: captureIncludeSystemAudio ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(captureIncludeSystemAudio ? .accentColor : .secondary)
-                        .frame(width: 12)
+            audioAndDisplayRow
+        }
+    }
+
+    @ViewBuilder
+    private var previewArea: some View {
+        if isFocused, let id = focusedDisplayID {
+            tileView(for: id)
+        } else {
+            let columns = Array(repeating: GridItem(.flexible(), spacing: Self.tileSpacing), count: gridColumns)
+            LazyVGrid(columns: columns, spacing: Self.tileSpacing) {
+                ForEach(effectiveDisplayIDs, id: \.self) { id in
+                    tileView(for: id)
+                        .aspectRatio(primaryAspect, contentMode: .fit)
                 }
-                .buttonStyle(.plain)
-                .help(captureIncludeSystemAudio ? "System audio on" : "System audio off")
-
-                Spacer()
-
-                Picker("Display", selection: $captureDisplayID) {
-                    Text("Automatic (Main)")
-                        .tag(0)
-                    ForEach(availableDisplays) { display in
-                        let label = "\(display.name) (\(display.width)x\(display.height))" + (display.isMain ? " - Main" : "")
-                        Text(label).tag(Int(display.id))
-                    }
-                }
-                .pickerStyle(.menu)
-                .controlSize(.small)
-                .labelsHidden()
-
-                VirtualDisplayMenu(
-                    captureDisplayID: $captureDisplayID,
-                    isDisabled: captureManager.isRecording || captureManager.isProcessing
-                ) {
-                    await refreshAvailableDisplays()
-                }
-                .controlSize(.small)
-
-                Spacer()
-
-                Button {
-                    let willEnable = !captureIncludeMicrophone
-                    captureIncludeMicrophone = willEnable
-                    if willEnable {
-                        Task { await captureManager.requestMicrophonePermission() }
-                    }
-                } label: {
-                    Image(systemName: captureIncludeMicrophone ? "mic.fill" : "mic.slash")
-                        .font(.system(size: 10))
-                        .foregroundColor(microphoneButtonActive ? .accentColor : .secondary)
-                        .frame(width: 12)
-                }
-                .buttonStyle(.plain)
-                .help(captureIncludeMicrophone ? "Microphone on" : "Microphone off")
             }
         }
     }
 
+    private func tileView(for id: CGDirectDisplayID) -> some View {
+        CaptureTileView(
+            displayID: id,
+            name: display(for: id)?.name ?? "Display \(id)",
+            image: captureManager.previewImages[id],
+            isRecording: captureManager.recordingDisplayIDs.contains(id),
+            isFocused: focusedDisplayID == id,
+            canRemove: effectiveDisplayIDs.count > 1 && !captureRegionMode,
+            isProcessing: captureManager.isProcessing,
+            hoveredDisplayID: $hoveredDisplayID,
+            onToggleFocus: {
+                focusedDisplayID = (focusedDisplayID == id) ? nil : id
+            },
+            onToggleRecord: { handleTileRecord(id) },
+            onRemove: { handleTileRemove(id) }
+        )
+    }
+
+    private var audioAndDisplayRow: some View {
+        HStack {
+            Button {
+                captureIncludeSystemAudio.toggle()
+            } label: {
+                Image(systemName: captureIncludeSystemAudio ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(captureIncludeSystemAudio ? .accentColor : .secondary)
+                    .frame(width: 12)
+            }
+            .buttonStyle(.plain)
+            .help(captureIncludeSystemAudio ? "System audio on" : "System audio off")
+
+            Spacer()
+
+            displaySelectionMenu
+
+            VirtualDisplayMenu(
+                isDisabled: false,
+                onDisplaysChanged: { await refreshAvailableDisplays() },
+                onCreated: { id in addDisplayToSelection(id) },
+                onRemoved: { id in handleTileRemove(id) }
+            )
+            .controlSize(.small)
+
+            Spacer()
+
+            Button {
+                let willEnable = !captureIncludeMicrophone
+                captureIncludeMicrophone = willEnable
+                if willEnable {
+                    Task { await captureManager.requestMicrophonePermission() }
+                }
+            } label: {
+                Image(systemName: captureIncludeMicrophone ? "mic.fill" : "mic.slash")
+                    .font(.system(size: 10))
+                    .foregroundColor(microphoneButtonActive ? .accentColor : .secondary)
+                    .frame(width: 12)
+            }
+            .buttonStyle(.plain)
+            .help(captureIncludeMicrophone ? "Microphone on" : "Microphone off")
+        }
+    }
+
+    private var displaySelectionMenu: some View {
+        Menu {
+            if captureRegionMode {
+                Picker("Display", selection: Binding(
+                    get: { effectiveDisplayIDs.first ?? 0 },
+                    set: { setSelectedDisplayIDs([$0]) }
+                )) {
+                    ForEach(availableDisplays) { d in
+                        Text(displayLabel(d)).tag(d.id)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } else {
+                ForEach(availableDisplays) { d in
+                    Button {
+                        toggleDisplaySelection(d.id)
+                    } label: {
+                        if effectiveDisplayIDs.contains(d.id) {
+                            Label(displayLabel(d), systemImage: "checkmark")
+                        } else {
+                            Text(displayLabel(d))
+                        }
+                    }
+                }
+                if availableDisplays.count > 1 {
+                    Divider()
+                    Button("Record All Displays") {
+                        setSelectedDisplayIDs(availableDisplays.map(\.id))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: captureRegionMode ? "display" : "display.2")
+                Text(displaySelectionLabel)
+                    .lineLimit(1)
+            }
+            .font(.system(size: 11))
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
+        .fixedSize()
+        .help("Choose which display(s) to record")
+    }
+
+    private func displayLabel(_ d: CaptureDisplay) -> String {
+        "\(d.name) (\(d.width)x\(d.height))" + (d.isMain ? " - Main" : "")
+    }
+
+    private var displaySelectionLabel: String {
+        let n = effectiveDisplayIDs.count
+        if captureRegionMode {
+            if let id = effectiveDisplayIDs.first, let d = display(for: id) { return d.name }
+            return "Display"
+        }
+        if selectedDisplayIDs.isEmpty { return "Main Display" }
+        return n == 1 ? (display(for: effectiveDisplayIDs[0])?.name ?? "1 Screen") : "\(n) Screens"
+    }
+
     private var controlsSection: some View {
         VStack(spacing: 10) {
-            // Toggle buttons + mode toggle in one row
             HStack(spacing: 8) {
                 Picker("Mode", selection: $captureRegionMode) {
                     Text("Full Screen").tag(false)
@@ -443,6 +560,7 @@ struct CaptureControlPanelView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(width: 180)
+                .disabled(captureManager.isRecording)
 
                 cursorToggleButton
                 excludeAppToggleButton
@@ -454,7 +572,6 @@ struct CaptureControlPanelView: View {
                 Spacer()
             }
 
-            // Error message
             if let error = captureManager.errorMessage, !error.isEmpty {
                 Text(error)
                     .foregroundColor(.red)
@@ -465,7 +582,7 @@ struct CaptureControlPanelView: View {
     }
 
     private var bottomBar: some View {
-        HStack {
+        HStack(spacing: 10) {
             if let start = scheduledStart {
                 Button(action: cancelSchedule) {
                     Text("Cancel Schedule")
@@ -487,6 +604,8 @@ struct CaptureControlPanelView: View {
                     }
                 }
                 .help("Mac will stay awake until the recording starts.")
+            } else if captureManager.isRecording || captureManager.isProcessing {
+                recordingBottomBar
             } else {
                 Button(action: onCancel) {
                     Text("Cancel")
@@ -511,8 +630,8 @@ struct CaptureControlPanelView: View {
                     schedulePopoverContent
                 }
 
-                Button(action: handleRecord) {
-                    Label("Record", systemImage: "record.circle")
+                Button(action: handleRecordAll) {
+                    Label(effectiveDisplayIDs.count > 1 ? "Record All" : "Record", systemImage: "record.circle")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.green)
@@ -521,119 +640,60 @@ struct CaptureControlPanelView: View {
         }
     }
 
-    // MARK: - Recording State View
-
-    private var recordingStateView: some View {
-        VStack(spacing: 0) {
-            // Sys meter | Preview | Mic meter
-            HStack(spacing: 6) {
-                AudioMeterView(levels: captureManager.audioLevels, meterHeight: meterHeight, chrome: false)
-                    .opacity(captureIncludeSystemAudio ? 1.0 : 0.3)
-                    .frame(width: 12)
-                    .help("System audio level")
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.black.opacity(0.3))
-                    if let image = captureManager.previewImage {
-                        Image(decorative: image, scale: 1.0)
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                }
-                .frame(height: previewHeight)
-
-                AudioMeterView(levels: captureManager.microphoneLevels, meterHeight: meterHeight, chrome: false)
-                    .saturation(microphoneButtonActive ? 1.0 : 0.0)
-                    .opacity(microphoneButtonActive ? 1.0 : 0.3)
-                    .frame(width: 12)
-                    .help("Microphone audio level")
+    private var recordingBottomBar: some View {
+        HStack(spacing: 12) {
+            if captureManager.isRecording {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 10, height: 10)
+                    .modifier(PulsingAnimation())
             }
-            .padding(12)
 
-            Divider()
-
-            HStack(spacing: 12) {
-                // Recording indicator
-                if captureManager.isRecording {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 10, height: 10)
-                        .modifier(PulsingAnimation())
-                }
-
-                if captureManager.isProcessing {
-                    Label("Finalizing", systemImage: "hourglass")
-                        .foregroundColor(.orange)
-                        .font(.callout)
-                } else if let totalText = autoStopTotalText {
-                    Text("\(elapsedText) / \(totalText)")
-                        .font(.system(.title3, design: .monospaced))
-                        .monospacedDigit()
-                } else {
-                    Text(elapsedText)
-                        .font(.system(.title3, design: .monospaced))
-                        .monospacedDigit()
-                }
-
-                Spacer()
-
-                Button(action: onHidePanel) {
-                    Image(systemName: "eye.slash")
-                        .font(.system(size: 13))
-                }
-                .buttonStyle(.plain)
-                .help("Hide this panel (use menu bar icon to re-open)")
-
-                if captureManager.isProcessing {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .controlSize(.small)
-                } else {
-                    Button(action: onStopRecording) {
-                        Label("Stop", systemImage: "stop.circle.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .controlSize(.regular)
-                }
+            if captureManager.isProcessing {
+                Label("Finalizing", systemImage: "hourglass")
+                    .foregroundColor(.orange)
+                    .font(.callout)
+            } else if let totalText = autoStopTotalText {
+                Text("\(elapsedText) / \(totalText)")
+                    .font(.system(.title3, design: .monospaced))
+                    .monospacedDigit()
+            } else {
+                Text(elapsedText)
+                    .font(.system(.title3, design: .monospaced))
+                    .monospacedDigit()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+
+            if captureManager.recordingDisplayIDs.count > 1 {
+                Text("\(captureManager.recordingDisplayIDs.count) screens")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button(action: onHidePanel) {
+                Image(systemName: "eye.slash")
+                    .font(.system(size: 13))
+            }
+            .buttonStyle(.plain)
+            .help("Hide this panel (use menu bar icon to re-open)")
+
+            if captureManager.isProcessing {
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .controlSize(.small)
+            } else {
+                Button(action: onStopRecording) {
+                    Label(captureManager.recordingDisplayIDs.count > 1 ? "Stop All" : "Stop", systemImage: "stop.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.regular)
+            }
         }
-        .frame(width: panelWidth)
     }
 
     // MARK: - Toggle Buttons
-
-    private var microphoneToggleButton: some View {
-        Button {
-            let willEnable = !captureIncludeMicrophone
-            captureIncludeMicrophone = willEnable
-            if willEnable {
-                Task {
-                    await captureManager.requestMicrophonePermission()
-                }
-            }
-        } label: {
-            Image(systemName: captureIncludeMicrophone ? "mic.fill" : "mic.slash")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(microphoneIconColor)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(microphoneButtonBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(microphoneButtonBorder, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in isMicButtonHovering = hovering }
-        .help(microphoneButtonHelpText)
-    }
 
     private var microphoneIconColor: Color {
         if captureIncludeMicrophone {
@@ -644,40 +704,6 @@ struct CaptureControlPanelView: View {
             }
         }
         return .primary
-    }
-
-    private var microphoneButtonBackground: Color {
-        if microphoneButtonActive {
-            return Color.accentColor.opacity(isMicButtonHovering ? 0.35 : 0.25)
-        }
-        if captureIncludeMicrophone && captureManager.microphoneCaptureStatus == .denied {
-            return Color.red.opacity(isMicButtonHovering ? 0.16 : 0.12)
-        }
-        return Color.primary.opacity(isMicButtonHovering ? 0.15 : 0.06)
-    }
-
-    private var microphoneButtonBorder: Color {
-        if microphoneButtonActive {
-            return Color.accentColor
-        }
-        if captureIncludeMicrophone && captureManager.microphoneCaptureStatus == .denied {
-            return Color.red
-        }
-        return Color.primary.opacity(0.35)
-    }
-
-    private var microphoneButtonHelpText: String {
-        if captureIncludeMicrophone {
-            switch captureManager.microphoneCaptureStatus {
-            case .authorized:
-                return "Microphone will be recorded as a separate 24-bit LPCM track."
-            case .denied:
-                return "Microphone access is blocked; click to re-open the permission prompt."
-            case .disabled:
-                return "Requesting microphone permission so a secondary track can be captured."
-            }
-        }
-        return "Enable the microphone track (system + mic) so you can capture narrations."
     }
 
     private var microphoneButtonActive: Bool {
@@ -709,8 +735,6 @@ struct CaptureControlPanelView: View {
         AspectRatio(rawValue: lockedAspectRatioRaw) ?? .free
     }
 
-    /// Short label for the aspect ratio (e.g. "16:9", "1:1", "Free") — strips the parenthetical
-    /// description that the full `displayName` carries for some cases.
     private var aspectRatioShortLabel: String {
         String(lockedAspectRatio.displayName.split(separator: " ").first ?? "Free")
     }
@@ -963,7 +987,6 @@ struct CaptureControlPanelView: View {
     private func roundedScheduleDate(minutesFromNow: Int) -> Date {
         let calendar = Calendar.current
         let future = calendar.date(byAdding: .minute, value: minutesFromNow, to: Date()) ?? Date()
-        // Round up to the next whole minute
         var components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: future)
         components.second = 0
         return calendar.date(from: components) ?? future
@@ -1000,27 +1023,130 @@ struct CaptureControlPanelView: View {
         schedulePowerAssertion = nil
 
         Task {
-            let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
             onStartRecording()
-            await captureManager.startRecording(
+            await captureManager.setSelectedDisplays(effectiveDisplayIDs, settings: makeSettings(), maxPreviewWidth: previewPixelWidth)
+            await captureManager.startAllRecording(
                 preset: presetBinding.wrappedValue,
                 outputDirectory: outputDirectoryURL,
-                displayID: displayID,
-                frameRate: frameRateOption,
-                dynamicRange: dynamicRangeOption,
-                includeSystemAudio: captureIncludeSystemAudio,
-                includeMicrophone: captureIncludeMicrophone,
-                microphoneDeviceID: selectedMicrophoneDeviceID,
-                hideCursor: captureHideCursor,
-                excludeCurrentApp: captureExcludeCurrentApp,
-                excludedAppBundleIDs: excludedAppBundleIDs,
-                regionRect: selectedRegionRect
+                dynamicRange: dynamicRangeOption
             )
-
             if let duration, duration > 0 {
                 captureManager.setAutoStop(after: duration)
             }
         }
+    }
+
+    // MARK: - Recording / selection actions
+
+    private func handleRecordAll() {
+        Task {
+            onStartRecording()
+            await captureManager.setSelectedDisplays(effectiveDisplayIDs, settings: makeSettings(), maxPreviewWidth: previewPixelWidth)
+            await captureManager.startAllRecording(
+                preset: presetBinding.wrappedValue,
+                outputDirectory: outputDirectoryURL,
+                dynamicRange: dynamicRangeOption
+            )
+        }
+    }
+
+    private func handleTileRecord(_ id: CGDirectDisplayID) {
+        Task {
+            if captureManager.recordingDisplayIDs.contains(id) {
+                await captureManager.stopRecording(displayID: id)
+            } else {
+                onStartRecording()
+                await captureManager.startRecording(
+                    displayID: id,
+                    preset: presetBinding.wrappedValue,
+                    outputDirectory: outputDirectoryURL,
+                    dynamicRange: dynamicRangeOption
+                )
+            }
+        }
+    }
+
+    private func handleTileRemove(_ id: CGDirectDisplayID) {
+        guard effectiveDisplayIDs.count > 1 else { return }
+        if focusedDisplayID == id { focusedDisplayID = nil }
+        var ids = effectiveDisplayIDs
+        ids.removeAll { $0 == id }
+        setSelectedDisplayIDs(ids)
+        // reconcileSelection runs via the captureDisplayIDsRaw onChange and finalizes a recording tile.
+    }
+
+    private func toggleDisplaySelection(_ id: CGDirectDisplayID) {
+        var ids = effectiveDisplayIDs
+        if ids.contains(id) {
+            guard ids.count > 1 else { return } // keep at least one
+            ids.removeAll { $0 == id }
+        } else {
+            ids.append(id)
+        }
+        setSelectedDisplayIDs(ids)
+    }
+
+    private func addDisplayToSelection(_ id: CGDirectDisplayID) {
+        if captureRegionMode {
+            setSelectedDisplayIDs([id])
+        } else {
+            var ids = effectiveDisplayIDs
+            if !ids.contains(id) { ids.append(id) }
+            setSelectedDisplayIDs(ids)
+        }
+    }
+
+    // MARK: - Preview reconciliation
+
+    /// Apply the current selection to the manager (adds new tiles, drops/finalizes removed ones)
+    /// without disturbing existing tiles.
+    private func reconcileSelection() async {
+        guard isViewActive else { return }
+        await captureManager.setSelectedDisplays(effectiveDisplayIDs, settings: makeSettings(), maxPreviewWidth: previewPixelWidth)
+    }
+
+    /// Rebuild all preview tiles with the latest settings (used when a non-selection setting changes,
+    /// e.g. frame rate or cursor visibility). Recording tiles are left running.
+    private func refreshPreviews() async {
+        guard isViewActive else { return }
+        await captureManager.stopPreview()
+        await captureManager.setSelectedDisplays(effectiveDisplayIDs, settings: makeSettings(), maxPreviewWidth: previewPixelWidth)
+    }
+
+    private func refreshAvailableDisplays() async {
+        guard let content = try? await ScreenCaptureManager.shareableContent() else { return }
+        let displays = ScreenCaptureManager.displays(from: content)
+        await MainActor.run { availableDisplays = displays }
+    }
+
+    private func loadMicrophones() async {
+        guard #available(macOS 15, *) else {
+            await MainActor.run {
+                microphoneDevices = []
+                captureMicrophoneDeviceID = ""
+            }
+            return
+        }
+        let devices = ScreenCaptureManager.availableMicrophones()
+        await MainActor.run {
+            microphoneDevices = devices
+            if !devices.contains(where: { $0.uniqueID == captureMicrophoneDeviceID }) {
+                captureMicrophoneDeviceID = ""
+            }
+        }
+    }
+
+    private func notifyDisplayChanged() {
+        let screen: NSScreen?
+        if let id = effectiveDisplayIDs.first, let s = NSScreen.screens.first(where: {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == id
+        }) {
+            screen = s
+        } else {
+            screen = NSScreen.main ?? NSScreen.screens.first
+        }
+        guard let screen else { return }
+        onDisplayChanged(screen, selectedRegionRect)
     }
 
     // MARK: - Helpers
@@ -1042,96 +1168,126 @@ struct CaptureControlPanelView: View {
         formatter.timeStyle = .short
         return formatter
     }()
+}
 
-    private func handleRecord() {
-        Task {
-            let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
-            onStartRecording()
-            await captureManager.startRecording(
-                preset: presetBinding.wrappedValue,
-                outputDirectory: outputDirectoryURL,
-                displayID: displayID,
-                frameRate: frameRateOption,
-                dynamicRange: dynamicRangeOption,
-                includeSystemAudio: captureIncludeSystemAudio,
-                includeMicrophone: captureIncludeMicrophone,
-                microphoneDeviceID: selectedMicrophoneDeviceID,
-                hideCursor: captureHideCursor,
-                excludeCurrentApp: captureExcludeCurrentApp,
-                excludedAppBundleIDs: excludedAppBundleIDs,
-                regionRect: selectedRegionRect
-            )
+// MARK: - Capture Tile
+
+/// One screen's live preview tile in the overlay grid. Hovering reveals expand / record-stop /
+/// remove controls; a red badge marks a tile that is recording.
+private struct CaptureTileView: View {
+    let displayID: CGDirectDisplayID
+    let name: String
+    let image: CGImage?
+    let isRecording: Bool
+    let isFocused: Bool
+    let canRemove: Bool
+    let isProcessing: Bool
+    @Binding var hoveredDisplayID: CGDirectDisplayID?
+    let onToggleFocus: () -> Void
+    let onToggleRecord: () -> Void
+    let onRemove: () -> Void
+
+    private var isHovered: Bool { hoveredDisplayID == displayID }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.black.opacity(0.3))
+
+            if let image {
+                Image(decorative: image, scale: 1.0)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                VStack(spacing: 4) {
+                    Image(systemName: "rectangle.inset.filled")
+                        .font(.system(size: 18))
+                        .foregroundColor(.secondary.opacity(0.7))
+                    Text(name)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            // Recording badge (top-left).
+            if isRecording {
+                VStack {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.red).frame(width: 7, height: 7)
+                        Text("REC").font(.system(size: 9, weight: .bold)).foregroundColor(.white)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+                .padding(6)
+            }
+
+            // Display name (bottom-left), shown on hover.
+            if isHovered {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Text(name)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.black.opacity(0.5)))
+                        Spacer()
+                    }
+                }
+                .padding(6)
+            }
+
+            // Hover controls (centered).
+            if isHovered {
+                HStack(spacing: 10) {
+                    tileButton(systemName: isFocused ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                               tint: .white,
+                               help: isFocused ? "Collapse" : "Expand this screen",
+                               action: onToggleFocus)
+
+                    tileButton(systemName: isRecording ? "stop.fill" : "record.circle",
+                               tint: isRecording ? .red : .green,
+                               help: isRecording ? "Stop recording this screen" : "Record this screen",
+                               action: onToggleRecord)
+                        .disabled(isProcessing)
+
+                    if canRemove {
+                        tileButton(systemName: "xmark",
+                                   tint: .white,
+                                   help: "Remove this screen from the recording",
+                                   action: onRemove)
+                    }
+                }
+            }
         }
-    }
-
-    private func refreshPreview() async {
-        await startPreview(with: nil)
-    }
-
-    private func startPreview(with cachedContent: SCShareableContent?) async {
-        guard isViewActive, !captureManager.isRecording else { return }
-        await captureManager.stopPreview()
-        let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
-        await captureManager.startPreview(
-            displayID: displayID,
-            frameRate: frameRateOption,
-            includeMicrophone: captureIncludeMicrophone,
-            microphoneDeviceID: selectedMicrophoneDeviceID,
-            hideCursor: captureHideCursor,
-            excludeCurrentApp: captureExcludeCurrentApp,
-            excludedAppBundleIDs: excludedAppBundleIDs,
-            cachedContent: cachedContent,
-            regionRect: selectedRegionRect,
-            maxPreviewWidth: previewPixelWidth
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(isRecording ? Color.red.opacity(0.8) : Color.white.opacity(isHovered ? 0.25 : 0), lineWidth: isRecording ? 2 : 1)
         )
-    }
-
-    /// Target pixel width for the live preview stream — matches the displayed preview box
-    /// (in points) times the screen's backing scale so it stays sharp when the overlay is expanded.
-    private var previewPixelWidth: CGFloat {
-        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        return max(1280, (previewBoxSize.width * backingScale).rounded(.up))
-    }
-
-    /// Re-fetch the display list after a virtual display is added/removed so it
-    /// appears in (or disappears from) the picker.
-    private func refreshAvailableDisplays() async {
-        guard let content = try? await ScreenCaptureManager.shareableContent() else { return }
-        let displays = ScreenCaptureManager.displays(from: content)
-        await MainActor.run {
-            availableDisplays = displays
-        }
-    }
-
-    private func loadMicrophones() async {
-        guard #available(macOS 15, *) else {
-            await MainActor.run {
-                microphoneDevices = []
-                captureMicrophoneDeviceID = ""
-            }
-            return
-        }
-        let devices = ScreenCaptureManager.availableMicrophones()
-        await MainActor.run {
-            microphoneDevices = devices
-            if !devices.contains(where: { $0.uniqueID == captureMicrophoneDeviceID }) {
-                captureMicrophoneDeviceID = ""
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                hoveredDisplayID = displayID
+            } else if hoveredDisplayID == displayID {
+                hoveredDisplayID = nil
             }
         }
     }
 
-    private func notifyDisplayChanged() {
-        let displayID = captureDisplayID == 0 ? nil : CGDirectDisplayID(captureDisplayID)
-        let screen: NSScreen?
-        if let displayID, let s = NSScreen.screens.first(where: {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
-        }) {
-            screen = s
-        } else {
-            screen = NSScreen.main ?? NSScreen.screens.first
+    private func tileButton(systemName: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(tint)
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Color.black.opacity(0.55)))
         }
-        guard let screen else { return } // no active displays — nothing to notify about
-        onDisplayChanged(screen, selectedRegionRect)
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
@@ -1168,34 +1324,6 @@ private struct PulsingAnimation: ViewModifier {
     }
 }
 
-// MARK: - Display and Mode Modifier
-
-private struct DisplayAndModeModifier: ViewModifier {
-    @Binding var captureDisplayID: Int
-    @Binding var captureRegionMode: Bool
-    @Binding var captureRegionWidth: Double
-    @Binding var captureRegionHeight: Double
-    let onRegionModeChanged: (Bool) -> Void
-    let notifyDisplayChanged: () -> Void
-    let refreshPreview: () async -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: captureDisplayID) { _, _ in
-                if captureRegionMode {
-                    captureRegionWidth = 0
-                    captureRegionHeight = 0
-                }
-                notifyDisplayChanged()
-                Task { await refreshPreview() }
-            }
-            .onChange(of: captureRegionMode) { _, newValue in
-                onRegionModeChanged(newValue)
-                Task { await refreshPreview() }
-            }
-    }
-}
-
 // MARK: - Preview Refresh Modifier
 
 private struct PreviewRefreshModifier: ViewModifier {
@@ -1209,7 +1337,6 @@ private struct PreviewRefreshModifier: ViewModifier {
     let captureRegionY: Double
     let captureRegionWidth: Double
     let captureRegionHeight: Double
-    let isRecording: Bool
     let refreshPreview: () async -> Void
 
     func body(content: Content) -> some View {
@@ -1224,9 +1351,5 @@ private struct PreviewRefreshModifier: ViewModifier {
             .onChange(of: captureRegionY) { _, _ in Task { await refreshPreview() } }
             .onChange(of: captureRegionWidth) { _, _ in Task { await refreshPreview() } }
             .onChange(of: captureRegionHeight) { _, _ in Task { await refreshPreview() } }
-            .onChange(of: isRecording) { _, newValue in
-                guard !newValue else { return }
-                Task { await refreshPreview() }
-            }
     }
 }

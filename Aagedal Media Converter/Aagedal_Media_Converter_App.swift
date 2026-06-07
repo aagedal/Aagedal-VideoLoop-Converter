@@ -46,6 +46,7 @@ struct Aagedal_Media_Converter_App: App {
             AppConstants.audioWaveformLineThicknessKey: AppConstants.defaultAudioWaveformLineThickness,
             AppConstants.audioWaveformDetailLevelKey: AppConstants.defaultAudioWaveformDetailLevel,
             AppConstants.captureDisplayIDKey: 0,
+            AppConstants.captureDisplayIDsKey: "",
             AppConstants.captureHideCursorKey: AppConstants.defaultCaptureHideCursor,
             AppConstants.captureExcludeCurrentAppKey: AppConstants.defaultCaptureExcludeCurrentApp,
             AppConstants.captureFrameRateKey: AppConstants.defaultCaptureFrameRate,
@@ -56,6 +57,7 @@ struct Aagedal_Media_Converter_App: App {
             AppConstants.autoDeleteOldEncodesDaysKey: AppConstants.defaultAutoDeleteOldEncodesDays
         ])
 
+        Self.migrateCaptureDisplaySelection()
         Self.migrateAudioPresets()
         UploadProfileStore.migrateLegacyProfilesIfNeeded()
         applyPreviewCacheCleanupPolicy()
@@ -67,6 +69,21 @@ struct Aagedal_Media_Converter_App: App {
         // Bring the settings-sync singleton (and its file/UserDefaults observers)
         // online at launch so a snapshot that arrived while closed is pulled in.
         SettingsSyncService.shared.activate()
+    }
+
+    /// One-time migration: seed the multi-display selection (`captureDisplayIDs`) from the legacy
+    /// single-display choice (`captureDisplayID`) so upgrading users keep their previously selected
+    /// screen. A legacy value of 0 ("Automatic / Main") maps to an empty selection.
+    private static func migrateCaptureDisplaySelection() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: AppConstants.captureDisplayIDsMigratedKey) else { return }
+        defaults.set(true, forKey: AppConstants.captureDisplayIDsMigratedKey)
+
+        let legacyID = defaults.integer(forKey: AppConstants.captureDisplayIDKey)
+        let existing = defaults.string(forKey: AppConstants.captureDisplayIDsKey) ?? ""
+        if existing.isEmpty, legacyID != 0 {
+            defaults.set(String(legacyID), forKey: AppConstants.captureDisplayIDsKey)
+        }
     }
 
     /// One-time migration: consolidate 3 audio presets into unified Audio Only preset

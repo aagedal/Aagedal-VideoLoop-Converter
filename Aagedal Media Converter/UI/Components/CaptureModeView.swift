@@ -253,11 +253,11 @@ struct CaptureModeView: View {
                     .disabled(captureManager.isRecording || captureManager.isProcessing)
 
                     VirtualDisplayMenu(
-                        captureDisplayID: $captureDisplayID,
-                        isDisabled: captureManager.isRecording || captureManager.isProcessing
-                    ) {
-                        await refreshAvailableDisplays()
-                    }
+                        isDisabled: captureManager.isRecording || captureManager.isProcessing,
+                        onDisplaysChanged: { await refreshAvailableDisplays() },
+                        onCreated: { id in captureDisplayID = Int(id) },
+                        onRemoved: { id in if captureDisplayID == Int(id) { captureDisplayID = 0 } }
+                    )
 
                     Spacer()
                     

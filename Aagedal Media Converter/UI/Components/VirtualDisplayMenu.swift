@@ -12,13 +12,16 @@ import SwiftUI
 import CoreGraphics
 
 struct VirtualDisplayMenu: View {
-    /// The capture target binding (0 = Automatic/Main, else a CGDirectDisplayID).
-    @Binding var captureDisplayID: Int
     /// Disable while a recording/processing is in flight.
     var isDisabled: Bool = false
     /// Re-fetch the host's available-displays list after a create/destroy so the
     /// new display shows up (or a removed one disappears) in the picker.
     var onDisplaysChanged: () async -> Void
+    /// Called with the new display's ID after a virtual display is created (so the host can select it).
+    var onCreated: (CGDirectDisplayID) -> Void = { _ in }
+    /// Called with the removed display's ID after a virtual display is destroyed (so the host can
+    /// drop it from any selection).
+    var onRemoved: (CGDirectDisplayID) -> Void = { _ in }
 
     @ObservedObject private var manager = VirtualDisplayManager.shared
 
@@ -64,16 +67,15 @@ struct VirtualDisplayMenu: View {
         Task {
             guard let id = await manager.create(width: width, height: height) else { return }
             await onDisplaysChanged()
-            captureDisplayID = Int(id) // auto-select the new display for capture
+            onCreated(id) // auto-select the new display for capture
         }
     }
 
     private func removeDisplay(_ id: CGDirectDisplayID) {
         Task {
-            let wasSelected = captureDisplayID == Int(id)
             manager.destroy(id)
             await onDisplaysChanged()
-            if wasSelected { captureDisplayID = 0 }
+            onRemoved(id)
         }
     }
 }

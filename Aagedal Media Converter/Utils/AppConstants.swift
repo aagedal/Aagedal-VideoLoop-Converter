@@ -53,6 +53,14 @@ enum AppConstants {
     }()
 
     static let captureDisplayIDKey = "captureDisplayID"
+    /// Selected displays for multi-screen recording, stored as a comma-separated list of
+    /// `CGDirectDisplayID`s (e.g. "69733382,724...""). `@AppStorage` can't hold arrays natively, so
+    /// the overlay parses/joins this string. Empty == none selected (falls back to the main display).
+    /// The first entry is the "primary" display (drives preview position, meters, and overlay screen).
+    static let captureDisplayIDsKey = "captureDisplayIDs"
+    /// One-time flag: seed `captureDisplayIDsKey` from the legacy single `captureDisplayID` so users
+    /// upgrading keep their previously chosen display selected.
+    static let captureDisplayIDsMigratedKey = "captureDisplayIDsMigrated"
     static let captureHideCursorKey = "captureHideCursor"
     static let captureExcludeCurrentAppKey = "captureExcludeCurrentApp"
     static let captureFrameRateKey = "captureFrameRate"
