@@ -1,6 +1,13 @@
 # v.4.2.0
 
-The headline is experimental **AV2 encoding** via the bundled AOM AVM reference encoder — full round-trip (encode, decode, thumbnails, preview-not-available messaging), parallel chunked encoding that actually uses your cores, and Matroska muxing so the bitstream lands in a real container. Alongside it: opt-in **settings & custom-preset sync** across Macs, a much faster queue sort, and a handful of crash and correctness fixes.
+The headline is experimental **AV2 encoding** via the bundled AOM AVM reference encoder — full round-trip (encode, decode, thumbnails, preview-not-available messaging), parallel chunked encoding that actually uses your cores, and Matroska muxing so the bitstream lands in a real container. Also new: **growing-file screen recording** — record straight into DaVinci Resolve (and Premiere) and edit the clip while it's still being captured. Alongside: opt-in **settings & custom-preset sync** across Macs, a much faster queue sort, and a handful of crash and correctness fixes.
+
+## Screen recording — growing files
+
+- **Two new growing presets:** *Growing HEVC 10-bit 4:2:2 (Resolve/Premiere)* and *Growing H.264 (Compatibility)*. Both write a fragmented `.mov` in-process via AVAssetWriter (hardware HEVC 10-bit 4:2:2, or H.264 for maximum compatibility), so the file is editable the moment recording starts and survives an interruption.
+- **Recognised as a true growing file by DaVinci Resolve** — the recording is tagged with the Blackmagic `com.blackmagicdesign.metadata:recording` extended attribute while capturing (reverse-engineered; see `docs/growing-file-research`), so Resolve shows the red REC overlay and fast-refreshes the clip (~5 s) instead of its generic ~1-min media rescan. The attribute is removed automatically on stop, leaving a normal finalized clip.
+- **Constant frame rate + timecode.** ScreenCaptureKit delivers frames only on change; a CFR pump re-emits the latest frame on a fixed clock so the file has a clean constant frame rate (important for NLEs), and a per-frame timecode track is written starting at wall-clock time-of-day.
+- **Removed the broken growing-`.ts` path.** The experimental FFmpeg-pipe `.ts` presets (which deadlocked — HEVC produced a 0 KB file, H.264 froze after one frame) are gone, along with their dead pipe writer. Stored defaults pointing at them fall back to a working preset automatically.
 
 ## AV2 encoding (experimental)
 

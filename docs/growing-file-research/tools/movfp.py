@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Deep MOV/MP4 fingerprint for diffing a growing recording (JustInMac) vs our AVAssetWriter output.
+# Deep MOV/MP4 fingerprint for diffing a growing recording (LiveProResRef) vs our AVAssetWriter output.
 import struct, os, sys
 
 p = sys.argv[1]

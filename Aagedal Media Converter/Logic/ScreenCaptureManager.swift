@@ -30,8 +30,8 @@ struct CaptureDisplay: Identifiable, Hashable {
 }
 
 enum CapturePreset: String, CaseIterable, Identifiable {
-    case x264TS
-    case hevcVTTS
+    case hevcGrowing
+    case avcGrowing
     case hevc42210Bit
     case proRes4444
 
@@ -39,10 +39,10 @@ enum CapturePreset: String, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .x264TS:
-            return "Growing TS (H.264, software)"
-        case .hevcVTTS:
-            return "Growing TS (HEVC, hardware)"
+        case .hevcGrowing:
+            return "Growing HEVC 10-bit 4:2:2 (Resolve/Premiere)"
+        case .avcGrowing:
+            return "Growing H.264 (Compatibility)"
         case .hevc42210Bit:
             return "HEVC 10-bit 4:2:2 (Hardware)"
         case .proRes4444:
@@ -52,10 +52,10 @@ enum CapturePreset: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .x264TS:
-            return "Live growing .ts via FFmpeg + libx264. Best for Resolve edit-while-recording."
-        case .hevcVTTS:
-            return "Live growing .ts via FFmpeg + VideoToolbox HEVC. Best for Resolve edit-while-recording on Apple Silicon."
+        case .hevcGrowing:
+            return "Edit while recording in DaVinci Resolve & Premiere. Hardware HEVC 10-bit 4:2:2, fragmented .mov."
+        case .avcGrowing:
+            return "Edit while recording with maximum compatibility. Hardware H.264, fragmented .mov."
         case .hevc42210Bit:
             return "Hardware HEVC 10-bit 4:2:2. Source format determines chroma."
         case .proRes4444:
@@ -64,12 +64,7 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     }
 
     var fileExtension: String {
-        switch self {
-        case .x264TS, .hevcVTTS:
-            return "ts"
-        case .hevc42210Bit, .proRes4444:
-            return "mov"
-        }
+        "mov"
     }
 
     var fileType: AVFileType {
@@ -80,9 +75,12 @@ enum CapturePreset: String, CaseIterable, Identifiable {
         60
     }
 
-    var usesFFmpegPipe: Bool {
+    /// "Growing file": a fragmented `.mov` tagged with the Blackmagic recording
+    /// xattr so DaVinci Resolve treats it as a live, edit-while-recording clip
+    /// (red REC overlay + fast refresh). See docs/growing-file-research.
+    var isGrowing: Bool {
         switch self {
-        case .x264TS, .hevcVTTS:
+        case .hevcGrowing, .avcGrowing:
             return true
         case .hevc42210Bit, .proRes4444:
             return false
@@ -90,39 +88,10 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     }
 
     static var availablePresets: [CapturePreset] {
-        // `.x264TS` / `.hevcVTTS` (growing-TS via FFmpeg pipe) are temporarily
-        // hidden: HEVC produced a 0 KB file and H.264 recorded only the first
-        // frame (with the preview freezing). The cases are kept so persisted
-        // defaults still decode — consumers fall back to `.hevc42210Bit` when a
-        // stored preset isn't in this list. Re-add once the pipe path is fixed.
-        [.hevc42210Bit, .proRes4444]
-    }
-
-    /// FFmpeg video codec arguments for `.ts` presets. Returns `[]` for AVAssetWriter-based presets.
-    /// These slot in after the input declarations and before the output muxer args.
-    func ffmpegVideoArgs(width: Int, height: Int, frameRate: Int) -> [String] {
-        switch self {
-        case .x264TS:
-            return [
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-b:v", "20M",
-                "-maxrate", "20M",
-                "-bufsize", "40M",
-                "-pix_fmt", "yuv420p"
-            ]
-        case .hevcVTTS:
-            return [
-                "-c:v", "hevc_videotoolbox",
-                "-b:v", "25M",
-                "-maxrate", "30M",
-                "-allow_sw", "0",
-                "-tag:v", "hvc1",
-                "-pix_fmt", "yuv420p"
-            ]
-        case .hevc42210Bit, .proRes4444:
-            return []
-        }
+        // Growing presets first (recommended for edit-while-recording). Stored
+        // defaults that don't decode (e.g. the removed `.x264TS`/`.hevcVTTS`
+        // FFmpeg-pipe presets) fall back to `.hevcGrowing` at the call sites.
+        [.hevcGrowing, .avcGrowing, .hevc42210Bit, .proRes4444]
     }
 
     func videoSettings(width: Int, height: Int, frameRate: Int, hevcProfileOverride: String? = nil) -> [String: Any] {
@@ -131,19 +100,31 @@ enum CapturePreset: String, CaseIterable, Identifiable {
         let encoderSpec: [String: Any]?
 
         switch self {
-        case .x264TS, .hevcVTTS:
-            // Not reached at runtime — `.ts` presets bypass AVAssetWriter and go through FFmpegPipeWriter.
-            // Kept here for switch exhaustiveness; values are placeholders.
+        case .hevcGrowing:
+            codec = .hevc
+            var properties: [String: Any] = [
+                AVVideoAverageBitRateKey: growingBitrate(width: width, height: height, frameRate: frameRate),
+                AVVideoExpectedSourceFrameRateKey: frameRate,
+                AVVideoMaxKeyFrameIntervalKey: frameRate,          // ~1 s GOP
+                AVVideoAllowFrameReorderingKey: false              // low-latency for live edit
+            ]
+            // 10-bit 4:2:2: prefer Main42210, fall back to Main10, else let the
+            // encoder choose (resolved from the actual capture pixel format).
+            if let hevcProfileOverride {
+                properties[AVVideoProfileLevelKey] = hevcProfileOverride
+            }
+            compressionProperties = properties
+            encoderSpec = nil   // allow hardware encoder
+        case .avcGrowing:
             codec = .h264
             compressionProperties = [
-                AVVideoAverageBitRateKey: 20_000_000,
+                AVVideoAverageBitRateKey: growingBitrate(width: width, height: height, frameRate: frameRate),
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                 AVVideoExpectedSourceFrameRateKey: frameRate,
-                AVVideoMaxKeyFrameIntervalKey: frameRate
+                AVVideoMaxKeyFrameIntervalKey: frameRate,          // ~1 s GOP
+                AVVideoAllowFrameReorderingKey: false
             ]
-            encoderSpec = [
-                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder as String: false
-            ]
+            encoderSpec = nil
         case .hevc42210Bit:
             codec = .hevc
             let bitrate = hevcBitrate(width: width, height: height, frameRate: frameRate)
@@ -193,11 +174,13 @@ enum CapturePreset: String, CaseIterable, Identifiable {
         ]
     }
 
-    /// System-audio sample rate consumed by the writers. Mirrors `audioSettings[AVSampleRateKey]`.
-    var audioSampleRate: Double { 48_000 }
-
-    /// System-audio channel count consumed by the writers. Mirrors `audioSettings[AVNumberOfChannelsKey]`.
-    var audioChannelCount: Int { 2 }
+    /// Bitrate for the growing presets — lighter than the archival HEVC 4:2:2
+    /// preset so edit-while-recording files stay manageable. ~0.1 bits/pixel.
+    private func growingBitrate(width: Int, height: Int, frameRate: Int) -> Int {
+        let pixelsPerSecond = Double(width) * Double(height) * Double(frameRate)
+        let target = Int(pixelsPerSecond * 0.10)
+        return min(max(target, 12_000_000), 120_000_000)
+    }
 
     private func hevcBitrate(width: Int, height: Int, frameRate: Int) -> (average: Int, dataRateLimits: [Int]) {
         let pixelsPerSecond = Double(width) * Double(height) * Double(frameRate)
@@ -267,8 +250,6 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     enum CaptureError: LocalizedError {
         case unavailableDisplay
         case accessDenied
-        case ffmpegMissing
-        case ffmpegFailed(String)
         case writerFailed(String)
 
         var errorDescription: String? {
@@ -277,10 +258,6 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 return "No display available for capture."
             case .accessDenied:
                 return "Unable to access the output folder."
-            case .ffmpegMissing:
-                return "FFmpeg binary not found for TS post-processing."
-            case .ffmpegFailed(let message):
-                return "FFmpeg failed: \(message)"
             case .writerFailed(let message):
                 return "Capture writer failed: \(message)"
             }
@@ -402,43 +379,21 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             let filter = contentFilter(for: display, content: content, excludeCurrentApp: excludeCurrentApp, excludedAppBundleIDs: excludedAppBundleIDs)
             let stream = SCStream(filter: filter, configuration: config, delegate: nil)
 
-            let writer: AnyCaptureOutputWriter
-            if preset.usesFFmpegPipe {
-                guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
-                    throw CaptureError.ffmpegMissing
-                }
-                writer = try await FFmpegPipeWriter.create(
-                    ffmpegPath: ffmpegPath,
-                    outputURL: outputURLs.recordingURL,
+            let writer: AnyCaptureOutputWriter = try ScreenCaptureWriter(
+                outputURL: outputURLs.recordingURL,
+                fileType: preset.fileType,
+                videoSettings: preset.videoSettings(
                     width: Int(resolution.width),
                     height: Int(resolution.height),
                     frameRate: frameRate,
-                    audioSampleRate: preset.audioSampleRate,
-                    audioChannelCount: preset.audioChannelCount,
-                    codecArgs: preset.ffmpegVideoArgs(
-                        width: Int(resolution.width),
-                        height: Int(resolution.height),
-                        frameRate: frameRate
-                    ),
-                    includeMicrophone: microphoneCaptureEnabled,
-                    microphoneSampleRate: 48_000,
-                    microphoneChannelCount: 1
-                )
-            } else {
-                writer = try ScreenCaptureWriter(
-                    outputURL: outputURLs.recordingURL,
-                    fileType: preset.fileType,
-                    videoSettings: preset.videoSettings(
-                        width: Int(resolution.width),
-                        height: Int(resolution.height),
-                        frameRate: frameRate,
-                        hevcProfileOverride: hevcProfileOverride
-                    ),
-                    audioSettings: preset.audioSettings,
-                    dynamicRange: effectiveDynamicRange,
-                    includeMicrophone: microphoneCaptureEnabled
-                )
-            }
+                    hevcProfileOverride: hevcProfileOverride
+                ),
+                audioSettings: preset.audioSettings,
+                dynamicRange: effectiveDynamicRange,
+                includeMicrophone: microphoneCaptureEnabled,
+                isGrowing: preset.isGrowing,
+                frameRate: frameRate
+            )
             writer.setErrorHandler { [weak self] error in
                 Task { @MainActor in
                     self?.errorMessage = error.localizedDescription
@@ -811,10 +766,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         case .sdr:
             break
         }
-        if preset.usesFFmpegPipe {
-            return kCVPixelFormatType_32BGRA
-        }
-        if preset == .hevc42210Bit {
+        if preset == .hevc42210Bit || preset == .hevcGrowing {
             return kCVPixelFormatType_422YpCbCr10BiPlanarFullRange
         }
         return kCVPixelFormatType_32BGRA
@@ -996,7 +948,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         height: Int,
         pixelFormat: OSType
     ) -> String? {
-        guard preset == .hevc42210Bit else { return nil }
+        guard preset == .hevc42210Bit || preset == .hevcGrowing else { return nil }
         guard isTenBitPixelFormat(pixelFormat) else {
             logger.warning("HEVC capture input is 8-bit; letting the encoder select a compatible profile.")
             return nil
@@ -1351,14 +1303,21 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     private let audioSettings: [String: Any]
     private let dynamicRange: CaptureDynamicRangeOption
     private let includeMicrophone: Bool
+    /// Growing preset: fragmented `.mov` + CFR pump + timecode track + the
+    /// Blackmagic recording xattr (the DaVinci Resolve growing-file trigger).
+    private let isGrowing: Bool
+    private let frameRate: Int
     private var writer: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
     private var microphoneInput: AVAssetWriterInput?
+    private var timecodeInput: AVAssetWriterInput?
+    private var timecodeFormat: CMTimeCodeFormatDescription?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var hasVideoInput = false
     private var hasAudioInput = false
     private var hasMicrophoneInput = false
+    private var hasTimecodeInput = false
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ScreenCaptureWriter")
     private var started = false
     private var finished = false
@@ -1368,13 +1327,27 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     private var microphoneSampleCount = 0
     private var errorHandler: (@Sendable (Error) -> Void)?
 
+    // CFR pump (growing presets only): SCStream is variable-rate, so we re-emit
+    // the latest frame on a fixed clock to produce a constant-frame-rate file.
+    private let bufferLock = NSLock()
+    private var latestPixelBuffer: CVPixelBuffer?
+    private var copyPool: CVPixelBufferPool?
+    private var cfrTimer: DispatchSourceTimer?
+    private let cfrQueue = DispatchQueue(label: "com.aagedal.capture.cfr")
+    private let hostClock = CMClockGetHostTimeClock()
+    private var sessionStartPTS: CMTime = .zero
+    private var emittedFrameIndex = 0
+    private var timecodeStartFrame = 0
+
     init(
         outputURL: URL,
         fileType: AVFileType,
         videoSettings: [String: Any],
         audioSettings: [String: Any],
         dynamicRange: CaptureDynamicRangeOption,
-        includeMicrophone: Bool
+        includeMicrophone: Bool,
+        isGrowing: Bool = false,
+        frameRate: Int = 60
     ) throws {
         self.outputURL = outputURL
         self.fileType = fileType
@@ -1382,6 +1355,8 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         self.audioSettings = audioSettings
         self.dynamicRange = dynamicRange
         self.includeMicrophone = includeMicrophone
+        self.isGrowing = isGrowing
+        self.frameRate = max(1, frameRate)
     }
 
     func append(sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) {
@@ -1413,6 +1388,11 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
                     return
                 }
                 logger.info("Capture writer started.")
+                if isGrowing {
+                    sessionStartPTS = startTime
+                    setRecordingXattr()      // the DaVinci Resolve growing-file trigger
+                    startCFRPump()
+                }
             }
         }
 
@@ -1431,11 +1411,18 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
 
         switch type {
         case .screen:
+            guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+                return
+            }
+            applyColorAttachments(to: imageBuffer, dynamicRange: dynamicRange)
+            if isGrowing {
+                // Growing presets don't append here — the CFR pump re-emits the
+                // latest frame on a fixed clock. Stash a private copy so SCStream
+                // can recycle its buffer immediately.
+                storeLatestFrame(imageBuffer)
+                return
+            }
             if hasVideoInput, let videoInput, videoInput.isReadyForMoreMediaData {
-                guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-                    return
-                }
-                applyColorAttachments(to: imageBuffer, dynamicRange: dynamicRange)
                 let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
                 let appended: Bool
                 if let adaptor = pixelBufferAdaptor {
@@ -1471,6 +1458,13 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         guard !finished else { return }
 
         finished = true
+        // Stop the CFR pump first so no tick appends after markAsFinished.
+        stopCFRPump()
+        // The recording xattr only marks a file as *currently growing*; a
+        // finished file carries none (matches the reference recorder).
+        if isGrowing {
+            clearRecordingXattr()
+        }
 
         guard let writer else {
             if let error = writeError {
@@ -1496,6 +1490,9 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         if hasMicrophoneInput {
             microphoneInput?.markAsFinished()
         }
+        if hasTimecodeInput {
+            timecodeInput?.markAsFinished()
+        }
 
         await withCheckedContinuation { continuation in
             writer.finishWriting {
@@ -1519,6 +1516,10 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         guard writer == nil else { return }
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
+        if isGrowing {
+            // ~1 s fragments so the file is a valid growing movie on disk.
+            writer.movieFragmentInterval = CMTime(value: 1, timescale: 1)
+        }
         let formatHint = CMSampleBufferGetFormatDescription(sampleBuffer)
         let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         let pixelFormat = imageBuffer.map { CVPixelBufferGetPixelFormatType($0) } ?? 0
@@ -1580,10 +1581,212 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
             }
         }
 
+        if isGrowing {
+            setupTimecodeTrack(on: writer, videoInput: videoInput)
+        }
+
         self.writer = writer
         self.videoInput = videoInput
         self.audioInput = audioInput
         self.microphoneInput = microphoneInput
+    }
+
+    /// Adds a per-frame `tmcd` timecode track (growing presets) starting at
+    /// wall-clock time-of-day, associated with the video track. Must run before
+    /// `startWriting()`.
+    private func setupTimecodeTrack(on writer: AVAssetWriter, videoInput: AVAssetWriterInput) {
+        var tcFormat: CMTimeCodeFormatDescription?
+        let status = CMTimeCodeFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            timeCodeFormatType: kCMTimeCodeFormatType_TimeCode32,
+            frameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
+            frameQuanta: UInt32(frameRate),
+            flags: 0,
+            extensions: nil,
+            formatDescriptionOut: &tcFormat
+        )
+        guard status == noErr, let tcFormat else { return }
+        let input = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: tcFormat)
+        input.expectsMediaDataInRealTime = true
+        guard writer.canAdd(input) else { return }
+        writer.add(input)
+        if videoInput.canAddTrackAssociation(withTrackOf: input, type: AVAssetTrack.AssociationType.timecode.rawValue) {
+            videoInput.addTrackAssociation(withTrackOf: input, type: AVAssetTrack.AssociationType.timecode.rawValue)
+        }
+        timecodeInput = input
+        timecodeFormat = tcFormat
+        hasTimecodeInput = true
+
+        let comps = Calendar.current.dateComponents([.hour, .minute, .second, .nanosecond], from: Date())
+        let seconds = (comps.hour ?? 0) * 3600 + (comps.minute ?? 0) * 60 + (comps.second ?? 0)
+        let subFrame = Int(Double(comps.nanosecond ?? 0) / 1_000_000_000.0 * Double(frameRate))
+        timecodeStartFrame = seconds * frameRate + subFrame
+    }
+
+    // MARK: - Growing-file CFR pump
+
+    /// Stash a private copy of the latest screen frame so SCStream can recycle
+    /// its buffer immediately (we re-append our copy from the CFR timer).
+    private func storeLatestFrame(_ imageBuffer: CVImageBuffer) {
+        guard let copy = copyIntoPool(imageBuffer) else { return }
+        bufferLock.lock()
+        latestPixelBuffer = copy
+        bufferLock.unlock()
+    }
+
+    private func copyIntoPool(_ source: CVImageBuffer) -> CVPixelBuffer? {
+        if copyPool == nil {
+            let attrs: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: CVPixelBufferGetPixelFormatType(source),
+                kCVPixelBufferWidthKey as String: CVPixelBufferGetWidth(source),
+                kCVPixelBufferHeightKey as String: CVPixelBufferGetHeight(source),
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+            ]
+            var pool: CVPixelBufferPool?
+            guard CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attrs as CFDictionary, &pool) == kCVReturnSuccess else {
+                return nil
+            }
+            copyPool = pool
+        }
+        guard let pool = copyPool else { return nil }
+        var destinationOptional: CVPixelBuffer?
+        guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &destinationOptional) == kCVReturnSuccess,
+              let destination = destinationOptional else {
+            return nil
+        }
+        CVPixelBufferLockBaseAddress(source, .readOnly)
+        CVPixelBufferLockBaseAddress(destination, [])
+        defer {
+            CVPixelBufferUnlockBaseAddress(destination, [])
+            CVPixelBufferUnlockBaseAddress(source, .readOnly)
+        }
+        let planeCount = CVPixelBufferGetPlaneCount(source)
+        if planeCount == 0 {
+            if let src = CVPixelBufferGetBaseAddress(source),
+               let dst = CVPixelBufferGetBaseAddress(destination) {
+                let rowBytes = min(CVPixelBufferGetBytesPerRow(source), CVPixelBufferGetBytesPerRow(destination))
+                let height = CVPixelBufferGetHeight(source)
+                let srcBpr = CVPixelBufferGetBytesPerRow(source)
+                let dstBpr = CVPixelBufferGetBytesPerRow(destination)
+                for row in 0..<height { memcpy(dst + row * dstBpr, src + row * srcBpr, rowBytes) }
+            }
+        } else {
+            for plane in 0..<planeCount {
+                guard let src = CVPixelBufferGetBaseAddressOfPlane(source, plane),
+                      let dst = CVPixelBufferGetBaseAddressOfPlane(destination, plane) else { continue }
+                let srcBpr = CVPixelBufferGetBytesPerRowOfPlane(source, plane)
+                let dstBpr = CVPixelBufferGetBytesPerRowOfPlane(destination, plane)
+                let rowBytes = min(srcBpr, dstBpr)
+                let height = CVPixelBufferGetHeightOfPlane(source, plane)
+                for row in 0..<height { memcpy(dst + row * dstBpr, src + row * srcBpr, rowBytes) }
+            }
+        }
+        CVBufferPropagateAttachments(source, destination)
+        return destination
+    }
+
+    private func startCFRPump() {
+        let interval = 1.0 / Double(frameRate)
+        let timer = DispatchSource.makeTimerSource(queue: cfrQueue)
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(2))
+        timer.setEventHandler { [weak self] in self?.pumpTick() }
+        cfrTimer = timer
+        timer.resume()
+    }
+
+    private func stopCFRPump() {
+        cfrTimer?.cancel()
+        cfrTimer = nil
+        // Drain any in-flight tick so nothing appends after markAsFinished().
+        cfrQueue.sync { }
+        bufferLock.lock()
+        latestPixelBuffer = nil
+        bufferLock.unlock()
+    }
+
+    /// Emit duplicate frames up to the current host-clock position so the file
+    /// is constant-frame-rate even while the screen is static.
+    private func pumpTick() {
+        guard !finished, writeError == nil else { return }
+        guard let videoInput, let adaptor = pixelBufferAdaptor else { return }
+        bufferLock.lock()
+        let buffer = latestPixelBuffer
+        bufferLock.unlock()
+        guard let buffer else { return }   // no frame captured yet
+
+        let elapsed = CMTimeGetSeconds(CMTimeSubtract(CMClockGetTime(hostClock), sessionStartPTS))
+        guard elapsed.isFinite, elapsed >= 0 else { return }
+        let targetIndex = Int(elapsed * Double(frameRate))
+
+        while emittedFrameIndex <= targetIndex {
+            guard writeError == nil else { return }
+            guard videoInput.isReadyForMoreMediaData else { break }  // backpressure: retry next tick
+            let pts = CMTimeAdd(
+                sessionStartPTS,
+                CMTime(value: CMTimeValue(emittedFrameIndex), timescale: CMTimeScale(frameRate))
+            )
+            if adaptor.append(buffer, withPresentationTime: pts) {
+                if videoSampleCount == 0 { logger.info("First video frame emitted (CFR).") }
+                videoSampleCount += 1
+                appendTimecode(frameIndex: emittedFrameIndex)
+                emittedFrameIndex += 1
+            } else {
+                recordError(writer?.error ?? CaptureWriterError.videoAppendFailed)
+                return
+            }
+        }
+    }
+
+    private func appendTimecode(frameIndex: Int) {
+        guard hasTimecodeInput, let input = timecodeInput, let format = timecodeFormat,
+              input.isReadyForMoreMediaData else { return }
+        var frameNumber = UInt32(truncatingIfNeeded: timecodeStartFrame + frameIndex).bigEndian
+        var blockBuffer: CMBlockBuffer?
+        guard CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: 4,
+            blockAllocator: nil, customBlockSource: nil, offsetToData: 0, dataLength: 4,
+            flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &blockBuffer) == noErr,
+            let blockBuffer else { return }
+        let copied = withUnsafeBytes(of: &frameNumber) { raw -> Bool in
+            guard let base = raw.baseAddress else { return false }
+            return CMBlockBufferReplaceDataBytes(with: base, blockBuffer: blockBuffer, offsetIntoDestination: 0, dataLength: 4) == noErr
+        }
+        guard copied else { return }
+        var sample: CMSampleBuffer?
+        var timing = CMSampleTimingInfo(
+            duration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
+            presentationTimeStamp: CMTimeAdd(
+                sessionStartPTS,
+                CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(frameRate))
+            ),
+            decodeTimeStamp: .invalid
+        )
+        var sampleSize = 4
+        guard CMSampleBufferCreate(
+            allocator: kCFAllocatorDefault, dataBuffer: blockBuffer, dataReady: true,
+            makeDataReadyCallback: nil, refcon: nil, formatDescription: format, sampleCount: 1,
+            sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+            sampleSizeEntryCount: 1, sampleSizeArray: &sampleSize, sampleBufferOut: &sample) == noErr,
+            let sample else { return }
+        input.append(sample)
+    }
+
+    // MARK: - Growing-file xattr (DaVinci Resolve trigger)
+
+    private func setRecordingXattr() {
+        let uuid = UUID().uuidString.replacingOccurrences(of: "-", with: "").uppercased()
+        let json = "{\"r\":1, \"uuid\":\"\(uuid)\"}"
+        let bytes = Array(json.utf8)
+        let result = bytes.withUnsafeBytes { raw in
+            setxattr(outputURL.path, "com.blackmagicdesign.metadata:recording", raw.baseAddress, bytes.count, 0, 0)
+        }
+        if result != 0 {
+            logger.warning("Failed to set growing-file xattr (errno \(errno, privacy: .public)).")
+        }
+    }
+
+    private func clearRecordingXattr() {
+        removexattr(outputURL.path, "com.blackmagicdesign.metadata:recording", 0)
     }
 
     private func recordError(_ error: Error) {
@@ -1701,473 +1904,5 @@ private final class CaptureStreamOutput: NSObject, SCStreamOutput {
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         handler(sampleBuffer, type)
-    }
-}
-
-private final class FFmpegPipeWriter: CaptureOutputWriter, @unchecked Sendable {
-    enum PipeError: LocalizedError {
-        case pipeCreationFailed(String)
-        case pipeOpenFailed(String)
-        case ffmpegLaunchFailed(String)
-        case ffmpegFailed(String)
-        case unsupportedPixelFormat
-        case unsupportedAudioFormat
-
-        var errorDescription: String? {
-            switch self {
-            case .pipeCreationFailed(let message):
-                return "Pipe creation failed: \(message)"
-            case .pipeOpenFailed(let message):
-                return "Pipe open failed: \(message)"
-            case .ffmpegLaunchFailed(let message):
-                return "FFmpeg launch failed: \(message)"
-            case .ffmpegFailed(let message):
-                return "FFmpeg failed: \(message)"
-            case .unsupportedPixelFormat:
-                return "Unsupported pixel format for capture."
-            case .unsupportedAudioFormat:
-                return "Unsupported audio format for capture."
-            }
-        }
-    }
-
-    private let process: Process
-    private let stderrPipe: Pipe
-    private let videoPipeURL: URL
-    private let audioPipeURL: URL
-    private let microphonePipeURL: URL?
-    private let audioChannelCount: Int
-    private let microphoneChannelCount: Int
-    private var videoHandle: FileHandle
-    private var audioHandle: FileHandle
-    private var microphoneHandle: FileHandle?
-    private var finished = false
-    private var writeError: Error?
-    private var errorHandler: (@Sendable (Error) -> Void)?
-
-    static func create(
-        ffmpegPath: String,
-        outputURL: URL,
-        width: Int,
-        height: Int,
-        frameRate: Int,
-        audioSampleRate: Double,
-        audioChannelCount: Int,
-        codecArgs: [String],
-        includeMicrophone: Bool,
-        microphoneSampleRate: Double,
-        microphoneChannelCount: Int
-    ) async throws -> FFmpegPipeWriter {
-        let pipeDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("AagedalCapturePipes", isDirectory: true)
-        try FileManager.default.createDirectory(at: pipeDirectory, withIntermediateDirectories: true)
-
-        let videoPipeURL = pipeDirectory.appendingPathComponent("capture_video_\(UUID().uuidString).pipe")
-        let audioPipeURL = pipeDirectory.appendingPathComponent("capture_audio_\(UUID().uuidString).pipe")
-        let microphonePipeURL: URL? = includeMicrophone
-            ? pipeDirectory.appendingPathComponent("capture_microphone_\(UUID().uuidString).pipe")
-            : nil
-
-        try createFIFO(at: videoPipeURL)
-        try createFIFO(at: audioPipeURL)
-        if let microphonePipeURL {
-            try createFIFO(at: microphonePipeURL)
-        }
-
-        let videoHandle: FileHandle
-        let audioHandle: FileHandle
-        let microphoneHandle: FileHandle?
-        do {
-            videoHandle = try openPipeForReadWrite(url: videoPipeURL)
-            audioHandle = try openPipeForReadWrite(url: audioPipeURL)
-            microphoneHandle = try microphonePipeURL.map { try openPipeForReadWrite(url: $0) }
-        } catch {
-            cleanupPipes(videoPipeURL: videoPipeURL, audioPipeURL: audioPipeURL, microphonePipeURL: microphonePipeURL)
-            throw error
-        }
-
-        var arguments: [String] = [
-            "-hide_banner",
-            "-loglevel", "error",
-            // Video input
-            "-f", "rawvideo",
-            "-pix_fmt", "bgra",
-            "-video_size", "\(width)x\(height)",
-            "-framerate", "\(frameRate)",
-            "-i", videoPipeURL.path,
-            // System-audio input
-            "-f", "f32le",
-            "-ar", "\(Int(audioSampleRate))",
-            "-ac", "\(audioChannelCount)",
-            "-i", audioPipeURL.path
-        ]
-
-        if let microphonePipeURL {
-            // Microphone input
-            arguments.append(contentsOf: [
-                "-f", "f32le",
-                "-ar", "\(Int(microphoneSampleRate))",
-                "-ac", "\(microphoneChannelCount)",
-                "-i", microphonePipeURL.path,
-                // Explicit stream mapping so both audio tracks land in the TS
-                "-map", "0:v:0",
-                "-map", "1:a:0",
-                "-map", "2:a:0",
-                // Per-stream audio codecs
-                "-c:a:0", "aac", "-b:a:0", "192k",
-                "-c:a:1", "aac", "-b:a:1", "192k",
-                "-metadata:s:a:0", "title=System Audio",
-                "-metadata:s:a:1", "title=Microphone"
-            ])
-        } else {
-            arguments.append(contentsOf: [
-                "-c:a", "aac",
-                "-b:a", "192k"
-            ])
-        }
-
-        // Codec/quality fragment from the preset
-        arguments.append(contentsOf: codecArgs)
-
-        // Output muxer — `-flush_packets 1` keeps latency low so readers see new
-        // packets promptly while the file is still being written.
-        arguments.append(contentsOf: [
-            "-f", "mpegts",
-            "-flush_packets", "1",
-            outputURL.path
-        ])
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = arguments
-
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
-        process.standardOutput = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            videoHandle.closeFile()
-            audioHandle.closeFile()
-            microphoneHandle?.closeFile()
-            cleanupPipes(videoPipeURL: videoPipeURL, audioPipeURL: audioPipeURL, microphonePipeURL: microphonePipeURL)
-            throw PipeError.ffmpegLaunchFailed(error.localizedDescription)
-        }
-
-        return FFmpegPipeWriter(
-            process: process,
-            stderrPipe: stderrPipe,
-            videoPipeURL: videoPipeURL,
-            audioPipeURL: audioPipeURL,
-            microphonePipeURL: microphonePipeURL,
-            audioChannelCount: audioChannelCount,
-            microphoneChannelCount: microphoneChannelCount,
-            videoHandle: videoHandle,
-            audioHandle: audioHandle,
-            microphoneHandle: microphoneHandle
-        )
-    }
-
-    private init(
-        process: Process,
-        stderrPipe: Pipe,
-        videoPipeURL: URL,
-        audioPipeURL: URL,
-        microphonePipeURL: URL?,
-        audioChannelCount: Int,
-        microphoneChannelCount: Int,
-        videoHandle: FileHandle,
-        audioHandle: FileHandle,
-        microphoneHandle: FileHandle?
-    ) {
-        self.process = process
-        self.stderrPipe = stderrPipe
-        self.videoPipeURL = videoPipeURL
-        self.audioPipeURL = audioPipeURL
-        self.microphonePipeURL = microphonePipeURL
-        self.audioChannelCount = max(1, audioChannelCount)
-        self.microphoneChannelCount = max(1, microphoneChannelCount)
-        self.videoHandle = videoHandle
-        self.audioHandle = audioHandle
-        self.microphoneHandle = microphoneHandle
-    }
-
-    func append(sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) {
-        guard !finished else { return }
-        guard writeError == nil else { return }
-
-        do {
-            switch type {
-            case .screen:
-                try writeVideo(sampleBuffer: sampleBuffer)
-            case .audio:
-                try writeAudio(sampleBuffer: sampleBuffer, to: audioHandle, outputChannelCount: audioChannelCount)
-            case .microphone:
-                if let microphoneHandle {
-                    try writeAudio(sampleBuffer: sampleBuffer, to: microphoneHandle, outputChannelCount: microphoneChannelCount)
-                }
-            @unknown default:
-                break
-            }
-        } catch {
-            recordError(error)
-        }
-    }
-
-    func finish() async throws {
-        guard !finished else { return }
-        finished = true
-
-        videoHandle.closeFile()
-        audioHandle.closeFile()
-        microphoneHandle?.closeFile()
-        let process = process
-        let stderrHandle = stderrPipe.fileHandleForReading
-        let writeError = writeError
-        let videoPipeURL = videoPipeURL
-        let audioPipeURL = audioPipeURL
-        let microphonePipeURL = microphonePipeURL
-
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .utility).async {
-                process.waitUntilExit()
-                defer {
-                    FFmpegPipeWriter.cleanupPipes(
-                        videoPipeURL: videoPipeURL,
-                        audioPipeURL: audioPipeURL,
-                        microphonePipeURL: microphonePipeURL
-                    )
-                }
-
-                if let error = writeError {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                if process.terminationStatus != 0 {
-                    let stderrData = stderrHandle.readDataToEndOfFile()
-                    let message = String(data: stderrData, encoding: .utf8) ?? "Unknown ffmpeg error"
-                    let error = PipeError.ffmpegFailed(message.trimmingCharacters(in: .whitespacesAndNewlines))
-                    self.recordError(error)
-                    continuation.resume(throwing: error)
-                    return
-                }
-                continuation.resume(returning: ())
-            }
-        }
-    }
-
-    private func writeVideo(sampleBuffer: CMSampleBuffer) throws {
-        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let pixelFormat = CVPixelBufferGetPixelFormatType(imageBuffer)
-        guard pixelFormat == kCVPixelFormatType_32BGRA else {
-            throw PipeError.unsupportedPixelFormat
-        }
-
-        CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly) }
-
-        guard let baseAddress = CVPixelBufferGetBaseAddress(imageBuffer) else { return }
-
-        let width = CVPixelBufferGetWidth(imageBuffer)
-        let height = CVPixelBufferGetHeight(imageBuffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
-        let bytesPerPixel = 4
-        let expectedRowBytes = width * bytesPerPixel
-
-        let data: Data
-        if bytesPerRow == expectedRowBytes {
-            data = Data(bytes: baseAddress, count: expectedRowBytes * height)
-        } else {
-            var buffer = Data(capacity: expectedRowBytes * height)
-            for row in 0..<height {
-                let rowPointer = baseAddress.advanced(by: row * bytesPerRow)
-                buffer.append(rowPointer.assumingMemoryBound(to: UInt8.self), count: expectedRowBytes)
-            }
-            data = buffer
-        }
-
-        try writeData(data, to: videoHandle)
-    }
-
-    private func writeAudio(sampleBuffer: CMSampleBuffer, to handle: FileHandle, outputChannelCount: Int) throws {
-        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let asbdPointer = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
-            throw PipeError.unsupportedAudioFormat
-        }
-
-        let asbd = asbdPointer.pointee
-        let channelCount = Int(asbd.mChannelsPerFrame)
-        let frames = CMSampleBufferGetNumSamples(sampleBuffer)
-        let isFloat = (asbd.mFormatFlags & kAudioFormatFlagIsFloat) != 0
-        let isSignedInt = (asbd.mFormatFlags & kAudioFormatFlagIsSignedInteger) != 0
-        let isNonInterleaved = (asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
-        let bitsPerChannel = Int(asbd.mBitsPerChannel)
-
-        guard channelCount > 0, frames > 0, outputChannelCount > 0 else { return }
-        let supportedFormat = (isFloat && bitsPerChannel == 32) || (isSignedInt && (bitsPerChannel == 16 || bitsPerChannel == 32))
-        guard supportedFormat else {
-            throw PipeError.unsupportedAudioFormat
-        }
-
-        let bufferList = AudioBufferList.allocate(maximumBuffers: channelCount)
-        defer { free(bufferList.unsafeMutablePointer) }
-        var blockBuffer: CMBlockBuffer?
-
-        var bufferListSizeNeeded: Int = 0
-        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            sampleBuffer,
-            bufferListSizeNeededOut: &bufferListSizeNeeded,
-            bufferListOut: bufferList.unsafeMutablePointer,
-            bufferListSize: AudioBufferList.sizeInBytes(maximumBuffers: channelCount),
-            blockBufferAllocator: nil,
-            blockBufferMemoryAllocator: nil,
-            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-            blockBufferOut: &blockBuffer
-        )
-
-        guard status == noErr else {
-            throw PipeError.unsupportedAudioFormat
-        }
-
-        let audioBuffers = UnsafeMutableAudioBufferListPointer(bufferList.unsafeMutablePointer)
-        var output = Data(count: frames * outputChannelCount * MemoryLayout<Float>.size)
-
-        output.withUnsafeMutableBytes { rawBuffer in
-            let out = rawBuffer.bindMemory(to: Float.self)
-            for frame in 0..<frames {
-                for channel in 0..<outputChannelCount {
-                    let sample: Float
-                    if channel < channelCount {
-                        if isNonInterleaved {
-                            sample = readSample(
-                                buffer: audioBuffers[channel],
-                                frame: frame,
-                                isFloat: isFloat,
-                                isSignedInt: isSignedInt,
-                                bitsPerChannel: bitsPerChannel
-                            ) ?? 0
-                        } else {
-                            sample = readInterleavedSample(
-                                buffer: audioBuffers[0],
-                                frame: frame,
-                                channel: channel,
-                                channelCount: channelCount,
-                                isFloat: isFloat,
-                                isSignedInt: isSignedInt,
-                                bitsPerChannel: bitsPerChannel
-                            ) ?? 0
-                        }
-                    } else {
-                        sample = 0
-                    }
-                    out[frame * outputChannelCount + channel] = sample
-                }
-            }
-        }
-
-        try writeData(output, to: handle)
-    }
-
-    private func readSample(
-        buffer: AudioBuffer,
-        frame: Int,
-        isFloat: Bool,
-        isSignedInt: Bool,
-        bitsPerChannel: Int
-    ) -> Float? {
-        guard let data = buffer.mData else { return nil }
-        if isFloat && bitsPerChannel == 32 {
-            let pointer = data.assumingMemoryBound(to: Float.self)
-            return pointer[frame]
-        }
-        if isSignedInt && bitsPerChannel == 16 {
-            let pointer = data.assumingMemoryBound(to: Int16.self)
-            return Float(pointer[frame]) / Float(Int16.max)
-        }
-        if isSignedInt && bitsPerChannel == 32 {
-            let pointer = data.assumingMemoryBound(to: Int32.self)
-            return Float(pointer[frame]) / Float(Int32.max)
-        }
-        return nil
-    }
-
-    private func readInterleavedSample(
-        buffer: AudioBuffer,
-        frame: Int,
-        channel: Int,
-        channelCount: Int,
-        isFloat: Bool,
-        isSignedInt: Bool,
-        bitsPerChannel: Int
-    ) -> Float? {
-        guard let data = buffer.mData else { return nil }
-        let index = frame * channelCount + channel
-        if isFloat && bitsPerChannel == 32 {
-            let pointer = data.assumingMemoryBound(to: Float.self)
-            return pointer[index]
-        }
-        if isSignedInt && bitsPerChannel == 16 {
-            let pointer = data.assumingMemoryBound(to: Int16.self)
-            return Float(pointer[index]) / Float(Int16.max)
-        }
-        if isSignedInt && bitsPerChannel == 32 {
-            let pointer = data.assumingMemoryBound(to: Int32.self)
-            return Float(pointer[index]) / Float(Int32.max)
-        }
-        return nil
-    }
-
-    private func writeData(_ data: Data, to handle: FileHandle) throws {
-        try data.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return }
-            var remaining = rawBuffer.count
-            var offset = 0
-            while remaining > 0 {
-                let result = Darwin.write(handle.fileDescriptor, baseAddress.advanced(by: offset), remaining)
-                if result < 0 {
-                    throw PipeError.pipeOpenFailed(FFmpegPipeWriter.errorString())
-                }
-                remaining -= result
-                offset += result
-            }
-        }
-    }
-
-    private static func cleanupPipes(videoPipeURL: URL, audioPipeURL: URL, microphonePipeURL: URL?) {
-        try? FileManager.default.removeItem(at: videoPipeURL)
-        try? FileManager.default.removeItem(at: audioPipeURL)
-        if let microphonePipeURL {
-            try? FileManager.default.removeItem(at: microphonePipeURL)
-        }
-    }
-
-    func setErrorHandler(_ handler: @escaping @Sendable (Error) -> Void) {
-        errorHandler = handler
-    }
-
-    private func recordError(_ error: Error) {
-        writeError = error
-        errorHandler?(error)
-    }
-
-    private static func createFIFO(at url: URL) throws {
-        let path = url.path
-        _ = unlink(path)
-        let result = mkfifo(path, 0o600)
-        guard result == 0 else {
-            throw PipeError.pipeCreationFailed(errorString())
-        }
-    }
-
-    private static func openPipeForReadWrite(url: URL) throws -> FileHandle {
-        let fd = open(url.path, O_RDWR)
-        guard fd >= 0 else {
-            throw PipeError.pipeOpenFailed(errorString())
-        }
-        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-    }
-
-    private static func errorString() -> String {
-        String(cString: strerror(errno))
     }
 }

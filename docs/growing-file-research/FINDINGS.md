@@ -1,15 +1,45 @@
 # Growing-file recording — reverse-engineering findings
 
-> Status: **SOLVED.** True growing-in-Resolve with a small codec (H.264/HEVC) is achievable. The signal is a hidden **`.X.mov` sidecar index file**, not anything in the media file — see [§0](#0-solved--the-davinci-resolve-growing-file-mechanism). Captured 2026-06-07.
+> Status: **SOLVED & BYTE-EXACTLY REPRODUCED.** True growing-in-Resolve with a small codec (H.264/HEVC) is achievable. The signal is a hidden **`.X.mov` sidecar index file**, not anything in the media file — see [§0](#0-solved--the-davinci-resolve-growing-file-mechanism). A pure-derivation generator (`tools/gen_sidecar.py`) now builds the sidecar **from the main `.mov` alone and reproduces RefRecorder's real sidecar byte-for-byte** (see [§0.1](#01-confirmed-by-byte-exact-reproduction-2026-06-07)). Captured 2026-06-07.
 
 ---
 
-## 0. SOLVED — the "DaVinci Resolve Growing File" mechanism
+## 0.3 ★ ACTUAL MECHANISM — a Blackmagic extended attribute (2026-06-07, CONFIRMED in Resolve)
 
-Resolve recognises a growing file by a **hidden sidecar** written next to the media, discovered by reverse-engineering **Softron MovieRecorder** (whose "DaVinci Resolve Growing File" checkbox toggles exactly this sidecar — confirmed by a controlled ON/OFF diff: the media files are byte-identical; only the sidecar's presence differs).
+**The growing-file trigger is an extended attribute on the MAIN file, not the file's bytes and not the sidecar:**
+
+```
+xattr name:  com.blackmagicdesign.metadata:recording
+xattr value: {"r":1, "uuid":"<32 hex chars, uppercase, no dashes>"}   (raw UTF-8 JSON)
+```
+
+Proven by isolation test: a byte-for-byte **clone** of a live reference main + our format-correct sidecar showed **no** REC overlay in Resolve; **after writing this xattr and re-importing, the clone shows the red REC overlay** — identical to the reference. Every earlier byte-level reproduction failed because the signal isn't in the file at all.
+
+Key facts:
+- **Necessary & (with a growing media file) sufficient.** Same file without the xattr → no REC; with it → REC. The `uuid` can be any fresh UUID (we used a random one; it worked).
+- **Resolve reads it at import time** — you must (re)import after the xattr exists for the overlay to appear.
+- **Cleared on stop.** The reference's *finished* file carries no `…:recording` xattr (only `com.apple.macl` + `com.apple.provenance`). So: set `r:1` while recording, **remove the xattr on stop** → Resolve drops REC and treats it as a normal finalized clip.
+- **No duration needed.** The working xattr has no duration field. (The "expected duration" the reference UI asks for is its own segmenting concern, not part of the Resolve trigger.)
+- `setxattr`/`removexattr` (Darwin) set it; in the prototype this is automatic (`grow_avwriter.swift`, on by default; `NO_XATTR=1` to disable).
+
+**RESOLVED — the sidecar is NOT needed.** Tested in Resolve with our own AVAssetWriter output:
+- Test 1 (our encoder + xattr + sidecar) → red REC overlay ✅
+- Test 2 (our encoder + xattr, **NO sidecar**, `NO_SIDECAR=1`) → red REC overlay ✅
+
+So a growing fragmented `.mov` + the xattr is the complete recipe. The entire sidecar machinery (§0/§0.1, `gen_sidecar.py`, the `SidecarTailer`) can be **dropped**. Final implementation = **fragmented `.mov` (AVAssetWriter + `movieFragmentInterval`, HEVC/H.264 + audio + timecode + CFR) + set the xattr on start, remove it on stop.** The sidecar reverse-engineering below is kept only as a historical record.
+
+---
+
+## 0. (SUPERSEDED) the sidecar theory — the "DaVinci Resolve Growing File" sidecar
+
+> ⚠️ Superseded by §0.3: the real trigger is the `com.blackmagicdesign.metadata:recording` xattr. The sidecar is reproduced faithfully below and is NOT, by itself, what makes Resolve flag a growing file. Kept for reference (and in case the sidecar is still required as the growing-media index alongside the xattr — pending the `NO_SIDECAR` test).
+
+> Note: **RefRecorder** and **LiveProResRef** are codenames for two third-party macOS capture tools whose growing-file output we studied as reference points.
+
+Resolve recognises a growing file by a **hidden sidecar** written next to the media, discovered by reverse-engineering **RefRecorder** (whose "DaVinci Resolve Growing File" checkbox toggles exactly this sidecar — confirmed by a controlled ON/OFF diff: the media files are byte-identical; only the sidecar's presence differs).
 
 **The recipe:**
-- **Main file** `X.mov` — the real media (Softron writes a fragmented `qt` MOV via AVAssetWriter; H.264 or HEVC, + audio + timecode). Holds the encoded samples.
+- **Main file** `X.mov` — the real media (RefRecorder writes a fragmented `qt` MOV via AVAssetWriter; H.264 or HEVC, + audio + timecode). Holds the encoded samples.
 - **Sidecar** `.X.mov` (hidden, dot-prefixed, **same folder, same basename**) — a tiny **fragmented MP4** index:
   - `ftyp` major `iso5`, compat `iso6`/`mp41`.
   - `moov` = mvhd (timescale 50000, **duration pinned to 1 s**) + the **same 3 tracks** (video/audio/timecode, "Core Media …" handlers) + `mvex`(3×`trex`).
@@ -34,6 +64,59 @@ Resolve recognises a growing file by a **hidden sidecar** written next to the me
 This yields the original goal: **small (H.264/HEVC) + true-growing in Resolve + Premiere + crash-safe + in-process.** The `.ts` deadlock removal (§2) still applies. The pragmatic fallback (§9) is now only a fallback if the sidecar generator is deferred.
 
 Sidecar evidence (live Recording 7): sidecar `ftyp iso5`, 158 `moof` (≈158 s), `tfhd flags=0x000011 base_data_offset=1128282` (inside main), `url ` flags=0 content `"Untitled Recording 7.mov"`; main + sidecar grew together.
+
+---
+
+## 0.1 CONFIRMED by byte-exact reproduction (2026-06-07)
+
+A fresh RefRecorder reference pair (`~/Movies/RefGrowing.mov` + hidden `.RefGrowing.mov`, 4K HEVC, ts 50000) let us nail the exact recipe. **`tools/gen_sidecar.py` derives the sidecar from the main file alone and the output is byte-identical to RefRecorder's real sidecar** (moov 2552 B identical; every shared byte matches over 171 KB — only a 600 B live-growth tail differed because the recording advanced between snapshots).
+
+Two facts make this dramatically simpler than the original A1/A2 offset-arithmetic plan:
+
+1. **Every `moof` is copied VERBATIM.** AVAssetWriter / RefRecorder already write **absolute** `tfhd base_data_offset` values that point into the main file (`flags=0x000011`; e.g. main moof#0 `base=1376136` = the 2nd `mdat`'s payload offset). The main file's *own* moof is therefore already a valid sidecar moof — **no offset rewriting at all.** (Verified true for our own AVAssetWriter prototype too: its moof had `base_data_offset=221068` = its 2nd mdat payload offset.)
+
+2. **The sidecar `moov` is the main's `moov` with two deterministic per-track edits:**
+   - **ftyp** `qt ` → `iso5` (minor 512, compat `iso6`/`mp41`).
+   - For each of the 3 tracks (video/audio/timecode), inside `mdia/minf`:
+     - **drop the minf-level data-information `hdlr` box** (−56 B), and
+     - **replace the `dref` entry** `alis` (self-contained, `flags=0x000001`, empty) → external **`url `** (`flags=0x000000`, content = main file's basename, **no trailing NUL**, +28 B).
+   - Net −28 B/track → moov shrinks by exactly 84 B (2636→2552, matched exactly).
+   - Everything else copies verbatim: `mvhd` (timescale 50000, **duration pinned to 1 s** = 50000), `tkhd`, `tapt`, `edts/elst`, `mdhd`, the **mdia-level** `hdlr` ("Core Media …"), `stbl` (incl. `stsd`/`avcC`), `gmhd`/`tmcd`, `meta`, `mvex`(3×`trex`).
+
+**Both writers consolidate to flat on stop.** While recording, the main is fragmented (`ftyp + wide/mdat/moov(+mvex) + (wide/mdat/moof)×N`). On stop, `AVAssetWriter.finishWriting` rewrites to flat (`ftyp+wide+mdat+moov`, 0 moof, mvex absent) — and **RefRecorder does the same** (observed: its main read as 58 `moof` while recording, then as flat `ftyp+wide+mdat+moov` with full duration once stopped). *(Corrects an earlier note that claimed RefRecorder stays fragmented — that read was just taken mid-recording.)* Implication: during recording the main grows fragmented; on stop it becomes a normal flat clip and the sidecar's offsets go stale → **delete the sidecar on stop**.
+
+**Net effect on the plan:** we reproduce RefRecorder's exact sidecar bytes. The live writer is: tail the AVAssetWriter main, emit `ftyp + transformed moov` once the first fragment lands, then append each new `moof` verbatim. See `IMPLEMENTATION-PLAN.md` §3 ("A2-verbatim").
+
+## 0.2 OPEN: our pair is NOT registered as "growing" by Resolve (2026-06-07 live test)
+
+Live test of our generated pair (`~/Movies/GrowTest.mov` + `.GrowTest.mov`, HEVC, via `grow_avwriter.swift` live sidecar): the clip **does** extend in Resolve, **but only via Resolve's generic ~1-min media rescan** — it does **NOT** get the true growing-file treatment: **no red "REC" overlay on the media-pool thumbnail and no ~5 s fast refresh.** So Resolve is **ignoring our sidecar** and the growth we saw is the same plain auto-refresh any clip gets (the Plan B / §9 behavior), not sidecar-driven growing.
+
+Confirmed correct (so NOT the cause):
+- Sidecar byte format — reproduces RefRecorder byte-for-byte (§0.1).
+- Live writer — every sidecar `moof` is byte-equal to the main's `moof`; `base_data_offset`s resolve inside the simultaneously-growing main; sidecar `moov` validates with zero structural errors and correct external `dref url`.
+
+Candidate differences between OUR main and RefRecorder's main (ranked; to test when a new recording is available), since the sidecar is faithful but our **main** is what Resolve first imports:
+
+1. **moov-level `meta` box — possible vendor whitelist.** RefRecorder's main/sidecar carry a `meta` (hdlr `mdta` + `keys`/`ilst`) with `com.apple.proapps.manufacturer = "Softron"` and `com.apple.quicktime.software = "MovieRecorder 4.6.7"`. **Our main has no `meta` at all.** Resolve may enable the growing/REC treatment only for recognised recorder software. *Test:* add the `meta` tags (incl. trying the literal RefRecorder values as a probe) and re-check for the REC overlay. If the literal values flip it on → it's a vendor whitelist; then probe which values Resolve accepts.
+2. **`tref→tmcd` association.** Our video `trak` has `tref=tmcd` (we call `addTrackAssociation`); RefRecorder's does **not**. *Test:* drop the association.
+3. **Timescales.** RefRecorder uses **50000** for mvhd + video media + tmcd (audio 48000); ours is mvhd 48000 / video-media 600. *Test:* drive sample timing at ts 50000.
+4. **Audio codec.** RefRecorder = AAC; ours = LPCM. Lowest priority (shouldn't gate detection).
+
+Next-session plan: add a few env-flag variants to `grow_avwriter.swift` (`META=1`, `NO_TREF=1`, `TS50000=1`), record live, and import each into Resolve watching for the red REC thumbnail overlay. Start with #1 (`meta`/vendor) — highest expected value.
+
+### 0.2 update — `meta`/vendor + `tref` tests FAILED (2026-06-07)
+
+Tested live: `META=1 NO_TREF=1` (neutral vendor strings) **and** with the literal reference values (`META_MANUF="Softron" META_SOFT="MovieRecorder 4.6.7"`). Verified our growing `moov` then matched the reference layout exactly (`mvhd, trak×3, meta, mvex`; video trak `tkhd/tapt/edts/mdia`, no `tref`; vendor tags present and propagated to the sidecar). **Result: still imports WITHOUT the red REC overlay.** So it is **not** the `meta` box, **not** a vendor whitelist on those strings, and **not** the `tref` association.
+
+This is significant: we have now reproduced the reference's sidecar bytes *and* closely matched its main `moov`, yet Resolve still won't flag it growing. The trigger may **not be the file bytes at all** — a possibility the original ON/OFF "sidecar is the signal" conclusion did not fully exclude (ON also changes runtime behavior, not just the presence of the file). 
+
+**Decisive isolation test (next):** `tools/clone_growing.py` clones a *live* reference recording's main byte-for-byte into `Clone.mov` (growing in lockstep) and generates our sidecar `.Clone.mov` for it. Import `Clone.mov` while it grows:
+- **Clone shows REC** → our sidecar is accepted against a real reference main ⇒ the fault is purely our AVAssetWriter **main**; deep-diff the two mains (the clone conveniently saves a *fragmented* reference main for diffing).
+- **Clone does NOT show REC (real one does)** → the trigger is **not in the file bytes** — it is runtime/external (the recording process holding the file, an advisory lock, an OS/FSEvents signal, or a Resolve↔recorder integration). The local-sidecar approach would then be a dead end and the plan pivots to Plan B (§9) or a different integration.
+
+Remaining untested file-content differences (only relevant if the clone shows REC): timescales (50000 vs 48000/600 — `TS50000=1`) and audio codec (AAC vs LPCM).
+
+Validation tooling: `tools/gen_sidecar.py <main.mov> [out]` (pure offline derivation; used for the byte-diff proof).
 
 ---
 
@@ -77,9 +160,9 @@ Root cause of "1 frame then freeze" (H.264) / "empty file" (HEVC):
 | **ProRes / MOV** (ffmpeg frag) | our `prores-mov` | ❌ no | ✅ | — | ✗ big |
 | **H.264 / MOV** (AVAssetWriter, `v`/`va`/`vat`/`+colr/pasp/clap`) | our prototype | ❌ **no** | ✅ | imports | ✓ small |
 | **HEVC / MOV** (AVAssetWriter `vat`) | our prototype | ❌ no | ✅ | imports | ✓ small |
-| **ProRes / MOV** (AVAssetWriter `vat`) | our prototype (near-perfect JustInMac twin) | ❌ **no** | ✅ | — | ✗ big |
+| **ProRes / MOV** (AVAssetWriter `vat`) | our prototype (near-perfect LiveProResRef twin) | ❌ **no** | ✅ | — | ✗ big |
 | **H.264 / MP4 + timecode** (AVAssetWriter) | — | **impossible** — AVAssetWriter throws (see §6) | — | — | — |
-| **ProRes / MOV** | **JustInMac (live)** | ✅ **yes** | ✅ | — | ✗ big |
+| **ProRes / MOV** | **LiveProResRef (live)** | ✅ **yes** | ✅ | — | ✗ big |
 | **H.264 / MP4** | **ATEM Mini Pro** (real workflow, per user) | ✅ **yes** | ✅ | — | ✓ small |
 
 Extra behavior notes:
@@ -89,7 +172,7 @@ Extra behavior notes:
 
 ## 4. The two known-good growing references (and the killer insight)
 
-### JustInMac (ToolsOnAir "Just In Mac", live capture) — `qt`/ProRes, AVAssetWriter
+### LiveProResRef (live ProRes capture) — `qt`/ProRes, AVAssetWriter
 Live (growing) structure:
 ```
 ftyp 'qt  ' (minor 0, compat 'qt  ')
@@ -111,7 +194,7 @@ Downloaded sample is **finalized/flat** (`ftyp + wide + mdat + moov`, no fragmen
 - Handler names are **not** "Core Media" ⇒ **not AVAssetWriter** (Blackmagic custom muxer; needed because AVAssetWriter can't put `tmcd` in MP4 — see §6).
 
 ### Killer insight
-ATEM (`isom`/H.264/custom-muxer) and JustInMac (`qt`/ProRes/AVAssetWriter) are **radically different files**, yet **both grow in Resolve**. Their only shared traits:
+ATEM (`isom`/H.264/custom-muxer) and LiveProResRef (`qt`/ProRes/AVAssetWriter) are **radically different files**, yet **both grow in Resolve**. Their only shared traits:
 - a **timecode (`tmcd`) track**, and
 - the **file growing on disk**.
 
@@ -119,10 +202,10 @@ ATEM (`isom`/H.264/custom-muxer) and JustInMac (`qt`/ProRes/AVAssetWriter) are *
 
 ## 5. What we conclusively RULED OUT as the growing trigger
 
-- **Codec** — ProRes, H.264, HEVC, MPEG-2 each grow in *some* container ⇒ not codec-gated (we even built a near-perfect ProRes twin of JustInMac via AVAssetWriter; it did **not** grow).
+- **Codec** — ProRes, H.264, HEVC, MPEG-2 each grow in *some* container ⇒ not codec-gated (we even built a near-perfect ProRes twin of LiveProResRef via AVAssetWriter; it did **not** grow).
 - **Container brand** — `qt` and `isom` both grow.
-- **Muxer / handler names** — ATEM ("Apple…") vs JustInMac ("Core Media…") differ; both grow.
-- **xattrs** — JustInMac's `com.apple.macl` is just macOS file-access bookkeeping; not a signal.
+- **Muxer / handler names** — ATEM ("Apple…") vs LiveProResRef ("Core Media…") differ; both grow.
+- **xattrs** — LiveProResRef's `com.apple.macl` is just macOS file-access bookkeeping; not a signal.
 - **Structure we matched and still failed:** classic first segment, `mvex`+`moof`, all-3-tracks-fragmenting (`[1,2,3]` per moof), pinned `mvhd`=1 s, `tkhd` flags, `elst`, `tref→tmcd`, `trex` defaults, a correct **readable** timecode track (verified Resolve reads our time-of-day TC), and `colr`/`pasp`/`clap`.
 
 ## 6. Hard constraint discovered
@@ -131,7 +214,7 @@ ATEM (`isom`/H.264/custom-muxer) and JustInMac (`qt`/ProRes/AVAssetWriter) are *
 ```
 *** -[AVAssetWriter addInput:] AVAssetWriter does not support passthrough for media type tmcd to file type public.mpeg-4.
 ```
-⇒ ATEM's exact recipe (H.264 + `tmcd` in `isom` MP4) is **not reproducible via AVAssetWriter**. The only AVAssetWriter route that includes a timecode track is **`.mov`/`qt`** (the JustInMac path). (MP4 without timecode also wrote a `chnl` v1 box ffmpeg flagged as invalid.)
+⇒ ATEM's exact recipe (H.264 + `tmcd` in `isom` MP4) is **not reproducible via AVAssetWriter**. The only AVAssetWriter route that includes a timecode track is **`.mov`/`qt`** (the LiveProResRef path). (MP4 without timecode also wrote a `chnl` v1 box ffmpeg flagged as invalid.)
 
 ## 7. Crash safety — CONFIRMED ✅
 
@@ -155,7 +238,7 @@ In rough priority:
 - Reuse the existing **`ScreenCaptureWriter`** (already AVAssetWriter-based for `.mov` presets) — add `movieFragmentInterval` + a timecode track.
 - **Outcome:** small ✓, in-process ✓ (kills the original deadlock + raw-bandwidth bug), **crash-safe** ✓, decodes in both NLEs ✓. **Premiere** edits while recording (10 s refresh) ✓. **Resolve** is *not* instant-growing but auto-refreshes ~1×/min ✓.
 - Also fix the **VFR problem**: SCStream is variable-frame-rate; the encoder should be paced to **CFR** (duplicate the last frame when idle) — VFR misbehaves in NLEs generally. (The prototype is CFR via synthetic source; the real recorder is currently VFR.)
-- Optional secondary "Resolve-live" preset using **ProRes** (the JustInMac path that genuinely true-grows today) for users who accept big files.
+- Optional secondary "Resolve-live" preset using **ProRes** (the LiveProResRef path that genuinely true-grows today) for users who accept big files.
 
 Implementation touch points: `Aagedal Media Converter/Logic/ScreenCaptureManager.swift` — `ScreenCaptureWriter` (~line 1347), `CapturePreset` enum (~line 32), and delete the dead `FFmpegPipeWriter` + `.x264TS`/`.hevcVTTS` presets.
 
@@ -168,10 +251,11 @@ Implementation touch points: `Aagedal Media Converter/Logic/ScreenCaptureManager
   # args: <out> <seconds> <fps> <codec:h264|hevc|prores> <tracks:v|va|vat> [startTC: tod|HH:MM:SS:FF]
   ./grow_avwriter ~/Movies/test.mov 240 50 h264 vat tod      # .mov=qt, .mp4=isom (but tmcd in mp4 THROWS)
   ```
-  Produces qt/isom fragmented output matching JustInMac's structure (classic first segment, mvex, per-frame-fragmenting timecode track, pinned mvhd, colr/pasp/clap, time-of-day source TC).
+  Produces qt/isom fragmented output matching LiveProResRef's structure (classic first segment, mvex, per-frame-fragmenting timecode track, pinned mvhd, colr/pasp/clap, time-of-day source TC).
 - **`grow_avw.sh`** — runner: `bash grow_avw.sh [codec] [tracks] [seconds] [startTC] [container:mov|mp4]`.
 - **`grow_test.sh`** — ffmpeg codec/container matrix: `bash grow_test.sh {h264-ts|h264-mp4|h264-mov|hevc-ts|hevc-mp4|prores-mov|mpeg2-ts} [seconds]`.
 - **`movfp.py`** — deep MOV/MP4 fingerprint (top boxes, ftyp brands, mvhd/tkhd/mdhd, elst, tref, trex, per-moof track IDs). `python3 movfp.py <file>`.
+- **`gen_sidecar.py`** — derives the `.X.mov` sidecar from a fragmented qt main (`ftyp iso5` + transformed `moov` + verbatim `moof` copy). Reproduces RefRecorder's sidecar byte-for-byte; doubles as the executable spec for the Swift port. `python3 gen_sidecar.py <main.mov> [out_sidecar]`.
 
 Handy probes used during the investigation:
 ```bash
@@ -183,5 +267,5 @@ xattr -l file.mov
 ## 11. Reference sample files used (outside the repo; may be deleted)
 
 - `~/Movies/2026-06-06 23-09-43.ts` — OBS growing TS = **MPEG-2 video + 2× MP2 audio**, ~9.3 Mbps (the file the user confirmed grows in Resolve — note it's MPEG-2, not HEVC).
-- `~/Movies/JustInMacLIte_TestRec_Channel_*.mov` — JustInMac ProRes captures (Channel_2 LT finalized 8.2 GB; Channel_4 Proxy). Live form = fragmented (growing); finalized = flat.
+- `~/Movies/LiveProResRef_Channel_*.mov` — LiveProResRef ProRes captures (Channel_2 LT finalized 8.2 GB; Channel_4 Proxy). Live form = fragmented (growing); finalized = flat.
 - `~/Downloads/ATEM Mini Pro ISO Demonstration Project/` — Blackmagic ATEM sample project; `Video ISO Files/*.mp4` = H.264 Main `isom`, finalized/flat.
