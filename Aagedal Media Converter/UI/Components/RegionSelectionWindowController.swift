@@ -62,7 +62,7 @@ final class RegionSelectionWindowController: NSObject, NSWindowDelegate {
             }
         )
 
-        let hosting = NSHostingView(rootView: overlayView)
+        let hosting = FirstMouseHostingView(rootView: overlayView)
         hosting.frame = CGRect(origin: .zero, size: screenFrame.size)
         hosting.autoresizingMask = [.width, .height]
 

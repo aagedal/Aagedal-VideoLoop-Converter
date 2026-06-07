@@ -239,7 +239,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
             }
         )
 
-        let hosting = NSHostingView(rootView: overlayView)
+        let hosting = FirstMouseHostingView(rootView: overlayView)
         hosting.frame = CGRect(origin: .zero, size: screenFrame.size)
         hosting.autoresizingMask = [.width, .height]
 
@@ -366,7 +366,7 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
             }
         )
 
-        let hosting = NSHostingView(rootView: controlView)
+        let hosting = FirstMouseHostingView(rootView: controlView)
         hosting.frame = NSRect(origin: .zero, size: NSSize(width: panelWidth, height: panelHeight))
         hosting.autoresizingMask = [.width, .height]
 
@@ -748,4 +748,17 @@ final class CaptureOverlayWindowController: NSObject, NSWindowDelegate, NSMenuDe
 /// swallowed before the underlying app sees it.
 private final class CaptureRegionPanel: NSPanel {
     override var canBecomeKey: Bool { true }
+}
+
+// MARK: - First-Mouse Hosting View
+
+/// The overlay is shown while the app is hidden (`NSApp.hide(nil)`) and its panels are
+/// `.nonactivatingPanel`, so the app is never the frontmost application while the overlay is up.
+/// When you click a window of a non-frontmost app, macOS swallows that first mouse-down to activate
+/// the window instead of delivering it to the view under the cursor — unless the view opts in via
+/// `acceptsFirstMouse`. Without this, the first click on the overlay (a control-panel button or a
+/// region drag) is eaten and appears to fall through to the app below; only the second click lands.
+/// `NSHostingView` returns `false` by default, so we override it here for every overlay surface.
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
