@@ -141,11 +141,11 @@
 		AA1D4C3E2F10B56789000002 /* TrackPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1D4C3E2F10B56789000001 /* TrackPickerSheet.swift */; };
 		AA51AC0E2FAE0FB1A09B0124 /* SubtitleSRTNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA51AC0D2FAE0FB1A09B0123 /* SubtitleSRTNaming.swift */; };
 		AF21AF21AF21AF21AF21AF21 /* avmenc in Resources */ = {isa = PBXBuildFile; fileRef = AF20AF20AF20AF20AF20AF20 /* avmenc */; };
+		AF23AF23AF23AF23AF23AF23 /* AV2CommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */; };
 		AF25AF25AF25AF25AF25AF25 /* avmdec in Resources */ = {isa = PBXBuildFile; fileRef = AF24AF24AF24AF24AF24AF24 /* avmdec */; };
 		AF27AF27AF27AF27AF27AF27 /* IVFHeaderParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF26AF26AF26AF26AF26AF26 /* IVFHeaderParser.swift */; };
 		AF29AF29AF29AF29AF29AF29 /* IVFConcatenator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF28AF28AF28AF28AF28AF28 /* IVFConcatenator.swift */; };
 		AF2BAF2BAF2BAF2BAF2BAF2B /* MatroskaMuxer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF2AAF2AAF2AAF2AAF2AAF2A /* MatroskaMuxer.swift */; };
-		AF23AF23AF23AF23AF23AF23 /* AV2CommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */; };
 		ANALYTICSEXP00000002 /* AnalyticsExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANALYTICSEXP00000001 /* AnalyticsExporter.swift */; };
 		ANALYTICSMOD00000002 /* AnalyticsModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANALYTICSMOD00000001 /* AnalyticsModels.swift */; };
 		ANALYTICSRESV0000002 /* AnalyticsResultsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ANALYTICSRESV0000001 /* AnalyticsResultsView.swift */; };
@@ -197,10 +197,6 @@
 		METAEXPVIEW000000000001 /* MetadataExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = METAEXPVIEW000000000002 /* MetadataExportView.swift */; };
 		OUTCLEAN0BF00000001 /* OutputFolderCleanupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */; };
 		PRESET01MGR000000001 /* PresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PRESET01MGR000000002 /* PresetManager.swift */; };
-		SNAPSHOTSYNC000001 /* SettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = SNAPSHOTSYNC000002 /* SettingsSnapshot.swift */; };
-		SYNCKEYS00000001 /* SettingsSyncKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCKEYS00000002 /* SettingsSyncKeys.swift */; };
-		SYNCSVC000000001 /* SettingsSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCSVC000000002 /* SettingsSyncService.swift */; };
-		SYNCVIEW00000001 /* SyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCVIEW00000002 /* SyncSettingsView.swift */; };
 		RSEL000000000001000BUILD /* RegionSelectionOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = RSEL000000000001000FREF1 /* RegionSelectionOverlayView.swift */; };
 		RSEL000000000002000BUILD /* RegionSelectionWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */; };
 		SCHEDDL01SERV00000001 /* ScheduledDownloadService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */; };
@@ -209,6 +205,10 @@
 		SE01XIF00SVC000000000001 /* SwiftExifMetadataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE01XIF00SVC000000000002 /* SwiftExifMetadataService.swift */; };
 		SE01XIF00TYP000000000001 /* MetadataTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = SE01XIF00TYP000000000002 /* MetadataTypes.swift */; };
 		SMPTEPKGUTL00000001 /* SMPTEPackageUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = SMPTEPKGUTL00000002 /* SMPTEPackageUtils.swift */; };
+		SNAPSHOTSYNC000001 /* SettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = SNAPSHOTSYNC000002 /* SettingsSnapshot.swift */; };
+		SYNCKEYS00000001 /* SettingsSyncKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCKEYS00000002 /* SettingsSyncKeys.swift */; };
+		SYNCSVC000000001 /* SettingsSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCSVC000000002 /* SettingsSyncService.swift */; };
+		SYNCVIEW00000001 /* SyncSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SYNCVIEW00000002 /* SyncSettingsView.swift */; };
 		VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = VIDITEMIDX00000002 /* VideoItemIndex.swift */; };
 /* End PBXBuildFile section */
 
@@ -393,11 +393,11 @@
 		ACBB08166226F6F3A57F015C /* URLInputOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = URLInputOverlay.swift; sourceTree = "<group>"; };
 		AE61AEDA33E74EFF880B1E5C /* PowerAssertion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PowerAssertion.swift; sourceTree = "<group>"; };
 		AF20AF20AF20AF20AF20AF20 /* avmenc */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = avmenc; sourceTree = "<group>"; };
+		AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV2CommandBuilder.swift; sourceTree = "<group>"; };
 		AF24AF24AF24AF24AF24AF24 /* avmdec */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = "compiled.mach-o.executable"; path = avmdec; sourceTree = "<group>"; };
 		AF26AF26AF26AF26AF26AF26 /* IVFHeaderParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IVFHeaderParser.swift; sourceTree = "<group>"; };
 		AF28AF28AF28AF28AF28AF28 /* IVFConcatenator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IVFConcatenator.swift; sourceTree = "<group>"; };
 		AF2AAF2AAF2AAF2AAF2AAF2A /* MatroskaMuxer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatroskaMuxer.swift; sourceTree = "<group>"; };
-		AF22AF22AF22AF22AF22AF22 /* AV2CommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV2CommandBuilder.swift; sourceTree = "<group>"; };
 		ANALYTICSEXP00000001 /* AnalyticsExporter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsExporter.swift; sourceTree = "<group>"; };
 		ANALYTICSMOD00000001 /* AnalyticsModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsModels.swift; sourceTree = "<group>"; };
 		ANALYTICSRESV0000001 /* AnalyticsResultsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AnalyticsResultsView.swift; sourceTree = "<group>"; };
@@ -452,10 +452,6 @@
 		METAEXPVIEW000000000002 /* MetadataExportView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataExportView.swift; sourceTree = "<group>"; };
 		OUTCLEAN0FR00000001 /* OutputFolderCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputFolderCleanupService.swift; sourceTree = "<group>"; };
 		PRESET01MGR000000002 /* PresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManager.swift; sourceTree = "<group>"; };
-		SNAPSHOTSYNC000002 /* SettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSnapshot.swift; sourceTree = "<group>"; };
-		SYNCKEYS00000002 /* SettingsSyncKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncKeys.swift; sourceTree = "<group>"; };
-		SYNCSVC000000002 /* SettingsSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncService.swift; sourceTree = "<group>"; };
-		SYNCVIEW00000002 /* SyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncSettingsView.swift; sourceTree = "<group>"; };
 		RSEL000000000001000FREF1 /* RegionSelectionOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionOverlayView.swift; sourceTree = "<group>"; };
 		RSEL000000000002000FREF2 /* RegionSelectionWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionWindowController.swift; sourceTree = "<group>"; };
 		SCHEDDL01SERV00000002 /* ScheduledDownloadService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScheduledDownloadService.swift; path = YTDLP/ScheduledDownloadService.swift; sourceTree = "<group>"; };
@@ -464,6 +460,10 @@
 		SE01XIF00SVC000000000002 /* SwiftExifMetadataService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SwiftExifMetadataService.swift; sourceTree = "<group>"; };
 		SE01XIF00TYP000000000002 /* MetadataTypes.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MetadataTypes.swift; sourceTree = "<group>"; };
 		SMPTEPKGUTL00000002 /* SMPTEPackageUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SMPTEPackageUtils.swift; sourceTree = "<group>"; };
+		SNAPSHOTSYNC000002 /* SettingsSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSnapshot.swift; sourceTree = "<group>"; };
+		SYNCKEYS00000002 /* SettingsSyncKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncKeys.swift; sourceTree = "<group>"; };
+		SYNCSVC000000002 /* SettingsSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSyncService.swift; sourceTree = "<group>"; };
+		SYNCVIEW00000002 /* SyncSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncSettingsView.swift; sourceTree = "<group>"; };
 		VIDITEMIDX00000002 /* VideoItemIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoItemIndex.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -1575,7 +1575,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 537;
+				CURRENT_PROJECT_VERSION = 556;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
@@ -2236,7 +2236,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 537;
+				CURRENT_PROJECT_VERSION = 556;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "\"Aagedal Media Converter/Preview Content\"";
 				ENABLE_APP_SANDBOX = NO;
