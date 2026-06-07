@@ -74,6 +74,9 @@ enum AppConstants {
     static let captureRegionHeightKey = "captureRegionHeight"
     static let defaultCaptureRegionMode = false
 
+    /// Scale factor for the floating capture overlay panel (1.0 = smallest/default size).
+    static let captureOverlayScaleKey = "captureOverlayScale"
+
     // DCP / IMF metadata: remember the last `contentKind` the user picked so a
     // fresh queue item opening the editor lands on the same kind they last used
     // (per format) instead of always reverting to "feature".

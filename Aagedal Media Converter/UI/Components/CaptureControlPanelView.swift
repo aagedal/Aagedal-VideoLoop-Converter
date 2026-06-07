@@ -15,6 +15,7 @@ struct CaptureControlPanelView: View {
     let onRegionModeChanged: (Bool) -> Void
     let onDisplayChanged: (NSScreen, CGRect?) -> Void
     let onSetOverlayClickThrough: (Bool) -> Void
+    let onScaleChanged: () -> Void
 
     @AppStorage(AppConstants.captureDirectoryKey) private var captureDirectoryPath = AppConstants.defaultCaptureDirectory.path
     @AppStorage(AppConstants.capturePresetKey) private var capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
@@ -32,8 +33,10 @@ struct CaptureControlPanelView: View {
     @AppStorage(AppConstants.captureRegionWidthKey) private var captureRegionWidth: Double = 0
     @AppStorage(AppConstants.captureRegionHeightKey) private var captureRegionHeight: Double = 0
     @AppStorage("screenRecordingAspectRatio") private var lockedAspectRatioRaw: String = AspectRatio.free.rawValue
+    @AppStorage(AppConstants.captureOverlayScaleKey) private var overlayScaleRaw: Double = 1.0
 
     @StateObject private var captureManager = ScreenCaptureManager.shared
+    @State private var scaleAtDragStart: Double?
     @State private var availableDisplays: [CaptureDisplay] = []
     @State private var microphoneDevices: [AVCaptureDevice] = []
     @State private var isViewActive = false
@@ -94,6 +97,68 @@ struct CaptureControlPanelView: View {
             return true
         }
         return false
+    }
+
+    // MARK: - Overlay Scaling
+    //
+    // Base (smallest) layout: 480pt-wide content with a center preview column ≈420pt wide, a
+    // 200pt-tall preview box, and 190pt-tall audio meters. The meters keep their fixed 12pt width
+    // at any scale — only their height and the video preview grow.
+    private static let baseContentWidth: CGFloat = 480
+    private static let basePreviewColumnWidth: CGFloat = 420
+    private static let basePreviewHeight: CGFloat = 200
+    private static let baseMeterHeight: CGFloat = 190
+    private static let minScale: Double = 1.0
+    private static let maxScale: Double = 3.0
+
+    private var overlayScale: CGFloat {
+        CGFloat(min(Self.maxScale, max(Self.minScale, overlayScaleRaw)))
+    }
+
+    private var panelWidth: CGFloat {
+        (Self.baseContentWidth - Self.basePreviewColumnWidth) + Self.basePreviewColumnWidth * overlayScale
+    }
+
+    private var previewHeight: CGFloat {
+        Self.basePreviewHeight * overlayScale
+    }
+
+    private var meterHeight: CGFloat {
+        Self.baseMeterHeight * overlayScale
+    }
+
+    private var resizeHandle: some View {
+        Image(systemName: "arrow.up.left.and.arrow.down.right")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(.secondary)
+            .padding(6)
+            .background(
+                Circle().fill(Color.black.opacity(0.25))
+            )
+            .padding(6)
+            .contentShape(Rectangle())
+            .help("Drag to resize the overlay")
+            .gesture(
+                DragGesture(coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = scaleAtDragStart ?? overlayScaleRaw
+                        if scaleAtDragStart == nil { scaleAtDragStart = start }
+                        // The panel is anchored at its bottom and grows upward, so dragging the
+                        // top-trailing handle up enlarges it; 200pt of travel ≈ +1.0 scale.
+                        let delta = Double(-value.translation.height) / 200.0
+                        let newScale = min(Self.maxScale, max(Self.minScale, start + delta))
+                        if newScale != overlayScaleRaw {
+                            overlayScaleRaw = newScale
+                            onScaleChanged()
+                        }
+                    }
+                    .onEnded { _ in
+                        scaleAtDragStart = nil
+                        onScaleChanged()
+                        // Re-render the setup preview at a resolution matching the new size.
+                        Task { await refreshPreview() }
+                    }
+            )
     }
 
     var body: some View {
@@ -169,10 +234,17 @@ struct CaptureControlPanelView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .shadow(color: .black.opacity(0.3), radius: 12)
+        .overlay(alignment: .topTrailing) {
+            resizeHandle
+        }
     }
 
     private func handleOnAppear() {
         isViewActive = true
+        // Sync the panel size to a persisted scale (the panel is created at the base size).
+        if overlayScale != 1.0 {
+            DispatchQueue.main.async { onScaleChanged() }
+        }
         if !CapturePreset.availablePresets.contains(presetBinding.wrappedValue) {
             capturePresetRaw = CapturePreset.hevc42210Bit.rawValue
         }
@@ -223,14 +295,14 @@ struct CaptureControlPanelView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
         }
-        .frame(width: 480)
+        .frame(width: panelWidth)
     }
 
     private var previewSection: some View {
         VStack(spacing: 6) {
             // Sys meter | Preview | Mic meter
             HStack(spacing: 6) {
-                AudioMeterView(levels: captureManager.audioLevels, meterHeight: 190, chrome: false)
+                AudioMeterView(levels: captureManager.audioLevels, meterHeight: meterHeight, chrome: false)
                     .opacity(captureIncludeSystemAudio ? 1.0 : 0.3)
                     .frame(width: 12)
                     .help("System audio level")
@@ -254,9 +326,9 @@ struct CaptureControlPanelView: View {
                         }
                     }
                 }
-                .frame(height: 200)
+                .frame(height: previewHeight)
 
-                AudioMeterView(levels: captureManager.microphoneLevels, meterHeight: 190, chrome: false)
+                AudioMeterView(levels: captureManager.microphoneLevels, meterHeight: meterHeight, chrome: false)
                     .saturation(microphoneButtonActive ? 1.0 : 0.0)
                     .opacity(microphoneButtonActive ? 1.0 : 0.3)
                     .frame(width: 12)
@@ -405,7 +477,7 @@ struct CaptureControlPanelView: View {
         VStack(spacing: 0) {
             // Sys meter | Preview | Mic meter
             HStack(spacing: 6) {
-                AudioMeterView(levels: captureManager.audioLevels, meterHeight: 190, chrome: false)
+                AudioMeterView(levels: captureManager.audioLevels, meterHeight: meterHeight, chrome: false)
                     .opacity(captureIncludeSystemAudio ? 1.0 : 0.3)
                     .frame(width: 12)
                     .help("System audio level")
@@ -420,9 +492,9 @@ struct CaptureControlPanelView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                 }
-                .frame(height: 200)
+                .frame(height: previewHeight)
 
-                AudioMeterView(levels: captureManager.microphoneLevels, meterHeight: 190, chrome: false)
+                AudioMeterView(levels: captureManager.microphoneLevels, meterHeight: meterHeight, chrome: false)
                     .saturation(microphoneButtonActive ? 1.0 : 0.0)
                     .opacity(microphoneButtonActive ? 1.0 : 0.3)
                     .frame(width: 12)
@@ -480,7 +552,7 @@ struct CaptureControlPanelView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
         }
-        .frame(width: 480)
+        .frame(width: panelWidth)
     }
 
     // MARK: - Toggle Buttons
@@ -959,8 +1031,17 @@ struct CaptureControlPanelView: View {
             excludeCurrentApp: captureExcludeCurrentApp,
             excludedAppBundleIDs: excludedAppBundleIDs,
             cachedContent: cachedContent,
-            regionRect: selectedRegionRect
+            regionRect: selectedRegionRect,
+            maxPreviewWidth: previewPixelWidth
         )
+    }
+
+    /// Target pixel width for the live preview stream — matches the displayed preview column
+    /// (in points) times the screen's backing scale so it stays sharp when the overlay is enlarged.
+    private var previewPixelWidth: CGFloat {
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let displayedPoints = Self.basePreviewColumnWidth * overlayScale
+        return max(1280, (displayedPoints * backingScale).rounded(.up))
     }
 
     private func loadMicrophones() async {

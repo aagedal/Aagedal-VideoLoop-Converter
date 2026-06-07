@@ -536,6 +536,13 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         autoStopDate = nil
     }
 
+    /// Extends the current auto-stop by `delta` seconds. If no auto-stop is active, this starts a
+    /// fresh one `delta` seconds from now (`base` is 0 when `autoStopDate` is nil).
+    func extendAutoStop(by delta: TimeInterval) {
+        let base = max(0, autoStopDate?.timeIntervalSinceNow ?? 0)
+        setAutoStop(after: base + delta)
+    }
+
     func startPreview(
         displayID: CGDirectDisplayID?,
         frameRate: CaptureFrameRateOption,
@@ -545,7 +552,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         excludeCurrentApp: Bool,
         excludedAppBundleIDs: Set<String> = [],
         cachedContent: SCShareableContent? = nil,
-        regionRect: CGRect? = nil
+        regionRect: CGRect? = nil,
+        maxPreviewWidth: CGFloat = 1280
     ) async {
         guard !isPreviewing, !isRecording else { return }
 
@@ -573,7 +581,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 pixelResolution = displayPixelResolution(for: display)
                 sourceRect = displaySourceRect(for: display)
             }
-            let previewResolution = scaledPreviewResolution(from: pixelResolution, maxWidth: 1280)
+            let previewResolution = scaledPreviewResolution(from: pixelResolution, maxWidth: max(1, maxPreviewWidth))
             let destinationRect = CGRect(origin: .zero, size: previewResolution)
 
             let previewFrameRate = min(resolvedFrameRate(option: frameRate, display: display, fallback: 30), 60)

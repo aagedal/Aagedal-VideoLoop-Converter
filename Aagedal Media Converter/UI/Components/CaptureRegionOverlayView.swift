@@ -855,8 +855,10 @@ private struct RegionModifierKeyView: NSViewRepresentable {
         var isOptionHeld: Binding<Bool>?
         var isSpaceHeld: Binding<Bool>?
 
-        private var localMonitor: Any?
-        private var globalMonitor: Any?
+        // `nonisolated(unsafe)` so `deinit` (a nonisolated context) can tear the monitors down.
+        // All access happens on the main thread in practice (view lifecycle + main-thread dealloc).
+        private nonisolated(unsafe) var localMonitor: Any?
+        private nonisolated(unsafe) var globalMonitor: Any?
 
         // Pass through hit testing so gestures still flow to SwiftUI
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -902,7 +904,7 @@ private struct RegionModifierKeyView: NSViewRepresentable {
             }
         }
 
-        private func removeMonitors() {
+        private nonisolated func removeMonitors() {
             if let monitor = localMonitor {
                 NSEvent.removeMonitor(monitor)
                 localMonitor = nil
