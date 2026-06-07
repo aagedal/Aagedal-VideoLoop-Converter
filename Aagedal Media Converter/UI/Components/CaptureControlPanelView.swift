@@ -33,7 +33,6 @@ struct CaptureControlPanelView: View {
     @AppStorage(AppConstants.captureRegionWidthKey) private var captureRegionWidth: Double = 0
     @AppStorage(AppConstants.captureRegionHeightKey) private var captureRegionHeight: Double = 0
     @AppStorage("screenRecordingAspectRatio") private var lockedAspectRatioRaw: String = AspectRatio.free.rawValue
-    @AppStorage(AppConstants.captureOverlayExpandedKey) private var isExpanded = false
 
     @StateObject private var captureManager = ScreenCaptureManager.shared
     @State private var availableDisplays: [CaptureDisplay] = []
@@ -194,15 +193,10 @@ struct CaptureControlPanelView: View {
     private var gridColumns: Int { max(1, Int(ceil(Double(tileCount).squareRoot()))) }
     private var gridRows: Int { Int(ceil(Double(tileCount) / Double(gridColumns))) }
 
-    private var availablePreviewBounds: CGSize {
-        if isExpanded {
-            let screen = (targetScreen?.visibleFrame.size) ?? CGSize(width: 1440, height: 900)
-            let w = max(320, screen.width * Self.expandedScreenFraction - Self.horizontalChrome)
-            let h = max(240, screen.height * Self.expandedScreenFraction - Self.verticalChromeEstimate)
-            return CGSize(width: w, height: h)
-        }
-        return Self.compactPreviewBounds
-    }
+    /// The grid of all monitors always uses the compact bounds. The overlay's only enlarged state is
+    /// focusing a single screen (``focusedBoxSize``) — keeping expansion to one level (compact grid
+    /// ↔ one focused screen) instead of an awkward intermediate "enlarged grid".
+    private var availablePreviewBounds: CGSize { Self.compactPreviewBounds }
 
     /// Size of the whole tile grid, aspect-fit so every cell keeps `primaryAspect` within the bounds.
     private var gridBoxSize: CGSize {
@@ -220,18 +214,14 @@ struct CaptureControlPanelView: View {
         )
     }
 
-    /// Size of a single focused tile (focus mode), aspect-fit within ~90% of the screen.
+    /// Size of a single focused tile (focus mode), aspect-fit within ~90% of the screen. Focusing a
+    /// screen is the overlay's only enlarged state — the grid of all monitors otherwise stays compact.
     private var focusedBoxSize: CGSize {
         let aspect = max(0.1, primaryAspect)
-        if isExpanded {
-            let screen = (targetScreen?.visibleFrame.size) ?? CGSize(width: 1440, height: 900)
-            let availW = max(320, screen.width * Self.expandedScreenFraction - Self.horizontalChrome)
-            let availH = max(240, screen.height * Self.expandedScreenFraction - Self.verticalChromeEstimate)
-            let height = min(availH, availW / aspect)
-            return CGSize(width: (height * aspect).rounded(), height: height.rounded())
-        }
-        let bounds = Self.compactPreviewBounds
-        let height = min(bounds.height, bounds.width / aspect)
+        let screen = (targetScreen?.visibleFrame.size) ?? CGSize(width: 1440, height: 900)
+        let availW = max(320, screen.width * Self.expandedScreenFraction - Self.horizontalChrome)
+        let availH = max(240, screen.height * Self.expandedScreenFraction - Self.verticalChromeEstimate)
+        let height = min(availH, availW / aspect)
         return CGSize(width: (height * aspect).rounded(), height: height.rounded())
     }
 
@@ -255,11 +245,18 @@ struct CaptureControlPanelView: View {
     }
 
     private var sizeToggleButton: some View {
+        // Single expand model: focus the primary screen to fill the display, or collapse back to the
+        // compact grid of all monitors. (Individual screens can also be focused via their tile's
+        // expand button on hover.)
         Button {
-            isExpanded.toggle()
+            if isFocused {
+                focusedDisplayID = nil
+            } else if let first = effectiveDisplayIDs.first {
+                focusedDisplayID = first
+            }
             Task { await refreshPreviews() }
         } label: {
-            Image(systemName: isExpanded
+            Image(systemName: isFocused
                   ? "arrow.down.right.and.arrow.up.left"
                   : "arrow.up.left.and.arrow.down.right")
                 .font(.system(size: 11, weight: .semibold))
@@ -270,7 +267,7 @@ struct CaptureControlPanelView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isExpanded ? "Collapse preview" : "Expand preview to fill the screen")
+        .help(isFocused ? "Show all screens" : "Expand a screen to fill the display")
     }
 
     var body: some View {
