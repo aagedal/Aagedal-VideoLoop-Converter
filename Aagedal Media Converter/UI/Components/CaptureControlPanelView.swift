@@ -464,7 +464,8 @@ struct CaptureControlPanelView: View {
                 isDisabled: false,
                 onDisplaysChanged: { await refreshAvailableDisplays() },
                 onCreated: { id in addDisplayToSelection(id) },
-                onRemoved: { id in handleTileRemove(id) }
+                onRemoved: { id in handleTileRemove(id) },
+                displaysInGrid: Set(effectiveDisplayIDs)
             )
             .controlSize(.small)
 

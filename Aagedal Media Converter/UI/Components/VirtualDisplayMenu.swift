@@ -22,6 +22,9 @@ struct VirtualDisplayMenu: View {
     /// Called with the removed display's ID after a virtual display is destroyed (so the host can
     /// drop it from any selection).
     var onRemoved: (CGDirectDisplayID) -> Void = { _ in }
+    /// Display IDs currently shown in the preview grid. Any live virtual display not in this set is
+    /// offered as a quick "add back" action so the user can re-add it without recreating it.
+    var displaysInGrid: Set<CGDirectDisplayID> = []
 
     @ObservedObject private var manager = VirtualDisplayManager.shared
 
@@ -49,6 +52,19 @@ struct VirtualDisplayMenu: View {
                     }
                 }
 
+                if !displaysNotInGrid.isEmpty {
+                    Divider()
+                    Section("Add Existing Virtual Display") {
+                        ForEach(displaysNotInGrid) { display in
+                            Button {
+                                onCreated(display.id) // existing display → re-add it to the grid
+                            } label: {
+                                Label(display.name, systemImage: "plus.rectangle.on.rectangle")
+                            }
+                        }
+                    }
+                }
+
                 if !manager.activeDisplays.isEmpty {
                     Section("Remove Virtual Display") {
                         ForEach(manager.activeDisplays) { display in
@@ -72,6 +88,13 @@ struct VirtualDisplayMenu: View {
             .disabled(isDisabled)
             .help("Create a virtual display to record a window off-screen")
         }
+    }
+
+    /// Live virtual displays that exist but aren't currently in the preview grid — these can be
+    /// re-added rather than recreated. (Only ever non-empty under the "keep alive" policy, since the
+    /// ephemeral default destroys a display the moment it leaves the grid.)
+    private var displaysNotInGrid: [VirtualDisplayManager.ActiveDisplay] {
+        manager.activeDisplays.filter { !displaysInGrid.contains($0.id) }
     }
 
     private func addDisplay(width: Int, height: Int) {

@@ -256,7 +256,8 @@ struct CaptureModeView: View {
                         isDisabled: captureManager.isRecording || captureManager.isProcessing,
                         onDisplaysChanged: { await refreshAvailableDisplays() },
                         onCreated: { id in captureDisplayID = Int(id) },
-                        onRemoved: { id in if captureDisplayID == Int(id) { captureDisplayID = 0 } }
+                        onRemoved: { id in if captureDisplayID == Int(id) { captureDisplayID = 0 } },
+                        displaysInGrid: captureDisplayID > 0 ? [CGDirectDisplayID(captureDisplayID)] : []
                     )
 
                     Spacer()
