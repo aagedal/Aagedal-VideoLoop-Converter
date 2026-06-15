@@ -992,7 +992,13 @@ struct ContentView: View {
         let hasAccess = folderURL.startAccessingSecurityScopedResource()
         _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: folderURL)
 
-        let videoURLs = CameraCardScanner.scanForVideoFiles(in: folderURL)
+        // Scan off the main actor: the picker opens at /Volumes and lets the user
+        // choose any directory (including a large external drive or deep tree), so the
+        // recursive FileManager walk can take seconds. Keeping it on @MainActor would
+        // freeze the UI for the duration.
+        let videoURLs = await Task.detached(priority: .userInitiated) {
+            CameraCardScanner.scanForVideoFiles(in: folderURL)
+        }.value
 
         if hasAccess { folderURL.stopAccessingSecurityScopedResource() }
 
