@@ -35,6 +35,9 @@ struct AddToEncodeQueueIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to Encode Queue"
     static let description = IntentDescription("Add the selected video files to the Aagedal VideoLoop Converter queue.")
 
+    /// Launch the app if it isn't already running so the files actually land in the queue.
+    static var openAppWhenRun: Bool { true }
+
     @Parameter(title: "Video Files", supportedContentTypes: [.movie])
     var videos: [IntentFile]
 
@@ -47,9 +50,15 @@ struct AddToEncodeQueueIntent: AppIntent {
         guard !urls.isEmpty else {
             throw NSError(domain: "AddToEncodeQueueIntent", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid file URLs"])
         }
-        // Broadcast to running app instance (if any) on the main thread
+        // Broadcast to the running app instance, buffering so the request also
+        // survives a cold launch (window receivers may not be ready yet).
+        let requestID = UUID()
         await MainActor.run {
-            NotificationCenter.default.post(name: .enqueueFileURL, object: urls)
+            PendingAppIntentRequests.shared.submit(
+                name: .enqueueFileURL,
+                object: urls,
+                userInfo: [PendingAppIntentRequests.requestIDKey: requestID]
+            )
         }
         return .result()
     }

@@ -629,7 +629,8 @@ struct ContentView: View {
                 outputFolder: $outputFolder,
                 selectedPreset: selectedPreset,
                 videoLoopDefaultMuted: videoLoopDefaultMuted,
-                startConversion: startConversion
+                startConversion: startConversion,
+                applyPreset: applyPresetChange
             ))
     }
 
@@ -651,6 +652,9 @@ struct ContentView: View {
                 .onAppear {
                     setupScheduledDownloads()
                     applyWatchFolderLaunchActivationIfNeeded()
+                    // Replay any App Intent request that arrived before this
+                    // window's notification receivers were ready (cold launch).
+                    PendingAppIntentRequests.shared.drain()
                 }
                 .toolbar {
                     conversionToolbar
@@ -2615,6 +2619,9 @@ private struct ContentViewNotificationHandlers: ViewModifier {
     let selectedPreset: ExportPreset
     let videoLoopDefaultMuted: Bool
     let startConversion: () async -> Void
+    /// Switches the app to a given preset (with the usual side effects) before a
+    /// per-preset "Convert Immediately" App Intent starts conversion.
+    let applyPreset: (ExportPreset) -> Void
 
     func body(content: Content) -> some View {
         content
@@ -2627,6 +2634,11 @@ private struct ContentViewNotificationHandlers: ViewModifier {
     }
 
     private func handleEnqueueNotification(_ notification: Notification) {
+        // Mark the buffered request handled so a later drain() won't replay it.
+        if let requestID = notification.userInfo?[PendingAppIntentRequests.requestIDKey] as? UUID {
+            PendingAppIntentRequests.shared.consume(id: requestID)
+        }
+
         let urls: [URL]
         if let singleURL = notification.object as? URL {
             urls = [singleURL]
@@ -2690,6 +2702,11 @@ private struct ContentViewNotificationHandlers: ViewModifier {
         guard let info = notification.userInfo,
               let folderURL = info["outputFolderURL"] as? URL else { return }
 
+        // Mark the buffered request handled so a later drain() won't replay it.
+        if let requestID = info[PendingAppIntentRequests.requestIDKey] as? UUID {
+            PendingAppIntentRequests.shared.consume(id: requestID)
+        }
+
         let fileURLs: [URL]
         if let singleURL = info["fileURL"] as? URL {
             fileURLs = [singleURL]
@@ -2699,21 +2716,36 @@ private struct ContentViewNotificationHandlers: ViewModifier {
             return
         }
 
+        // Per-preset intents carry the preset to convert with; fall back to the
+        // app's currently selected preset (e.g. the legacy ConvertImmediatelyIntent).
+        let preset: ExportPreset
+        if let rawValue = info["presetRawValue"] as? String,
+           let requested = ExportPreset(rawValue: rawValue) {
+            preset = requested
+        } else {
+            preset = selectedPreset
+        }
+
         Task {
             await MainActor.run {
                 currentOutputFolder = folderURL
                 outputFolder = folderURL.path
+                // Switch the app to the requested preset before converting so
+                // startConversion() (which reads selectedPreset) uses it too.
+                if preset != selectedPreset {
+                    applyPreset(preset)
+                }
             }
 
             for fileURL in fileURLs {
                 if var videoItem = await VideoFileUtils.createVideoItem(
                     from: fileURL,
                     outputFolder: folderURL.path,
-                    preset: selectedPreset
+                    preset: preset
                 ) {
                     await MainActor.run {
                         if !droppedFiles.contains(where: { $0.url == videoItem.url }) {
-                            if selectedPreset == .videoLoop && videoLoopDefaultMuted {
+                            if preset == .videoLoop && videoLoopDefaultMuted {
                                 videoItem.isMuted = true
                             }
                             droppedFiles.append(videoItem)

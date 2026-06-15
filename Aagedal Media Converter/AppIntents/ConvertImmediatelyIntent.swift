@@ -20,6 +20,9 @@ struct ConvertImmediatelyIntent: AppIntent {
     static let title: LocalizedStringResource = "Convert Videos Immediately"
     static let description = IntentDescription("Add the selected video files to the queue, set the output folder to the same directory, and start conversion.")
 
+    /// Launch the app if it isn't already running so the conversion still happens.
+    static var openAppWhenRun: Bool { true }
+
     @Parameter(title: "Video Files", supportedContentTypes: [.movie])
     var videos: [IntentFile]
 
@@ -33,15 +36,21 @@ struct ConvertImmediatelyIntent: AppIntent {
             throw NSError(domain: "ConvertImmediatelyIntent", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid file URLs"])
         }
 
-        // Use the folder of the first file as the output folder
+        // Use the folder of the first file as the output folder. The request is
+        // buffered so it survives the app launching from a closed state (the
+        // window's notification receivers may not be ready yet at launch).
         let folder = firstURL.deletingLastPathComponent()
+        let requestID = UUID()
         await MainActor.run {
-            NotificationCenter.default.post(name: .convertImmediately,
-                                            object: nil,
-                                            userInfo: [
-                                                "fileURLs": urls,
-                                                "outputFolderURL": folder
-                                            ])
+            PendingAppIntentRequests.shared.submit(
+                name: .convertImmediately,
+                object: nil,
+                userInfo: [
+                    "fileURLs": urls,
+                    "outputFolderURL": folder,
+                    PendingAppIntentRequests.requestIDKey: requestID
+                ]
+            )
         }
         return .result()
     }

@@ -44,6 +44,8 @@
 		8E09F7442EC762C200E129CD /* AudioWaveformPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E09F7432EC762C200E129CD /* AudioWaveformPreferences.swift */; };
 		8E0C32CB2E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */; };
 		8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */; };
+		8E0C32CF2E09EF1C00F22B21 /* ConvertWithPresetIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32CE2E09EF1C00F22B21 /* ConvertWithPresetIntents.swift */; };
+		8E0C32D12E09EF1C00F22B21 /* PendingAppIntentRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0C32D02E09EF1C00F22B21 /* PendingAppIntentRequests.swift */; };
 		8E0CA7AC2C3458A400EA7C37 /* ParsingUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */; };
 		8E1477472ECF453900C805AA /* UpdateChecker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477462ECF453900C805AA /* UpdateChecker.swift */; };
 		8E1477492ECF4DAB00C805AA /* UpdateNotificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E1477482ECF4DAB00C805AA /* UpdateNotificationView.swift */; };
@@ -292,6 +294,8 @@
 		8E0C32C72E09E58F00F22B21 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToEncodeQueueIntent.swift; sourceTree = "<group>"; };
 		8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvertImmediatelyIntent.swift; sourceTree = "<group>"; };
+		8E0C32CE2E09EF1C00F22B21 /* ConvertWithPresetIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvertWithPresetIntents.swift; sourceTree = "<group>"; };
+		8E0C32D02E09EF1C00F22B21 /* PendingAppIntentRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingAppIntentRequests.swift; sourceTree = "<group>"; };
 		8E0C32CE2E09F5E400F22B21 /* ffmpeg-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ffmpeg-LICENSE.txt"; sourceTree = "<group>"; };
 		8E0C32D12E09FDDC00F22B21 /* Aagedal Media Converter Debug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Aagedal Media Converter Debug.entitlements"; sourceTree = "<group>"; };
 		8E0CA7A32C34160C00EA7C37 /* done.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = done.mp3; sourceTree = "<group>"; };
@@ -551,6 +555,8 @@
 			children = (
 				8E0C32C92E09EC3B00F22B21 /* AddToEncodeQueueIntent.swift */,
 				8E0C32CC2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift */,
+				8E0C32CE2E09EF1C00F22B21 /* ConvertWithPresetIntents.swift */,
+				8E0C32D02E09EF1C00F22B21 /* PendingAppIntentRequests.swift */,
 			);
 			path = AppIntents;
 			sourceTree = "<group>";
@@ -1271,6 +1277,8 @@
 				8EC9A7032EC14D590082C67F /* PreviewPlayerContent.swift in Sources */,
 				8E903F5F2E05642D0075E05C /* FileNameProcessor.swift in Sources */,
 				8E0C32CD2E09EF1C00F22B21 /* ConvertImmediatelyIntent.swift in Sources */,
+				8E0C32CF2E09EF1C00F22B21 /* ConvertWithPresetIntents.swift in Sources */,
+				8E0C32D12E09EF1C00F22B21 /* PendingAppIntentRequests.swift in Sources */,
 				8EC9A7012EC14CE90082C67F /* PreviewPlayerHelpers.swift in Sources */,
 				8E824AC52EF8AB46001A6B95 /* FullscreenMPVView.swift in Sources */,
 				8EC9A6FE2EC149140082C67F /* PreviewPlayerController.swift in Sources */,
