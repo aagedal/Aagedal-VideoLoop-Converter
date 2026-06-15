@@ -47,20 +47,30 @@ extension ConvertWithPresetIntent {
 
     func perform() async throws -> some IntentResult {
         let urls = videos.compactMap { $0.fileURL }
+        let presetRawValue = Self.preset.rawValue
+        let requestID = UUID()
+
+        // No file input (e.g. invoked from a Spotlight/Siri phrase, which can't
+        // attach files): open the app, switch to this preset, and let the user
+        // pick files in the importer; conversion starts once they choose.
         guard let firstURL = urls.first else {
-            throw NSError(
-                domain: "ConvertWithPresetIntent",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "No valid file URLs"]
-            )
+            await MainActor.run {
+                PendingAppIntentRequests.shared.submit(
+                    name: .convertPickFiles,
+                    object: nil,
+                    userInfo: [
+                        "presetRawValue": presetRawValue,
+                        PendingAppIntentRequests.requestIDKey: requestID
+                    ]
+                )
+            }
+            return .result()
         }
 
         // Use the folder of the first file as the output folder, matching
         // `ConvertImmediatelyIntent`. The carried preset raw value tells the
         // running app which preset to switch to before starting conversion.
         let folder = firstURL.deletingLastPathComponent()
-        let presetRawValue = Self.preset.rawValue
-        let requestID = UUID()
         await MainActor.run {
             PendingAppIntentRequests.shared.submit(
                 name: .convertImmediately,
@@ -324,9 +334,6 @@ struct ConvertWithDefaultPresetIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         let urls = videos.compactMap { $0.fileURL }
-        guard let firstURL = urls.first else {
-            throw NSError(domain: "ConvertWithDefaultPresetIntent", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid file URLs"])
-        }
 
         // Resolve the user's configured default preset (falls back to VideoLoop,
         // matching the app's @AppStorage default).
@@ -334,9 +341,26 @@ struct ConvertWithDefaultPresetIntent: AppIntent {
             ?? ExportPreset.videoLoop.rawValue
         let presetRawValue = ExportPreset(rawValue: defaultRawValue)?.rawValue
             ?? ExportPreset.videoLoop.rawValue
+        let requestID = UUID()
+
+        // No file input (e.g. invoked from a Spotlight/Siri phrase, which can't
+        // attach files): open the app, switch to the default preset, and let the
+        // user pick files in the importer; conversion starts once they choose.
+        guard let firstURL = urls.first else {
+            await MainActor.run {
+                PendingAppIntentRequests.shared.submit(
+                    name: .convertPickFiles,
+                    object: nil,
+                    userInfo: [
+                        "presetRawValue": presetRawValue,
+                        PendingAppIntentRequests.requestIDKey: requestID
+                    ]
+                )
+            }
+            return .result()
+        }
 
         let folder = firstURL.deletingLastPathComponent()
-        let requestID = UUID()
         await MainActor.run {
             PendingAppIntentRequests.shared.submit(
                 name: .convertImmediately,

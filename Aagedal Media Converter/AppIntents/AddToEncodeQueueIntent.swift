@@ -47,12 +47,26 @@ struct AddToEncodeQueueIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         let urls = videos.compactMap { $0.fileURL }
+        let requestID = UUID()
+
+        // No file input (e.g. invoked from a Spotlight/Siri phrase, which can't
+        // attach files): open the app and present the file importer so the user
+        // can pick files. Unlike the convert intents, this only queues them.
         guard !urls.isEmpty else {
-            throw NSError(domain: "AddToEncodeQueueIntent", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid file URLs"])
+            await MainActor.run {
+                PendingAppIntentRequests.shared.submit(
+                    name: .convertPickFiles,
+                    object: nil,
+                    userInfo: [
+                        "startConversion": false,
+                        PendingAppIntentRequests.requestIDKey: requestID
+                    ]
+                )
+            }
+            return .result()
         }
         // Broadcast to the running app instance, buffering so the request also
         // survives a cold launch (window receivers may not be ready yet).
-        let requestID = UUID()
         await MainActor.run {
             PendingAppIntentRequests.shared.submit(
                 name: .enqueueFileURL,

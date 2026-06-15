@@ -14,6 +14,12 @@ import Foundation
 // Notification carrying file URL and output folder URL
 extension Notification.Name {
     static let convertImmediately = Notification.Name("convertImmediately")
+    /// Posted when a convert App Intent runs without any file input — e.g. when
+    /// invoked as an App Shortcut from a Spotlight/Siri phrase, which can't
+    /// attach files. The app opens, switches to the carried preset (if any), and
+    /// presents the file importer; conversion starts once the user picks files.
+    /// `userInfo["presetRawValue"]` is optional (absent → keep current selection).
+    static let convertPickFiles = Notification.Name("convertPickFiles")
 }
 
 struct ConvertImmediatelyIntent: AppIntent {
@@ -32,15 +38,26 @@ struct ConvertImmediatelyIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         let urls = videos.compactMap { $0.fileURL }
+        let requestID = UUID()
+
+        // No file input (e.g. invoked from a Spotlight/Siri phrase, which can't
+        // attach files): open the app and let the user pick files in the
+        // importer, then start converting with the current preset.
         guard let firstURL = urls.first else {
-            throw NSError(domain: "ConvertImmediatelyIntent", code: -1, userInfo: [NSLocalizedDescriptionKey: "No valid file URLs"])
+            await MainActor.run {
+                PendingAppIntentRequests.shared.submit(
+                    name: .convertPickFiles,
+                    object: nil,
+                    userInfo: [PendingAppIntentRequests.requestIDKey: requestID]
+                )
+            }
+            return .result()
         }
 
         // Use the folder of the first file as the output folder. The request is
         // buffered so it survives the app launching from a closed state (the
         // window's notification receivers may not be ready yet at launch).
         let folder = firstURL.deletingLastPathComponent()
-        let requestID = UUID()
         await MainActor.run {
             PendingAppIntentRequests.shared.submit(
                 name: .convertImmediately,

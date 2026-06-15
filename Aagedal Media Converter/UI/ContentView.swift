@@ -64,6 +64,9 @@ struct ContentView: View {
     @State private var isConverting: Bool = false
     @State private var overallProgress: Double = 0.0
     @State private var isFileImporterPresented = false
+    /// Set when a convert App Intent opened the file importer with no file input
+    /// (Spotlight/Siri phrase). After the user picks files, conversion starts.
+    @State private var pendingConvertAfterImport = false
     @AppStorage(AppConstants.defaultPresetKey) private var storedDefaultPresetRawValue = ExportPreset.videoLoop.rawValue
     @AppStorage(AppConstants.animatedStillFormatKey) private var animatedStillFormat = AppConstants.defaultAnimatedStillFormat
     @AppStorage(AppConstants.audioOnlyFormatKey) private var audioOnlyFormat = AppConstants.defaultAudioOnlyFormat
@@ -627,6 +630,8 @@ struct ContentView: View {
                 queueOrder: $queueOrder,
                 currentOutputFolder: $currentOutputFolder,
                 outputFolder: $outputFolder,
+                isFileImporterPresented: $isFileImporterPresented,
+                pendingConvertAfterImport: $pendingConvertAfterImport,
                 selectedPreset: selectedPreset,
                 videoLoopDefaultMuted: videoLoopDefaultMuted,
                 startConversion: startConversion,
@@ -1497,7 +1502,18 @@ struct ContentView: View {
                     }
                 }
             }
+
+            // A convert App Intent (Spotlight/Siri phrase) opened this importer
+            // with no file input; now that the user has picked files, start
+            // converting. Guard on a non-empty selection so cancelling is a no-op.
+            if pendingConvertAfterImport {
+                pendingConvertAfterImport = false
+                if !urls.isEmpty {
+                    Task { await startConversionWithValidation() }
+                }
+            }
         case .failure(let error):
+            pendingConvertAfterImport = false
             Self.logger.error("Error selecting files: \(error.localizedDescription, privacy: .public)")
         }
     }
@@ -2622,6 +2638,8 @@ private struct ContentViewNotificationHandlers: ViewModifier {
     @Binding var queueOrder: [UUID]
     @Binding var currentOutputFolder: URL
     @Binding var outputFolder: String
+    @Binding var isFileImporterPresented: Bool
+    @Binding var pendingConvertAfterImport: Bool
     let selectedPreset: ExportPreset
     let videoLoopDefaultMuted: Bool
     let startConversion: () async -> Void
@@ -2637,6 +2655,30 @@ private struct ContentViewNotificationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .convertImmediately)) { notification in
                 handleConvertImmediatelyNotification(notification)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .convertPickFiles)) { notification in
+                handleConvertPickFilesNotification(notification)
+            }
+    }
+
+    /// Handles a convert/enqueue App Intent that ran without any file input
+    /// (e.g. a Spotlight/Siri phrase, which can't attach files): switch to the
+    /// carried preset, bring the window forward, and present the file importer.
+    /// For convert intents (`startConversion` flag absent or true), conversion
+    /// starts once the user picks files; the enqueue intent only queues them.
+    private func handleConvertPickFilesNotification(_ notification: Notification) {
+        // Mark the buffered request handled so a later drain() won't replay it.
+        if let requestID = notification.userInfo?[PendingAppIntentRequests.requestIDKey] as? UUID {
+            PendingAppIntentRequests.shared.consume(id: requestID)
+        }
+
+        if let rawValue = notification.userInfo?["presetRawValue"] as? String,
+           let preset = ExportPreset(rawValue: rawValue), preset != selectedPreset {
+            applyPreset(preset)
+        }
+
+        pendingConvertAfterImport = (notification.userInfo?["startConversion"] as? Bool) ?? true
+        NSApp.activate(ignoringOtherApps: true)
+        isFileImporterPresented = true
     }
 
     private func handleEnqueueNotification(_ notification: Notification) {
