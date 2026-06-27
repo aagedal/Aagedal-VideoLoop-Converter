@@ -1,6 +1,6 @@
 # v.4.3.0
 
-A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a single "convert with whatever's selected" action, there's now **one Convert action per export preset**, a **Convert with Default Preset** action that follows your configured default — so it can drive any of your *custom* presets — and the most common presets are surfaced as zero-setup **Spotlight / Siri shortcuts**. All of them now **launch the app automatically** when it isn't already running. Under the hood, the bundled **FFmpeg moves to 8.1.1**.
+A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a single "convert with whatever's selected" action, there's now **one Convert action per export preset**, a **Convert with Default Preset** action that follows your configured default — so it can drive any of your *custom* presets — and the most common presets are surfaced as zero-setup **Spotlight / Siri shortcuts**. All of them now **launch the app automatically** when it isn't already running. Under the hood, the bundled **FFmpeg moves to 8.1.1**. Rounding it out: the queue's **drag-to-share handle now works on every drag** (not just the first after launch), and **importing from a camera card no longer freezes the window**.
 
 ## Shortcuts & App Intents
 
@@ -12,6 +12,11 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 ## Encoding
 
 - **Bundled FFmpeg updated to 8.1.1.** Replaces the previous build that dynamically linked Homebrew's `libvorbis.dylib` — and crashed on launch — with a self-contained, statically-linked GPL build. Non-free components are dropped: `libfdk_aac` gives way to the native `aac` / `aac_at` encoders.
+
+## Fixes
+
+- **Drag-to-share works on every drag, not just the first.** The drag handle on a finished queue row (the four-arrows icon) lets you drag the exported file straight into another app or Finder. It used to work only on the first drag after launch and then go dead — or start reordering the queue instead — because the drag was started from the wrong place and an unfinished drag session blocked all the ones after it. It now begins a proper file drag every time. The drag image is the row's own thumbnail (rounded, with a soft drop shadow) instead of a generic black document icon, and dropping the file back onto the queue re-adds it so you can compare the export against the original.
+- **Importing from a camera card no longer freezes the window.** Scanning a camera/SD card ran on the main thread, locking up the UI until it finished. The scan now runs off the main actor, so the window stays responsive.
 
 # v.4.2.0
 
