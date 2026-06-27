@@ -10,29 +10,18 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Custom Table View (initiates file drag instead of row drag when clicking DraggableFileImageView)
+// MARK: - Custom Table View
+//
+// File-drag-out from a queue row is handled by `DraggableFileImageView` itself
+// (it starts its own NSDraggingSession on mouseDown). This subclass only needs
+// to surface a drag-exit hook for the row-reorder / group-drop highlight.
 
 private final class VideoQueueNSTableView: NSTableView {
-
-    /// Tracks whether we're in a file-drag so we can override the operation mask.
-    private var isFileDrag = false
 
     /// Fires when a drag leaves the table without dropping, so the coordinator can
     /// clear its "hovering over group" highlight. `validateDrop` isn't called at
     /// exit, so we need this AppKit-level hook.
     var onDragExit: (() -> Void)?
-
-    override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        if isFileDrag {
-            return .copy
-        }
-        return super.draggingSession(session, sourceOperationMaskFor: context)
-    }
-
-    override func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        isFileDrag = false
-        super.draggingSession(session, endedAt: screenPoint, operation: operation)
-    }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         onDragExit?()
@@ -41,27 +30,13 @@ private final class VideoQueueNSTableView: NSTableView {
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         onDragExit?()
-        super.draggingEnded(sender)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let localPoint = convert(event.locationInWindow, from: nil)
-        if let hitView = hitTest(localPoint) {
-            let dragView = (hitView as? DraggableFileImageView) ?? (hitView.superview as? DraggableFileImageView)
-            if let dragView, let fileURL = dragView.fileURL {
-                // Start a file drag session from the table view, bypassing row-reorder
-                isFileDrag = true
-                let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
-                let iconBounds = dragView.convert(dragView.bounds, to: self)
-                let dragImage = NSImage(systemSymbolName: "doc.fill", accessibilityDescription: nil)
-                    ?? dragView.image
-                    ?? NSImage()
-                draggingItem.setDraggingFrame(iconBounds, contents: dragImage)
-                beginDraggingSession(with: [draggingItem], event: event, source: self)
-                return
-            }
-        }
-        super.mouseDown(with: event)
+        // Do NOT call super here. `draggingEnded(_:)` is an *optional*
+        // NSDraggingDestination method that NSTableView does not implement, so
+        // `super.draggingEnded(_:)` raises "unrecognized selector". That
+        // exception fires inside AppKit's drag-completion proc, leaving the drag
+        // session unfinished — after which AppKit rejects every later drag with
+        // "Cannot start a new drag. A previous drag has not finished", so only
+        // the first drag of a session worked.
     }
 }
 
@@ -79,11 +54,18 @@ extension NSPasteboard.PasteboardType {
     static let videoQueueItem = NSPasteboard.PasteboardType("com.aagedal.mediaconverter.videoqueueitem")
 }
 
-/// Returns true when `info` represents a drag that originated inside `tableView` —
-/// either the table itself or any of its descendants (e.g. a group child mini-row).
-/// Used to distinguish internal reorder/group-move gestures from external Finder drops.
+/// Returns true when `info` represents an internal reorder/group-move gesture —
+/// a drag that originated inside `tableView` AND carries the reorder marker.
+///
+/// The marker check matters because a drag-to-share handle (`DraggableFileImageView`)
+/// is also a descendant of the table, but it puts only a `.fileURL` on the
+/// pasteboard. Without the marker requirement, dragging an exported file back onto
+/// our own queue would be mistaken for a reorder. Genuine reorders always write
+/// `.videoQueueItem` (see `pasteboardWriterForRow`), so requiring it lets a
+/// re-dropped export fall through to the external-file path and be re-added.
 @MainActor
 func draggingSourceIsInternal(_ info: any NSDraggingInfo, tableView: NSTableView) -> Bool {
+    guard info.draggingPasteboard.types?.contains(.videoQueueItem) == true else { return false }
     if let src = info.draggingSource as? NSTableView, src === tableView { return true }
     if let view = info.draggingSource as? NSView, view.isDescendant(of: tableView) { return true }
     return false

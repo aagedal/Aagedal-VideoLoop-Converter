@@ -558,15 +558,16 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         downloadedCopyPathButton.toolTip = "Copy downloaded source file path"
         downloadedCopyPathButton.setContentHuggingPriority(.required, for: .horizontal)
 
-        // Drag-to-share for the downloaded source file. VideoQueueNSTableView's
-        // mouseDown hit-tests for any DraggableFileImageView, so this works the
-        // same way as the encoded-output drag handle in the trailing stack.
+        // Drag-to-share for the downloaded source file. DraggableFileImageView
+        // starts its own file-drag session on mouseDown, so this works the same
+        // way as the encoded-output drag handle in the trailing stack.
         downloadedDragButton.image = NSImage(systemSymbolName: "arrow.up.and.down.and.arrow.left.and.right", accessibilityDescription: "Drag downloaded source file")
         downloadedDragButton.translatesAutoresizingMaskIntoConstraints = false
         downloadedDragButton.contentTintColor = .systemPurple
         downloadedDragButton.isHidden = true
         downloadedDragButton.toolTip = "Drag this icon to share the downloaded source file with other apps."
         downloadedDragButton.setContentHuggingPriority(.required, for: .horizontal)
+        downloadedDragButton.thumbnailProvider = { [weak thumbnailImageView] in thumbnailImageView?.image }
 
         // Copy file path button
         copyPathButton.image = NSImage(systemSymbolName: "doc.on.doc.fill", accessibilityDescription: "Copy file path")
@@ -583,6 +584,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         dragButton.translatesAutoresizingMaskIntoConstraints = false
         dragButton.isHidden = true
         dragButton.setContentHuggingPriority(.required, for: .horizontal)
+        dragButton.thumbnailProvider = { [weak thumbnailImageView] in thumbnailImageView?.image }
 
         // Live recording badge
         liveRecordingBadge.wantsLayer = true
@@ -1940,10 +1942,109 @@ final class PlayOverlayButtonView: NSView {
 
 // MARK: - DraggableFileImageView
 
-/// Marker NSImageView subclass that holds a file URL for drag-to-share.
-/// The actual drag session is initiated by VideoQueueNSTableView, which
-/// detects clicks on this view and starts the file drag from the table level
-/// (bypassing NSTableView's row-reorder machinery).
+/// NSImageView subclass that drags its `fileURL` out to other apps (Finder, an
+/// editor, etc.) or back onto our own queue.
+///
+/// The view starts its own `NSDraggingSession` from `mouseDown` and, crucially,
+/// does NOT forward the event to the responder chain when it owns a file URL.
+/// A plain NSImageView forwards `mouseDown` up to the enclosing NSTableView,
+/// which then starts a row-reorder drag instead — handling the event here is
+/// what keeps the icon a file-drag handle rather than a reorder grip.
 final class DraggableFileImageView: NSImageView {
     var fileURL: URL?
+
+    /// Supplies the row's current thumbnail at drag time so the drag image can
+    /// reuse it (wrapped in a film-strip frame). Pulled live rather than cached
+    /// so a late-decoded thumbnail is reflected without extra plumbing.
+    var thumbnailProvider: (() -> NSImage?)?
+
+    /// Allow starting a drag even when our window isn't key, so the first click
+    /// on the icon drags immediately instead of just activating the window.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let fileURL else {
+            // No exported file yet: behave like a normal cell view (lets the
+            // table handle row selection / reorder).
+            super.mouseDown(with: event)
+            return
+        }
+
+        let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
+        let dragImage = dragImage(from: thumbnailProvider?())
+        // Centre the drag image on the icon (frame is in this view's own
+        // coordinate space) so it sits under the cursor as the drag begins.
+        let origin = NSPoint(x: bounds.midX - dragImage.size.width / 2,
+                             y: bounds.midY - dragImage.size.height / 2)
+        draggingItem.setDraggingFrame(NSRect(origin: origin, size: dragImage.size), contents: dragImage)
+        beginDraggingSession(with: [draggingItem], event: event, source: self)
+    }
+
+    /// Renders `thumbnail` as a clean drag image: the thumbnail with rounded
+    /// corners, a thin light border, and a soft drop shadow so it reads as a
+    /// floating file rather than something embedded in the video. Falls back to a
+    /// plain document icon when no thumbnail is available (e.g. audio-only files
+    /// before a waveform is generated).
+    private func dragImage(from thumbnail: NSImage?) -> NSImage {
+        guard let thumbnail, thumbnail.size.width > 0, thumbnail.size.height > 0 else {
+            return NSImage(systemSymbolName: "doc.fill", accessibilityDescription: nil) ?? image ?? NSImage()
+        }
+
+        // Scale the thumbnail down to a tidy drag size while keeping its aspect.
+        let maxContentWidth: CGFloat = 168
+        let aspect = thumbnail.size.height / thumbnail.size.width
+        let contentWidth = min(thumbnail.size.width, maxContentWidth)
+        let contentHeight = (contentWidth * aspect).rounded()
+        let cornerRadius: CGFloat = 4
+
+        // Pad the canvas so the shadow isn't clipped. The shadow is offset
+        // downward, so it needs more room below than above.
+        let shadowBlur: CGFloat = 6
+        let shadowDrop: CGFloat = 2
+        let padX = shadowBlur
+        let padTop = shadowBlur
+        let padBottom = shadowBlur + shadowDrop
+        let totalWidth = contentWidth + padX * 2
+        let totalHeight = contentHeight + padTop + padBottom
+        let contentRect = NSRect(x: padX, y: padBottom, width: contentWidth, height: contentHeight)
+
+        let result = NSImage(size: NSSize(width: totalWidth, height: totalHeight))
+        result.lockFocus()
+        defer { result.unlockFocus() }
+
+        let rounded = NSBezierPath(roundedRect: contentRect, xRadius: cornerRadius, yRadius: cornerRadius)
+
+        // Cast the drop shadow from an opaque rounded fill, then draw the
+        // thumbnail clipped on top (shadow applies only to the fill, not the image).
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowBlurRadius = shadowBlur
+        shadow.shadowOffset = NSSize(width: 0, height: -shadowDrop)
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.45)
+        shadow.set()
+        NSColor.black.setFill()
+        rounded.fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        NSGraphicsContext.saveGraphicsState()
+        rounded.addClip()
+        thumbnail.draw(in: contentRect, from: .zero, operation: .copy, fraction: 1.0)
+        NSGraphicsContext.restoreGraphicsState()
+
+        // Thin border, inset by half a point so the 1pt stroke sits inside the edge.
+        let border = NSBezierPath(roundedRect: contentRect.insetBy(dx: 0.5, dy: 0.5),
+                                  xRadius: cornerRadius, yRadius: cornerRadius)
+        border.lineWidth = 1
+        NSColor.white.withAlphaComponent(0.85).setStroke()
+        border.stroke()
+
+        return result
+    }
+}
+
+extension DraggableFileImageView: NSDraggingSource {
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        // Always a copy — we never want to move/remove the user's exported file.
+        .copy
+    }
 }

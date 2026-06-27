@@ -686,8 +686,8 @@ private struct GroupEditorRow: View {
 /// Drag-to-share icon for a row in the group editor. Uses SwiftUI's `.onDrag`
 /// so the drag is registered at the SwiftUI layer — the surrounding `List`
 /// with `.onMove` swallows mouseDown before it reaches an embedded NSView,
-/// so the queue's `DraggableFileImageView` + table-view-mouseDown trick
-/// can't be reused here.
+/// so the queue's `DraggableFileImageView` (which starts its own drag from
+/// mouseDown) can't be reused here.
 private struct DragShareButton: View {
     let fileURL: URL?
 
