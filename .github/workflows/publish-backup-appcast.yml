@@ -1,0 +1,50 @@
+name: Publish backup appcast
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - appcast.xml
+      - .github/workflows/publish-backup-appcast.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-backup-appcast
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Upload appcast over FTPS
+    runs-on: ubuntu-latest
+    environment: Aagedal Apps
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Upload appcast
+        env:
+          FTP_HOST: ${{ secrets.APPCAST_FTP_HOST }}
+          FTP_PORT: ${{ secrets.APPCAST_FTP_PORT }}
+          FTP_USERNAME: ${{ secrets.APPCAST_FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.APPCAST_FTP_PASSWORD }}
+          APPCAST_FILENAME: mediaconverter.xml
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl --disable --fail --silent --show-error \
+            --ssl-reqd \
+            --ftp-create-dirs \
+            --user "${FTP_USERNAME}:${FTP_PASSWORD}" \
+            --upload-file appcast.xml \
+            --quote "-RNFR ${APPCAST_FILENAME}.tmp" \
+            --quote "-RNTO ${APPCAST_FILENAME}" \
+            "ftp://${FTP_HOST}:${FTP_PORT}/appcast/${APPCAST_FILENAME}.tmp"
