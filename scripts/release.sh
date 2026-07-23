@@ -17,9 +17,8 @@
 #      NOTE: notarytool's keychain profile is only reachable from a real
 #      Terminal session — run this script there, not from an automated/agent
 #      shell, or the notarize step fails with "No Keychain password item found".
-#   4. A web host for the release zip. The zip is uploaded MANUALLY (see the
-#      DOWNLOAD_URL section below) — Codeberg's 100 MB release-attachment cap is
-#      too small for this bundle, so binaries live on aagedal.me instead.
+#   4. GitHub CLI (`gh`) installed and authenticated (or the script will skip
+#      the upload step and print manual release instructions).
 #
 # Usage:
 #   scripts/release.sh                 # uses MARKETING_VERSION from the project
@@ -184,17 +183,29 @@ echo "==> Sparkle signature: $ED_SIGNATURE_LINE"
 ED_SIGNATURE=$(echo "$ED_SIGNATURE_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')
 
 # -----------------------------------------------------------------------------
-# Distribution host
+# GitHub release
 # -----------------------------------------------------------------------------
-# The release zip is hosted on aagedal.me, not Codeberg: Codeberg caps release
-# attachments at 100 MB and the bundle now exceeds that (bundled avmenc/avmdec +
-# MPVKit). Uploads are done manually for now — the script just prints where the
-# zip needs to land so the appcast enclosure URL below resolves.
-DOWNLOAD_URL="https://aagedal.me/apps/$RELEASE_ZIP_NAME"
+DOWNLOAD_URL="https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download/$MARKETING_VERSION/$RELEASE_ZIP_NAME"
 
-echo "==> Manual upload required. Before the appcast goes live, upload:"
-echo "    $RELEASE_ZIP"
-echo "    → $DOWNLOAD_URL"
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    if gh release view "$MARKETING_VERSION" --repo "$GITHUB_OWNER/$GITHUB_REPO" >/dev/null 2>&1; then
+        echo "==> Uploading $RELEASE_ZIP_NAME to existing GitHub release $MARKETING_VERSION"
+        gh release upload "$MARKETING_VERSION" "$RELEASE_ZIP" \
+            --repo "$GITHUB_OWNER/$GITHUB_REPO" \
+            --clobber
+    else
+        echo "==> Creating GitHub release $MARKETING_VERSION"
+        gh release create "$MARKETING_VERSION" "$RELEASE_ZIP" \
+            --repo "$GITHUB_OWNER/$GITHUB_REPO" \
+            --target main \
+            --title "$MARKETING_VERSION" \
+            --generate-notes
+    fi
+else
+    echo "==> GitHub CLI is unavailable or unauthenticated — skipping upload."
+    echo "    1. Create release $MARKETING_VERSION at https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/new"
+    echo "    2. Attach $RELEASE_ZIP"
+fi
 
 # -----------------------------------------------------------------------------
 # Append appcast.xml entry

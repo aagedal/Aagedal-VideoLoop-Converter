@@ -210,7 +210,7 @@
             <sparkle:shortVersionString>4.3.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <enclosure
-                url="https://aagedal.me/apps/Aagedal_Media_Converter_4-3-0.zip"
+                url="https://github.com/aagedal/Aagedal-Media-Converter/releases/download/4.3.0/Aagedal_Media_Converter_4-3-0.zip"
                 length="110114696"
                 type="application/octet-stream"
                 sparkle:edSignature="fVdi53M3DREHoSsCM+9l/GXQ7AuiPHxesljjohp/DXqTOIrCCnXwUsjvk41o3v4Z/s59SN/rrpYXa8/rgHu2Aw==" />
