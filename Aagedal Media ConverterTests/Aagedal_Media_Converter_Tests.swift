@@ -10,6 +10,31 @@ import XCTest
 
 final class Aagedal_Media_Converter_Tests: XCTestCase {
 
+    func testParsingDurationSupportsVariableFractionalSecondPrecision() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ParsingUtils.parseDuration(from: "Duration: 00:00:01.5")),
+            1.5,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(ParsingUtils.parseDuration(from: "Duration: 01:02:03.123456")),
+            3_723.123_456,
+            accuracy: 0.000_001
+        )
+    }
+
+    func testParsingTimeProgressSupportsVariableFractionalSecondPrecision() throws {
+        let progress = try XCTUnwrap(
+            ParsingUtils.parseTimeProgress(
+                from: "frame=1 time=00:00:01.5 speed=1.0x",
+                totalDuration: 3
+            )
+        )
+
+        XCTAssertEqual(progress.0, 0.5, accuracy: 0.000_001)
+        XCTAssertEqual(progress.1, "00:00:01")
+    }
+
     func testCropInsertedBeforeDarDesqueezeForAnamorphicSources() throws {
         // This mirrors the built-in preset filter chain used by TV-HD / ProRes:
         // 1) Normalize DAR into square pixels (desqueeze)

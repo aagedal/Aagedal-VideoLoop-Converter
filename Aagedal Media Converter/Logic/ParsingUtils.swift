@@ -20,12 +20,12 @@ struct ParsingUtils {
             if let hoursRange = Range(match.range(at: 1), in: output),
                let minutesRange = Range(match.range(at: 2), in: output),
                let secondsRange = Range(match.range(at: 3), in: output),
-               let millisecondsRange = Range(match.range(at: 4), in: output) {
+               let fractionalSecondsRange = Range(match.range(at: 4), in: output) {
                 let hours = Double(output[hoursRange]) ?? 0
                 let minutes = Double(output[minutesRange]) ?? 0
                 let seconds = Double(output[secondsRange]) ?? 0
-                let milliseconds = Double(output[millisecondsRange]) ?? 0
-                return hours * 3600 + minutes * 60 + seconds + milliseconds / 100
+                let fractionalSeconds = Double("0.\(output[fractionalSecondsRange])") ?? 0
+                return hours * 3600 + minutes * 60 + seconds + fractionalSeconds
             }
         }
         return nil
@@ -52,12 +52,12 @@ struct ParsingUtils {
             if let hoursRange = Range(match.range(at: 1), in: output),
                let minutesRange = Range(match.range(at: 2), in: output),
                let secondsRange = Range(match.range(at: 3), in: output),
-               let millisecondsRange = Range(match.range(at: 4), in: output) {
+               let fractionalSecondsRange = Range(match.range(at: 4), in: output) {
                 let hours = Double(output[hoursRange]) ?? 0
                 let minutes = Double(output[minutesRange]) ?? 0
                 let seconds = Double(output[secondsRange]) ?? 0
-                let milliseconds = Double(output[millisecondsRange]) ?? 0
-                let currentTime = hours * 3600 + minutes * 60 + seconds + milliseconds / 100
+                let fractionalSeconds = Double("0.\(output[fractionalSecondsRange])") ?? 0
+                let currentTime = hours * 3600 + minutes * 60 + seconds + fractionalSeconds
 
                 // Skip if time is 0 or very small (likely invalid)
                 guard currentTime > 0.1 else { return nil }
