@@ -5,9 +5,9 @@
 // Update checker for the two cases Sparkle deliberately does not handle:
 //   1. Homebrew-installed copies — Sparkle would replace the bundle that brew
 //      thinks it manages. This checker fetches the latest release info from
-//      Codeberg and the UI routes the user to `brew upgrade --cask …`.
+//      GitHub and the UI routes the user to `brew upgrade --cask …`.
 //   2. Bridge users coming from the pre-Sparkle releases — their old build
-//      still polls this checker (now pointed at Codeberg) and shows the
+//      still polls this checker (now pointed at GitHub) and shows the
 //      in-app banner so they can manually install the first Sparkle-enabled
 //      release.
 //
@@ -60,11 +60,8 @@ class UpdateChecker: ObservableObject {
     /// exists. Single source of truth for the Settings hint and the banner.
     static let homebrewUpgradeCommand = "brew upgrade --cask aagedal-media-converter"
 
-    // Codeberg runs Forgejo, whose API is Gitea-compatible: the JSON shape
-    // (tag_name, html_url, assets[].name, assets[].browser_download_url) matches
-    // GitHub's, so the parsing logic below works unchanged.
-    private let releasesAPIURL = URL(string: "https://codeberg.org/api/v1/repos/taagedal/Aagedal-Media-Converter/releases/latest")!
-    private let fallbackReleasesPageURL = URL(string: "https://codeberg.org/taagedal/Aagedal-Media-Converter/releases/latest")!
+    private let releasesAPIURL = URL(string: "https://api.github.com/repos/aagedal/Aagedal-Media-Converter/releases/latest")!
+    private let fallbackReleasesPageURL = URL(string: "https://github.com/aagedal/Aagedal-Media-Converter/releases/latest")!
 
     private init() {}
 
@@ -93,7 +90,7 @@ class UpdateChecker: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 30
 
-        let delegate = CodebergRedirectGuard()
+        let delegate = GitHubReleasesRedirectGuard()
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
 
@@ -181,13 +178,11 @@ class UpdateChecker: ObservableObject {
     }()
 }
 
-// MARK: - Codeberg redirect guard
+// MARK: - GitHub redirect guard
 
-/// Refuses HTTP redirects away from Codeberg. The API call should stay on
-/// `codeberg.org`, and release-asset downloads use Codeberg's attachment
-/// subpaths (same origin), so a cross-host redirect indicates either a hijack
-/// or a misconfigured request and is rejected.
-private final class CodebergRedirectGuard: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+/// Refuses HTTP redirects away from GitHub's API host. A cross-host redirect
+/// indicates either a hijack or a misconfigured request and is rejected.
+private final class GitHubReleasesRedirectGuard: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
@@ -199,7 +194,7 @@ private final class CodebergRedirectGuard: NSObject, URLSessionDataDelegate, @un
             completionHandler(nil)
             return
         }
-        if host == "codeberg.org" || host.hasSuffix(".codeberg.org") {
+        if host == "api.github.com" {
             completionHandler(request)
         } else {
             completionHandler(nil)

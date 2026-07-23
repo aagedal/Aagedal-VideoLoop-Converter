@@ -56,12 +56,12 @@ fi
 # -----------------------------------------------------------------------------
 NOTARYTOOL_PROFILE="${NOTARYTOOL_PROFILE:-AagedalMediaConverter}"
 SIGN_UPDATE_BIN="${SIGN_UPDATE_BIN:-./bin/sign_update}"   # Sparkle tool path
-CODEBERG_OWNER="taagedal"
-CODEBERG_REPO="Aagedal-Media-Converter"
+GITHUB_OWNER="aagedal"
+GITHUB_REPO="Aagedal-Media-Converter"
 APPCAST="appcast.xml"
 
 # Homebrew tap automation. Set TAP_LOCAL_PATH to a local checkout of the
-# tap repo (codeberg.org/taagedal/homebrew-tap) to have this script bump
+# tap repo (github.com/aagedal/homebrew-tap) to have this script bump
 # the cask formula automatically. Leave unset to skip the tap update and
 # get manual instructions printed instead.
 TAP_LOCAL_PATH="${TAP_LOCAL_PATH:-}"
@@ -212,7 +212,7 @@ if python3 scripts/changelog-to-html.py CHANGELOG.md "$MARKETING_VERSION" > /tmp
     echo "==> Inline release notes extracted from CHANGELOG.md"
 else
     rm -f /tmp/release-notes-$$.html
-    RELEASE_NOTES_HTML="                <p>See <a href=\"https://codeberg.org/$CODEBERG_OWNER/$CODEBERG_REPO/releases/tag/$MARKETING_VERSION\">release notes</a>.</p>"
+    RELEASE_NOTES_HTML="                <p>See <a href=\"https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/tag/$MARKETING_VERSION\">release notes</a>.</p>"
     echo "==> WARNING: $MARKETING_VERSION not found in CHANGELOG.md — using bare link in appcast"
 fi
 

@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>Aagedal Media Converter</title>
-        <link>https://codeberg.org/taagedal/Aagedal-Media-Converter/raw/branch/main/appcast.xml</link>
+        <link>https://github.com/aagedal/Aagedal-Media-Converter</link>
         <description>Most recent changes for Aagedal Media Converter.</description>
         <language>en</language>
 
@@ -18,7 +18,7 @@
               - <sparkle:shortVersionString> — CFBundleShortVersionString (e.g. 4.1.2)
               - <sparkle:minimumSystemVersion> — macOS minimum (15.0)
               - <enclosure>:
-                  url           — Codeberg release-asset URL of the signed .zip
+                  url           — download URL of the signed .zip
                   length        — file size in bytes
                   type          — application/octet-stream
                   sparkle:edSignature — EdDSA signature from `sign_update`
@@ -64,8 +64,8 @@
                 </ul>
                 <h2>Moved to Codeberg</h2>
                 <ul>
-                <li><strong>Source code is now at <a href="https://codeberg.org/taagedal/Aagedal-Media-Converter">codeberg.org/taagedal/Aagedal-Media-Converter</a>.</strong> All in-app links — the About window and the Settings → Updates source-code link — point at Codeberg now. The GitHub mirror is no longer the source of truth.</li>
-                <li><strong>Homebrew tap moved to <a href="https://codeberg.org/taagedal/homebrew-tap">codeberg.org/taagedal/homebrew-tap</a>.</strong> If you installed via brew, switch taps once: <code>brew untap aagedal/tap &amp;&amp; brew tap taagedal/tap https://codeberg.org/taagedal/homebrew-tap</code>. After that, <code>brew upgrade --cask aagedal-media-converter</code> works as before.</li>
+                <li><strong>Source code is available at <a href="https://github.com/aagedal/Aagedal-Media-Converter">github.com/aagedal/Aagedal-Media-Converter</a>.</strong></li>
+                <li><strong>The Homebrew tap is available at <a href="https://github.com/aagedal/homebrew-tap">github.com/aagedal/homebrew-tap</a>.</strong> If you used the temporary Codeberg tap, switch back once: <code>brew untap taagedal/tap &amp;&amp; brew tap aagedal/tap</code>.</li>
                 <li><strong>The in-app update check now polls Codeberg's releases API</strong>, so existing 4.1.1 installs surface this release in the update banner and can manually download it. After installing 4.1.2, Sparkle takes over for direct-download users; brew users continue to get notified by the in-app check and routed to brew.</li>
                 </ul>
                 <h2>Bug fixes (rolled up from 4.1.1 and 4.1.2)</h2>
@@ -197,7 +197,7 @@
                 </ul>
                 <h2>Housekeeping</h2>
                 <ul>
-                <li><strong>SwiftExif now resolves from Codeberg</strong> (<code>taagedal/SwiftExif</code>, 1.9.1). The GitHub mirror is frozen at 1.6.0, so "Update to Latest Package Versions" kept re-resolving the stale URL and finding nothing newer. Both consumers compile unchanged.</li>
+                <li><strong>SwiftExif updated to 1.9.1.</strong> Both consumers compile unchanged.</li>
                 <li><strong>Release zips strip AppleDouble metadata</strong> (<code>--norsrc --noextattr --noacl --noqtn</code>). Without this, <code>ditto</code> encodes xattrs / ACLs / creation dates as <code>._&lt;name&gt;</code> companions inside the zip, which macOS Sequoia no longer merges back on extract — they surface as visible files inside the <code>.app</code>, break the codesignature seal, and trip Gatekeeper's "app is damaged". The 4.1.2 release zip was re-packaged retroactively with the same fix.</li>
                 <li>Removed the stale <code>GEMINI.md</code> project-context file (recoverable from git history).</li>
                 </ul>

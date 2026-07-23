@@ -111,7 +111,7 @@ struct UpdateSettingsView: View {
                     Label("Source code and author website", systemImage: "questionmark.circle")
                         .font(.headline)
                     HStack {
-                        Link("Source Code (Codeberg)", destination: URL(string: "https://codeberg.org/taagedal/Aagedal-Media-Converter")!)
+                        Link("Source Code (GitHub)", destination: URL(string: "https://github.com/aagedal/Aagedal-Media-Converter")!)
                         Spacer()
                         Link("Developer Website", destination: URL(string: "https://aagedal.me/about")!)
                     }

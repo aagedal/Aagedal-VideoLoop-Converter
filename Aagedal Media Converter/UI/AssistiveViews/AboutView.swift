@@ -12,7 +12,7 @@ import AppKit
 
 struct AboutView: View {
     private let homepageURL = URL(string: "https://mediaconverter.aagedal.me")!
-    private let repoURL = URL(string: "https://codeberg.org/taagedal/Aagedal-Media-Converter")!
+    private let repoURL = URL(string: "https://github.com/aagedal/Aagedal-Media-Converter")!
 
     var body: some View {
         VStack(alignment: .center, spacing: 16) {
