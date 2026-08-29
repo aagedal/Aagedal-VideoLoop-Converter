@@ -3023,7 +3023,7 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/aagedal/MPVKit.git";
 			requirement = {
-				branch = "aagedal/custom-builds";
+				branch = main;
 				kind = branch;
 			};
 		};
