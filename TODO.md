@@ -1,5 +1,8 @@
 # TODO and Known Issues – Things I want to fix or improve
 
+> This is the historical feature checklist. The prioritized, evidence-backed
+> roadmap is in [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md).
+
 
 ## General
 [x] Settings: Fix UI inconsistencies between subviews.

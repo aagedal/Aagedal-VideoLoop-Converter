@@ -1,0 +1,288 @@
+# Aagedal Media Converter Improvement Plan
+
+Last reviewed: 2026-08-31
+
+This is the prioritized improvement roadmap. `TODO.md` remains a small historical
+feature checklist; new improvement work should be tracked here with an owner or
+issue link when it starts.
+
+## Audit snapshot
+
+- The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
+- The unit-test baseline is not green: 2 of 3 tests pass, while
+  `testCropInsertedBeforeDarDesqueezeForAnamorphicSources` fails because the
+  implementation now removes the DAR-desqueeze filter that the test expects to
+  find. The intended output needs to be verified before changing either side.
+- The app contains about 86,000 lines of Swift. Several core files are very large:
+  `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
+  `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
+  `ExportPreset.swift` (2,235).
+- There are only three unit tests. The UI test target still contains the generated
+  placeholder test and has no assertions for an app workflow.
+- CI publishes the backup appcast, but no workflow builds the app or runs tests on
+  changes.
+- External tools are launched from roughly 50 `Process` construction sites. They
+  do not share one cancellation, timeout, pipe-draining, and error-reporting layer.
+- `SwiftExifMediaProbe.durationSync` bridges async AVFoundation work with an
+  unbounded semaphore wait.
+- Only three source files add explicit accessibility labels or identifiers. This
+  does not prove every control is inaccessible, but it leaves icon-heavy and custom
+  AppKit/SwiftUI controls without a tested accessibility contract.
+- The string catalog has 1,197 entries; 87 entries have no Norwegian localization.
+  Some are format tokens or App Intent phrases, so they must be classified before
+  translating.
+- Bundled binaries, frameworks, and resources total roughly 280 MB before the app
+  bundle is packaged. Their contents and licenses should be verified as part of a
+  release rather than only reviewed manually.
+
+## Priority 0 — Restore a trustworthy baseline
+
+Target: first; approximately 2–4 focused days.
+
+### 0.1 Resolve the failing anamorphic-crop regression test
+
+- Create a tiny generated 1440×1080, SAR 4:3 fixture with an unmistakable crop
+  target.
+- Verify the produced pixels, display aspect ratio, and output dimensions with
+  FFmpeg/SwiftExif. Do not decide correctness from the command string alone.
+- Fix the filter construction if the output is wrong; otherwise rewrite the stale
+  assertion to describe the new “replace desqueeze with crop + setsar” behavior.
+- Add square-pixel, anamorphic, inactive-crop, stream-copy, and odd-dimension cases.
+
+Acceptance: all unit tests pass from a clean Derived Data directory, and the test
+name/comments match the intended filter behavior.
+
+### 0.2 Add build-and-test CI
+
+- On every pull request and push, build the Debug app and run unit tests on macOS.
+- Add a Release build on tags or a scheduled run so packaging-only problems are
+  caught before release day.
+- Upload the `.xcresult` when tests fail.
+- Keep the appcast publishing job separate from validation.
+
+Acceptance: a change cannot be merged unnoticed with a compile error or failing
+unit test.
+
+### 0.3 Turn the existing TODO into current work
+
+- Confirm whether the screen-recording entry means 25/29.97 recording, 50/59.94
+  recording, CFR output, or all three; the current UI exposes integer 50 and 60 fps,
+  while growing presets already use a CFR frame pump.
+- Mark the Homebrew-install-guide item complete: the settings views already show
+  copyable `brew install` commands.
+- Move remaining actionable work here and keep completed history in the changelog.
+
+Acceptance: no open item is ambiguous or already implemented.
+
+## Priority 1 — Protect conversion correctness
+
+Target: next; approximately 1–2 weeks, delivered incrementally.
+
+### 1.1 Build a command-generation test matrix
+
+Cover the pure logic before refactoring it:
+
+- every built-in preset and its container/codec pairing;
+- trim + crop + anamorphic normalization;
+- audio mapping, removal, channel routing, and MCA labels;
+- subtitle mapping/OCR/transcription hand-off;
+- stream copy incompatibilities;
+- metadata, timecode, image-sequence, DCP, IMF, and AV2 special paths;
+- custom-argument tokenization, including empty quoted arguments.
+
+Prefer structured expected values and focused assertions over full command-string
+snapshots, which are brittle when argument order is irrelevant.
+
+Acceptance: each built-in preset has at least one command test, and every fixed
+conversion regression gains a test.
+
+### 1.2 Add small media-fixture integration tests
+
+- Generate short fixtures in the test setup instead of committing large media.
+- Exercise one representative file per major family: video+audio, anamorphic,
+  multichannel audio, subtitle, still/image sequence, and malformed input.
+- Validate output with in-process metadata where possible and FFmpeg only where the
+  app itself depends on FFmpeg behavior.
+- Include cancellation, failed-process, missing-binary, existing-output, and
+  source-overwrite prevention cases.
+
+Acceptance: the core “import → command → convert → validate output” path runs in CI
+in a few minutes and leaves no temporary artifacts behind.
+
+### 1.3 Replace the placeholder UI test with smoke coverage
+
+Start with stable, high-value flows:
+
+1. Launch into an empty queue.
+2. Open Settings and move between panes.
+3. Import a fixture and select a preset.
+4. Start and cancel a conversion.
+5. Verify the result/error state is exposed to the UI.
+
+Use accessibility identifiers as the test API rather than coordinates or visible
+English text.
+
+Acceptance: the UI suite contains real assertions and is deterministic across two
+consecutive clean runs.
+
+## Priority 2 — Make long-running work reliable
+
+Target: after the correctness net; approximately 1–2 weeks.
+
+### 2.1 Introduce one subprocess runner
+
+Provide an injectable runner that owns:
+
+- cancellation and process-tree termination;
+- optional deadlines and a clear timeout error;
+- concurrent stdout/stderr draining without deadlocks;
+- incremental progress parsing;
+- structured exit status and bounded diagnostic output;
+- environment construction and redaction of credentials, cookies, and URLs;
+- test fakes for success, failure, timeout, and cancellation.
+
+Migrate the highest-risk paths first: FFmpeg conversion, yt-dlp, rclone upload,
+Whisper/Parakeet, OCR, and package wrappers. Do not attempt all 50 call sites in one
+change.
+
+Acceptance: cancelling a queue item reliably stops its child process, and no tool
+invocation can wait forever without an explicit policy.
+
+### 2.2 Remove sync-over-async waits
+
+- Make image-sequence duration probing async end-to-end, or give the compatibility
+  bridge a bounded timeout while callers are migrated.
+- Audit `waitUntilExit`, `DispatchGroup.wait`, and semaphore waits for cancellation
+  and actor/thread assumptions.
+- Add cancellation checks around metadata probing, thumbnails, downloads, uploads,
+  and conversion post-processing.
+
+Acceptance: Thread Sanitizer smoke runs show no new races, and stalled media probes
+cannot indefinitely block an import.
+
+### 2.3 Standardize user-visible errors
+
+- Keep `try?` for best-effort cleanup only. Log or surface failures for directory
+  creation, bookmark access, file moves, settings import, and result validation.
+- Give every queue failure a concise message plus expandable technical details.
+- Add a “Copy diagnostics” action with app/tool versions and redacted commands.
+
+Acceptance: each failed long-running operation ends in success, cancellation, or a
+specific actionable error—never a silent return or permanently busy state.
+
+## Priority 3 — Reduce change risk in architecture
+
+Target: continuous work after Priority 1 tests exist.
+
+### 3.1 Split orchestration from state and views
+
+- Move import, queue commands, window/overlay presentation, and App Intent hand-off
+  out of `ContentView` into small coordinators or observable models.
+- Split `ConversionManager` into queue scheduling, conversion execution, upload
+  follow-up, and item state transitions.
+- Split `VideoFileListView`/`VideoFileCellView` by behavior rather than adding more
+  extensions to already-large views.
+
+Acceptance: view bodies describe presentation, state transitions can be unit
+tested without launching the app, and each extraction is behavior-preserving.
+
+### 3.2 Make conversion plans typed
+
+- Replace repeated mutation of raw `[String]` arguments with a typed conversion
+  plan: inputs, video filters, audio routes, maps, codecs, metadata, and outputs.
+- Render the plan to arguments at the process boundary.
+- Detect incompatible options during preflight instead of silently ignoring them.
+
+Acceptance: filter ordering and map ownership are explicit, and invalid
+combinations produce a preflight explanation before encoding starts.
+
+### 3.3 Centralize settings access
+
+- Wrap `UserDefaults` keys in feature-scoped settings types with defaults and
+  migrations.
+- Inject settings into logic under test rather than reading global defaults inside
+  command builders and services.
+- Keep machine-specific paths, bookmarks, and credentials outside synced settings.
+
+Acceptance: tests do not mutate the user's defaults, and a settings schema change
+has an explicit migration test.
+
+## Priority 4 — Accessibility, localization, and product polish
+
+Target: parallelizable once stable identifiers are introduced.
+
+### 4.1 Audit the primary flows with VoiceOver and keyboard-only input
+
+- Queue import/reorder/remove, preset selection, conversion controls, progress and
+  errors, trim/crop, metadata, downloads/uploads, screen capture, and Settings.
+- Label icon-only controls, expose state/value changes, define logical focus order,
+  and provide identifiers for automated tests.
+- Verify custom timeline, crop, audio meter, and AppKit bridge controls provide a
+  useful accessibility representation.
+
+Acceptance: all primary flows are completable without a pointer and have no
+unlabeled interactive controls in Accessibility Inspector.
+
+### 4.2 Close the localization gap
+
+- Classify the 87 Norwegian-missing entries as user-facing text, intentional
+  format tokens, or App Intent phrases.
+- Translate user-facing text and validate interpolation/plural variants.
+- Add a catalog check to CI and capture screenshots in English and Norwegian for
+  the main window and every Settings pane.
+
+Acceptance: CI reports no unclassified user-facing strings missing Norwegian, and
+both locales fit without clipped controls.
+
+### 4.3 Finish broadcast-grade screen-recording rates
+
+- Offer explicit 25, 29.97, 50, and 59.94 choices if professional PAL/NTSC delivery
+  is the goal; keep display-native Auto separate.
+- Use rational frame durations rather than representing every rate as an integer.
+- Add drop-frame timecode for 29.97/59.94 and verify midnight rollover behavior.
+- State clearly which presets are CFR and which intentionally remain VFR.
+
+Acceptance: `avg_frame_rate`, `r_frame_rate`, duration, frame count, and timecode
+match the selected rate in generated validation recordings.
+
+### 4.4 Improve first-run and dependency diagnostics
+
+- Provide one Tools/Diagnostics view for bundled, Homebrew, and custom binaries,
+  including version, architecture, executable status, and a test action.
+- Keep copyable Homebrew commands and explain when the bundled tool is sufficient.
+- Warn before a conversion when a selected feature depends on a missing or
+  incompatible optional tool.
+
+Acceptance: users can diagnose a missing tool without reading logs or opening
+Terminal unless installation itself requires it.
+
+## Priority 5 — Release and dependency hygiene
+
+Target: before the next public release, then automate.
+
+- Inventory bundled executables and dylibs; remove anything unreachable from the
+  shipping app after dependency verification.
+- Generate a version/checksum/license manifest for bundled tools.
+- In the release script, verify architectures, dynamic-library resolution,
+  executable permissions, code signatures, notarization, Sparkle signature, and
+  appcast contents.
+- Run a clean-machine smoke test for direct-download and Homebrew installations,
+  including update behavior.
+- Measure compressed download size and launch/import memory before and after binary
+  cleanup; optimize only with measured evidence.
+
+Acceptance: a release fails early when a binary, license, signature, architecture,
+or update artifact is inconsistent.
+
+## Suggested delivery sequence
+
+1. Green the failing crop test with fixture-backed expected behavior.
+2. Add CI and the first command/file-safety test matrix.
+3. Introduce accessibility identifiers while replacing the placeholder UI test.
+4. Add the subprocess runner and migrate one tool path at a time.
+5. Extract architectural seams under the new tests.
+6. Complete accessibility/localization and rational screen-recording rates.
+7. Automate the release/dependency audit.
+
+Every milestone should update this document, record tests run, and move shipped
+user-visible changes into `CHANGELOG.md`.
