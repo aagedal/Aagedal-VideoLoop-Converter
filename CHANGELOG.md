@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Stream Copy no longer carries subtitle streams into the output.** The command used FFmpeg's attachment-stream selector (`t`) where it intended the subtitle selector (`s`), so subtitle tracks could be copied even though Stream Copy has no subtitle option. Audio and video streams continue to be copied without re-encoding.
 - **Drag-to-share works on every drag, not just the first.** The drag handle on a finished queue row (the four-arrows icon) lets you drag the exported file straight into another app or Finder. It used to work only on the first drag after launch and then go dead — or start reordering the queue instead — because the drag was started from the wrong place and an unfinished drag session blocked all the ones after it. It now begins a proper file drag every time. The drag image is the row's own thumbnail (rounded, with a soft drop shadow) instead of a generic black document icon, and dropping the file back onto the queue re-adds it so you can compare the export against the original.
 - **Importing from a camera card no longer freezes the window.** Scanning a camera/SD card ran on the main thread, locking up the UI until it finished. The scan now runs off the main actor, so the window stays responsive.
 

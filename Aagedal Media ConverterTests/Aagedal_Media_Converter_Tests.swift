@@ -195,6 +195,120 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testDefaultFFmpegPresetContainerAndCodecMatrix() throws {
+        try withDefaultPresetSettings {
+            let sourceURL = URL(fileURLWithPath: "/tmp/source.mov")
+            let expectations: [PresetCommandExpectation] = [
+                .init(.videoLoop, extension: "mp4", videoCodec: "libx264", audioCodec: nil, media: .videoOnly),
+                .init(.videoLoopWithSound, extension: "mp4", videoCodec: "libx264", audioCodec: "aac", media: .videoAndAudio),
+                .init(.animatedStill, extension: "avif", videoCodec: "libsvtav1", audioCodec: nil, media: .videoOnly),
+                .init(.h264, extension: "mp4", videoCodec: "libx264", audioCodec: "aac", media: .videoAndAudio),
+                .init(.h265, extension: "mp4", videoCodec: "libx265", audioCodec: "aac", media: .videoAndAudio),
+                .init(.av1, extension: "mp4", videoCodec: "libsvtav1", audioCodec: "aac", media: .videoAndAudio),
+                .init(.tvHEVC, extension: "mov", videoCodec: "hevc_videotoolbox", audioCodec: "pcm_s24le", media: .videoAndAudio),
+                .init(.tvAVCIntra, extension: "mxf", videoCodec: "libx264", audioCodec: "pcm_s24le", media: .videoAndAudio),
+                .init(.prores, extension: "mov", videoCodec: "prores_videotoolbox", audioCodec: "pcm_s24le", media: .videoAndAudio),
+                .init(.proxy, extension: "mov", videoCodec: "hevc_videotoolbox", audioCodec: "pcm_s24le", media: .videoAndAudio),
+                .init(.streamCopy, extension: "mov", videoCodec: "copy", audioCodec: "copy", media: .streamCopy),
+                .init(.audioOnly, extension: "wav", videoCodec: nil, audioCodec: "pcm_s24le", media: .audioOnly),
+                .init(.imageSequence, extension: "png", videoCodec: "png", audioCodec: nil, media: .videoOnly),
+                .init(.dcp, extension: "mxf", videoCodec: "libopenjpeg", audioCodec: nil, media: .videoOnly),
+                .init(.imfJ2K, extension: "mxf", videoCodec: "libopenjpeg", audioCodec: nil, media: .videoOnly),
+                .init(.imfProRes, extension: "mxf", videoCodec: "prores_ks", audioCodec: nil, media: .videoOnly)
+            ]
+
+            let ffmpegBuiltIns = ExportPreset.allCases.filter { !$0.isCustom && $0 != .av2 }
+            XCTAssertEqual(
+                Set(expectations.map(\.preset)),
+                Set(ffmpegBuiltIns),
+                "Update the default command matrix whenever a built-in FFmpeg preset is added or removed."
+            )
+
+            for expectation in expectations {
+                let arguments = expectation.preset.ffmpegArguments
+                let presetName = expectation.preset.rawValue
+
+                XCTAssertEqual(
+                    expectation.preset.outputExtension(for: sourceURL),
+                    expectation.outputExtension,
+                    presetName
+                )
+                XCTAssertEqual(videoCodec(in: arguments), expectation.videoCodec, presetName)
+                XCTAssertEqual(audioCodec(in: arguments), expectation.audioCodec, presetName)
+
+                switch expectation.media {
+                case .videoOnly:
+                    XCTAssertTrue(arguments.contains("-an"), presetName)
+                    XCTAssertFalse(arguments.contains("-vn"), presetName)
+                case .audioOnly:
+                    XCTAssertTrue(arguments.contains("-vn"), presetName)
+                    XCTAssertFalse(arguments.contains("-an"), presetName)
+                case .videoAndAudio, .streamCopy:
+                    XCTAssertFalse(arguments.contains("-an"), presetName)
+                    XCTAssertFalse(arguments.contains("-vn"), presetName)
+                }
+            }
+        }
+    }
+
+    func testStreamCopyExcludesSubtitlesButPreservesAudioAndVideoMappings() throws {
+        try withDefaultPresetSettings {
+            let arguments = ExportPreset.streamCopy.ffmpegArguments
+
+            XCTAssertTrue(arguments.containsAdjacent("-map", "0"))
+            XCTAssertTrue(arguments.containsAdjacent("-map", "-0:s?"))
+            XCTAssertFalse(arguments.contains("-0:t?"))
+            XCTAssertEqual(videoCodec(in: arguments), "copy")
+            XCTAssertEqual(audioCodec(in: arguments), "copy")
+        }
+    }
+
+    func testCodecPresetsRespectContainerAndOpusCompatibility() throws {
+        let presets: [(preset: ExportPreset, containerKey: String, audioKey: String)] = [
+            (.h264, AppConstants.h264ContainerKey, AppConstants.h264AudioFormatKey),
+            (.h265, AppConstants.h265ContainerKey, AppConstants.h265AudioFormatKey),
+            (.av1, AppConstants.av1ContainerKey, AppConstants.av1AudioFormatKey)
+        ]
+        let containers: [(container: CodecContainer, audioCodec: String, usesFastStart: Bool)] = [
+            (.mp4, "aac", true),
+            (.mov, "aac", true),
+            (.mkv, "libopus", false)
+        ]
+
+        for preset in presets {
+            for expectation in containers {
+                try withPresetSettings([
+                    preset.containerKey: expectation.container.rawValue,
+                    preset.audioKey: CodecAudioFormat.opus.rawValue
+                ]) {
+                    let arguments = preset.preset.ffmpegArguments
+                    let context = "\(preset.preset.rawValue) / \(expectation.container.rawValue)"
+
+                    XCTAssertEqual(
+                        preset.preset.outputExtension(for: nil),
+                        expectation.container.fileExtension,
+                        context
+                    )
+                    XCTAssertEqual(audioCodec(in: arguments), expectation.audioCodec, context)
+                    XCTAssertEqual(
+                        arguments.containsAdjacent("-movflags", "+faststart"),
+                        expectation.usesFastStart,
+                        context
+                    )
+                }
+            }
+        }
+    }
+
+    func testAV2UsesDedicatedEncoderRouteInsteadOfFFmpegCodecArguments() throws {
+        try withDefaultPresetSettings {
+            XCTAssertEqual(ExportPreset.av2.outputExtension(for: nil), "ivf")
+            XCTAssertEqual(ExportPreset.av2.ffmpegArguments, ["-hide_banner"])
+            XCTAssertNil(videoCodec(in: ExportPreset.av2.ffmpegArguments))
+            XCTAssertNil(audioCodec(in: ExportPreset.av2.ffmpegArguments))
+        }
+    }
+
     private func presetVideoArguments() -> [String] {
         [
             "-vf",
@@ -212,6 +326,83 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
     private func videoFilter(in args: [String]) throws -> String {
         let index = try XCTUnwrap(args.firstIndex(of: "-vf"))
         return try XCTUnwrap(args.indices.contains(index + 1) ? args[index + 1] : nil)
+    }
+
+    private func videoCodec(in arguments: [String]) -> String? {
+        optionValue(in: arguments, options: ["-c:v", "-vcodec", "-c"])
+    }
+
+    private func audioCodec(in arguments: [String]) -> String? {
+        optionValue(in: arguments, options: ["-c:a", "-acodec", "-c"])
+    }
+
+    private func optionValue(in arguments: [String], options: [String]) -> String? {
+        for option in options {
+            guard let index = arguments.firstIndex(of: option), arguments.indices.contains(index + 1) else {
+                continue
+            }
+            return arguments[index + 1]
+        }
+        return nil
+    }
+
+    private func withDefaultPresetSettings(_ body: () throws -> Void) throws {
+        try withPresetSettings([:], body)
+    }
+
+    private func withPresetSettings(_ overrides: [String: Any], _ body: () throws -> Void) throws {
+        let defaults = UserDefaults.standard
+        let argumentDomain = "NSArgumentDomain"
+        let originalArguments = defaults.volatileDomain(forName: argumentDomain)
+        var testArguments = originalArguments
+        testArguments.merge(defaultPresetSettings) { _, testValue in testValue }
+        testArguments.merge(overrides) { _, testValue in testValue }
+
+        defaults.removeVolatileDomain(forName: argumentDomain)
+        defaults.setVolatileDomain(testArguments, forName: argumentDomain)
+        defer {
+            defaults.removeVolatileDomain(forName: argumentDomain)
+            defaults.setVolatileDomain(originalArguments, forName: argumentDomain)
+        }
+
+        try body()
+    }
+
+    private var defaultPresetSettings: [String: Any] {
+        [
+            AppConstants.preserveMetadataPreferenceKey: false,
+            AppConstants.animatedStillFormatKey: AppConstants.defaultAnimatedStillFormat,
+            AppConstants.h264EncoderKey: AppConstants.defaultH264Encoder,
+            AppConstants.h264ContainerKey: AppConstants.defaultH264Container,
+            AppConstants.h264AudioFormatKey: AppConstants.defaultH264AudioFormat,
+            AppConstants.h265EncoderKey: AppConstants.defaultH265Encoder,
+            AppConstants.h265ContainerKey: AppConstants.defaultH265Container,
+            AppConstants.h265AudioFormatKey: AppConstants.defaultH265AudioFormat,
+            AppConstants.av1ContainerKey: AppConstants.defaultAV1Container,
+            AppConstants.av1AudioFormatKey: AppConstants.defaultAV1AudioFormat,
+            AppConstants.tvFramerateModeKey: AppConstants.defaultTVFramerateMode,
+            AppConstants.tvResolutionLimitKey: AppConstants.defaultTVResolutionLimit,
+            AppConstants.avcIntraClassKey: AppConstants.defaultAVCIntraClass,
+            AppConstants.avcIntraAudioChannelsKey: AppConstants.defaultAVCIntraAudioChannels,
+            AppConstants.proResProfileKey: ProResProfile.standard.rawValue,
+            AppConstants.proxyCodecKey: AppConstants.defaultProxyCodec,
+            AppConstants.proxyResolutionLimitKey: AppConstants.defaultProxyResolutionLimit,
+            AppConstants.streamCopyContainerKey: AppConstants.defaultStreamCopyContainer,
+            AppConstants.audioOnlyFormatKey: AppConstants.defaultAudioOnlyFormat,
+            AppConstants.audioOnlyBitDepthKey: AppConstants.defaultAudioOnlyBitDepth,
+            AppConstants.imageSequenceExportFormatKey: AppConstants.defaultImageSequenceExportFormat,
+            AppConstants.dcpResolutionKey: AppConstants.defaultDCPResolution,
+            AppConstants.dcpFrameRateKey: AppConstants.defaultDCPFrameRate,
+            AppConstants.dcpBitrateKey: AppConstants.defaultDCPBitrate,
+            AppConstants.dcpScalingModeKey: AppConstants.defaultDCPScalingMode,
+            AppConstants.imfResolutionKey: AppConstants.defaultIMFResolution,
+            AppConstants.imfFrameRateKey: AppConstants.defaultIMFFrameRate,
+            AppConstants.imfScalingModeKey: AppConstants.defaultIMFScalingMode,
+            AppConstants.imfJ2KColorEncodingKey: AppConstants.defaultIMFJ2KColorEncoding,
+            AppConstants.imfJ2KBitrateKey: AppConstants.defaultIMFJ2KBitrate,
+            AppConstants.imfProResProfileKey: AppConstants.defaultIMFProResProfile,
+            AppConstants.av2ContainerKey: AppConstants.defaultAV2Container
+        ]
     }
 
     @discardableResult
@@ -248,4 +439,41 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         return log
     }
 
+}
+
+private extension Array where Element == String {
+    func containsAdjacent(_ first: String, _ second: String) -> Bool {
+        indices.contains { index in
+            self[index] == first && indices.contains(index + 1) && self[index + 1] == second
+        }
+    }
+}
+
+private struct PresetCommandExpectation {
+    enum Media {
+        case videoOnly
+        case audioOnly
+        case videoAndAudio
+        case streamCopy
+    }
+
+    let preset: ExportPreset
+    let outputExtension: String
+    let videoCodec: String?
+    let audioCodec: String?
+    let media: Media
+
+    init(
+        _ preset: ExportPreset,
+        extension outputExtension: String,
+        videoCodec: String?,
+        audioCodec: String?,
+        media: Media
+    ) {
+        self.preset = preset
+        self.outputExtension = outputExtension
+        self.videoCodec = videoCodec
+        self.audioCodec = audioCodec
+        self.media = media
+    }
 }

@@ -1571,7 +1571,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
             var args = commonArgs + [
                 "-map", "0",
                 "-c", "copy",
-                "-map", "-0:t?",  // Exclude subtitle streams only
+                "-map", "-0:s?",  // Exclude subtitle streams; Stream Copy has no subtitle option
                 "-copy_unknown"  // Copy unknown stream types (for MXF acquisition metadata)
             ]
             Self.applyMetadataStrategy(to: &args, preserveMetadata: preserveMetadata, defaultMap: "0")

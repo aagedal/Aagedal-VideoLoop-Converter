@@ -9,15 +9,16 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: eleven tests pass. The
+- The unit-test baseline is green: fifteen tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
-  has focused coverage for empty quoted arguments and whitespace handling.
+  has focused coverage for empty quoted arguments and whitespace handling; every
+  built-in preset now has default container/codec coverage.
 - The app contains about 86,000 lines of Swift. Several core files are very large:
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,235).
-- There are only eleven unit tests. The UI test target still contains the generated
+- There are only fifteen unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -107,7 +108,7 @@ Target: next; approximately 1–2 weeks, delivered incrementally.
 
 ### 1.1 Build a command-generation test matrix
 
-Status: in progress; first regression slice added 2026-08-31.
+Status: in progress; default preset matrix added 2026-08-31.
 
 Cover the pure logic before refactoring it:
 
@@ -126,9 +127,14 @@ Acceptance: each built-in preset has at least one command test, and every fixed
 conversion regression gains a test.
 
 Custom-command tokenization now has direct tests for explicitly empty quoted
-arguments, single- and double-quoted whitespace, and escaped whitespace. The next
-slice is a structured default container/codec matrix for every built-in preset;
-keep AV2's dedicated `avmenc` route separate from FFmpeg-backed presets.
+arguments, single- and double-quoted whitespace, and escaped whitespace. A
+structured default matrix now covers the output extension, video codec, audio
+codec, and media shape for every FFmpeg-backed built-in preset. AV2 has a separate
+assertion that preserves its dedicated `avmenc` route. Stream Copy now has a
+regression test that verifies audio/video copying while excluding subtitles. The
+H.264, H.265, and AV1 paths now verify MP4/MOV fallback from incompatible Opus to
+AAC and native Opus retention in Matroska. The next slice should cover broader
+audio/subtitle mapping behavior.
 
 ### 1.2 Add small media-fixture integration tests
 
