@@ -1596,7 +1596,8 @@ extension FFMPEGCommandBuilder {
     }
 
     /// Applies crop filter to video filter chain
-    /// - If the chain contains a DAR-based desqueeze (e.g. scale='trunc(ih*dar...)',setsar=1/1), crop is inserted BEFORE it.
+    /// - If the chain contains a DAR-based desqueeze (e.g. scale='trunc(ih*dar...)',setsar=1/1),
+    ///   it is replaced with crop plus explicit square-pixel normalization when PAR is known.
     /// - Otherwise, crop is inserted after setsar and before any final scale when possible.
     static func applyCropToVideoFilter(
         _ ffmpegArgs: inout [String],
@@ -1608,6 +1609,11 @@ extension FFMPEGCommandBuilder {
         // Don't apply crop to stream copy preset
         guard !ffmpegArgs.contains("-c:v") || !ffmpegArgs.contains("copy") else {
             logger.debug("Skipping crop for stream copy preset")
+            return
+        }
+
+        guard cropConfig.isActive else {
+            logger.debug("Skipping inactive crop config")
             return
         }
 
@@ -1633,8 +1639,6 @@ extension FFMPEGCommandBuilder {
             return
         }
 
-        let filterChainNormalizesAnamorphic = filterChain.contains("trunc(ih*dar") && filterChain.contains("setsar=1/1")
-
         // Generate crop filter
         guard var cropFilter = CropService.buildCropFilter(
             config: cropConfig,
@@ -1647,14 +1651,19 @@ extension FFMPEGCommandBuilder {
 
         // Check for anamorphic content (non-square pixels)
         // If PAR deviates significantly from 1.0, scale to square pixels
-        // Note: Many built-in presets already normalize anamorphic sources using a DAR-based scale + setsar=1/1.
-        // In that case, avoid applying a second desqueeze stage here.
-        if let par = pixelAspectRatio, abs(par - 1.0) > 0.01, !filterChainNormalizesAnamorphic {
+        // Normalize the cropped frame explicitly when the effective PAR is known. This must happen
+        // after crop: a 1:1 display crop from 1440x1080 SAR 4:3 is 810x1080 stored pixels, which
+        // becomes 1080x1080 square pixels. Merely setting SAR to 1 would incorrectly produce 3:4.
+        let hasKnownPixelAspectRatio = pixelAspectRatio.map { $0.isFinite && $0 > 0 } ?? false
+        let needsAnamorphicNormalization = pixelAspectRatio.map { abs($0 - 1.0) > 0.01 } ?? false
+        if let par = pixelAspectRatio, hasKnownPixelAspectRatio, needsAnamorphicNormalization {
             // We need to scale the cropped output to square pixels using the effective PAR.
             // We calculate the target dimensions explicitly in Swift rather than relying on ffmpeg's 'sar' variable,
             // because the stream's internal SAR might be 1:1 even if the effective PAR is not (as detected by our DAR priority logic).
 
             let pixelRect = cropConfig.pixelRect(sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+                .evenDimensions()
+                .clamped(maxWidth: sourceWidth, maxHeight: sourceHeight)
             let targetWidth = Double(pixelRect.width) * par
             let targetHeight = Double(pixelRect.height)
 
@@ -1662,8 +1671,8 @@ extension FFMPEGCommandBuilder {
             let finalWidth = evenDimension(Int(round(targetWidth)))
             let finalHeight = evenDimension(Int(round(targetHeight)))
 
-            // scale=FINAL_W:FINAL_H,setsar=1
-            let scaleFilter = "scale=\(finalWidth):\(finalHeight),setsar=1"
+            // scale=FINAL_W:FINAL_H,setsar=1/1
+            let scaleFilter = "scale=\(finalWidth):\(finalHeight),setsar=1/1"
             cropFilter = "\(cropFilter),\(scaleFilter)"
             logger.info("Added anamorphic scaling to crop filter: PAR \(par) -> \(finalWidth)x\(finalHeight)")
         }
@@ -1674,39 +1683,25 @@ extension FFMPEGCommandBuilder {
             filterChain = cropFilter
         } else if let desqueezeRange = (filterChain.range(of: "scale='trunc(ih*dar") ?? filterChain.range(of: "scale=trunc(ih*dar")) {
             // Built-in presets start by normalizing display aspect ratio (DAR) into square pixels.
-            // When crop is applied, we should SKIP the DAR-based desqueeze entirely because:
-            // 1. The crop rect is defined in source pixel coordinates
-            // 2. After cropping, we have the exact pixels we want
-            // 3. The DAR-based desqueeze uses source metadata which can stretch the cropped content incorrectly
-            // Instead, we replace the desqueeze+setsar with just crop+setsar, then continue to final scale/pad.
-
-            // Find where the desqueeze ends (look for the setsar=1/1 that follows)
+            // The crop rect is stored in source-pixel coordinates, so crop must happen before any
+            // normalization. When metadata supplied an effective PAR, replace the metadata-driven
+            // desqueeze with the explicit normalization above. If PAR is unavailable, preserve the
+            // DAR-based filter and insert crop before it so FFmpeg can derive the display geometry.
+            let beforeDesqueeze = String(filterChain[..<desqueezeRange.lowerBound])
             let afterDesqueezeStart = String(filterChain[desqueezeRange.lowerBound...])
 
-            // The desqueeze pattern is: scale='trunc(ih*dar/2)*2:trunc(ih/2)*2',setsar=1/1
-            // We want to remove this entire segment and replace with crop,setsar=1/1
-            var newChain = ""
-
-            // Find the setsar=1/1 that follows the desqueeze
-            if let setsarRange = afterDesqueezeStart.range(of: ",setsar=1/1") {
-                // Get everything after the setsar=1/1
+            if !hasKnownPixelAspectRatio {
+                filterChain = joinedFilterSegments([beforeDesqueeze, cropFilter, afterDesqueezeStart])
+            } else if let setsarRange = afterDesqueezeStart.range(of: ",setsar=1/1") {
                 let afterSetsar = String(afterDesqueezeStart[setsarRange.upperBound...])
-
-                // Build new chain: crop,setsar=1/1,<rest of filters>
-                newChain = "\(cropFilter),setsar=1/1"
-
-                if !afterSetsar.isEmpty {
-                    if !afterSetsar.hasPrefix(",") {
-                        newChain.append(",")
-                    }
-                    newChain.append(afterSetsar)
-                }
+                let normalizedCropFilter = needsAnamorphicNormalization
+                    ? cropFilter
+                    : "\(cropFilter),setsar=1/1"
+                filterChain = joinedFilterSegments([beforeDesqueeze, normalizedCropFilter, afterSetsar])
             } else {
-                // No setsar found after desqueeze, just prepend crop with setsar
-                newChain = "\(cropFilter),setsar=1/1,\(filterChain)"
+                // An unfamiliar DAR filter is safer to preserve than partially remove.
+                filterChain = joinedFilterSegments([beforeDesqueeze, cropFilter, afterDesqueezeStart])
             }
-
-            filterChain = newChain
         } else if let scaleRange = filterChain.range(of: ",scale=w=") {
             // Insert crop AFTER setsar, BEFORE final scale
             let beforeScale = filterChain[..<scaleRange.lowerBound]
@@ -1742,6 +1737,13 @@ extension FFMPEGCommandBuilder {
         // Update args
         ffmpegArgs[vfIndex + 1] = filterChain
         logger.info("Applied crop to video filter chain: \(filterChain, privacy: .public)")
+    }
+
+    private static func joinedFilterSegments(_ segments: [String]) -> String {
+        segments
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ",")) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ",")
     }
 
     // MARK: - Conformance Merge Encoding

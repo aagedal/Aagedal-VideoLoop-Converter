@@ -9,15 +9,14 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is not green: 2 of 3 tests pass, while
-  `testCropInsertedBeforeDarDesqueezeForAnamorphicSources` fails because the
-  implementation now removes the DAR-desqueeze filter that the test expects to
-  find. The intended output needs to be verified before changing either side.
+- The unit-test baseline is green: nine tests pass from clean Derived Data. The
+  anamorphic-crop regression was fixed and now has generated-media coverage for
+  pixels, square-pixel SAR, and output dimensions.
 - The app contains about 86,000 lines of Swift. Several core files are very large:
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,235).
-- There are only three unit tests. The UI test target still contains the generated
+- There are only nine unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - CI publishes the backup appcast, but no workflow builds the app or runs tests on
   changes.
@@ -41,6 +40,8 @@ Target: first; approximately 2–4 focused days.
 
 ### 0.1 Resolve the failing anamorphic-crop regression test
 
+Status: completed 2026-08-31.
+
 - Create a tiny generated 1440×1080, SAR 4:3 fixture with an unmistakable crop
   target.
 - Verify the produced pixels, display aspect ratio, and output dimensions with
@@ -51,6 +52,11 @@ Target: first; approximately 2–4 focused days.
 
 Acceptance: all unit tests pass from a clean Derived Data directory, and the test
 name/comments match the intended filter behavior.
+
+Completed with explicit post-crop square-pixel normalization, a generated
+1440x1080 SAR 4:3 color-band fixture, pixel/SAR/dimension validation, and focused
+square-pixel, anamorphic, inactive-crop, stream-copy, missing-PAR, and odd-dimension
+tests.
 
 ### 0.2 Add build-and-test CI
 
