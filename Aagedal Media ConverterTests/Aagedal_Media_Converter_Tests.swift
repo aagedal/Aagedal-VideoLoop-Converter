@@ -309,6 +309,200 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testAudioRoutingPreservesSelectionOrderAndDuplicateTracks() {
+        let tracks = [audioTrack(index: 0, channels: 2), audioTrack(index: 1, channels: 1)]
+        let config = AudioRoutingConfig(
+            inputTracks: tracks,
+            outputTracks: [
+                OutputTrack(streamIndex: 1),
+                OutputTrack(streamIndex: 0),
+                OutputTrack(streamIndex: 1)
+            ]
+        )
+
+        XCTAssertEqual(
+            AudioRoutingService.buildFFmpegMapArguments(config: config),
+            ["-map", "0:a:1", "-map", "0:a:0", "-map", "0:a:1"]
+        )
+    }
+
+    func testAudioRoutingSupportsRemovingAllTracks() {
+        let config = AudioRoutingConfig(
+            inputTracks: [audioTrack(index: 0, channels: 2)],
+            outputTracks: []
+        )
+
+        XCTAssertEqual(AudioRoutingService.buildFFmpegMapArguments(config: config), [])
+    }
+
+    func testAudioRoutingBuildsMixedDownmixAndPassThroughFilters() {
+        let tracks = [audioTrack(index: 0, channels: 6), audioTrack(index: 1, channels: 2)]
+        let config = AudioRoutingConfig(
+            inputTracks: tracks,
+            outputTracks: [
+                OutputTrack(streamIndex: 0, downmixToStereo: true),
+                OutputTrack(streamIndex: 1)
+            ]
+        )
+
+        XCTAssertEqual(
+            AudioRoutingService.buildFFmpegMapArguments(config: config),
+            [
+                "-filter_complex",
+                "[0:a:0]aresample=ochl=stereo[aout0];[0:a:1]anull[aout1]",
+                "-map", "[aout0]",
+                "-map", "[aout1]"
+            ]
+        )
+    }
+
+    func testAudioRoutingBuildsChannelOperationMatrix() {
+        let tracks = [
+            audioTrack(index: 0, channels: 1, layout: "mono"),
+            audioTrack(index: 1, channels: 1, layout: "mono"),
+            audioTrack(index: 2, channels: 2, layout: "stereo"),
+            audioTrack(index: 3, channels: 6, layout: "5.1")
+        ]
+        var config = AudioRoutingConfig(inputTracks: tracks)
+
+        config.setChannelOperation(.mergeToStereo(trackIndices: [0, 1]))
+        XCTAssertEqual(
+            AudioRoutingService.buildFFmpegMapArguments(config: config),
+            ["-filter_complex", "[0:a:0][0:a:1]amerge=inputs=2,pan=stereo|c0<c0+c2|c1<c1+c3[aout]", "-map", "[aout]"]
+        )
+
+        config.setChannelOperation(.splitToMono(trackIndex: 2))
+        XCTAssertEqual(
+            AudioRoutingService.buildFFmpegMapArguments(config: config),
+            ["-filter_complex", "[0:a:2]channelsplit=channel_layout=stereo[L][R]", "-map", "[L]", "-map", "[R]"]
+        )
+
+        config.setChannelOperation(.swapChannels(trackIndex: 2))
+        XCTAssertEqual(
+            AudioRoutingService.buildFFmpegMapArguments(config: config),
+            ["-filter_complex", "[0:a:2]pan=stereo|c0=c1|c1=c0[aout]", "-map", "[aout]"]
+        )
+
+        config.setChannelOperation(.extractChannel(trackIndex: 3, channelIndex: 4, channelName: "Ls"))
+        XCTAssertEqual(
+            AudioRoutingService.buildFFmpegMapArguments(config: config),
+            ["-filter_complex", "[0:a:3]pan=mono|c0=c4[aout]", "-map", "[aout]"]
+        )
+    }
+
+    func testInvalidChannelOperationFallsBackToSelectedTracks() {
+        let tracks = [audioTrack(index: 0, channels: 1), audioTrack(index: 1, channels: 2)]
+        var config = AudioRoutingConfig(
+            inputTracks: tracks,
+            outputTracks: [OutputTrack(streamIndex: 1)]
+        )
+        config.setChannelOperation(.splitToMono(trackIndex: 0))
+
+        XCTAssertEqual(
+            AudioRoutingService.buildFFmpegMapArguments(config: config),
+            ["-map", "0:a:1"]
+        )
+    }
+
+    func testApplyingAudioRoutingReusesVideoMapWhenAudioMapComesFirst() {
+        var arguments = [
+            "-map", "0:a",
+            "-map", "0:v:0",
+            "-c:v", "libx264",
+            "-c:a", "aac"
+        ]
+        let config = AudioRoutingConfig(
+            inputTracks: [audioTrack(index: 0, channels: 2), audioTrack(index: 1, channels: 1)],
+            outputTracks: [OutputTrack(streamIndex: 1)]
+        )
+
+        FFMPEGCommandBuilder.applyAudioRouting(config: config, to: &arguments)
+
+        XCTAssertEqual(arguments.adjacentPairCount("-map", "0:v:0"), 1)
+        XCTAssertEqual(arguments.adjacentPairCount("-map", "0:a:1"), 1)
+        XCTAssertFalse(arguments.containsAdjacent("-map", "0:a"))
+    }
+
+    func testSubtitleMappingOnlyTargetsSupportedContainers() {
+        XCTAssertEqual(
+            FFMPEGCommandBuilder.subtitleArguments(keepSubtitles: true, outputExtension: "MKV"),
+            ["-map", "0:s?", "-c:s", "copy"]
+        )
+        for outputExtension in ["mp4", "mov"] {
+            XCTAssertEqual(
+                FFMPEGCommandBuilder.subtitleArguments(keepSubtitles: true, outputExtension: outputExtension),
+                ["-map", "0:s?", "-c:s", "mov_text"],
+                outputExtension
+            )
+        }
+        for outputExtension in ["png", "avif", "mxf", "ivf", "wav"] {
+            XCTAssertTrue(
+                FFMPEGCommandBuilder.subtitleArguments(keepSubtitles: true, outputExtension: outputExtension).isEmpty,
+                outputExtension
+            )
+        }
+        XCTAssertTrue(
+            FFMPEGCommandBuilder.subtitleArguments(keepSubtitles: false, outputExtension: "mkv").isEmpty
+        )
+    }
+
+    func testAVCIntraMCALabelOverrideLabelsSourceChannelsButNotPadding() throws {
+        try withDefaultPresetSettings {
+            let content = try XCTUnwrap(MCALabelsBuilder.buildAVCIntraLabelsFile(
+                inputStreams: [
+                    .init(audioRelativeIndex: 0, channelCount: 2, channelLayout: "stereo", sampleRate: 48_000)
+                ],
+                inputMCALabels: [],
+                overrides: [
+                    0: MCALabelOverride(soundfield: .stereo, audioElement: .mainProgram)
+                ],
+                outputTrackCount: 4
+            ))
+
+            XCTAssertTrue(content.contains("0\nchL\nsgST, id=sg1\nggMPg, id=gosg1"), content)
+            XCTAssertTrue(content.contains("1\nchR\nsgST, id=sg1, repeat=false\nggMPg, id=gosg1, repeat=false"), content)
+            XCTAssertFalse(content.contains("\n2\n"), content)
+        }
+    }
+
+    func testAVCIntraMCALabelsPreserveMatchingInputDualMonoLayout() throws {
+        try withDefaultPresetSettings {
+            let content = try XCTUnwrap(MCALabelsBuilder.buildAVCIntraLabelsFile(
+                inputStreams: [
+                    .init(audioRelativeIndex: 0, channelCount: 2, channelLayout: "stereo", sampleRate: 48_000)
+                ],
+                inputMCALabels: [
+                    AudioTrackMCALabels(
+                        trackNumber: 1,
+                        channelCount: 2,
+                        sampleRate: 48_000,
+                        soundfieldGroup: "Dual Mono",
+                        audioElement: nil,
+                        channelLabels: ["M1", "M2"]
+                    )
+                ],
+                outputTrackCount: 2
+            ))
+
+            XCTAssertTrue(content.contains("chM1"), content)
+            XCTAssertTrue(content.contains("chM2"), content)
+            XCTAssertTrue(content.contains("sgDM"), content)
+            XCTAssertFalse(content.contains("gg"), content)
+        }
+    }
+
+    func testAVCIntraMCALabelsOmitUnknownLayouts() throws {
+        try withDefaultPresetSettings {
+            XCTAssertNil(MCALabelsBuilder.buildAVCIntraLabelsFile(
+                inputStreams: [
+                    .init(audioRelativeIndex: 0, channelCount: 3, channelLayout: "3.0", sampleRate: 48_000)
+                ],
+                inputMCALabels: [],
+                outputTrackCount: 4
+            ))
+        }
+    }
+
     private func presetVideoArguments() -> [String] {
         [
             "-vf",
@@ -326,6 +520,17 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
     private func videoFilter(in args: [String]) throws -> String {
         let index = try XCTUnwrap(args.firstIndex(of: "-vf"))
         return try XCTUnwrap(args.indices.contains(index + 1) ? args[index + 1] : nil)
+    }
+
+    private func audioTrack(index: Int, channels: Int, layout: String? = nil) -> AudioTrackInfo {
+        AudioTrackInfo(
+            streamIndex: index,
+            channels: channels,
+            channelLayout: layout,
+            codec: "pcm_s24le",
+            codecLongName: nil,
+            sampleRate: 48_000
+        )
     }
 
     private func videoCodec(in arguments: [String]) -> String? {
@@ -384,6 +589,10 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             AppConstants.tvResolutionLimitKey: AppConstants.defaultTVResolutionLimit,
             AppConstants.avcIntraClassKey: AppConstants.defaultAVCIntraClass,
             AppConstants.avcIntraAudioChannelsKey: AppConstants.defaultAVCIntraAudioChannels,
+            AppConstants.avcIntraDefaultMCASoundfield1ChKey: "",
+            AppConstants.avcIntraDefaultMCASoundfield2ChKey: "",
+            AppConstants.avcIntraDefaultMCASoundfield6ChKey: "",
+            AppConstants.avcIntraDefaultMCASoundfield8ChKey: "",
             AppConstants.proResProfileKey: ProResProfile.standard.rawValue,
             AppConstants.proxyCodecKey: AppConstants.defaultProxyCodec,
             AppConstants.proxyResolutionLimitKey: AppConstants.defaultProxyResolutionLimit,
@@ -443,8 +652,16 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
 
 private extension Array where Element == String {
     func containsAdjacent(_ first: String, _ second: String) -> Bool {
-        indices.contains { index in
-            self[index] == first && indices.contains(index + 1) && self[index + 1] == second
+        adjacentPairCount(first, second) > 0
+    }
+
+    func adjacentPairCount(_ first: String, _ second: String) -> Int {
+        indices.reduce(into: 0) { count, index in
+            if self[index] == first,
+               indices.contains(index + 1),
+               self[index + 1] == second {
+                count += 1
+            }
         }
     }
 }

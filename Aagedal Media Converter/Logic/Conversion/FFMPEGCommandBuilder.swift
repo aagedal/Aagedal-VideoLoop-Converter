@@ -336,19 +336,14 @@ enum FFMPEGCommandBuilder {
         arguments.append(contentsOf: ffmpegArgs)
 
         // Map subtitle streams if the user has enabled subtitle preservation.
-        // Only applies to encoding presets (not stream copy, audio-only, or image sequences)
-        // that output into containers supporting subtitles.
+        // Unsupported outputs (image sequences, DCP/IMF MXF, animated stills, etc.)
+        // must not receive subtitle codec arguments because FFmpeg rejects them.
         if preset != .streamCopy && preset.outputsVideoTrack {
             let keepSubtitles = UserDefaults.standard.bool(forKey: AppConstants.keepSubtitlesKey)
-            if keepSubtitles {
-                let outputExtension = outputFileURL.pathExtension.lowercased()
-                if outputExtension == "mkv" {
-                    arguments.append(contentsOf: ["-map", "0:s?", "-c:s", "copy"])
-                } else {
-                    // MP4/MOV only support mov_text subtitles; bitmap subs will be skipped by FFmpeg
-                    arguments.append(contentsOf: ["-map", "0:s?", "-c:s", "mov_text"])
-                }
-            }
+            arguments.append(contentsOf: subtitleArguments(
+                keepSubtitles: keepSubtitles,
+                outputExtension: outputFileURL.pathExtension
+            ))
         }
 
         // For MOV/QuickTime files with stream copy, add movflags to preserve vendor-specific metadata
@@ -396,6 +391,22 @@ enum FFMPEGCommandBuilder {
 }
 
 extension FFMPEGCommandBuilder {
+    /// Returns subtitle mapping arguments only for containers supported by the
+    /// preservation setting. Matroska can copy subtitle streams verbatim, while
+    /// MP4 and MOV require text subtitles to be encoded as `mov_text`.
+    static func subtitleArguments(keepSubtitles: Bool, outputExtension: String) -> [String] {
+        guard keepSubtitles else { return [] }
+
+        switch outputExtension.lowercased() {
+        case "mkv":
+            return ["-map", "0:s?", "-c:s", "copy"]
+        case "mp4", "mov":
+            return ["-map", "0:s?", "-c:s", "mov_text"]
+        default:
+            return []
+        }
+    }
+
     static func normalizedTrimPoint(_ value: Double?) -> Double? {
         guard let value, value.isFinite, value > 0 else { return nil }
         return max(value, 0)
@@ -1501,15 +1512,13 @@ extension FFMPEGCommandBuilder {
 
     /// Applies audio routing configuration by replacing preset's audio map arguments
     /// with custom track selection, ordering, or channel-level operations
-    private static func applyAudioRouting(config: AudioRoutingConfig, to ffmpegArgs: inout [String]) {
+    static func applyAudioRouting(config: AudioRoutingConfig, to ffmpegArgs: inout [String]) {
         // Check if there's already a video map - if not, we need to add one
-        let hasVideoMap = ffmpegArgs.contains(where: { arg in
-            if let idx = ffmpegArgs.firstIndex(of: "-map"),
-               idx + 1 < ffmpegArgs.count {
-                return ffmpegArgs[idx + 1].hasPrefix("0:v")
-            }
-            return false
-        })
+        let hasVideoMap = ffmpegArgs.indices.contains { index in
+            ffmpegArgs[index] == "-map"
+                && ffmpegArgs.indices.contains(index + 1)
+                && ffmpegArgs[index + 1].hasPrefix("0:v")
+        }
 
         // Remove all existing audio mapping arguments from preset
         removeArgumentPair("-map", value: "0:a", from: &ffmpegArgs)

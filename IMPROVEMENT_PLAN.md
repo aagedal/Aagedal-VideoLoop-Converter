@@ -9,16 +9,18 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: fifteen tests pass. The
+- The unit-test baseline is green: twenty-five tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
-  built-in preset now has default container/codec coverage.
+  built-in preset now has default container/codec coverage; audio selection,
+  ordering, duplication, downmixing, channel operations, subtitle-container policy,
+  and AVC-Intra MCA label generation now have focused command tests.
 - The app contains about 86,000 lines of Swift. Several core files are very large:
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
-  `ExportPreset.swift` (2,235).
-- There are only fifteen unit tests. The UI test target still contains the generated
+  `ExportPreset.swift` (2,234).
+- There are only twenty-five unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -133,8 +135,15 @@ codec, and media shape for every FFmpeg-backed built-in preset. AV2 has a separa
 assertion that preserves its dedicated `avmenc` route. Stream Copy now has a
 regression test that verifies audio/video copying while excluding subtitles. The
 H.264, H.265, and AV1 paths now verify MP4/MOV fallback from incompatible Opus to
-AAC and native Opus retention in Matroska. The next slice should cover broader
-audio/subtitle mapping behavior.
+AAC and native Opus retention in Matroska. Audio-routing coverage now exercises
+selection order, duplicate tracks, removal/fallback behavior, mixed downmix and
+pass-through filters, and merge/split/swap/extract channel operations. Subtitle
+mapping is tested for MKV, MP4/MOV, disabled preservation, and unsupported output
+containers; AVC-Intra MCA tests cover manual overrides, input dual-mono labels,
+silent padding, and unknown layouts. Those tests fixed duplicate video mapping
+when an audio map appeared first and prevented subtitle arguments from being added
+to PNG, AVIF, MXF, IVF, and audio-only outputs. The next slice should cover
+metadata/timecode and image-sequence, DCP, IMF, and AV2 special command paths.
 
 ### 1.2 Add small media-fixture integration tests
 
