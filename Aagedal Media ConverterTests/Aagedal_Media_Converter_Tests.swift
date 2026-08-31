@@ -179,6 +179,22 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(pixels[centerPixelOffset + 2], 30)
     }
 
+    func testCustomCommandTokenizationPreservesExplicitlyEmptyQuotedArguments() {
+        XCTAssertEqual(
+            ExportPreset.parseCustomCommand(#"-vf "" -metadata title='' -c:v libx264"#),
+            ["-vf", "", "-metadata", "title=", "-c:v", "libx264"]
+        )
+    }
+
+    func testCustomCommandTokenizationPreservesQuotedAndEscapedWhitespace() {
+        XCTAssertEqual(
+            ExportPreset.parseCustomCommand(
+                #"-metadata "title=My Clip" -metadata artist=Jane\ Doe -vf 'scale=1280:-2'"#
+            ),
+            ["-metadata", "title=My Clip", "-metadata", "artist=Jane Doe", "-vf", "scale=1280:-2"]
+        )
+    }
+
     private func presetVideoArguments() -> [String] {
         [
             "-vf",

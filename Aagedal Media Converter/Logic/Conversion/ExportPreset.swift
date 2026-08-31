@@ -2174,7 +2174,7 @@ extension ExportPreset {
         return trimmed.isEmpty ? fallback : trimmed
     }
     
-    private static func parseCustomCommand(_ command: String) -> [String] {
+    static func parseCustomCommand(_ command: String) -> [String] {
         var args: [String] = []
         var current = ""
         var quote: Character?
@@ -2232,4 +2232,3 @@ extension ExportPreset {
     }
 
 }
-

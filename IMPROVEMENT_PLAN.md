@@ -9,17 +9,19 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: nine tests pass from clean Derived Data. The
+- The unit-test baseline is green: eleven tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
-  pixels, square-pixel SAR, and output dimensions.
+  pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
+  has focused coverage for empty quoted arguments and whitespace handling.
 - The app contains about 86,000 lines of Swift. Several core files are very large:
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,235).
-- There are only nine unit tests. The UI test target still contains the generated
+- There are only eleven unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
-- CI publishes the backup appcast, but no workflow builds the app or runs tests on
-  changes.
+- GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
+  tagged and scheduled runs also build Release. `main` still needs a branch rule
+  that makes the Debug build-and-test job required.
 - External tools are launched from roughly 50 `Process` construction sites. They
   do not share one cancellation, timeout, pipe-draining, and error-reporting layer.
 - `SwiftExifMediaProbe.durationSync` bridges async AVFoundation work with an
@@ -60,7 +62,8 @@ tests.
 
 ### 0.2 Add build-and-test CI
 
-Status: implemented 2026-08-31; awaiting the first hosted GitHub Actions run.
+Status: implemented and validated on GitHub Actions 2026-08-31; required-check
+enforcement remains to be configured.
 
 - On every pull request and push, build the Debug app and run unit tests on macOS.
 - Add a Release build on tags or a scheduled run so packaging-only problems are
@@ -75,18 +78,26 @@ Implemented in a validation workflow that runs a Debug build and the unit-test
 target on every pull request and push. Tagged and weekly scheduled runs also build
 Release; manually dispatched runs can validate both configurations on demand.
 Failed jobs retain their `.xcresult` bundles for diagnosis. The appcast publisher
-remains an independent workflow. After the workflow's first hosted run, make
-`Debug build and unit tests` a required check for `main` before marking this item
+remains an independent workflow. The first hosted Debug build and unit-test run
+passed on commit `a57ed1d`. The `main` branch currently has no protection rule, so
+make `Debug build and unit tests` a required check before marking this item
 complete.
 
 ### 0.3 Turn the existing TODO into current work
 
-- Confirm whether the screen-recording entry means 25/29.97 recording, 50/59.94
-  recording, CFR output, or all three; the current UI exposes integer 50 and 60 fps,
-  while growing presets already use a CFR frame pump.
-- Mark the Homebrew-install-guide item complete: the settings views already show
-  copyable `brew install` commands.
-- Move remaining actionable work here and keep completed history in the changelog.
+Status: completed 2026-08-31.
+
+- Closed the ambiguous screen-recording item as an implemented CFR baseline:
+  growing presets use a fixed frame pump with Auto, integer 50 fps (PAL), or integer
+  60 fps (NTSC). Non-growing presets intentionally retain source-timestamp VFR,
+  with the selected rate acting as a requested delivery cap. The distinct
+  broadcast-grade expansion—25, 29.97, 50, and 59.94, rational timing, drop-frame
+  timecode, and explicit CFR/VFR labeling—remains tracked in 4.3.
+- Marked the Downloads Homebrew-install-guide item complete: yt-dlp settings show
+  a copyable `brew install yt-dlp` command; package-manager installation remains a
+  manual Terminal step.
+- Kept completed implementation history in the changelog and removed stale open
+  wording from the historical checklist.
 
 Acceptance: no open item is ambiguous or already implemented.
 
@@ -95,6 +106,8 @@ Acceptance: no open item is ambiguous or already implemented.
 Target: next; approximately 1–2 weeks, delivered incrementally.
 
 ### 1.1 Build a command-generation test matrix
+
+Status: in progress; first regression slice added 2026-08-31.
 
 Cover the pure logic before refactoring it:
 
@@ -111,6 +124,11 @@ snapshots, which are brittle when argument order is irrelevant.
 
 Acceptance: each built-in preset has at least one command test, and every fixed
 conversion regression gains a test.
+
+Custom-command tokenization now has direct tests for explicitly empty quoted
+arguments, single- and double-quoted whitespace, and escaped whitespace. The next
+slice is a structured default container/codec matrix for every built-in preset;
+keep AV2's dedicated `avmenc` route separate from FFmpeg-backed presets.
 
 ### 1.2 Add small media-fixture integration tests
 
