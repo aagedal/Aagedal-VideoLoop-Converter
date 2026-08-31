@@ -60,6 +60,8 @@ tests.
 
 ### 0.2 Add build-and-test CI
 
+Status: implemented 2026-08-31; awaiting the first hosted GitHub Actions run.
+
 - On every pull request and push, build the Debug app and run unit tests on macOS.
 - Add a Release build on tags or a scheduled run so packaging-only problems are
   caught before release day.
@@ -68,6 +70,14 @@ tests.
 
 Acceptance: a change cannot be merged unnoticed with a compile error or failing
 unit test.
+
+Implemented in a validation workflow that runs a Debug build and the unit-test
+target on every pull request and push. Tagged and weekly scheduled runs also build
+Release; manually dispatched runs can validate both configurations on demand.
+Failed jobs retain their `.xcresult` bundles for diagnosis. The appcast publisher
+remains an independent workflow. After the workflow's first hosted run, make
+`Debug build and unit tests` a required check for `main` before marking this item
+complete.
 
 ### 0.3 Turn the existing TODO into current work
 
