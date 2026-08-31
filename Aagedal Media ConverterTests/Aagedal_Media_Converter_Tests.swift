@@ -309,6 +309,261 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testMetadataStrategyEitherMapsSourceMetadataOrStripsItDeterministically() throws {
+        try withPresetSettings([AppConstants.preserveMetadataPreferenceKey: true]) {
+            let arguments = ExportPreset.h264.ffmpegArguments
+
+            XCTAssertTrue(arguments.containsAdjacent("-map_metadata", "0"))
+            XCTAssertTrue(arguments.containsAdjacent("-map_chapters", "0"))
+            XCTAssertFalse(arguments.containsAdjacent("-fflags", "+bitexact"))
+            XCTAssertFalse(arguments.containsAdjacent("-metadata:s:v:0", "encoder="))
+            XCTAssertFalse(arguments.containsAdjacent("-metadata:s:a:0", "encoder="))
+        }
+
+        try withPresetSettings([AppConstants.preserveMetadataPreferenceKey: false]) {
+            let arguments = ExportPreset.h264.ffmpegArguments
+
+            XCTAssertTrue(arguments.containsAdjacent("-map_metadata", "-1"))
+            XCTAssertTrue(arguments.containsAdjacent("-map_chapters", "-1"))
+            XCTAssertTrue(arguments.containsAdjacent("-fflags", "+bitexact"))
+            XCTAssertTrue(arguments.containsAdjacent("-metadata:s:v:0", "encoder="))
+            XCTAssertTrue(arguments.containsAdjacent("-metadata:s:a:0", "encoder="))
+        }
+    }
+
+    func testManualTimecodeReplacesPresetTimecodeMetadata() async {
+        var arguments = [
+            "-metadata", "title=Example",
+            "-metadata", "timecode=01:00:00:00",
+            "-c:v", "libx264"
+        ]
+
+        await FFMPEGCommandBuilder.applyTimecode(
+            &arguments,
+            timecodeConfig: TimecodeConfig(mode: .manual("10:20:30:12")),
+            sourceMetadata: videoMetadata(timecode: "02:00:00:00", frameRate: 24),
+            trimStart: nil
+        )
+
+        XCTAssertEqual(arguments.adjacentPairCount("-metadata", "timecode=10:20:30:12"), 1)
+        XCTAssertFalse(arguments.containsAdjacent("-metadata", "timecode=01:00:00:00"))
+        XCTAssertTrue(arguments.containsAdjacent("-metadata", "title=Example"))
+    }
+
+    func testManualTimecodeDoesNotRequireSourceMetadata() async {
+        var arguments: [String] = []
+
+        await FFMPEGCommandBuilder.applyTimecode(
+            &arguments,
+            timecodeConfig: TimecodeConfig(mode: .manual("10:20:30:12")),
+            sourceMetadata: nil,
+            trimStart: nil
+        )
+
+        XCTAssertTrue(arguments.containsAdjacent("-metadata", "timecode=10:20:30:12"))
+    }
+
+    func testDisabledItemTimecodeDoesNotReloadGlobalDefault() async throws {
+        try await withPresetSettingsAsync([
+            AppConstants.defaultTimecodeModeKey: "manual",
+            AppConstants.defaultTimecodeValueKey: "09:08:07:06"
+        ]) {
+            var arguments: [String] = []
+
+            await FFMPEGCommandBuilder.applyConfiguredTimecode(
+                &arguments,
+                preset: .h264,
+                inputURL: URL(fileURLWithPath: "/tmp/missing-source.mov"),
+                timecodeConfig: nil,
+                trimStart: nil
+            )
+
+            XCTAssertTrue(arguments.isEmpty)
+        }
+    }
+
+    func testPreservedTimecodeOffsetsByTrimAtSourceFrameRate() async {
+        var arguments: [String] = []
+
+        await FFMPEGCommandBuilder.applyTimecode(
+            &arguments,
+            timecodeConfig: TimecodeConfig(mode: .preserveSource),
+            sourceMetadata: videoMetadata(timecode: "01:02:03:12", frameRate: 24),
+            trimStart: 1.5
+        )
+
+        XCTAssertTrue(arguments.containsAdjacent("-metadata", "timecode=01:02:05:00"))
+    }
+
+    func testPreservedDropFrameTimecodeSkipsInvalidMinuteLabels() async {
+        var arguments: [String] = []
+
+        await FFMPEGCommandBuilder.applyTimecode(
+            &arguments,
+            timecodeConfig: TimecodeConfig(mode: .preserveSource),
+            sourceMetadata: videoMetadata(timecode: "00:00:59;29", frameRate: 30_000.0 / 1_001.0),
+            trimStart: 1_001.0 / 30_000.0
+        )
+
+        XCTAssertTrue(arguments.containsAdjacent("-metadata", "timecode=00:01:00;02"))
+    }
+
+    func testPreservedDropFrameTimecodeSupports5994AndTenMinuteBoundary() async {
+        var minuteBoundaryArguments: [String] = []
+        await FFMPEGCommandBuilder.applyTimecode(
+            &minuteBoundaryArguments,
+            timecodeConfig: TimecodeConfig(mode: .preserveSource),
+            sourceMetadata: videoMetadata(timecode: "00:00:59;59", frameRate: 60_000.0 / 1_001.0),
+            trimStart: 1_001.0 / 60_000.0
+        )
+        XCTAssertTrue(minuteBoundaryArguments.containsAdjacent("-metadata", "timecode=00:01:00;04"))
+
+        var tenMinuteBoundaryArguments: [String] = []
+        await FFMPEGCommandBuilder.applyTimecode(
+            &tenMinuteBoundaryArguments,
+            timecodeConfig: TimecodeConfig(mode: .preserveSource),
+            sourceMetadata: videoMetadata(timecode: "00:09:59;29", frameRate: 30_000.0 / 1_001.0),
+            trimStart: 1_001.0 / 30_000.0
+        )
+        XCTAssertTrue(tenMinuteBoundaryArguments.containsAdjacent("-metadata", "timecode=00:10:00;00"))
+    }
+
+    func testTimecodeOffsetAtVeryLowFrameRateReturnsOriginalInsteadOfDividingByZero() async {
+        var arguments: [String] = []
+
+        await FFMPEGCommandBuilder.applyTimecode(
+            &arguments,
+            timecodeConfig: TimecodeConfig(mode: .preserveSource),
+            sourceMetadata: videoMetadata(timecode: "00:00:00:00", frameRate: 0.25),
+            trimStart: 1
+        )
+
+        XCTAssertTrue(arguments.containsAdjacent("-metadata", "timecode=00:00:00:00"))
+    }
+
+    func testImageSequenceInputArgumentsIncludeFrameRangeAndOptionalAudio() {
+        let directory = URL(fileURLWithPath: "/tmp/frames", isDirectory: true)
+        let audioURL = URL(fileURLWithPath: "/tmp/guide.wav")
+        let config = ImageSequenceConfig(
+            pattern: "shot_%04d.exr",
+            directory: directory,
+            startNumber: 1001,
+            endNumber: 1048,
+            frameRate: 24,
+            imageFormat: .exr,
+            associatedAudioURL: audioURL
+        )
+
+        XCTAssertEqual(config.frameCount, 48)
+        XCTAssertEqual(config.durationSeconds, 2, accuracy: 0.000_001)
+        XCTAssertEqual(
+            config.ffmpegInputArguments,
+            [
+                "-framerate", "24.000",
+                "-start_number", "1001",
+                "-i", "/tmp/frames/shot_%04d.exr",
+                "-i", "/tmp/guide.wav"
+            ]
+        )
+    }
+
+    func testImageSequenceJPEGExportAppliesSelectedEncoderAndQuality() throws {
+        try withPresetSettings([
+            AppConstants.imageSequenceExportFormatKey: ImageSequenceFormat.jpeg.rawValue,
+            AppConstants.imageSequenceExportQualityKey: 7
+        ]) {
+            let arguments = ExportPreset.imageSequence.ffmpegArguments
+
+            XCTAssertEqual(ExportPreset.imageSequence.outputExtension(for: nil), "jpg")
+            XCTAssertEqual(videoCodec(in: arguments), "mjpeg")
+            XCTAssertTrue(arguments.containsAdjacent("-q:v", "7"))
+            XCTAssertTrue(arguments.contains("-an"))
+            XCTAssertFalse(arguments.contains("-map_metadata"))
+        }
+    }
+
+    func testDCPCommandUsesSelectedCinemaProfileRateAndFitGeometry() throws {
+        try withPresetSettings([
+            AppConstants.dcpResolutionKey: DCPResolution.fourKFull.rawValue,
+            AppConstants.dcpFrameRateKey: DCPFrameRate.fps24.rawValue,
+            AppConstants.dcpBitrateKey: DCPBitrate.max.rawValue,
+            AppConstants.dcpScalingModeKey: DCPScalingMode.fit.rawValue
+        ]) {
+            let arguments = ExportPreset.dcp.ffmpegArguments
+
+            XCTAssertTrue(arguments.containsAdjacent("-profile", "cinema4k"))
+            XCTAssertTrue(arguments.containsAdjacent("-cinema_mode", "4k_24"))
+            XCTAssertTrue(arguments.containsAdjacent("-pix_fmt", "xyz12le"))
+            XCTAssertTrue(arguments.containsAdjacent("-b:v", "250M"))
+            XCTAssertTrue(arguments.containsAdjacent("-r", "24"))
+            XCTAssertTrue(arguments.containsAdjacent(
+                "-vf",
+                "scale=iw*sar:ih,setsar=1,scale=4096:2160:force_original_aspect_ratio=decrease,pad=4096:2160:-1:-1:color=black"
+            ))
+        }
+    }
+
+    func testIMFJ2KCommandUsesRationalRateHDRTagsAndFillGeometry() throws {
+        try withPresetSettings([
+            AppConstants.imfResolutionKey: IMFResolution.uhd2160.rawValue,
+            AppConstants.imfFrameRateKey: IMFFrameRate.fps29_97.rawValue,
+            AppConstants.imfScalingModeKey: IMFScalingMode.fill.rawValue,
+            AppConstants.imfJ2KColorEncodingKey: IMFColorEncoding.rec2020PQ.rawValue,
+            AppConstants.imfJ2KBitrateKey: DCPBitrate.high.rawValue
+        ]) {
+            let arguments = ExportPreset.imfJ2K.ffmpegArguments
+
+            XCTAssertTrue(arguments.containsAdjacent("-pix_fmt", "yuv422p10le"))
+            XCTAssertTrue(arguments.containsAdjacent("-color_primaries", "bt2020"))
+            XCTAssertTrue(arguments.containsAdjacent("-color_trc", "smpte2084"))
+            XCTAssertTrue(arguments.containsAdjacent("-colorspace", "bt2020nc"))
+            XCTAssertTrue(arguments.containsAdjacent("-r", "30000/1001"))
+            XCTAssertTrue(arguments.containsAdjacent(
+                "-vf",
+                "scale=iw*sar:ih,setsar=1,scale=3840:2160:force_original_aspect_ratio=increase,crop=3840:2160"
+            ))
+            XCTAssertFalse(arguments.contains("-cinema_mode"))
+        }
+    }
+
+    func testIMFProResCommandUsesSelectedProfileAndHLGTags() throws {
+        try withPresetSettings([
+            AppConstants.imfResolutionKey: IMFResolution.uhd2160.rawValue,
+            AppConstants.imfFrameRateKey: IMFFrameRate.fps59_94.rawValue,
+            AppConstants.imfScalingModeKey: IMFScalingMode.fit.rawValue,
+            AppConstants.imfJ2KColorEncodingKey: IMFColorEncoding.rec2020HLG.rawValue,
+            AppConstants.imfProResProfileKey: IMFProResProfile.proRes4444XQ.rawValue
+        ]) {
+            let arguments = ExportPreset.imfProRes.ffmpegArguments
+
+            XCTAssertTrue(arguments.containsAdjacent("-profile:v", "5"))
+            XCTAssertTrue(arguments.containsAdjacent("-pix_fmt", "yuva444p10le"))
+            XCTAssertTrue(arguments.containsAdjacent("-color_primaries", "bt2020"))
+            XCTAssertTrue(arguments.containsAdjacent("-color_trc", "arib-std-b67"))
+            XCTAssertTrue(arguments.containsAdjacent("-colorspace", "bt2020nc"))
+            XCTAssertTrue(arguments.containsAdjacent("-r", "60000/1001"))
+        }
+    }
+
+    func testAV2ChunkPlanningRespectsRateControlAndMinimumChunkSize() {
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedChunkCount(totalFrames: 240, hint: 8, rateMode: .targetBitrate),
+            1
+        )
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedChunkCount(totalFrames: 47, hint: 8, rateMode: .constantQuality),
+            1
+        )
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedChunkCount(totalFrames: 48, hint: 8, rateMode: .constantQuality),
+            2
+        )
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedChunkCount(totalFrames: 240, hint: 8, rateMode: .constantQuality),
+            8
+        )
+    }
+
     func testAudioRoutingPreservesSelectionOrderAndDuplicateTracks() {
         let tracks = [audioTrack(index: 0, channels: 2), audioTrack(index: 1, channels: 1)]
         let config = AudioRoutingConfig(
@@ -533,6 +788,58 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    private func videoMetadata(timecode: String?, frameRate: Double) -> VideoMetadata {
+        VideoMetadata(
+            duration: 60,
+            formatName: "mov",
+            containerLongName: "QuickTime / MOV",
+            sizeBytes: nil,
+            bitRate: nil,
+            comment: nil,
+            timecode: timecode,
+            timecodes: [],
+            frameCount: nil,
+            containerCreationDate: nil,
+            containerModificationDate: nil,
+            title: nil,
+            artist: nil,
+            gpsLatitude: nil,
+            gpsLongitude: nil,
+            gpsAltitude: nil,
+            warnings: [],
+            videoStreams: [
+                VideoMetadata.VideoStream(
+                    codec: "h264",
+                    codecLongName: nil,
+                    profile: nil,
+                    width: 1920,
+                    height: 1080,
+                    pixelFormat: "yuv420p",
+                    hasAlpha: false,
+                    pixelAspectRatio: VideoMetadata.Ratio(numerator: 1, denominator: 1),
+                    displayAspectRatio: VideoMetadata.Ratio(numerator: 16, denominator: 9),
+                    frameRate: VideoMetadata.FrameRate(double: frameRate),
+                    bitDepth: 8,
+                    bitRate: nil,
+                    duration: 60,
+                    chromaSubsampling: "4:2:0",
+                    colorPrimaries: nil,
+                    colorTransfer: nil,
+                    colorSpace: nil,
+                    colorRange: nil,
+                    chromaLocation: nil,
+                    fieldOrder: nil,
+                    isInterlaced: false,
+                    title: nil,
+                    isDefault: true,
+                    isForced: false
+                )
+            ],
+            audioStreams: [],
+            subtitleStreams: []
+        )
+    }
+
     private func videoCodec(in arguments: [String]) -> String? {
         optionValue(in: arguments, options: ["-c:v", "-vcodec", "-c"])
     }
@@ -571,6 +878,27 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
 
         try body()
+    }
+
+    private func withPresetSettingsAsync(
+        _ overrides: [String: Any],
+        _ body: () async throws -> Void
+    ) async throws {
+        let defaults = UserDefaults.standard
+        let argumentDomain = "NSArgumentDomain"
+        let originalArguments = defaults.volatileDomain(forName: argumentDomain)
+        var testArguments = originalArguments
+        testArguments.merge(defaultPresetSettings) { _, testValue in testValue }
+        testArguments.merge(overrides) { _, testValue in testValue }
+
+        defaults.removeVolatileDomain(forName: argumentDomain)
+        defaults.setVolatileDomain(testArguments, forName: argumentDomain)
+        defer {
+            defaults.removeVolatileDomain(forName: argumentDomain)
+            defaults.setVolatileDomain(originalArguments, forName: argumentDomain)
+        }
+
+        try await body()
     }
 
     private var defaultPresetSettings: [String: Any] {

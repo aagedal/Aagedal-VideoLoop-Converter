@@ -80,6 +80,7 @@ enum FFMPEGCommandBuilder {
         audioRoutingConfig: AudioRoutingConfig? = nil,
         cropConfig: CropConfig? = nil,
         timecodeConfig: TimecodeConfig? = nil,
+        sourceMetadata: VideoMetadata? = nil,
         waveformRequest: WaveformVideoRequest? = nil,
         synthesizedVideoRequest: SynthesizedVideoRequest? = nil,
         customInputArguments: [String]? = nil,
@@ -126,6 +127,14 @@ enum FFMPEGCommandBuilder {
             if !includeAudioOutput {
                 removeArgumentPair("-map", value: "[audout]", from: &arguments)
             }
+            await applyConfiguredTimecode(
+                &ffmpegArgs,
+                preset: preset,
+                inputURL: inputURL,
+                timecodeConfig: timecodeConfig,
+                sourceMetadata: sourceMetadata,
+                trimStart: normalizedTrimStart
+            )
             arguments.append(contentsOf: ffmpegArgs)
             
             // Apply comment metadata AFTER all other arguments to ensure it's not stripped by -map_metadata -1
@@ -169,6 +178,15 @@ enum FFMPEGCommandBuilder {
             if let audioRoutingConfig, preset.outputsAudioTrack, preset.appliesAudioRouting {
                 applyAudioRouting(config: audioRoutingConfig, to: &ffmpegArgs)
             }
+
+            await applyConfiguredTimecode(
+                &ffmpegArgs,
+                preset: preset,
+                inputURL: inputURL,
+                timecodeConfig: timecodeConfig,
+                sourceMetadata: sourceMetadata,
+                trimStart: normalizedTrimStart
+            )
 
             arguments.append(contentsOf: ffmpegArgs)
             
@@ -291,39 +309,14 @@ enum FFMPEGCommandBuilder {
             applyMute(to: &ffmpegArgs)
         }
 
-        // Apply timecode configuration if preset outputs video
-        if preset.outputsVideoTrack {
-            // Use provided config, or default from settings
-            let effectiveConfig: TimecodeConfig?
-            if let timecodeConfig = timecodeConfig {
-                effectiveConfig = timecodeConfig
-            } else {
-                // Use default from settings
-                let defaultMode = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeModeKey) ?? AppConstants.defaultTimecodeModeRaw
-                let defaultValue = UserDefaults.standard.string(forKey: AppConstants.defaultTimecodeValueKey) ?? AppConstants.defaultTimecodeValue
-
-                switch defaultMode {
-                case "preserveSource":
-                    effectiveConfig = TimecodeConfig(mode: .preserveSource)
-                case "manual":
-                    effectiveConfig = TimecodeConfig(mode: .manual(defaultValue))
-                default: // "disabled"
-                    // Skip timecode application if disabled by default
-                    effectiveConfig = nil
-                }
-            }
-
-            if let effectiveConfig = effectiveConfig,
-               effectiveConfig.isActive,
-               let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL) {
-                await applyTimecode(
-                    &ffmpegArgs,
-                    timecodeConfig: effectiveConfig,
-                    sourceMetadata: metadata,
-                    trimStart: normalizedTrimStart
-                )
-            }
-        }
+        await applyConfiguredTimecode(
+            &ffmpegArgs,
+            preset: preset,
+            inputURL: inputURL,
+            timecodeConfig: timecodeConfig,
+            sourceMetadata: sourceMetadata,
+            trimStart: normalizedTrimStart
+        )
 
         if preset == .streamCopy {
             adjustStreamCopyArguments(inputURL: inputURL, outputURL: outputFileURL, ffmpegArgs: &ffmpegArgs)
@@ -820,7 +813,7 @@ extension FFMPEGCommandBuilder {
     static func applyTimecode(
         _ ffmpegArgs: inout [String],
         timecodeConfig: TimecodeConfig,
-        sourceMetadata: VideoMetadata,
+        sourceMetadata: VideoMetadata?,
         trimStart: Double?
     ) async {
         let timecodeValue: String?
@@ -828,13 +821,13 @@ extension FFMPEGCommandBuilder {
         switch timecodeConfig.mode {
         case .preserveSource:
             // Use timecode from source metadata, offsetting by trim-in point if present
-            if let sourceTimecode = sourceMetadata.timecode,
+            if let sourceTimecode = sourceMetadata?.timecode,
                let trimOffset = trimStart,
                trimOffset > 0,
-               let frameRate = sourceMetadata.primaryVideoStream?.frameRate?.value {
+               let frameRate = sourceMetadata?.primaryVideoStream?.frameRate?.value {
                 timecodeValue = offsetTimecode(sourceTimecode, bySeconds: trimOffset, frameRate: frameRate)
             } else {
-                timecodeValue = sourceMetadata.timecode
+                timecodeValue = sourceMetadata?.timecode
             }
         case .manual(let tc):
             // Use manually specified timecode
@@ -859,6 +852,44 @@ extension FFMPEGCommandBuilder {
         }
     }
 
+    /// Applies an already-resolved per-item timecode choice. Video items receive
+    /// their global default when they are created, so nil here means the user
+    /// explicitly disabled timecode and must not reload settings. Manual values
+    /// do not require source metadata; preservation probes only when needed.
+    static func applyConfiguredTimecode(
+        _ ffmpegArgs: inout [String],
+        preset: ExportPreset,
+        inputURL: URL,
+        timecodeConfig: TimecodeConfig?,
+        sourceMetadata knownSourceMetadata: VideoMetadata? = nil,
+        trimStart: Double?
+    ) async {
+        guard preset.outputsVideoTrack,
+              let timecodeConfig,
+              timecodeConfig.isActive else {
+            return
+        }
+
+        let sourceMetadata: VideoMetadata?
+        switch timecodeConfig.mode {
+        case .preserveSource:
+            if let knownSourceMetadata {
+                sourceMetadata = knownSourceMetadata
+            } else {
+                sourceMetadata = try? await VideoMetadataService.shared.metadata(for: inputURL)
+            }
+        case .manual:
+            sourceMetadata = nil
+        }
+
+        await applyTimecode(
+            &ffmpegArgs,
+            timecodeConfig: timecodeConfig,
+            sourceMetadata: sourceMetadata,
+            trimStart: trimStart
+        )
+    }
+
     /// Offsets a timecode string by a given number of seconds
     /// - Parameters:
     ///   - timecode: Source timecode in format HH:MM:SS:FF or HH:MM:SS;FF
@@ -878,25 +909,48 @@ extension FFMPEGCommandBuilder {
             return timecode
         }
 
-        // Determine frame rate (round to nearest integer for frame calculation)
-        let fps = Int(frameRate.rounded())
+        // Timecode labels count at the nominal integer rate even when their media
+        // timestamps use a fractional NTSC rate. Guard very-low/invalid rates so
+        // the modulo operations below can never divide by zero.
+        let nominalFPS = Int(frameRate.rounded())
+        guard nominalFPS > 0 else {
+            logger.warning("Cannot offset timecode at invalid frame rate: \(frameRate, privacy: .public)")
+            return timecode
+        }
+
+        let isDropFrame = timecode.contains(";") && isSupportedDropFrameRate(frameRate)
+        let droppedFramesPerMinute = nominalFPS == 60 ? 4 : 2
 
         // Convert timecode to total frames
-        var totalFrames = hours * 3600 * fps
-        totalFrames += minutes * 60 * fps
-        totalFrames += secs * fps
+        var totalFrames = hours * 3600 * nominalFPS
+        totalFrames += minutes * 60 * nominalFPS
+        totalFrames += secs * nominalFPS
         totalFrames += frames
 
+        if isDropFrame {
+            let totalMinutes = hours * 60 + minutes
+            let skippedLabels = droppedFramesPerMinute * (totalMinutes - totalMinutes / 10)
+            totalFrames -= skippedLabels
+        }
+
         // Add offset in frames (round to nearest frame to avoid off-by-one errors)
-        let offsetFrames = Int(round(seconds * Double(fps)))
+        let offsetFrames = Int(round(seconds * frameRate))
         totalFrames += offsetFrames
 
         // Ensure non-negative
         totalFrames = max(0, totalFrames)
 
+        if isDropFrame {
+            totalFrames = dropFrameLabelFrame(
+                forAbsoluteFrame: totalFrames,
+                nominalFPS: nominalFPS,
+                droppedFramesPerMinute: droppedFramesPerMinute
+            )
+        }
+
         // Convert back to timecode components
-        let newFrames = totalFrames % fps
-        var remainingFrames = totalFrames / fps
+        let newFrames = totalFrames % nominalFPS
+        var remainingFrames = totalFrames / nominalFPS
 
         let newSeconds = remainingFrames % 60
         remainingFrames /= 60
@@ -920,6 +974,36 @@ extension FFMPEGCommandBuilder {
         logger.debug("Offset timecode from \(timecode, privacy: .public) to \(offsetTimecode, privacy: .public) (offset: \(seconds, privacy: .public)s at \(frameRate, privacy: .public)fps)")
 
         return offsetTimecode
+    }
+
+    private static func isSupportedDropFrameRate(_ frameRate: Double) -> Bool {
+        abs(frameRate - (30_000.0 / 1_001.0)) < 0.01 ||
+            abs(frameRate - (60_000.0 / 1_001.0)) < 0.01
+    }
+
+    /// Converts a zero-based absolute frame count into its drop-frame label frame.
+    /// Drop-frame timecode skips two labels per minute at 29.97 fps (four at
+    /// 59.94), except every tenth minute. The media frames themselves are not
+    /// dropped; only their displayed labels are discontinuous.
+    private static func dropFrameLabelFrame(
+        forAbsoluteFrame absoluteFrame: Int,
+        nominalFPS: Int,
+        droppedFramesPerMinute: Int
+    ) -> Int {
+        let framesPerMinute = nominalFPS * 60 - droppedFramesPerMinute
+        let framesPerTenMinutes = nominalFPS * 60 * 10 - droppedFramesPerMinute * 9
+        let framesPerHour = framesPerTenMinutes * 6
+        let framesPerDay = framesPerHour * 24
+        let wrappedFrame = absoluteFrame % framesPerDay
+        let completeTenMinuteBlocks = wrappedFrame / framesPerTenMinutes
+        let remainder = wrappedFrame % framesPerTenMinutes
+
+        var skippedLabels = droppedFramesPerMinute * 9 * completeTenMinuteBlocks
+        if remainder > droppedFramesPerMinute {
+            skippedLabels += droppedFramesPerMinute * ((remainder - droppedFramesPerMinute) / framesPerMinute)
+        }
+
+        return wrappedFrame + skippedLabels
     }
 
     /// Replaces generic `-map 0:a` with explicit mapping of only decodable audio streams.

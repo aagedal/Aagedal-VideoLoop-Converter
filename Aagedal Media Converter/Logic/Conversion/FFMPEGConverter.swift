@@ -498,6 +498,7 @@ actor FFMPEGConverter {
             audioRoutingConfig: tempAudioURL != nil ? nil : request.audioRoutingConfig,  // Audio already processed
             cropConfig: request.cropConfig,
             timecodeConfig: request.timecodeConfig,
+            sourceMetadata: request.sourceMetadata,
             waveformRequest: request.waveformRequest,
             synthesizedVideoRequest: request.synthesizedVideoRequest,
             customInputArguments: effectiveCustomInputArguments,
