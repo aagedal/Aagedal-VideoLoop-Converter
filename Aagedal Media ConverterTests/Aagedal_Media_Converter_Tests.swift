@@ -1365,6 +1365,232 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testAV2MatroskaCapabilitiesFollowSelectedContainer() throws {
+        try withPresetSettings([AppConstants.av2ContainerKey: AV2Container.ivf.rawValue]) {
+            XCTAssertFalse(ExportPreset.av2.outputsAudioTrack)
+            XCTAssertFalse(ExportPreset.av2.appliesAudioRouting)
+        }
+        try withPresetSettings([AppConstants.av2ContainerKey: AV2Container.mkv.rawValue]) {
+            XCTAssertTrue(ExportPreset.av2.outputsAudioTrack)
+            XCTAssertTrue(ExportPreset.av2.appliesAudioRouting)
+        }
+    }
+
+    func testAV2AudioRoutingArgumentsPreserveOrderDuplicatesAndFilters() {
+        let tracks = [audioTrack(index: 0, channels: 2), audioTrack(index: 1, channels: 6)]
+        let config = AudioRoutingConfig(
+            inputTracks: tracks,
+            outputTracks: [
+                OutputTrack(streamIndex: 1, downmixToStereo: true),
+                OutputTrack(streamIndex: 0),
+                OutputTrack(streamIndex: 1)
+            ]
+        )
+
+        XCTAssertEqual(
+            FFMPEGConverter.av2MuxAudioRoutingArguments(
+                inputIndex: 2,
+                audioRoutingConfig: config,
+                defaultAudioStreamIndices: [99]
+            ),
+            [
+                "-filter_complex",
+                "[2:a:1]aresample=ochl=stereo[aout0];[2:a:0]anull[aout1];[2:a:1]anull[aout2]",
+                "-map", "[aout0]",
+                "-map", "[aout1]",
+                "-map", "[aout2]"
+            ]
+        )
+        XCTAssertEqual(
+            FFMPEGConverter.av2MuxAudioRoutingArguments(
+                inputIndex: 1,
+                audioRoutingConfig: nil,
+                defaultAudioStreamIndices: [0, 2]
+            ),
+            ["-map", "1:a:0", "-map", "1:a:2"]
+        )
+        XCTAssertEqual(
+            FFMPEGConverter.av2MuxAudioRoutingArguments(
+                inputIndex: 0,
+                audioRoutingConfig: AudioRoutingConfig(inputTracks: tracks, outputTracks: []),
+                defaultAudioStreamIndices: [0, 1]
+            ),
+            []
+        )
+        XCTAssertEqual(
+            FFMPEGConverter.av2MuxAudioRoutingArguments(
+                inputIndex: 10,
+                audioRoutingConfig: config,
+                defaultAudioStreamIndices: []
+            ),
+            [
+                "-filter_complex",
+                "[10:a:1]aresample=ochl=stereo[aout0];[10:a:0]anull[aout1];[10:a:1]anull[aout2]",
+                "-map", "[aout0]",
+                "-map", "[aout1]",
+                "-map", "[aout2]"
+            ]
+        )
+    }
+
+    func testADTSChannelConfigurationMappingRejectsUnsupportedLayouts() {
+        XCTAssertNil(FFMPEGConverter.adtsChannelCount(forConfiguration: 0))
+        XCTAssertEqual(FFMPEGConverter.adtsChannelCount(forConfiguration: 1), 1)
+        XCTAssertEqual(FFMPEGConverter.adtsChannelCount(forConfiguration: 2), 2)
+        XCTAssertEqual(FFMPEGConverter.adtsChannelCount(forConfiguration: 6), 6)
+        XCTAssertEqual(FFMPEGConverter.adtsChannelCount(forConfiguration: 7), 8)
+        XCTAssertNil(FFMPEGConverter.adtsChannelCount(forConfiguration: 8))
+    }
+
+    func testGeneratedAV2AudioRoutingProducesOrderedTracksForAACAndOpus() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterAV2AudioRoutingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let sourceURL = temporaryDirectory.appendingPathComponent("source.mkv")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=16x16:r=24:d=0.25",
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo:d=0.25",
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=5.1:d=0.25",
+            "-map", "0:v:0", "-map", "1:a:0", "-map", "2:a:0",
+            "-c:v", "ffv1", "-c:a", "pcm_s16le", sourceURL.path
+        ])
+
+        let tracks = [audioTrack(index: 0, channels: 2), audioTrack(index: 1, channels: 6)]
+        let routing = AudioRoutingConfig(
+            inputTracks: tracks,
+            outputTracks: [
+                OutputTrack(streamIndex: 1, downmixToStereo: true),
+                OutputTrack(streamIndex: 0),
+                OutputTrack(streamIndex: 1)
+            ]
+        )
+        let source = FFMPEGConverter.PackageAudioInput(
+            arguments: ["-i", sourceURL.path],
+            probeURL: sourceURL,
+            ffmpegInputIndex: 0,
+            assumesSingleAudioStreamIfProbeUnavailable: false
+        )
+
+        for codec in [AV2AudioCodec.aac, .opus] {
+            let result = try await withPresetSettingsAsync([
+                AppConstants.av2AudioCodecKey: codec.rawValue,
+                AppConstants.av2AudioBitrateKey: AppConstants.defaultAV2AudioBitrate
+            ]) {
+                await FFMPEGConverter().extractAudioTracksForAV2Mux(
+                    source: source,
+                    audioRoutingConfig: routing,
+                    trimStart: nil,
+                    trimEnd: nil,
+                    ffmpegPath: ffmpegExecutableURL.path
+                )
+            }
+
+            guard case .tracks(let extractedTracks) = result else {
+                XCTFail("AV2 \(codec.rawValue) routing did not produce audio tracks")
+                continue
+            }
+            XCTAssertEqual(extractedTracks.count, 3, codec.rawValue)
+            XCTAssertEqual(extractedTracks.map(\.info.channels), [2, 2, 6], codec.rawValue)
+            XCTAssertEqual(extractedTracks.map(\.info.codecID), Array(repeating: codec.matroskaCodecID, count: 3))
+            XCTAssertTrue(extractedTracks.allSatisfy { !$0.frames.isEmpty }, codec.rawValue)
+        }
+
+        let defaultResult = try await withPresetSettingsAsync([
+            AppConstants.av2AudioCodecKey: AV2AudioCodec.aac.rawValue
+        ]) {
+            await FFMPEGConverter().extractAudioTracksForAV2Mux(
+                source: source,
+                audioRoutingConfig: nil,
+                trimStart: nil,
+                trimEnd: nil,
+                ffmpegPath: ffmpegExecutableURL.path
+            )
+        }
+        guard case .tracks(let defaultTracks) = defaultResult else {
+            return XCTFail("Default AV2 routing did not preserve every decodable audio track")
+        }
+        XCTAssertEqual(defaultTracks.map(\.info.channels), [2, 6])
+
+        var splitRouting = AudioRoutingConfig(inputTracks: tracks)
+        splitRouting.setChannelOperation(.splitToMono(trackIndex: 0))
+        let splitResult = try await withPresetSettingsAsync([
+            AppConstants.av2AudioCodecKey: AV2AudioCodec.aac.rawValue
+        ]) {
+            await FFMPEGConverter().extractAudioTracksForAV2Mux(
+                source: source,
+                audioRoutingConfig: splitRouting,
+                trimStart: nil,
+                trimEnd: nil,
+                ffmpegPath: ffmpegExecutableURL.path
+            )
+        }
+        guard case .tracks(let splitTracks) = splitResult else {
+            return XCTFail("AV2 split-to-mono routing did not survive audio staging")
+        }
+        XCTAssertEqual(splitTracks.map(\.info.channels), [1, 1])
+
+        var extractRouting = AudioRoutingConfig(inputTracks: tracks)
+        extractRouting.setChannelOperation(.extractChannel(trackIndex: 1, channelIndex: 4, channelName: "Ls"))
+        let extractResult = try await withPresetSettingsAsync([
+            AppConstants.av2AudioCodecKey: AV2AudioCodec.aac.rawValue
+        ]) {
+            await FFMPEGConverter().extractAudioTracksForAV2Mux(
+                source: source,
+                audioRoutingConfig: extractRouting,
+                trimStart: nil,
+                trimEnd: nil,
+                ffmpegPath: ffmpegExecutableURL.path
+            )
+        }
+        guard case .tracks(let extractTracks) = extractResult else {
+            return XCTFail("AV2 extract-channel routing did not survive audio staging")
+        }
+        XCTAssertEqual(extractTracks.map(\.info.channels), [1])
+
+        let invalidRouting = AudioRoutingConfig(
+            inputTracks: tracks,
+            outputTracks: [OutputTrack(streamIndex: 99)]
+        )
+        let invalidResult = try await withPresetSettingsAsync([
+            AppConstants.av2AudioCodecKey: AV2AudioCodec.aac.rawValue
+        ]) {
+            await FFMPEGConverter().extractAudioTracksForAV2Mux(
+                source: source,
+                audioRoutingConfig: invalidRouting,
+                trimStart: nil,
+                trimEnd: nil,
+                ffmpegPath: ffmpegExecutableURL.path
+            )
+        }
+        guard case .failed(let reason) = invalidResult else {
+            return XCTFail("Invalid selected AV2 audio was silently discarded")
+        }
+        XCTAssertFalse(reason.isEmpty)
+
+        let unreadableURL = temporaryDirectory.appendingPathComponent("unreadable.mkv")
+        try Data("not a Matroska file".utf8).write(to: unreadableURL)
+        let unreadableSource = FFMPEGConverter.PackageAudioInput(
+            arguments: ["-i", unreadableURL.path],
+            probeURL: unreadableURL,
+            ffmpegInputIndex: 0,
+            assumesSingleAudioStreamIfProbeUnavailable: false
+        )
+        let unreadableResult = await FFMPEGConverter().extractAudioTracksForAV2Mux(
+            source: unreadableSource,
+            audioRoutingConfig: nil,
+            trimStart: nil,
+            trimEnd: nil,
+            ffmpegPath: ffmpegExecutableURL.path
+        )
+        guard case .failed(let probeReason) = unreadableResult else {
+            return XCTFail("Unreadable default AV2 audio was treated as a silent source")
+        }
+        XCTAssertTrue(probeReason.contains("inspect"))
+    }
+
     func testAV2MatroskaMetadataUsesSharedCommentAndTimecodePolicy() throws {
         try withPresetSettings([
             AppConstants.commentPrefixKey: "Prefix",
@@ -1417,6 +1643,52 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             XCTAssertNotNil(data.range(of: Data([0x63, 0xC0, 0x80])))
             XCTAssertNotNil(data.range(of: Data([0x63, 0xC5, 0x81, 0x01])))
         }
+    }
+
+    func testMatroskaMuxerWritesOrderedMultipleAudioTracksAndBlocks() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterMatroskaAudioTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let outputURL = temporaryDirectory.appendingPathComponent("multi-audio.mkv")
+        let audioTracks = [
+            MatroskaMuxer.AudioTrack(
+                info: MatroskaMuxer.AudioTrackInfo(
+                    codecID: "A_AAC", codecPrivate: Data([0x12, 0x10]), sampleRate: 48_000, channels: 2
+                ),
+                frames: [MatroskaMuxer.AudioFrame(data: Data([0xA1]), durationSamples: 1_024)]
+            ),
+            MatroskaMuxer.AudioTrack(
+                info: MatroskaMuxer.AudioTrackInfo(
+                    codecID: "A_OPUS", codecPrivate: Data("OpusHead".utf8), sampleRate: 48_000, channels: 1
+                ),
+                frames: [MatroskaMuxer.AudioFrame(data: Data([0xB2]), durationSamples: 960)]
+            )
+        ]
+        try MatroskaMuxer.write(
+            to: outputURL,
+            video: MatroskaMuxer.VideoTrackInfo(
+                codecPrivate: nil,
+                width: 16,
+                height: 16,
+                fpsNumerator: 24,
+                fpsDenominator: 1
+            ),
+            videoFrames: [MatroskaMuxer.VideoFrame(data: Data([0x12, 0x34]), isKeyframe: true)],
+            audioTracks: audioTracks
+        )
+
+        let data = try Data(contentsOf: outputURL)
+        let aacCodec = try XCTUnwrap(data.range(of: Data("A_AAC".utf8)))
+        let opusCodec = try XCTUnwrap(data.range(of: Data("A_OPUS".utf8)))
+        XCTAssertLessThan(aacCodec.lowerBound, opusCodec.lowerBound)
+        XCTAssertNotNil(data.range(of: Data([0xD7, 0x81, 0x02])))
+        XCTAssertNotNil(data.range(of: Data([0xD7, 0x81, 0x03])))
+        XCTAssertNotNil(data.range(of: Data([0x88, 0x81, 0x01])))
+        XCTAssertNotNil(data.range(of: Data([0x88, 0x81, 0x00])))
+        XCTAssertNotNil(data.range(of: Data([0x82, 0x00, 0x00, 0x80, 0xA1])))
+        XCTAssertNotNil(data.range(of: Data([0x83, 0x00, 0x00, 0x80, 0xB2])))
     }
 
     func testAV2RejectsAdditionalFFmpegOutputArgumentsInsteadOfIgnoringThem() async throws {
@@ -1503,7 +1775,11 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         config.setChannelOperation(.splitToMono(trackIndex: 2))
         XCTAssertEqual(
             AudioRoutingService.buildFFmpegMapArguments(config: config),
-            ["-filter_complex", "[0:a:2]channelsplit=channel_layout=stereo[L][R]", "-map", "[L]", "-map", "[R]"]
+            [
+                "-filter_complex",
+                "[0:a:2]channelsplit=channel_layout=stereo[splitL][splitR];[splitL]aformat=channel_layouts=mono[L];[splitR]aformat=channel_layouts=mono[R]",
+                "-map", "[L]", "-map", "[R]"
+            ]
         )
 
         config.setChannelOperation(.swapChannels(trackIndex: 2))

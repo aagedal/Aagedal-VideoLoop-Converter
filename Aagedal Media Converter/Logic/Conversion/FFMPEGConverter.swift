@@ -440,6 +440,7 @@ actor FFMPEGConverter {
                     sourceURL: inputURL,
                     customInputArguments: request.customInputArguments,
                     isMuted: request.isMuted,
+                    audioRoutingConfig: request.audioRoutingConfig,
                     comment: request.comment,
                     includeDateTag: request.includeDateTag,
                     timecodeConfig: request.timecodeConfig,
@@ -2044,14 +2045,15 @@ actor FFMPEGConverter {
 
     /// Wraps an already-encoded AV2 `.ivf` plus the source audio into a `.mkv` using the in-app
     /// ``MatroskaMuxer`` (FFmpeg cannot write AV2). The AV2 `CodecPrivate` is harvested from a tiny
-    /// `avmenc --webm` probe; the audio is re-encoded to AAC and packetised from its ADTS stream.
-    /// Audio is best-effort: a source with no audio (or an audio-extraction failure) yields a valid
-    /// video-only `.mkv`.
+    /// `avmenc --webm` probe; routed audio is re-encoded to AAC or Opus and packetised in-app.
+    /// A source with no selected audio yields a valid video-only `.mkv`; failures while processing
+    /// selected audio fail the conversion so routing choices are never silently discarded.
     private func muxAV2ToMatroska(
         videoIvfURL: URL,
         sourceURL: URL,
         customInputArguments: [String]?,
         isMuted: Bool,
+        audioRoutingConfig: AudioRoutingConfig?,
         comment: String,
         includeDateTag: Bool,
         timecodeConfig: TimecodeConfig?,
@@ -2098,21 +2100,28 @@ actor FFMPEGConverter {
         }
         guard !videoFrames.isEmpty else { return (false, "AV2 muxing: no video frames in bitstream") }
 
-        // 3. Extract + parse audio (best-effort; a video-only .mkv is fine if absent).
-        var audioInfo: MatroskaMuxer.AudioTrackInfo? = nil
-        var audioFrames: [MatroskaMuxer.AudioFrame] = []
+        // 3. Extract + parse routed audio. A video-only .mkv is fine only when audio is absent,
+        // muted, or explicitly removed by the routing configuration.
+        var audioTracks: [MatroskaMuxer.AudioTrack] = []
         if let audioInput = Self.av2MuxAudioInput(
             inputURL: sourceURL,
             customInputArguments: customInputArguments,
             isMuted: isMuted
-        ), let (info, frames) = await extractAudioForMux(
-            source: audioInput,
-            trimStart: trimStart,
-            trimEnd: trimEnd,
-            ffmpegPath: ffmpegPath
         ) {
-            audioInfo = info
-            audioFrames = frames
+            switch await extractAudioTracksForAV2Mux(
+                source: audioInput,
+                audioRoutingConfig: audioRoutingConfig,
+                trimStart: trimStart,
+                trimEnd: trimEnd,
+                ffmpegPath: ffmpegPath
+            ) {
+            case .noAudio:
+                break
+            case .tracks(let extractedTracks):
+                audioTracks = extractedTracks
+            case .failed(let reason):
+                return (false, "AV2 audio routing failed: \(reason)")
+            }
         }
 
         // 4. Resolve global/container metadata. Raw IVF cannot carry these tags;
@@ -2149,8 +2158,7 @@ actor FFMPEGConverter {
                 to: outputURL,
                 video: video,
                 videoFrames: videoFrames,
-                audio: audioInfo,
-                audioFrames: audioFrames,
+                audioTracks: audioTracks,
                 metadata: metadata
             )
         } catch {
@@ -2159,7 +2167,8 @@ actor FFMPEGConverter {
         if let validationError = Self.validateOutputFile(at: outputURL) {
             return (false, validationError)
         }
-        Self.logger.info("AV2 mux complete: \(videoFrames.count) video + \(audioFrames.count) audio frames → \(outputURL.lastPathComponent, privacy: .public)")
+        let audioFrameCount = audioTracks.reduce(0) { $0 + $1.frames.count }
+        Self.logger.info("AV2 mux complete: \(videoFrames.count) video + \(audioFrameCount) audio frames across \(audioTracks.count) tracks → \(outputURL.lastPathComponent, privacy: .public)")
         return (true, nil)
     }
 
@@ -2188,9 +2197,10 @@ actor FFMPEGConverter {
         return Self.extractMatroskaCodecPrivate(fromWebM: webm)
     }
 
-    /// Re-encodes the source audio to the configured codec (AAC or Opus), parses the elementary
-    /// stream, and returns the Matroska track info + per-frame data ready to mux. Trim-aware.
-    /// Returns nil when the source has no audio or extraction/parsing produces nothing.
+    /// Re-encodes the routed source audio to the configured codec (AAC or Opus), preserving the
+    /// selected order and duplicate tracks. FFmpeg first writes an audio-only Matroska file so a
+    /// single filter graph can produce every requested stream; each stream is then copied to an
+    /// elementary file for the existing AAC/Opus packet parsers.
     static func av2MuxAudioInput(
         inputURL: URL,
         customInputArguments: [String]?,
@@ -2201,13 +2211,53 @@ actor FFMPEGConverter {
         return source.arguments.isEmpty ? nil : source
     }
 
-    private func extractAudioForMux(
-        source: PackageAudioInput, trimStart: Double?, trimEnd: Double?, ffmpegPath: String
-    ) async -> (MatroskaMuxer.AudioTrackInfo, [MatroskaMuxer.AudioFrame])? {
+    enum AV2MuxAudioExtractionResult: Sendable {
+        case noAudio
+        case tracks([MatroskaMuxer.AudioTrack])
+        case failed(String)
+    }
+
+    func extractAudioTracksForAV2Mux(
+        source: PackageAudioInput,
+        audioRoutingConfig: AudioRoutingConfig?,
+        trimStart: Double?,
+        trimEnd: Double?,
+        ffmpegPath: String
+    ) async -> AV2MuxAudioExtractionResult {
         let codec = AV2AudioCodec.current
         let bitrate = AudioBitrate(rawValue: UserDefaults.standard.string(forKey: AppConstants.av2AudioBitrateKey) ?? AppConstants.defaultAV2AudioBitrate)?.ffmpegValue ?? "192k"
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("av2audio_\(UUID().uuidString).\(codec.intermediateExtension)")
-        defer { Self.cleanupTempFile(at: tmp, label: "AV2 mux audio") }
+        let defaultAudioStreamIndices: [Int]
+        if audioRoutingConfig != nil {
+            defaultAudioStreamIndices = []
+        } else if let probeURL = source.probeURL {
+            guard let streams = await FFMPEGProbeService.fetchAudioStreams(for: probeURL) else {
+                return .failed("Could not inspect the source audio streams")
+            }
+            if streams.isEmpty && source.assumesSingleAudioStreamIfProbeUnavailable {
+                defaultAudioStreamIndices = [0]
+            } else {
+                defaultAudioStreamIndices = streams.enumerated().compactMap { offset, stream in
+                    stream.isDecodable ? offset : nil
+                }
+            }
+        } else {
+            defaultAudioStreamIndices = []
+        }
+        let routingArguments = Self.av2MuxAudioRoutingArguments(
+            inputIndex: source.ffmpegInputIndex,
+            audioRoutingConfig: audioRoutingConfig,
+            defaultAudioStreamIndices: defaultAudioStreamIndices
+        )
+        let plannedTrackCount = routingArguments.indices.reduce(into: 0) { count, index in
+            if routingArguments[index] == "-map", routingArguments.indices.contains(index + 1) {
+                count += 1
+            }
+        }
+        guard plannedTrackCount > 0 else { return .noAudio }
+
+        let routedAudioURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("av2audio_routed_\(UUID().uuidString).mkv")
+        defer { Self.cleanupTempFile(at: routedAudioURL, label: "AV2 routed audio") }
 
         var args = ["-y", "-nostdin", "-hide_banner"]
         if let trimStart, trimStart > 0 { args += ["-ss", String(format: "%.6f", trimStart)] }
@@ -2217,19 +2267,74 @@ actor FFMPEGConverter {
         } else if let trimEnd, trimEnd > 0, trimStart == nil {
             args += ["-t", String(format: "%.6f", trimEnd)]
         }
-        args += ["-vn", "-map", "\(source.ffmpegInputIndex):a:0?", "-c:a", codec.ffmpegEncoder, "-b:a", bitrate]
-        args += codec == .opus ? ["-f", "ogg"] : ["-f", "adts"]
-        args += [tmp.path]
-        guard await runBinary(ffmpegPath, args) == 0, Self.fileHasContent(at: tmp) else { return nil }
+        args += ["-vn"]
+        args += routingArguments
+        args += ["-c:a", codec.ffmpegEncoder, "-b:a", bitrate, "-f", "matroska", routedAudioURL.path]
+        guard await runBinary(ffmpegPath, args) == 0, Self.fileHasContent(at: routedAudioURL) else {
+            return .failed("FFmpeg could not encode the selected audio tracks")
+        }
+        guard let routedStreams = await FFMPEGProbeService.fetchAudioStreams(for: routedAudioURL),
+              !routedStreams.isEmpty else {
+            return .failed("Could not inspect the routed audio output")
+        }
+        guard routedStreams.count == plannedTrackCount else {
+            return .failed("Expected \(plannedTrackCount) routed audio tracks, but FFmpeg produced \(routedStreams.count)")
+        }
 
+        var tracks: [MatroskaMuxer.AudioTrack] = []
+        for trackIndex in routedStreams.indices {
+            let elementaryURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("av2audio_\(UUID().uuidString).\(codec.intermediateExtension)")
+            defer { Self.cleanupTempFile(at: elementaryURL, label: "AV2 mux audio track") }
+            var extractionArguments = [
+                "-y", "-nostdin", "-hide_banner", "-i", routedAudioURL.path,
+                "-map", "0:a:\(trackIndex)", "-vn", "-c:a", "copy"
+            ]
+            extractionArguments += codec == .opus ? ["-f", "ogg"] : ["-f", "adts"]
+            extractionArguments += [elementaryURL.path]
+            guard await runBinary(ffmpegPath, extractionArguments) == 0,
+                  Self.fileHasContent(at: elementaryURL),
+                  let track = Self.parseAV2MuxAudioTrack(elementaryURL, codec: codec) else {
+                return .failed("Could not packetize routed audio track \(trackIndex + 1)")
+            }
+            tracks.append(track)
+        }
+        return .tracks(tracks)
+    }
+
+    static func av2MuxAudioRoutingArguments(
+        inputIndex: Int,
+        audioRoutingConfig: AudioRoutingConfig?,
+        defaultAudioStreamIndices: [Int]
+    ) -> [String] {
+        guard let audioRoutingConfig else {
+            return defaultAudioStreamIndices.flatMap { ["-map", "\(inputIndex):a:\($0)"] }
+        }
+
+        let arguments = AudioRoutingService.buildFFmpegMapArguments(config: audioRoutingConfig)
+        let inputPlaceholder = "{av2-audio-input}"
+        return arguments.map { argument in
+            argument
+                .replacingOccurrences(of: "[0:a:", with: "[\(inputPlaceholder):a:")
+                .replacingOccurrences(of: "0:a:", with: "\(inputIndex):a:")
+                .replacingOccurrences(of: inputPlaceholder, with: String(inputIndex))
+        }
+    }
+
+    private static func parseAV2MuxAudioTrack(
+        _ url: URL,
+        codec: AV2AudioCodec
+    ) -> MatroskaMuxer.AudioTrack? {
         switch codec {
         case .aac:
-            guard let parsed = Self.parseADTS(tmp) else { return nil }
+            guard let parsed = parseADTS(url) else { return nil }
             let info = MatroskaMuxer.AudioTrackInfo(codecID: "A_AAC", codecPrivate: parsed.asc, sampleRate: parsed.sampleRate, channels: parsed.channels)
-            let frames = parsed.frames.map { MatroskaMuxer.AudioFrame(data: $0, durationSamples: 1024) }
-            return (info, frames)
+            return MatroskaMuxer.AudioTrack(
+                info: info,
+                frames: parsed.frames.map { MatroskaMuxer.AudioFrame(data: $0, durationSamples: 1024) }
+            )
         case .opus:
-            guard let parsed = Self.parseOggOpus(tmp) else { return nil }
+            guard let parsed = parseOggOpus(url) else { return nil }
             // Opus always runs on a 48 kHz timestamp clock in Matroska. CodecDelay carries the
             // encoder pre-skip; SeekPreRoll is the standard 80 ms.
             let codecDelayNs = Int64((Double(parsed.preSkip) * 1_000_000_000.0 / 48000.0).rounded())
@@ -2237,7 +2342,7 @@ actor FFMPEGConverter {
                 codecID: "A_OPUS", codecPrivate: parsed.codecPrivate, sampleRate: 48000, channels: parsed.channels,
                 codecDelayNs: codecDelayNs, seekPreRollNs: 80_000_000
             )
-            return (info, parsed.frames)
+            return MatroskaMuxer.AudioTrack(info: info, frames: parsed.frames)
         }
     }
 
@@ -2354,6 +2459,14 @@ actor FFMPEGConverter {
 
     /// Parses an ADTS AAC stream into raw AAC access units plus the derived AudioSpecificConfig,
     /// sample rate and channel count (read from the first frame's header).
+    static func adtsChannelCount(forConfiguration configuration: UInt8) -> Int? {
+        switch configuration {
+        case 1...6: Int(configuration)
+        case 7: 8
+        default: nil
+        }
+    }
+
     private static func parseADTS(_ url: URL) -> (frames: [Data], asc: Data, sampleRate: Double, channels: Int)? {
         guard let data = try? Data(contentsOf: url), data.count > 7 else { return nil }
         let bytes = [UInt8](data)
@@ -2373,12 +2486,17 @@ actor FFMPEGConverter {
             let frameLen = (Int(bytes[i + 3] & 0x03) << 11) | (Int(bytes[i + 4]) << 3) | (Int(bytes[i + 5] >> 5) & 0x07)
             guard frameLen >= headerLen, i + frameLen <= bytes.count else { break }
             if asc == nil {
+                guard let parsedChannels = adtsChannelCount(forConfiguration: chanCfg) else {
+                    // Configuration zero requires parsing the AAC Program Config Element. Reject it
+                    // until that is supported rather than silently describing multichannel audio as stereo.
+                    return nil
+                }
                 let aot = UInt8(profile + 1) // ADTS profile = audioObjectType − 1
                 let b0 = (aot << 3) | (freqIdx >> 1)
                 let b1 = ((freqIdx & 0x01) << 7) | (chanCfg << 3)
                 asc = Data([b0, b1])
                 if Int(freqIdx) < rateTable.count { sampleRate = rateTable[Int(freqIdx)] }
-                channels = chanCfg == 0 ? 2 : Int(chanCfg)
+                channels = parsedChannels
             }
             let payloadStart = i + headerLen
             frames.append(data.subdata(in: payloadStart..<(i + frameLen)))

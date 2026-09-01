@@ -11,7 +11,7 @@ import Foundation
 import OSLog
 
 /// A minimal Matroska (`.mkv`) muxer — just enough to wrap an already-encoded video track plus
-/// one audio track into a seekable container.
+/// zero or more audio tracks into a seekable container.
 ///
 /// It exists because FFmpeg cannot (yet) write the experimental AV2 codec: its Matroska demuxer
 /// reads a `V_AV2` track but has no AVCodecID mapping for it, so `ffmpeg -c copy` refuses to remux.
@@ -64,6 +64,14 @@ enum MatroskaMuxer {
         let durationSamples: Int
     }
 
+    /// One complete encoded audio track ready to mux. Keeping the track description and frames
+    /// together prevents frame arrays from becoming misaligned when routing duplicates or
+    /// reorders source tracks.
+    struct AudioTrack: Sendable {
+        let info: AudioTrackInfo
+        let frames: [AudioFrame]
+    }
+
     enum MuxError: LocalizedError {
         case noVideoFrames
         case writeFailed(String)
@@ -89,7 +97,26 @@ enum MatroskaMuxer {
         audioFrames: [AudioFrame],
         metadata: Metadata? = nil
     ) throws {
+        let audioTracks = audio.map { [AudioTrack(info: $0, frames: audioFrames)] } ?? []
+        try write(
+            to: url,
+            video: video,
+            videoFrames: videoFrames,
+            audioTracks: audioTracks,
+            metadata: metadata
+        )
+    }
+
+    /// Writes a `.mkv` containing the given video frames and routed audio tracks.
+    static func write(
+        to url: URL,
+        video: VideoTrackInfo,
+        videoFrames: [VideoFrame],
+        audioTracks: [AudioTrack],
+        metadata: Metadata? = nil
+    ) throws {
         guard !videoFrames.isEmpty else { throw MuxError.noVideoFrames }
+        let activeAudioTracks = audioTracks.filter { !$0.frames.isEmpty }
 
         let fpsNum = max(1, video.fpsNumerator)
         let fpsDen = max(1, video.fpsDenominator)
@@ -97,21 +124,23 @@ enum MatroskaMuxer {
         // MARK: Build the block timeline (ms timestamps, TimestampScale = 1,000,000 ns).
         struct Block { let track: Int; let pts: Int64; let data: Data; let key: Bool }
         var blocks: [Block] = []
-        blocks.reserveCapacity(videoFrames.count + audioFrames.count)
+        blocks.reserveCapacity(videoFrames.count + activeAudioTracks.reduce(0) { $0 + $1.frames.count })
 
         for (i, frame) in videoFrames.enumerated() {
             let pts = Int64((Double(i) * 1000.0 * Double(fpsDen) / Double(fpsNum)).rounded())
             blocks.append(Block(track: 1, pts: pts, data: frame.data, key: frame.isKeyframe))
         }
         var lastAudioEndMs: Int64 = 0
-        if let audio, !audioFrames.isEmpty {
+        for (audioIndex, audioTrack) in activeAudioTracks.enumerated() {
+            let trackNumber = audioIndex + 2
             var sampleOffset = 0
-            for frame in audioFrames {
-                let pts = Int64((Double(sampleOffset) * 1000.0 / audio.sampleRate).rounded())
-                blocks.append(Block(track: 2, pts: pts, data: frame.data, key: true))
+            for frame in audioTrack.frames {
+                let pts = Int64((Double(sampleOffset) * 1000.0 / audioTrack.info.sampleRate).rounded())
+                blocks.append(Block(track: trackNumber, pts: pts, data: frame.data, key: true))
                 sampleOffset += max(0, frame.durationSamples)
             }
-            lastAudioEndMs = Int64((Double(sampleOffset) * 1000.0 / audio.sampleRate).rounded())
+            let trackEndMs = Int64((Double(sampleOffset) * 1000.0 / audioTrack.info.sampleRate).rounded())
+            lastAudioEndMs = max(lastAudioEndMs, trackEndMs)
         }
 
         // Stable order: by timestamp, video before audio on ties (keeps each cluster opening on the
@@ -144,8 +173,8 @@ enum MatroskaMuxer {
         // MARK: Segment » Tracks
         var tracks = Data()
         tracks += buildVideoTrackEntry(video, defaultDurationNs: Int64((1_000_000_000.0 * Double(fpsDen) / Double(fpsNum)).rounded()))
-        if let audio, !audioFrames.isEmpty {
-            tracks += buildAudioTrackEntry(audio)
+        for (audioIndex, audioTrack) in activeAudioTracks.enumerated() {
+            tracks += buildAudioTrackEntry(audioTrack.info, trackNumber: audioIndex + 2)
         }
         let tracksElement = element(0x1654AE6B, tracks)
 
@@ -231,7 +260,8 @@ enum MatroskaMuxer {
         } catch {
             throw MuxError.writeFailed(error.localizedDescription)
         }
-        logger.info("Wrote Matroska \(url.lastPathComponent, privacy: .public): \(videoFrames.count) video + \(audioFrames.count) audio frames, \(durationMs) ms")
+        let audioFrameCount = activeAudioTracks.reduce(0) { $0 + $1.frames.count }
+        logger.info("Wrote Matroska \(url.lastPathComponent, privacy: .public): \(videoFrames.count) video + \(audioFrameCount) audio frames across \(activeAudioTracks.count) tracks, \(durationMs) ms")
     }
 
     // MARK: - Track entries
@@ -256,11 +286,12 @@ enum MatroskaMuxer {
         return element(0xAE, entry)                          // TrackEntry
     }
 
-    private static func buildAudioTrackEntry(_ audio: AudioTrackInfo) -> Data {
+    private static func buildAudioTrackEntry(_ audio: AudioTrackInfo, trackNumber: Int) -> Data {
         var entry = Data()
-        entry += element(0xD7, uintData(2))                  // TrackNumber
-        entry += element(0x73C5, uintData(2))                // TrackUID
+        entry += element(0xD7, uintData(UInt64(trackNumber)))   // TrackNumber
+        entry += element(0x73C5, uintData(UInt64(trackNumber))) // TrackUID
         entry += element(0x83, uintData(2))                  // TrackType = audio
+        entry += element(0x88, uintData(trackNumber == 2 ? 1 : 0)) // FlagDefault: first audio only
         entry += element(0x9C, uintData(0))                  // FlagLacing = 0
         entry += element(0x86, Data(audio.codecID.utf8))     // CodecID
         if let cp = audio.codecPrivate, !cp.isEmpty {

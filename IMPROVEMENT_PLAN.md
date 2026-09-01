@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: fifty-six tests pass. The
+- The unit-test baseline is green: sixty-one tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only fifty-six unit tests. The UI test target still contains the generated
+- There are only sixty-one unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -201,11 +201,22 @@ FFmpeg output arguments now fail with a clear unsupported error instead of being
 silently discarded; there are currently no production AV2 callers that supply
 them.
 
+AV2-in-Matroska now also consumes the shared audio-routing policy. A routed
+audio-only Matroska stage preserves selected order, duplicate tracks, removals,
+per-track downmixing, and channel operations before AAC or Opus packets are handed
+to the in-app muxer. The muxer writes ordered audio track numbers and block IDs,
+marks only the first audio stream as default, and exposes routing only when the AV2
+container is Matroska. Generated two-track fixtures cover AAC and Opus staging,
+downmixing, duplication, split/extract channel operations, and output channel order;
+selected-audio extraction failures now stop the conversion instead of silently
+producing video-only output.
+
 The audit identified these remaining high-risk follow-ups:
 
-- AV2 still bypasses audio-routing policy, and its single-audio-track Matroska
-  writer cannot yet represent ordered or duplicated output tracks; generated
-  waveform/synthesized-video AV2 output remains unsupported;
+- generated waveform/synthesized-video AV2 output remains unsupported;
+- routed AV2 audio tracks are currently reconstructed from time zero, so differing
+  source-track start offsets are not preserved; uncommon AAC program-config-element
+  layouts also remain unsupported by the elementary-stream parser;
 - generated IMF CPL `SourceEncoding` references need full MXF descriptor and
   subdescriptor coverage plus conformance validation.
 

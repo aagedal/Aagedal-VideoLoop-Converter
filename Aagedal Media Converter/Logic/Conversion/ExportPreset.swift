@@ -1783,7 +1783,7 @@ enum ExportPreset: String, CaseIterable, Identifiable {
         case .imfJ2K, .imfProRes:
             return false // IMF audio is extracted separately into a per-package PCM MXF essence
         case .av2:
-            return false // AV2 IVF output has no audio track to route
+            return AV2Container.current == .mkv
         case .custom1, .custom2, .custom3, .custom4, .custom5, .custom6, .custom7, .custom8, .custom9, .custom10:
             guard let slot = customSlotIndex else { return false }
             return Self.customAppliesAudioRouting(for: slot)
@@ -1880,7 +1880,7 @@ extension ExportPreset {
         case .imfJ2K, .imfProRes:
             return false // IMF audio essence is a separate MXF file alongside the video essence
         case .av2:
-            return false // AV2 IVF output is video-only — avmenc does not encode audio
+            return AV2Container.current == .mkv
         case .videoLoopWithSound:
             return true
         case .audioOnly:
