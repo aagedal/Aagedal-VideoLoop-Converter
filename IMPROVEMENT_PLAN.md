@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: forty-five tests pass. The
+- The unit-test baseline is green: forty-eight tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only forty-five unit tests. The UI test target still contains the generated
+- There are only forty-eight unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -170,8 +170,12 @@ it for audio padding and CPL duration; App 5 retains a tested duration fallback.
 image-sequence import path now resolves normalized crop geometry from its concrete
 first frame rather than attempting to probe the containing directory; a generated
 PNG sequence verifies the assembled command and cropped output pixels. The next
-slice should use dummy package essences to cover assembled manifests. The audit
-identified these high-risk follow-ups:
+slice now uses dummy video/audio essences to exercise DCP and IMF assembly end to
+end: essence moves, PKL hashes and sizes, ASSETMAP paths and lengths, CPL timing and
+metadata, optional-audio omission, and IMF parser round-trip are covered without
+external tools. This exposed
+and fixed DCP CPL/PKL generation that ignored the requested content title,
+annotation, and audio language. The audit identified these high-risk follow-ups:
 
 - AV2 bypasses custom concat/image-sequence inputs and several generic command
   options;

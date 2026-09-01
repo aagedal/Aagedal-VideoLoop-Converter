@@ -706,6 +706,208 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testDCPManifestAssemblyMovesDummyEssencesAndBuildsConsistentAssets() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterDCPManifestTests-\(UUID().uuidString)", isDirectory: true)
+        let packageDirectory = temporaryDirectory.appendingPathComponent("Package & Delivery", isDirectory: true)
+        try FileManager.default.createDirectory(at: packageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoSource = temporaryDirectory.appendingPathComponent("picture.mxf")
+        let audioSource = temporaryDirectory.appendingPathComponent("sound.mxf")
+        let videoData = Data("dummy DCP picture essence".utf8)
+        let audioData = Data("dummy DCP sound essence".utf8)
+        try videoData.write(to: videoSource)
+        try audioData.write(to: audioSource)
+
+        let assembled = await DCPService.shared.assembleDCP(
+            videoMXFURL: videoSource,
+            audioMXFURL: audioSource,
+            outputDirectoryURL: packageDirectory,
+            title: "Feature & <Trailer>",
+            resolution: .twoKFlat,
+            frameRate: .fps24,
+            frameCount: 48,
+            itemMetadata: DCPItemMetadata(
+                contentKind: .trailer,
+                annotationText: "QC & mastering <approved>",
+                ratingLabel: "PG & 12",
+                audioLanguage: "nb"
+            ),
+            progress: { _ in }
+        )
+
+        XCTAssertTrue(assembled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: videoSource.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audioSource.path))
+
+        let files = try FileManager.default.contentsOfDirectory(
+            at: packageDirectory,
+            includingPropertiesForKeys: nil
+        )
+        let videoURL = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("j2c_") })
+        let audioURL = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("pcm_") })
+        let cplURL = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("cpl_") })
+        let pklURL = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("pkl_") })
+        let assetMapURL = packageDirectory.appendingPathComponent("ASSETMAP.xml")
+
+        XCTAssertEqual(try Data(contentsOf: videoURL), videoData)
+        XCTAssertEqual(try Data(contentsOf: audioURL), audioData)
+        try assertPackingList(
+            at: pklURL,
+            describes: [cplURL, videoURL, audioURL]
+        )
+        try assertAssetMap(
+            at: assetMapURL,
+            describes: [pklURL, cplURL, videoURL, audioURL]
+        )
+
+        XCTAssertEqual(try xmlTexts(named: "ContentTitleText", at: cplURL), ["Feature & <Trailer>"])
+        XCTAssertEqual(try xmlTexts(named: "AnnotationText", at: cplURL).first, "QC & mastering <approved>")
+        XCTAssertEqual(try xmlTexts(named: "ContentKind", at: cplURL), [DCPContentKind.trailer.rawValue])
+        XCTAssertEqual(try xmlTexts(named: "Language", at: cplURL), ["nb"])
+        XCTAssertEqual(try xmlTexts(named: "IntrinsicDuration", at: cplURL), ["48", "48", "48"])
+        XCTAssertTrue(try xmlTexts(named: "EditRate", at: cplURL).allSatisfy { $0 == "24 1" })
+        XCTAssertEqual(try xmlTexts(named: "AnnotationText", at: pklURL).first, "QC & mastering <approved>")
+    }
+
+    func testIMFManifestAssemblyMovesDummyEssencesAndRoundTripsPackage() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterIMFManifestTests-\(UUID().uuidString)", isDirectory: true)
+        let packageDirectory = temporaryDirectory.appendingPathComponent("IMP Package", isDirectory: true)
+        try FileManager.default.createDirectory(at: packageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoSource = temporaryDirectory.appendingPathComponent("picture.mxf")
+        let audioSource = temporaryDirectory.appendingPathComponent("sound.mxf")
+        let videoData = Data("dummy IMF picture essence".utf8)
+        let audioData = Data("dummy IMF sound essence".utf8)
+        try videoData.write(to: videoSource)
+        try audioData.write(to: audioSource)
+
+        let assembled = await IMFManifestWriter.shared.assembleIMP(
+            videoMXFURL: videoSource,
+            audioMXFURL: audioSource,
+            outputDirectoryURL: packageDirectory,
+            title: "Episode & <Special>",
+            application: .app2e,
+            editRateNumerator: 30_000,
+            editRateDenominator: 1_001,
+            frameCount: 90,
+            itemMetadata: IMFItemMetadata(
+                contentKind: .episode,
+                annotationText: "Archive & delivery <master>",
+                audioLanguage: "nb"
+            ),
+            progress: { _ in }
+        )
+
+        XCTAssertTrue(assembled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: videoSource.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audioSource.path))
+
+        let files = try FileManager.default.contentsOfDirectory(
+            at: packageDirectory,
+            includingPropertiesForKeys: nil
+        )
+        let videoURL = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("video_") })
+        let audioURL = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("audio_") })
+        let cplURL = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("CPL_") })
+        let pklURL = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("PKL_") })
+        let assetMapURL = packageDirectory.appendingPathComponent("ASSETMAP.xml")
+
+        XCTAssertEqual(try Data(contentsOf: videoURL), videoData)
+        XCTAssertEqual(try Data(contentsOf: audioURL), audioData)
+        try assertPackingList(
+            at: pklURL,
+            describes: [cplURL, videoURL, audioURL]
+        )
+        try assertAssetMap(
+            at: assetMapURL,
+            describes: [pklURL, cplURL, videoURL, audioURL]
+        )
+
+        let parsed = try IMFPackageParser.parsePackage(folder: packageDirectory)
+        XCTAssertEqual(parsed.contentTitle, "Episode & <Special>")
+        XCTAssertEqual(parsed.essences.map(\.kind), [.mainImage, .mainAudio])
+        XCTAssertEqual(
+            parsed.essences.map { $0.mxfURL.resolvingSymlinksInPath().path },
+            [videoURL, audioURL].map { $0.resolvingSymlinksInPath().path }
+        )
+        XCTAssertEqual(try Data(contentsOf: parsed.essences[0].mxfURL), videoData)
+        XCTAssertEqual(try Data(contentsOf: parsed.essences[1].mxfURL), audioData)
+
+        XCTAssertEqual(try xmlTexts(named: "AnnotationText", at: cplURL).first, "Archive & delivery <master>")
+        XCTAssertEqual(try xmlTexts(named: "ContentKind", at: cplURL), [IMFContentKind.episode.rawValue])
+        XCTAssertEqual(try xmlTexts(named: "EditRate", at: cplURL), ["30000 1001"])
+        XCTAssertEqual(try xmlTexts(named: "IntrinsicDuration", at: cplURL), ["90", "90"])
+        XCTAssertEqual(try xmlTexts(named: "SourceDuration", at: cplURL), ["90", "90"])
+    }
+
+    func testPackageManifestAssemblyOmitsAudioAssetsWhenSourceHasNoAudio() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterSilentPackageTests-\(UUID().uuidString)", isDirectory: true)
+        let dcpDirectory = temporaryDirectory.appendingPathComponent("DCP", isDirectory: true)
+        let imfDirectory = temporaryDirectory.appendingPathComponent("IMF", isDirectory: true)
+        try FileManager.default.createDirectory(at: dcpDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: imfDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let dcpVideoSource = temporaryDirectory.appendingPathComponent("dcp-picture.mxf")
+        let imfVideoSource = temporaryDirectory.appendingPathComponent("imf-picture.mxf")
+        try Data("silent DCP picture essence".utf8).write(to: dcpVideoSource)
+        try Data("silent IMF picture essence".utf8).write(to: imfVideoSource)
+
+        let dcpAssembled = await DCPService.shared.assembleDCP(
+            videoMXFURL: dcpVideoSource,
+            audioMXFURL: nil,
+            outputDirectoryURL: dcpDirectory,
+            title: "Silent DCP",
+            resolution: .twoKFlat,
+            frameRate: .fps24,
+            frameCount: 24,
+            progress: { _ in }
+        )
+        let imfAssembled = await IMFManifestWriter.shared.assembleIMP(
+            videoMXFURL: imfVideoSource,
+            audioMXFURL: nil,
+            outputDirectoryURL: imfDirectory,
+            title: "Silent IMF",
+            application: .app5,
+            editRateNumerator: 24,
+            editRateDenominator: 1,
+            frameCount: 24,
+            progress: { _ in }
+        )
+        XCTAssertTrue(dcpAssembled)
+        XCTAssertTrue(imfAssembled)
+
+        let dcpFiles = try FileManager.default.contentsOfDirectory(at: dcpDirectory, includingPropertiesForKeys: nil)
+        let dcpVideoURL = try XCTUnwrap(dcpFiles.first { $0.lastPathComponent.hasPrefix("j2c_") })
+        let dcpCPLURL = try XCTUnwrap(dcpFiles.first { $0.lastPathComponent.hasPrefix("cpl_") })
+        let dcpPKLURL = try XCTUnwrap(dcpFiles.first { $0.lastPathComponent.hasPrefix("pkl_") })
+        XCTAssertFalse(dcpFiles.contains { $0.lastPathComponent.hasPrefix("pcm_") })
+        XCTAssertTrue(try xmlTexts(named: "MainSound", at: dcpCPLURL).isEmpty)
+        try assertPackingList(at: dcpPKLURL, describes: [dcpCPLURL, dcpVideoURL])
+        try assertAssetMap(
+            at: dcpDirectory.appendingPathComponent("ASSETMAP.xml"),
+            describes: [dcpPKLURL, dcpCPLURL, dcpVideoURL]
+        )
+
+        let imfFiles = try FileManager.default.contentsOfDirectory(at: imfDirectory, includingPropertiesForKeys: nil)
+        let imfVideoURL = try XCTUnwrap(imfFiles.first { $0.lastPathComponent.hasPrefix("video_") })
+        let imfCPLURL = try XCTUnwrap(imfFiles.first { $0.lastPathComponent.hasPrefix("CPL_") })
+        let imfPKLURL = try XCTUnwrap(imfFiles.first { $0.lastPathComponent.hasPrefix("PKL_") })
+        XCTAssertFalse(imfFiles.contains { $0.lastPathComponent.hasPrefix("audio_") })
+        XCTAssertTrue(try xmlTexts(named: "MainAudioSequence", at: imfCPLURL).isEmpty)
+        try assertPackingList(at: imfPKLURL, describes: [imfCPLURL, imfVideoURL])
+        try assertAssetMap(
+            at: imfDirectory.appendingPathComponent("ASSETMAP.xml"),
+            describes: [imfPKLURL, imfCPLURL, imfVideoURL]
+        )
+        XCTAssertEqual(try IMFPackageParser.parsePackage(folder: imfDirectory).essences.map(\.kind), [.mainImage])
+    }
+
     func testIMFJ2KCommandUsesRationalRateHDRTagsAndFillGeometry() throws {
         try withPresetSettings([
             AppConstants.imfResolutionKey: IMFResolution.uhd2160.rawValue,
@@ -1306,6 +1508,105 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         ])
     }
 
+    private func assertPackingList(
+        at packingListURL: URL,
+        describes expectedFiles: [URL],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let assets = try xmlAssets(at: packingListURL)
+        XCTAssertEqual(assets.count, expectedFiles.count, file: file, line: line)
+        XCTAssertEqual(Set(assets.compactMap(\.id)).count, expectedFiles.count, file: file, line: line)
+
+        for expectedFile in expectedFiles {
+            let asset = try XCTUnwrap(
+                assets.first { $0.originalFileName == expectedFile.lastPathComponent },
+                "Missing PKL asset for \(expectedFile.lastPathComponent)",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(asset.size, SMPTEPackageUtils.fileSize(at: expectedFile), file: file, line: line)
+            let expectedHash = try XCTUnwrap(
+                SMPTEPackageUtils.computeSHA1(for: expectedFile),
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(
+                asset.hash,
+                SMPTEPackageUtils.base64SHA1(hex: expectedHash),
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func assertAssetMap(
+        at assetMapURL: URL,
+        describes expectedFiles: [URL],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let assets = try xmlAssets(at: assetMapURL)
+        XCTAssertEqual(assets.count, expectedFiles.count, file: file, line: line)
+        XCTAssertEqual(Set(assets.compactMap(\.id)).count, expectedFiles.count, file: file, line: line)
+
+        for expectedFile in expectedFiles {
+            let asset = try XCTUnwrap(
+                assets.first { $0.path == expectedFile.lastPathComponent },
+                "Missing ASSETMAP asset for \(expectedFile.lastPathComponent)",
+                file: file,
+                line: line
+            )
+            XCTAssertEqual(asset.size, SMPTEPackageUtils.fileSize(at: expectedFile), file: file, line: line)
+        }
+
+        XCTAssertEqual(
+            assets.filter(\.isPackingList).map(\.path),
+            [expectedFiles[0].lastPathComponent],
+            file: file,
+            line: line
+        )
+
+        let packingListAssets = try xmlAssets(at: expectedFiles[0])
+        for expectedFile in expectedFiles.dropFirst() {
+            let packingListID = packingListAssets.first {
+                $0.originalFileName == expectedFile.lastPathComponent
+            }?.id
+            let assetMapID = assets.first { $0.path == expectedFile.lastPathComponent }?.id
+            XCTAssertNotNil(packingListID, file: file, line: line)
+            XCTAssertEqual(assetMapID, packingListID, file: file, line: line)
+        }
+    }
+
+    private func xmlAssets(at url: URL) throws -> [ManifestAsset] {
+        let document = try XMLDocument(contentsOf: url, options: [])
+        return try document.nodes(forXPath: "//*[local-name()='Asset']").map { node in
+            let sizeText = xmlText(named: "Size", below: node) ?? xmlText(named: "Length", below: node)
+            return ManifestAsset(
+                id: xmlText(named: "Id", below: node),
+                hash: xmlText(named: "Hash", below: node),
+                size: sizeText.flatMap(Int64.init),
+                originalFileName: xmlText(named: "OriginalFileName", below: node),
+                path: xmlText(named: "Path", below: node),
+                isPackingList: xmlText(named: "PackingList", below: node) == "true"
+            )
+        }
+    }
+
+    private func xmlTexts(named name: String, at url: URL) throws -> [String] {
+        let document = try XMLDocument(contentsOf: url, options: [])
+        return try document.nodes(forXPath: "//*[local-name()='\(name)']")
+            .compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    private func xmlText(named name: String, below node: XMLNode) -> String? {
+        guard let element = node as? XMLElement,
+              let match = (try? element.nodes(forXPath: ".//*[local-name()='\(name)']"))?.first else {
+            return nil
+        }
+        return match.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
 }
 
 private extension Array where Element == String {
@@ -1351,4 +1652,13 @@ private struct PresetCommandExpectation {
         self.audioCodec = audioCodec
         self.media = media
     }
+}
+
+private struct ManifestAsset {
+    let id: String?
+    let hash: String?
+    let size: Int64?
+    let originalFileName: String?
+    let path: String?
+    let isPackingList: Bool
 }
