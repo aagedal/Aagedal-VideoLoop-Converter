@@ -22,9 +22,9 @@ import OSLog
 /// to `avmenc -w/-h` is guaranteed to match the frames it receives.
 ///
 /// Two modes:
-/// - ``build(inputURL:outputURL:trimStart:trimEnd:cropConfig:)`` — the original single-process
-///   encode (tile threading only).
-/// - ``buildSegments(inputURL:trimStart:trimEnd:cropConfig:)`` — splits the source into one
+/// - ``build(inputURL:outputURL:trimStart:trimEnd:cropConfig:visualSourceURL:customInputArguments:expectedDuration:videoFrameRate:)`` —
+///   the single-process encode (tile threading only), including virtual FFmpeg inputs.
+/// - ``buildSegments(inputURL:trimStart:trimEnd:cropConfig:visualSourceURL:customInputArguments:expectedDuration:videoFrameRate:)`` — splits the source into one
 ///   frame-range chunk per CPU core and emits an independent ffmpeg│avmenc command per chunk,
 ///   to be encoded in parallel and joined with ``IVFConcatenator``. This is the dominant speed
 ///   lever: AVM's intra-frame (tile/row) threading scales poorly, whereas independent chunks
@@ -99,9 +99,22 @@ enum AV2CommandBuilder {
         outputURL: URL,
         trimStart: Double?,
         trimEnd: Double?,
-        cropConfig: CropConfig?
+        cropConfig: CropConfig?,
+        visualSourceURL: URL? = nil,
+        customInputArguments: [String]? = nil,
+        expectedDuration: Double? = nil,
+        videoFrameRate: Double? = nil
     ) async -> AV2Command? {
-        guard let r = await resolve(inputURL: inputURL, trimStart: trimStart, trimEnd: trimEnd, cropConfig: cropConfig) else {
+        guard let r = await resolve(
+            inputURL: inputURL,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            cropConfig: cropConfig,
+            visualSourceURL: visualSourceURL,
+            customInputArguments: customInputArguments,
+            expectedDuration: expectedDuration,
+            videoFrameRate: videoFrameRate
+        ) else {
             return nil
         }
 
@@ -110,7 +123,7 @@ enum AV2CommandBuilder {
         if let trimStart, trimStart > 0 {
             ffmpeg += ["-ss", String(format: "%.6f", trimStart)]
         }
-        ffmpeg += ["-i", inputURL.path]
+        appendInputArguments(customInputArguments, inputURL: inputURL, to: &ffmpeg)
         if let trimStart, let trimEnd, trimEnd > trimStart {
             ffmpeg += ["-t", String(format: "%.6f", trimEnd - trimStart)]
         } else if let trimEnd, trimEnd > 0, trimStart == nil {
@@ -161,9 +174,26 @@ enum AV2CommandBuilder {
         inputURL: URL,
         trimStart: Double?,
         trimEnd: Double?,
-        cropConfig: CropConfig?
+        cropConfig: CropConfig?,
+        visualSourceURL: URL? = nil,
+        customInputArguments: [String]? = nil,
+        expectedDuration: Double? = nil,
+        videoFrameRate: Double? = nil
     ) async -> AV2SegmentPlan? {
-        guard let r = await resolve(inputURL: inputURL, trimStart: trimStart, trimEnd: trimEnd, cropConfig: cropConfig) else {
+        // Seeking each worker independently is not yet validated for concat/image2 demuxers.
+        // Keep virtual inputs on the correct single-process path until their segment boundaries
+        // have generated-media coverage.
+        guard customInputArguments == nil else { return nil }
+        guard let r = await resolve(
+            inputURL: inputURL,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            cropConfig: cropConfig,
+            visualSourceURL: visualSourceURL,
+            customInputArguments: customInputArguments,
+            expectedDuration: expectedDuration,
+            videoFrameRate: videoFrameRate
+        ) else {
             return nil
         }
         guard let frameRate = r.frameRate, frameRate > 0,
@@ -201,7 +231,7 @@ enum AV2CommandBuilder {
             // a key frame at its first input frame, so the chunks stay independently decodable.
             var ff: [String] = ["-y", "-nostdin", "-progress", "pipe:2", "-hide_banner"]
             if startSec > 0 { ff += ["-ss", String(format: "%.6f", startSec)] }
-            ff += ["-i", inputURL.path]
+            appendInputArguments(customInputArguments, inputURL: inputURL, to: &ff)
             ff += ["-frames:v", "\(count)"]
             ff += ["-map", "0:v:0", "-an", "-sn", "-dn"]
             ff += ["-vf", r.videoFilter]
@@ -250,9 +280,19 @@ enum AV2CommandBuilder {
         inputURL: URL,
         trimStart: Double?,
         trimEnd: Double?,
-        cropConfig: CropConfig?
+        cropConfig: CropConfig?,
+        visualSourceURL: URL? = nil
     ) async -> Int? {
-        await resolve(inputURL: inputURL, trimStart: trimStart, trimEnd: trimEnd, cropConfig: cropConfig)?.bitDepth
+        await resolve(
+            inputURL: inputURL,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            cropConfig: cropConfig,
+            visualSourceURL: visualSourceURL,
+            customInputArguments: nil,
+            expectedDuration: nil,
+            videoFrameRate: nil
+        )?.bitDepth
     }
 
     /// Resolves how many parallel chunks to use. `hint` is the user setting (0 = auto = one per
@@ -289,19 +329,32 @@ enum AV2CommandBuilder {
         inputURL: URL,
         trimStart: Double?,
         trimEnd: Double?,
-        cropConfig: CropConfig?
+        cropConfig: CropConfig?,
+        visualSourceURL: URL?,
+        customInputArguments: [String]?,
+        expectedDuration: Double?,
+        videoFrameRate: Double?
     ) async -> Resolved? {
-        guard let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL),
-              let stream = metadata.primaryVideoStream,
-              let srcW = stream.width, let srcH = stream.height,
-              srcW > 0, srcH > 0 else {
-            logger.error("AV2: could not determine source dimensions for \(inputURL.lastPathComponent, privacy: .public)")
+        let metadataURL = visualSourceURL ?? inputURL
+        let metadata = try? await VideoMetadataService.shared.metadata(for: metadataURL)
+        let stream = metadata?.primaryVideoStream
+        guard let geometry = await FFMPEGCommandBuilder.sourceGeometry(
+            for: metadataURL,
+            sourceMetadata: metadata
+        ) else {
+            logger.error("AV2: could not determine source dimensions for \(metadataURL.lastPathComponent, privacy: .public)")
             return nil
         }
+        let srcW = geometry.width
+        let srcH = geometry.height
 
-        let dar = stream.displayAspectRatio?.doubleValue
-        let par = stream.pixelAspectRatio?.doubleValue
-        let frameRate = stream.frameRate?.value
+        let dar = geometry.displayAspectRatio
+        let par = geometry.pixelAspectRatio
+        let customFrameRate = frameRateArgument(in: customInputArguments)
+        let resolvedFrameRate = VideoMetadata.FrameRate(double: videoFrameRate)
+            ?? customFrameRate
+            ?? stream?.frameRate
+        let frameRate = resolvedFrameRate?.value
 
         // Effective PAR (mirrors FFMPEGCommandBuilder's DAR-priority logic).
         let effectivePAR: Double
@@ -347,7 +400,7 @@ enum AV2CommandBuilder {
 
         // Resolve settings.
         let bitDepthRaw = UserDefaults.standard.string(forKey: AppConstants.av2BitDepthKey) ?? AppConstants.defaultAV2BitDepth
-        let bitDepth = (AV2BitDepthOption(rawValue: bitDepthRaw) ?? .auto).resolved(sourceBitDepth: stream.bitDepth)
+        let bitDepth = (AV2BitDepthOption(rawValue: bitDepthRaw) ?? .auto).resolved(sourceBitDepth: stream?.bitDepth)
 
         let rateModeRaw = UserDefaults.standard.string(forKey: AppConstants.av2RateControlModeKey) ?? AppConstants.defaultAV2RateControlMode
         let rateMode = AV2RateControlMode(rawValue: rateModeRaw) ?? .constantQuality
@@ -364,10 +417,14 @@ enum AV2CommandBuilder {
         // duration first so start-only trims subtract their skipped prefix instead of planning the
         // full source again (which can send the final chunks past EOF).
         let sourceDuration: Double?
-        if let streamDuration = stream.duration {
+        if let expectedDuration, expectedDuration >= 0 {
+            sourceDuration = expectedDuration
+        } else if let streamDuration = stream?.duration {
             sourceDuration = streamDuration
-        } else {
+        } else if visualSourceURL == nil {
             sourceDuration = await FFMPEGProbeService.getVideoDuration(for: inputURL)
+        } else {
+            sourceDuration = nil
         }
         let effectiveDuration = resolvedEffectiveDuration(
             sourceDuration: sourceDuration,
@@ -398,8 +455,8 @@ enum AV2CommandBuilder {
             threads: max(1, threads),
             autoTileColumns: autoTileColumns,
             autoTileRows: autoTileRows,
-            fpsNum: stream.frameRate.flatMap { $0.numerator > 0 ? $0.numerator : nil },
-            fpsDen: stream.frameRate.flatMap { $0.denominator > 0 ? $0.denominator : nil },
+            fpsNum: resolvedFrameRate.flatMap { $0.numerator > 0 ? $0.numerator : nil },
+            fpsDen: resolvedFrameRate.flatMap { $0.denominator > 0 ? $0.denominator : nil },
             frameRate: frameRate,
             effectiveDuration: effectiveDuration,
             videoFilter: videoFilter,
@@ -408,6 +465,27 @@ enum AV2CommandBuilder {
     }
 
     // MARK: - Helpers
+
+    private static func appendInputArguments(
+        _ customInputArguments: [String]?,
+        inputURL: URL,
+        to arguments: inout [String]
+    ) {
+        if let customInputArguments {
+            arguments.append(contentsOf: customInputArguments)
+        } else {
+            arguments.append(contentsOf: ["-i", inputURL.path])
+        }
+    }
+
+    private static func frameRateArgument(in arguments: [String]?) -> VideoMetadata.FrameRate? {
+        guard let arguments,
+              let index = arguments.firstIndex(of: "-framerate"),
+              arguments.indices.contains(index + 1) else {
+            return nil
+        }
+        return VideoMetadata.FrameRate(frameRateString: arguments[index + 1])
+    }
 
     /// Mirrors FFmpeg's trim arguments while keeping progress and chunk planning inside the
     /// source's available duration. An invalid/non-increasing end behaves like a start-only trim,

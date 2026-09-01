@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: fifty tests pass. The
+- The unit-test baseline is green: fifty-three tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only fifty unit tests. The UI test target still contains the generated
+- There are only fifty-three unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -184,10 +184,21 @@ concat duration and companion-WAV duration. The audio-only fallback also handles
 WAV/AIFF-style inputs whose stream topology is not available through SwiftExif,
 instead of silently treating them as mute.
 
+AV2 now follows custom concat and image-sequence sources instead of silently
+reopening the representative URL. Concat commands use the full demuxer list and
+the queue's known duration/frame rate; image sequences use their first concrete
+frame for geometry and preserve their image2 input arguments. Virtual sources stay
+on the validated single-process encoder path until independent segment seeking has
+generated-media coverage. Matroska audio now follows the same virtual source,
+including full concat audio and image-sequence companion files, and item-level mute
+suppresses the audio track. Audio-only generated-video requests fail with a clear
+unsupported message instead of entering an incompatible AV2 path.
+
 The audit identified these remaining high-risk follow-ups:
 
-- AV2 bypasses custom concat/image-sequence inputs and several generic command
-  options;
+- AV2 still bypasses generic comment/date metadata, timecode, additional output
+  arguments, and audio-routing policy; generated waveform/synthesized-video AV2
+  output remains unsupported;
 - generated IMF CPL `SourceEncoding` references need full MXF descriptor and
   subdescriptor coverage plus conformance validation.
 

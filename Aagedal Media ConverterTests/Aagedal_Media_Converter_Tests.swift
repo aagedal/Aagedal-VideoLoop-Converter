@@ -1179,6 +1179,150 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testAV2BuildUsesConcatInputAndKnownVirtualSourceDuration() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterAV2ConcatTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("source.mov")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=32x32:rate=24:duration=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            fixtureURL.path
+        ])
+        let listURL = temporaryDirectory.appendingPathComponent("inputs.ffconcat")
+        try "file '\(fixtureURL.path)'\nfile '\(fixtureURL.path)'\n".write(
+            to: listURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let customInputs = ["-f", "concat", "-safe", "0", "-i", listURL.path]
+
+        try await withPresetSettingsAsync([AppConstants.av2ParallelChunksKey: 2]) {
+            let outputURL = temporaryDirectory.appendingPathComponent("output.ivf")
+            let builtCommand = await AV2CommandBuilder.build(
+                inputURL: fixtureURL,
+                outputURL: outputURL,
+                trimStart: nil,
+                trimEnd: nil,
+                cropConfig: nil,
+                customInputArguments: customInputs,
+                expectedDuration: 2,
+                videoFrameRate: 24
+            )
+            let command = try XCTUnwrap(builtCommand)
+
+            XCTAssertEqual(command.effectiveDuration ?? -1, 2, accuracy: 0.001)
+            XCTAssertEqual(command.frameRate ?? -1, 24, accuracy: 0.001)
+            XCTAssertTrue(command.ffmpegArguments.containsAdjacent("-i", listURL.path))
+            XCTAssertTrue(command.ffmpegArguments.containsAdjacent("-f", "concat"))
+            XCTAssertFalse(command.ffmpegArguments.containsAdjacent("-i", fixtureURL.path))
+
+            let chunkPlan = await AV2CommandBuilder.buildSegments(
+                inputURL: fixtureURL,
+                trimStart: nil,
+                trimEnd: nil,
+                cropConfig: nil,
+                customInputArguments: customInputs,
+                expectedDuration: 2,
+                videoFrameRate: 24
+            )
+            XCTAssertNil(chunkPlan, "Virtual inputs must use the validated single-process path")
+        }
+    }
+
+    func testAV2BuildUsesImageSequenceInputAndConcreteVisualSource() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterAV2ImageSequenceTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let firstFrameURL = temporaryDirectory.appendingPathComponent("frame_0001.png")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=red:size=40x24",
+            "-frames:v", "1",
+            firstFrameURL.path
+        ])
+        let patternURL = temporaryDirectory.appendingPathComponent("frame_%04d.png")
+        let customInputs = [
+            "-framerate", "12.000",
+            "-start_number", "1",
+            "-i", patternURL.path
+        ]
+        let outputURL = temporaryDirectory.appendingPathComponent("output.ivf")
+
+        let builtCommand = await AV2CommandBuilder.build(
+            inputURL: temporaryDirectory,
+            outputURL: outputURL,
+            trimStart: nil,
+            trimEnd: nil,
+            cropConfig: nil,
+            visualSourceURL: firstFrameURL,
+            customInputArguments: customInputs,
+            expectedDuration: 1
+        )
+        let command = try XCTUnwrap(builtCommand)
+
+        XCTAssertEqual(command.outputWidth, 40)
+        XCTAssertEqual(command.outputHeight, 24)
+        XCTAssertEqual(command.effectiveDuration ?? -1, 1, accuracy: 0.001)
+        XCTAssertEqual(command.frameRate ?? -1, 12, accuracy: 0.001)
+        XCTAssertTrue(command.ffmpegArguments.containsAdjacent("-i", patternURL.path))
+        XCTAssertFalse(command.ffmpegArguments.containsAdjacent("-i", temporaryDirectory.path))
+        XCTAssertTrue(command.avmencArguments.contains("--fps=12000/1000"))
+    }
+
+    func testAV2MatroskaAudioUsesVirtualSourceAndHonorsMute() {
+        let primaryURL = URL(fileURLWithPath: "/tmp/primary.mov")
+        let concatURL = URL(fileURLWithPath: "/tmp/inputs.ffconcat")
+        let concatArguments = ["-f", "concat", "-safe", "0", "-i", concatURL.path]
+
+        XCTAssertEqual(
+            FFMPEGConverter.av2MuxAudioInput(
+                inputURL: primaryURL,
+                customInputArguments: concatArguments,
+                isMuted: false
+            ),
+            FFMPEGConverter.PackageAudioInput(
+                arguments: concatArguments,
+                probeURL: primaryURL,
+                ffmpegInputIndex: 0,
+                assumesSingleAudioStreamIfProbeUnavailable: false
+            )
+        )
+
+        let companionAudioURL = URL(fileURLWithPath: "/tmp/sequence.wav")
+        let imageSequenceArguments = [
+            "-framerate", "24",
+            "-i", "/tmp/frame_%04d.png",
+            "-i", companionAudioURL.path
+        ]
+        XCTAssertEqual(
+            FFMPEGConverter.av2MuxAudioInput(
+                inputURL: URL(fileURLWithPath: "/tmp/sequence"),
+                customInputArguments: imageSequenceArguments,
+                isMuted: false
+            ),
+            FFMPEGConverter.PackageAudioInput(
+                arguments: ["-i", companionAudioURL.path],
+                probeURL: companionAudioURL,
+                ffmpegInputIndex: 0,
+                assumesSingleAudioStreamIfProbeUnavailable: true
+            )
+        )
+
+        XCTAssertNil(
+            FFMPEGConverter.av2MuxAudioInput(
+                inputURL: primaryURL,
+                customInputArguments: concatArguments,
+                isMuted: true
+            )
+        )
+    }
+
     func testAudioRoutingPreservesSelectionOrderAndDuplicateTracks() {
         let tracks = [audioTrack(index: 0, channels: 2), audioTrack(index: 1, channels: 1)]
         let config = AudioRoutingConfig(

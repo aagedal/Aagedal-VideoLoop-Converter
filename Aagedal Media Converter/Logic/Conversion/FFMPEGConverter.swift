@@ -337,6 +337,12 @@ actor FFMPEGConverter {
             }
         }
 
+        if preset == .av2,
+           (request.waveformRequest != nil || request.synthesizedVideoRequest != nil) {
+            completion(false, "AV2 export does not yet support generated video from audio-only sources")
+            return
+        }
+
         // MARK: Native waveform rendering branch (Swift engine)
         if let waveformRequest = request.waveformRequest, waveformRequest.renderingEngine == .swift {
             await runNativeWaveformConversion(
@@ -382,7 +388,11 @@ actor FFMPEGConverter {
                 inputURL: inputURL,
                 trimStart: request.trimStart,
                 trimEnd: request.trimEnd,
-                cropConfig: request.cropConfig
+                cropConfig: request.cropConfig,
+                visualSourceURL: request.visualSourceURL,
+                customInputArguments: request.customInputArguments,
+                expectedDuration: request.expectedDuration,
+                videoFrameRate: request.videoFrameRate
             ), let avmencPath = BinaryPathResolver.avmencPath {
                 encodeResult = await runAV2ChunkedConversion(
                     plan: plan,
@@ -399,6 +409,10 @@ actor FFMPEGConverter {
                     trimStart: request.trimStart,
                     trimEnd: request.trimEnd,
                     cropConfig: request.cropConfig,
+                    visualSourceURL: request.visualSourceURL,
+                    customInputArguments: request.customInputArguments,
+                    expectedDuration: request.expectedDuration,
+                    videoFrameRate: request.videoFrameRate,
                     progressUpdate: progressUpdate
                 )
             }
@@ -414,11 +428,14 @@ actor FFMPEGConverter {
                     inputURL: inputURL,
                     trimStart: request.trimStart,
                     trimEnd: request.trimEnd,
-                    cropConfig: request.cropConfig
+                    cropConfig: request.cropConfig,
+                    visualSourceURL: request.visualSourceURL
                 ) ?? 8
                 let (ok, reason) = await muxAV2ToMatroska(
                     videoIvfURL: encodeURL,
                     sourceURL: inputURL,
+                    customInputArguments: request.customInputArguments,
+                    isMuted: request.isMuted,
                     trimStart: request.trimStart,
                     trimEnd: request.trimEnd,
                     bitDepth: bitDepth,
@@ -1600,6 +1617,10 @@ actor FFMPEGConverter {
         trimStart: Double?,
         trimEnd: Double?,
         cropConfig: CropConfig?,
+        visualSourceURL: URL?,
+        customInputArguments: [String]?,
+        expectedDuration: Double?,
+        videoFrameRate: Double?,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void
     ) async -> AV2EncodeResult {
         guard let avmencPath = BinaryPathResolver.avmencPath else {
@@ -1612,7 +1633,11 @@ actor FFMPEGConverter {
             outputURL: outputFileURL,
             trimStart: trimStart,
             trimEnd: trimEnd,
-            cropConfig: cropConfig
+            cropConfig: cropConfig,
+            visualSourceURL: visualSourceURL,
+            customInputArguments: customInputArguments,
+            expectedDuration: expectedDuration,
+            videoFrameRate: videoFrameRate
         ) else {
             return AV2EncodeResult(success: false, errorReason: "Could not determine source video dimensions for AV2 encoding", keyframeIndices: [])
         }
@@ -2017,6 +2042,8 @@ actor FFMPEGConverter {
     private func muxAV2ToMatroska(
         videoIvfURL: URL,
         sourceURL: URL,
+        customInputArguments: [String]?,
+        isMuted: Bool,
         trimStart: Double?,
         trimEnd: Double?,
         bitDepth: Int,
@@ -2062,7 +2089,16 @@ actor FFMPEGConverter {
         // 3. Extract + parse audio (best-effort; a video-only .mkv is fine if absent).
         var audioInfo: MatroskaMuxer.AudioTrackInfo? = nil
         var audioFrames: [MatroskaMuxer.AudioFrame] = []
-        if let (info, frames) = await extractAudioForMux(sourceURL: sourceURL, trimStart: trimStart, trimEnd: trimEnd, ffmpegPath: ffmpegPath) {
+        if let audioInput = Self.av2MuxAudioInput(
+            inputURL: sourceURL,
+            customInputArguments: customInputArguments,
+            isMuted: isMuted
+        ), let (info, frames) = await extractAudioForMux(
+            source: audioInput,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            ffmpegPath: ffmpegPath
+        ) {
             audioInfo = info
             audioFrames = frames
         }
@@ -2112,8 +2148,18 @@ actor FFMPEGConverter {
     /// Re-encodes the source audio to the configured codec (AAC or Opus), parses the elementary
     /// stream, and returns the Matroska track info + per-frame data ready to mux. Trim-aware.
     /// Returns nil when the source has no audio or extraction/parsing produces nothing.
+    static func av2MuxAudioInput(
+        inputURL: URL,
+        customInputArguments: [String]?,
+        isMuted: Bool
+    ) -> PackageAudioInput? {
+        guard !isMuted else { return nil }
+        let source = packageAudioInput(inputURL: inputURL, customInputArguments: customInputArguments)
+        return source.arguments.isEmpty ? nil : source
+    }
+
     private func extractAudioForMux(
-        sourceURL: URL, trimStart: Double?, trimEnd: Double?, ffmpegPath: String
+        source: PackageAudioInput, trimStart: Double?, trimEnd: Double?, ffmpegPath: String
     ) async -> (MatroskaMuxer.AudioTrackInfo, [MatroskaMuxer.AudioFrame])? {
         let codec = AV2AudioCodec.current
         let bitrate = AudioBitrate(rawValue: UserDefaults.standard.string(forKey: AppConstants.av2AudioBitrateKey) ?? AppConstants.defaultAV2AudioBitrate)?.ffmpegValue ?? "192k"
@@ -2122,13 +2168,13 @@ actor FFMPEGConverter {
 
         var args = ["-y", "-nostdin", "-hide_banner"]
         if let trimStart, trimStart > 0 { args += ["-ss", String(format: "%.6f", trimStart)] }
-        args += ["-i", sourceURL.path]
+        args += source.arguments
         if let trimStart, let trimEnd, trimEnd > trimStart {
             args += ["-t", String(format: "%.6f", trimEnd - trimStart)]
         } else if let trimEnd, trimEnd > 0, trimStart == nil {
             args += ["-t", String(format: "%.6f", trimEnd)]
         }
-        args += ["-vn", "-map", "0:a:0?", "-c:a", codec.ffmpegEncoder, "-b:a", bitrate]
+        args += ["-vn", "-map", "\(source.ffmpegInputIndex):a:0?", "-c:a", codec.ffmpegEncoder, "-b:a", bitrate]
         args += codec == .opus ? ["-f", "ogg"] : ["-f", "adts"]
         args += [tmp.path]
         guard await runBinary(ffmpegPath, args) == 0, Self.fileHasContent(at: tmp) else { return nil }

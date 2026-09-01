@@ -390,7 +390,7 @@ enum FFMPEGCommandBuilder {
 }
 
 extension FFMPEGCommandBuilder {
-    private struct SourceGeometry {
+    struct SourceGeometry {
         let width: Int
         let height: Int
         let pixelAspectRatio: Double?
@@ -400,7 +400,7 @@ extension FFMPEGCommandBuilder {
     /// Resolve crop geometry from request metadata, a timed-media probe, or a still image.
     /// Image-sequence requests point this at their first frame because their primary input URL
     /// is the containing directory and cannot be probed as media.
-    private static func sourceGeometry(
+    static func sourceGeometry(
         for sourceURL: URL,
         sourceMetadata: VideoMetadata?
     ) async -> SourceGeometry? {
