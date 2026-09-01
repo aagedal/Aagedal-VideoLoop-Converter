@@ -23,8 +23,9 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only sixty-nine unit tests. The UI test target still contains the generated
-  placeholder test and has no assertions for an app workflow.
+- There are only sixty-nine unit tests. The UI test target now has deterministic smoke
+  assertions for empty-queue launch and Settings navigation; fixture import, preset
+  selection, conversion cancellation, and result/error coverage remain to be added.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
@@ -32,9 +33,9 @@ issue link when it starts.
   do not share one cancellation, timeout, pipe-draining, and error-reporting layer.
 - `SwiftExifMediaProbe.durationSync` bridges async AVFoundation work with an
   unbounded semaphore wait.
-- Only three source files add explicit accessibility labels or identifiers. This
-  does not prove every control is inaccessible, but it leaves icon-heavy and custom
-  AppKit/SwiftUI controls without a tested accessibility contract.
+- The empty queue, primary conversion toolbar, and Settings navigation now have a
+  tested accessibility-identifier contract. Most icon-heavy and custom AppKit/SwiftUI
+  controls still need explicit labels, state values, and flow coverage.
 - The string catalog has 1,197 entries; 87 entries have no Norwegian localization.
   Some are format tokens or App Intent phrases, so they must be classified before
   translating.
@@ -259,6 +260,8 @@ this milestone are now covered without committed media or leftover temporary fil
 
 ### 1.3 Replace the placeholder UI test with smoke coverage
 
+Status: in progress; launch and Settings smoke coverage added 2026-09-01.
+
 Start with stable, high-value flows:
 
 1. Launch into an empty queue.
@@ -272,6 +275,15 @@ English text.
 
 Acceptance: the UI suite contains real assertions and is deterministic across two
 consecutive clean runs.
+
+The stale UI-test host target name has been corrected. Stable accessibility
+identifiers now cover the empty queue, Import, Preset, Start/Cancel, Settings, and
+each Settings sidebar pane. The generated placeholder test has been replaced with
+empty-queue/toolbar assertions and a Settings test that opens the window and moves
+from General to Presets to Metadata while checking the exposed pane state. Both
+tests passed twice consecutively. A deterministic generated-fixture launch hook is
+still needed before adding import, preset-selection, start/cancel, and result/error
+smoke coverage without automating the sandboxed system file picker.
 
 ## Priority 2 — Make long-running work reliable
 

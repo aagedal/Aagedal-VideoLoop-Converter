@@ -73,6 +73,7 @@ struct ConversionToolbarView: ToolbarContent {
                 Label("Import", systemImage: "plus.circle")
                     .foregroundColor(.accentColor)
             }
+            .accessibilityIdentifier("toolbar.import")
             .help("Import video files")
             .keyboardShortcut("i", modifiers: .command)
 
@@ -105,6 +106,7 @@ struct ConversionToolbarView: ToolbarContent {
                     Text(displayName(preset)).tag(preset)
                 }
             }
+            .accessibilityIdentifier("toolbar.preset")
             .pickerStyle(.menu)
             .frame(width: 200)
             .disabled(isConverting)
@@ -115,6 +117,8 @@ struct ConversionToolbarView: ToolbarContent {
                 Image(systemName: "gear")
                     .foregroundStyle(.blue)
             }
+            .accessibilityIdentifier("toolbar.settings")
+            .accessibilityLabel("Application Settings")
             .buttonStyle(.plain)
             .help("Application Settings")
             .padding(.horizontal, 8)
@@ -201,6 +205,8 @@ private struct ConversionPlayButtonNSViewWrapper: NSViewRepresentable {
     }
 
     private func configureButton(_ button: NSButton) {
+        button.setAccessibilityIdentifier("toolbar.conversion")
+
         // Symbol configuration for toolbar-sized icons
         let config = NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
 
@@ -209,10 +215,12 @@ private struct ConversionPlayButtonNSViewWrapper: NSViewRepresentable {
             let image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: "Cancel Conversion")
             button.image = image?.withSymbolConfiguration(config)
             button.contentTintColor = .systemRed
+            button.setAccessibilityLabel("Cancel Conversion")
         } else {
             let image = NSImage(systemSymbolName: "play.circle", accessibilityDescription: "Start Conversion")
             button.image = image?.withSymbolConfiguration(config)
             button.contentTintColor = (!hasFiles || !canStartConversion) ? .systemGray : .systemGreen
+            button.setAccessibilityLabel("Start Conversion")
         }
 
         // Update enabled state

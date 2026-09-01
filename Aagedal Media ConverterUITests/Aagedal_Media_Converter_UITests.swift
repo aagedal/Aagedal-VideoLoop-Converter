@@ -9,26 +9,47 @@ import XCTest
 
 final class Aagedal_Media_Converter_UITests: XCTestCase {
 
+    private var app: XCUIApplication!
+
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launch()
+    func testLaunchesWithEmptyQueue() throws {
+        launchApp()
+        defer { app.terminate() }
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(element("queue.empty").waitForExistence(timeout: 10))
+        XCTAssertTrue(element("toolbar.import").exists)
+        XCTAssertTrue(element("toolbar.preset").exists)
+        XCTAssertTrue(element("toolbar.settings").exists)
+        XCTAssertEqual(element("toolbar.conversion").label, "Start Conversion")
+    }
+
+    @MainActor
+    func testOpensSettingsAndMovesBetweenPanes() throws {
+        launchApp()
+        defer { app.terminate() }
+
+        let settingsButton = element("toolbar.settings")
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+        settingsButton.click()
+
+        let settingsRoot = element("settings.root")
+        XCTAssertTrue(settingsRoot.waitForExistence(timeout: 10))
+        let generalTab = element("settings.tab.general")
+        XCTAssertTrue(generalTab.waitForExistence(timeout: 5))
+        XCTAssertEqual(settingsRoot.value as? String, "general")
+
+        let presetsTab = element("settings.tab.presets")
+        XCTAssertTrue(presetsTab.exists)
+        presetsTab.click()
+        XCTAssertEqual(settingsRoot.value as? String, "presets")
+
+        let metadataTab = element("settings.tab.metadata")
+        metadataTab.click()
+        XCTAssertEqual(settingsRoot.value as? String, "metadata")
     }
 
     @MainActor
@@ -39,5 +60,17 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
                 XCUIApplication().launch()
             }
         }
+    }
+
+    @MainActor
+    private func launchApp() {
+        app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+    }
+
+    @MainActor
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 }

@@ -2957,7 +2957,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Aagedal VideoLoop Converter 2.0";
+				TEST_TARGET_NAME = "Aagedal Media Converter";
 			};
 			name = Debug;
 		};
@@ -2973,7 +2973,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = "Aagedal VideoLoop Converter 2.0";
+				TEST_TARGET_NAME = "Aagedal Media Converter";
 			};
 			name = Release;
 		};

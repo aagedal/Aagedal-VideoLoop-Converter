@@ -200,6 +200,9 @@ struct VideoFileListView: View {
 
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("queue.empty")
+                .accessibilityLabel("Empty conversion queue")
                 .onTapGesture(count: 2) {
                     onDoubleClick()
                 }

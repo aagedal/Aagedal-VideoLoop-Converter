@@ -108,8 +108,11 @@ struct SettingsView: View {
                         .labelStyle(.iconOnly)
                         .help(tab.label)
                         .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("settings.tab.\(tab.rawValue)")
+                        .accessibilityLabel(tab.label)
                 } else {
                     Label(tab.label, systemImage: tab.icon)
+                        .accessibilityIdentifier("settings.tab.\(tab.rawValue)")
                 }
             }
             .listStyle(.sidebar)
@@ -141,6 +144,8 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 900, height: 600)
+        .accessibilityIdentifier("settings.root")
+        .accessibilityValue(selectedTab.rawValue)
         .navigationTitle("Settings – Aagedal Media Converter")
         .background {
             // Keyboard shortcuts for tab switching (Control+1-9, 0 to avoid conflict with main window's CMD+1-9, 0 preset selection)
