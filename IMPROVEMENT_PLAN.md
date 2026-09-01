@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: thirty-nine tests pass. The
+- The unit-test baseline is green: forty tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only thirty-nine unit tests. The UI test target still contains the generated
+- There are only forty unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -153,16 +153,16 @@ without silently reloading the global default, trim offsets, 29.97/59.94 drop-fr
 minute rules, ten-minute boundaries, and very-low-rate safety. This fixed invalid
 drop-frame labels, a possible divide-by-zero, missing timecode on waveform and
 synthesized-video command branches, and redundant re-probing when request metadata
-is already available. Image-sequence input/range/audio and JPEG quality are tested;
+is already available. A generated QuickTime fixture now verifies that Stream Copy
+preserves source timecode, replaces both the container and video-stream tags for a
+manual value, and clears both tags when timecode is disabled so FFmpeg cannot recreate
+a stale `tmcd` track. Image-sequence input/range/audio and JPEG quality are tested;
 DCP and IMF tests cover geometry, profiles, rational rates, HDR color tags, and
 codec choices; AV2 chunk-count policy is covered for CQ, VBR, and short inputs.
 
 The next slice should use generated media and dummy package essences to cover the
 assembled commands and manifests. The audit identified these high-risk follow-ups:
 
-- disabled timecode with source-metadata preservation still needs explicit tag
-  clearing, and stream-copy MOV can retain a copied `tmcd` track despite manual
-  or disabled timecode metadata;
 - AV2 bypasses custom concat/image-sequence inputs and several generic command
   options, and start-only trim can overstate chunk duration;
 - DCP/IMF post-processing reopens only the primary source for audio instead of

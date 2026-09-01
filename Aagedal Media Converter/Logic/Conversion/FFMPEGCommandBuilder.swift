@@ -834,10 +834,23 @@ extension FFMPEGCommandBuilder {
             timecodeValue = tc.isEmpty ? nil : tc
         }
 
-        // Remove existing timecode metadata if present in args
+        replaceTimecodeMetadata(in: &ffmpegArgs, with: timecodeValue)
+    }
+
+    /// Replaces both container and primary-video timecode metadata. QuickTime's
+    /// muxer can synthesize a `tmcd` track from either value, so clearing only
+    /// the container tag still allows a copied video-stream tag to recreate the
+    /// source timecode.
+    private static func replaceTimecodeMetadata(
+        in ffmpegArgs: inout [String],
+        with timecode: String?
+    ) {
+        let metadataOptions = ["-metadata", "-metadata:s:v:0"]
+
         var index = 0
         while index < ffmpegArgs.count - 1 {
-            if ffmpegArgs[index] == "-metadata" && ffmpegArgs[index + 1].hasPrefix("timecode=") {
+            if metadataOptions.contains(ffmpegArgs[index])
+                && ffmpegArgs[index + 1].hasPrefix("timecode=") {
                 ffmpegArgs.remove(at: index + 1)
                 ffmpegArgs.remove(at: index)
                 continue
@@ -845,11 +858,11 @@ extension FFMPEGCommandBuilder {
             index += 1
         }
 
-        if let timecode = timecodeValue {
-            // Set our timecode value
-            // This should override any timecode from -map_metadata since it comes later in args
-            ffmpegArgs.append(contentsOf: ["-metadata", "timecode=\(timecode)"])
-        }
+        let value = timecode.map { "timecode=\($0)" } ?? "timecode="
+        ffmpegArgs.append(contentsOf: [
+            "-metadata", value,
+            "-metadata:s:v:0", value
+        ])
     }
 
     /// Applies an already-resolved per-item timecode choice. Video items receive
@@ -864,9 +877,12 @@ extension FFMPEGCommandBuilder {
         sourceMetadata knownSourceMetadata: VideoMetadata? = nil,
         trimStart: Double?
     ) async {
-        guard preset.outputsVideoTrack,
-              let timecodeConfig,
-              timecodeConfig.isActive else {
+        guard preset.outputsVideoTrack else {
+            return
+        }
+
+        guard let timecodeConfig, timecodeConfig.isActive else {
+            replaceTimecodeMetadata(in: &ffmpegArgs, with: nil)
             return
         }
 
@@ -875,8 +891,13 @@ extension FFMPEGCommandBuilder {
         case .preserveSource:
             if let knownSourceMetadata {
                 sourceMetadata = knownSourceMetadata
+            } else if let probedMetadata = try? await VideoMetadataService.shared.metadata(for: inputURL) {
+                sourceMetadata = probedMetadata
             } else {
-                sourceMetadata = try? await VideoMetadataService.shared.metadata(for: inputURL)
+                // Preserve FFmpeg's source metadata mapping when the in-process
+                // probe fails instead of interpreting a probe failure as an
+                // explicit request to remove timecode.
+                return
             }
         case .manual:
             sourceMetadata = nil

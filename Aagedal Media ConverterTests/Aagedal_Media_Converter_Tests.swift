@@ -346,6 +346,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
 
         XCTAssertEqual(arguments.adjacentPairCount("-metadata", "timecode=10:20:30:12"), 1)
+        XCTAssertEqual(arguments.adjacentPairCount("-metadata:s:v:0", "timecode=10:20:30:12"), 1)
         XCTAssertFalse(arguments.containsAdjacent("-metadata", "timecode=01:00:00:00"))
         XCTAssertTrue(arguments.containsAdjacent("-metadata", "title=Example"))
     }
@@ -363,7 +364,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertTrue(arguments.containsAdjacent("-metadata", "timecode=10:20:30:12"))
     }
 
-    func testDisabledItemTimecodeDoesNotReloadGlobalDefault() async throws {
+    func testDisabledItemTimecodeClearsMappedMetadataWithoutReloadingGlobalDefault() async throws {
         try await withPresetSettingsAsync([
             AppConstants.defaultTimecodeModeKey: "manual",
             AppConstants.defaultTimecodeValueKey: "09:08:07:06"
@@ -378,7 +379,84 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
                 trimStart: nil
             )
 
-            XCTAssertTrue(arguments.isEmpty)
+            XCTAssertTrue(arguments.containsAdjacent("-metadata", "timecode="))
+            XCTAssertTrue(arguments.containsAdjacent("-metadata:s:v:0", "timecode="))
+            XCTAssertFalse(arguments.contains("timecode=09:08:07:06"))
+        }
+    }
+
+    func testGeneratedStreamCopyMOVPreservesReplacesAndRemovesTimecodeTracks() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterTimecodeTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let sourceURL = temporaryDirectory.appendingPathComponent("source.mov")
+        let sourceTimecode = "01:02:03:04"
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=red:s=32x32:r=24:d=1",
+            "-c:v", "libx264",
+            "-metadata", "timecode=\(sourceTimecode)",
+            sourceURL.path
+        ])
+
+        try await withPresetSettingsAsync([
+            AppConstants.preserveMetadataPreferenceKey: true
+        ]) {
+            let preservedURL = temporaryDirectory.appendingPathComponent("preserved.mov")
+            let preservedCommand = await FFMPEGCommandBuilder.buildCommand(
+                inputURL: sourceURL,
+                outputFileURL: preservedURL,
+                preset: .streamCopy,
+                comment: "",
+                includeDateTag: false,
+                trimStart: nil,
+                trimEnd: nil,
+                timecodeConfig: TimecodeConfig(mode: .preserveSource),
+                sourceMetadata: videoMetadata(timecode: sourceTimecode, frameRate: 24)
+            )
+            try runFFmpeg(preservedCommand.arguments)
+
+            let preservedInspection = try inspectMedia(at: preservedURL)
+            XCTAssertTrue(preservedInspection.contains("tmcd"), preservedInspection)
+            XCTAssertTrue(preservedInspection.contains(sourceTimecode), preservedInspection)
+
+            let manualURL = temporaryDirectory.appendingPathComponent("manual.mov")
+            let manualTimecode = "10:20:30:12"
+            let manualCommand = await FFMPEGCommandBuilder.buildCommand(
+                inputURL: sourceURL,
+                outputFileURL: manualURL,
+                preset: .streamCopy,
+                comment: "",
+                includeDateTag: false,
+                trimStart: nil,
+                trimEnd: nil,
+                timecodeConfig: TimecodeConfig(mode: .manual(manualTimecode))
+            )
+            try runFFmpeg(manualCommand.arguments)
+
+            let manualInspection = try inspectMedia(at: manualURL)
+            XCTAssertTrue(manualInspection.contains("tmcd"), manualInspection)
+            XCTAssertTrue(manualInspection.contains(manualTimecode), manualInspection)
+            XCTAssertFalse(manualInspection.contains(sourceTimecode), manualInspection)
+
+            let disabledURL = temporaryDirectory.appendingPathComponent("disabled.mov")
+            let disabledCommand = await FFMPEGCommandBuilder.buildCommand(
+                inputURL: sourceURL,
+                outputFileURL: disabledURL,
+                preset: .streamCopy,
+                comment: "",
+                includeDateTag: false,
+                trimStart: nil,
+                trimEnd: nil,
+                timecodeConfig: nil
+            )
+            try runFFmpeg(disabledCommand.arguments)
+
+            let disabledInspection = try inspectMedia(at: disabledURL)
+            XCTAssertFalse(disabledInspection.contains("tmcd"), disabledInspection)
+            XCTAssertFalse(disabledInspection.contains(sourceTimecode), disabledInspection)
         }
     }
 
@@ -974,6 +1052,14 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             )
         }
         return log
+    }
+
+    private func inspectMedia(at url: URL) throws -> String {
+        try runFFmpeg([
+            "-hide_banner", "-i", url.path,
+            "-map", "0", "-c", "copy",
+            "-f", "null", "-"
+        ])
     }
 
 }
