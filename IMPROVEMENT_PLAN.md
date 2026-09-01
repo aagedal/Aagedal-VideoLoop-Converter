@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: sixty-one tests pass. The
+- The unit-test baseline is green: sixty-nine tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only sixty-one unit tests. The UI test target still contains the generated
+- There are only sixty-nine unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -222,7 +222,7 @@ The audit identified these remaining high-risk follow-ups:
 
 ### 1.2 Add small media-fixture integration tests
 
-Status: in progress; first core converter fixture added 2026-09-01.
+Status: completed 2026-09-01.
 
 - Generate short fixtures in the test setup instead of committing large media.
 - Exercise one representative file per major family: video+audio, anamorphic,
@@ -239,8 +239,23 @@ A generated one-second video+audio Matroska fixture now drives
 `FFMPEGConverter.convert` through real output naming, process launch, progress
 handling, completion, and post-run validation. The test verifies the H.264 result
 contains one video and one audio stream with the expected dimensions and duration,
-and cleans its temporary directory. The multichannel, subtitle, malformed-input,
-cancellation, failure, existing-output, and source-overwrite cases remain open.
+and cleans its temporary directory. Generated follow-up cases now verify that an
+existing output is preserved under a unique destination, a same-path request cannot
+overwrite its source, malformed input returns an actionable failure, and cancelling a
+running FFmpeg process completes promptly. Failed and cancelled ordinary-file exports
+now remove partial output and revoke their app-created-file registration, preventing a
+stale path from authorizing deletion of a file created there later. Explicit selection
+of a missing custom FFmpeg binary also fails before registering or creating an output.
+A single completion gate now covers every ordinary-file exit path, including early AV2
+rejection and native-waveform failures, so racing auxiliary/FFmpeg exits cannot complete
+twice or bypass failed-output cleanup. An AV2 generated-video rejection test verifies the
+reserved destination is unregistered even though no encoder process starts.
+A generated 5.1 fixture now exercises the core converter's real audio-routing path and
+verifies a selected surround track is downmixed to one stereo output stream. A generated
+Matroska text-subtitle fixture verifies H.264/MP4 conversion produces a `mov_text` stream
+whose subtitle payload can be extracted intact. Together with the existing generated
+anamorphic and image-sequence cases, the fixture families and failure/safety cases in
+this milestone are now covered without committed media or leftover temporary files.
 
 ### 1.3 Replace the placeholder UI test with smoke coverage
 

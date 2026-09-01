@@ -23,6 +23,24 @@ private actor StderrCollector {
     }
 }
 
+/// Serializes the several asynchronous exit paths a conversion can have. In particular,
+/// a failed auxiliary process can terminate FFmpeg and race its termination handler.
+private final class ConversionCompletionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didComplete = false
+
+    func run(_ action: @Sendable () -> Void) {
+        lock.lock()
+        guard !didComplete else {
+            lock.unlock()
+            return
+        }
+        didComplete = true
+        lock.unlock()
+        action()
+    }
+}
+
 actor FFMPEGConverter {
     private var currentProcess: Process?
     /// Secondary process for multi-process pipelines (e.g. the AV2 ffmpeg→avmenc pipe).
@@ -143,6 +161,23 @@ actor FFMPEGConverter {
             return "Cannot read output file attributes: \(error.localizedDescription)"
         }
         return nil
+    }
+
+    /// Removes an incomplete ordinary-file output and revokes its app-created trust record.
+    /// A failed encode must not leave a stale registration that could authorize deleting an
+    /// unrelated file created at the same path later.
+    private static func cleanupFailedOutput(at url: URL) {
+        guard FileSafetyUtils.isCreatedByApp(url) else { return }
+
+        defer { FileSafetyUtils.unregisterCreatedFile(url) }
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+
+        do {
+            try FileManager.default.removeItem(at: url)
+            logger.info("Removed incomplete conversion output: \(url.lastPathComponent, privacy: .public)")
+        } catch {
+            logger.warning("Failed to remove incomplete conversion output \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Converts a video file using the specified export preset
@@ -302,6 +337,18 @@ actor FFMPEGConverter {
             FileSafetyUtils.registerCreatedFile(outputFileURL)
         }
 
+        let completionGate = ConversionCompletionGate()
+        let cleanupOutputURL = outputFileURL
+        let isOrdinaryFileExport = !isImageSequenceExport && !isDCPExport && !isIMFExport
+        let finish: @Sendable (Bool, String?) -> Void = { success, errorReason in
+            completionGate.run {
+                if !success && isOrdinaryFileExport {
+                    Self.cleanupFailedOutput(at: cleanupOutputURL)
+                }
+                completion(success, errorReason)
+            }
+        }
+
         // For AVC-Intra MXF, FFmpeg outputs to temp file, then bmxtranswrap rewraps to OP1a
         let needsBMXRewrap = preset == .tvAVCIntra
         var ffmpegOutputURL = outputFileURL
@@ -343,7 +390,7 @@ actor FFMPEGConverter {
 
         if preset == .av2,
            (request.waveformRequest != nil || request.synthesizedVideoRequest != nil) {
-            completion(false, "AV2 export does not yet support generated video from audio-only sources")
+            finish(false, "AV2 export does not yet support generated video from audio-only sources")
             return
         }
 
@@ -369,7 +416,7 @@ actor FFMPEGConverter {
                 outputFileURL: outputFileURL,
                 waveformBackgroundImageURL: request.waveformBackgroundImageURL,
                 progressUpdate: progressUpdate,
-                completion: completion
+                completion: finish
             )
             return
         }
@@ -423,7 +470,7 @@ actor FFMPEGConverter {
 
             guard encodeResult.success else {
                 if muxToMKV { Self.cleanupTempFile(at: encodeURL, label: "AV2 intermediate .ivf") }
-                completion(false, encodeResult.errorReason)
+                finish(false, encodeResult.errorReason)
                 return
             }
 
@@ -456,11 +503,11 @@ actor FFMPEGConverter {
                 )
                 Self.cleanupTempFile(at: encodeURL, label: "AV2 intermediate .ivf")
                 if ok { progressUpdate(1.0, nil) }
-                completion(ok, reason)
+                finish(ok, reason)
                 return
             }
 
-            completion(true, nil)
+            finish(true, nil)
             return
         }
 
@@ -1462,7 +1509,7 @@ actor FFMPEGConverter {
                     }
                 }
 
-                completion(success, errorReason)
+                finish(success, errorReason)
             }
         }
 
@@ -1481,12 +1528,13 @@ actor FFMPEGConverter {
                     Self.logger.error("Failed to run avmdec: \(error.localizedDescription, privacy: .public)")
                     process.terminate()
                     await setAuxProcess(nil)
-                    completion(false, "Failed to start AV2 decoder (avmdec): \(error.localizedDescription)")
+                    finish(false, "Failed to start AV2 decoder (avmdec): \(error.localizedDescription)")
                 }
             }
         } catch {
             Self.logger.error("Failed to run process: \(error.localizedDescription, privacy: .public)")
-            completion(false, "Failed to start FFmpeg: \(error.localizedDescription)")
+            await setCurrentProcess(nil)
+            finish(false, "Failed to start FFmpeg: \(error.localizedDescription)")
         }
     }
 
@@ -2703,6 +2751,7 @@ actor FFMPEGConverter {
             try process.run()
         } catch {
             Self.logger.error("Failed to start native waveform FFmpeg: \(error.localizedDescription, privacy: .public)")
+            await setCurrentProcess(nil)
             completion(false, "Failed to start FFmpeg: \(error.localizedDescription)")
             return
         }

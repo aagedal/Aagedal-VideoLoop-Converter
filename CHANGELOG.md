@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Failed and cancelled conversions no longer leave partial outputs or stale file-ownership records.** Ordinary-file exports now remove an incomplete destination and revoke its app-created registration after FFmpeg fails, is cancelled, or cannot launch, so a later unrelated file at the same path cannot be treated as safe to delete.
 - **Audio routing no longer duplicates the video stream map** when a preset's first explicit map selects audio; custom track ordering and channel operations now reuse the existing video map.
 - **Keep Subtitles is limited to subtitle-capable outputs.** Image sequences, animated stills, DCP/IMF MXF, IVF, and audio-only outputs no longer receive invalid subtitle codec arguments.
 - **Stream Copy no longer carries subtitle streams into the output.** The command used FFmpeg's attachment-stream selector (`t`) where it intended the subtitle selector (`s`), so subtitle tracks could be copied even though Stream Copy has no subtitle option. Audio and video streams continue to be copied without re-encoding.
@@ -86,7 +87,7 @@ The headline is experimental **AV2 encoding** via the bundled AOM AVM reference 
 
 ## Housekeeping
 
-- **SwiftExif now resolves from Codeberg** (`taagedal/SwiftExif`, 1.9.1). The GitHub mirror is frozen at 1.6.0, so "Update to Latest Package Versions" kept re-resolving the stale URL and finding nothing newer. Both consumers compile unchanged.
+- **SwiftExif's package repository now follows its SwiftMediaMetadata rename** (`aagedal/SwiftMediaMetadata`, 1.9.10). The Swift package still exports the source-compatible `SwiftExif` product and module, so consumers compile unchanged while dependency resolution no longer relies on the old repository redirect.
 - **Release zips strip AppleDouble metadata** (`--norsrc --noextattr --noacl --noqtn`). Without this, `ditto` encodes xattrs / ACLs / creation dates as `._<name>` companions inside the zip, which macOS Sequoia no longer merges back on extract — they surface as visible files inside the `.app`, break the codesignature seal, and trip Gatekeeper's "app is damaged". The 4.1.2 release zip was re-packaged retroactively with the same fix.
 - Removed the stale `GEMINI.md` project-context file (recoverable from git history).
 

@@ -897,7 +897,7 @@ struct YTDLPSettingsView: View {
     private var aboutSection: some View {
         Section(header: Text("About")) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("The app includes a bundled ffmpeg binary. You can optionally point at a Homebrew or custom ffmpeg if you need specific features or codecs. Metadata reading (including chapters) is handled in-process by SwiftExif — no external ffprobe is required.")
+                Text("The app includes a bundled ffmpeg binary. You can optionally point at a Homebrew or custom ffmpeg if you need specific features or codecs. Metadata reading (including chapters) is handled in-process by SwiftMediaMetadata — no external ffprobe is required.")
                     .font(.callout)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

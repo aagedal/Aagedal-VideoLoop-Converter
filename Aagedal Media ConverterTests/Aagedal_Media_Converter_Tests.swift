@@ -221,6 +221,284 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(info.duration, 1, accuracy: 0.15)
     }
 
+    func testGeneratedMultichannelFixtureDownmixesThroughCoreConverter() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterMultichannelTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("surround-source.mkv")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=24:duration=1",
+            "-f", "lavfi", "-i",
+            "aevalsrc=0.1*sin(2*PI*300*t)|0.1*sin(2*PI*400*t)|0.1*sin(2*PI*500*t)|0.1*sin(2*PI*600*t)|0.1*sin(2*PI*700*t)|0.1*sin(2*PI*800*t):s=48000:d=1:c=5.1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
+            fixtureURL.path
+        ])
+
+        let probedFixtureStreams = await FFMPEGProbeService.fetchAudioStreams(for: fixtureURL)
+        let fixtureStreams = try XCTUnwrap(probedFixtureStreams)
+        XCTAssertEqual(fixtureStreams.count, 1)
+        XCTAssertEqual(fixtureStreams.first?.channels, 6)
+        XCTAssertEqual(fixtureStreams.first?.channelLayout, "5.1")
+
+        let surroundTrack = AudioTrackInfo(
+            streamIndex: 0,
+            channels: 6,
+            channelLayout: "5.1",
+            codec: "pcm_s16le",
+            codecLongName: nil,
+            sampleRate: 48_000
+        )
+        var routing = AudioRoutingConfig(inputTracks: [surroundTrack])
+        routing.outputTracks = [OutputTrack(streamIndex: 0, downmixToStereo: true)]
+
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("downmixed")
+        let result = try await withPresetSettingsAsync([:]) {
+            await runConversion(ConversionRequest(
+                inputURL: fixtureURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                expectedDuration: 1,
+                audioRoutingConfig: routing
+            ))
+        }
+
+        XCTAssertTrue(result.success, result.errorReason ?? "Conversion failed without a reason")
+        let outputURL = outputBaseURL.appendingPathExtension(ExportPreset.h264.outputExtension(for: fixtureURL))
+        let probedStreams = await FFMPEGProbeService.fetchAudioStreams(for: outputURL)
+        let streams = try XCTUnwrap(probedStreams)
+        XCTAssertEqual(streams.count, 1)
+        XCTAssertEqual(streams.first?.channels, 2)
+        XCTAssertEqual(streams.first?.channelLayout?.lowercased(), "stereo")
+    }
+
+    func testGeneratedSubtitleFixtureIsPreservedThroughCoreConverter() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterSubtitleTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let subtitleURL = temporaryDirectory.appendingPathComponent("fixture.srt")
+        try Data("1\n00:00:00,100 --> 00:00:00,800\nFixture subtitle\n".utf8).write(to: subtitleURL)
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("subtitle-source.mkv")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=24:duration=1",
+            "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=1",
+            "-f", "srt", "-i", subtitleURL.path,
+            "-map", "0:v:0", "-map", "1:a:0", "-map", "2:s:0",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le", "-c:s", "srt",
+            "-metadata:s:s:0", "language=nor",
+            fixtureURL.path
+        ])
+
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("subtitled")
+        let result = try await withPresetSettingsAsync([
+            AppConstants.keepSubtitlesKey: true
+        ]) {
+            await runConversion(ConversionRequest(
+                inputURL: fixtureURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                expectedDuration: 1
+            ))
+        }
+
+        XCTAssertTrue(result.success, result.errorReason ?? "Conversion failed without a reason")
+        let outputURL = outputBaseURL.appendingPathExtension(ExportPreset.h264.outputExtension(for: fixtureURL))
+        let inspection = try inspectMedia(at: outputURL)
+        XCTAssertTrue(inspection.contains("Subtitle: mov_text"), inspection)
+
+        let extractedSubtitleURL = temporaryDirectory.appendingPathComponent("extracted.srt")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y", "-i", outputURL.path,
+            "-map", "0:s:0", "-c:s", "srt", extractedSubtitleURL.path
+        ])
+        let extractedSubtitle = try String(contentsOf: extractedSubtitleURL, encoding: .utf8)
+        XCTAssertTrue(extractedSubtitle.contains("Fixture subtitle"), extractedSubtitle)
+    }
+
+    func testCoreConverterPreservesExistingOutputAndChoosesUniqueName() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterExistingOutputTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("source.mkv")
+        try makeVideoFixture(at: fixtureURL)
+
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("converted")
+        let existingOutputURL = outputBaseURL.appendingPathExtension("mp4")
+        let sentinel = Data("existing output must remain unchanged".utf8)
+        try sentinel.write(to: existingOutputURL)
+
+        let result = try await withPresetSettingsAsync([:]) {
+            await runConversion(ConversionRequest(
+                inputURL: fixtureURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                expectedDuration: 1
+            ))
+        }
+
+        XCTAssertTrue(result.success, result.errorReason ?? "Conversion failed without a reason")
+        XCTAssertEqual(try Data(contentsOf: existingOutputURL), sentinel)
+
+        let uniqueOutputURL = temporaryDirectory.appendingPathComponent("converted_1.mp4")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: uniqueOutputURL.path))
+        let probedStreams = await FFMPEGProbeService.verifyOutputStreams(for: uniqueOutputURL)
+        let streams = try XCTUnwrap(probedStreams)
+        XCTAssertEqual(streams.videoStreamCount, 1)
+    }
+
+    func testCoreConverterNeverOverwritesSourceWhenOutputResolvesToSamePath() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterSourceSafetyTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("source.mp4")
+        try makeVideoFixture(at: fixtureURL)
+        let originalSource = try Data(contentsOf: fixtureURL)
+
+        let result = try await withPresetSettingsAsync([:]) {
+            await runConversion(ConversionRequest(
+                inputURL: fixtureURL,
+                outputURL: fixtureURL.deletingPathExtension(),
+                preset: .h264,
+                includeDateTag: false,
+                expectedDuration: 1
+            ))
+        }
+
+        XCTAssertTrue(result.success, result.errorReason ?? "Conversion failed without a reason")
+        XCTAssertEqual(try Data(contentsOf: fixtureURL), originalSource)
+
+        let safeOutputURL = temporaryDirectory.appendingPathComponent("source_encoded.mp4")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: safeOutputURL.path))
+        let probedStreams = await FFMPEGProbeService.verifyOutputStreams(for: safeOutputURL)
+        let streams = try XCTUnwrap(probedStreams)
+        XCTAssertEqual(streams.videoStreamCount, 1)
+    }
+
+    func testCoreConverterReportsMalformedInputFailureWithoutOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterMalformedInputTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("malformed.mov")
+        try Data("this is not media".utf8).write(to: fixtureURL)
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("converted")
+
+        let result = try await withPresetSettingsAsync([:]) {
+            await runConversion(ConversionRequest(
+                inputURL: fixtureURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false
+            ))
+        }
+
+        XCTAssertFalse(result.success)
+        XCTAssertFalse((result.errorReason ?? "").isEmpty)
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testCoreConverterReportsMissingSelectedFFmpegBeforeCreatingOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterMissingBinaryTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("converted")
+        let result = try await withPresetSettingsAsync([
+            AppConstants.ffmpegBinarySourceKey: BinarySourceSelection.custom.rawValue,
+            AppConstants.customFFmpegPathKey: temporaryDirectory.appendingPathComponent("missing-ffmpeg").path
+        ]) {
+            await runConversion(ConversionRequest(
+                inputURL: temporaryDirectory.appendingPathComponent("source.mov"),
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false
+            ))
+        }
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "FFmpeg binary not found")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testCoreConverterUnsupportedAV2GeneratedVideoRevokesOutputRegistration() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterAV2RejectionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("source.wav")
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("converted")
+        let result = try await withPresetSettingsAsync([:]) {
+            await runConversion(ConversionRequest(
+                inputURL: inputURL,
+                outputURL: outputBaseURL,
+                preset: .av2,
+                includeDateTag: false,
+                synthesizedVideoRequest: SynthesizedVideoRequest(
+                    width: 64,
+                    height: 48,
+                    backgroundHex: "000000",
+                    frameRate: 24,
+                    includeAudio: true
+                )
+            ))
+        }
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "AV2 export does not yet support generated video from audio-only sources")
+        let outputURL = outputBaseURL.appendingPathExtension(ExportPreset.av2.outputExtension(for: inputURL))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testCoreConverterCancellationStopsRunningFFmpeg() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterCancellationTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("cancelled")
+        let request = ConversionRequest(
+            inputURL: temporaryDirectory.appendingPathComponent("virtual-source.mkv"),
+            outputURL: outputBaseURL,
+            preset: .h264,
+            includeDateTag: false,
+            expectedDuration: 30,
+            customInputArguments: [
+                "-re", "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=30:duration=30"
+            ]
+        )
+
+        let result = try await withPresetSettingsAsync([:]) {
+            await runConversion(request, cancellingAfter: 300_000_000)
+        }
+
+        XCTAssertFalse(result.success)
+        XCTAssertFalse((result.errorReason ?? "").isEmpty)
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
     func testCustomCommandTokenizationPreservesExplicitlyEmptyQuotedArguments() {
         XCTAssertEqual(
             ExportPreset.parseCustomCommand(#"-vf "" -metadata title='' -c:v libx264"#),
@@ -2119,6 +2397,15 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         return log
     }
 
+    private func makeVideoFixture(at url: URL) throws {
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=24:duration=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            url.path
+        ])
+    }
+
     private func runConversion(
         _ request: ConversionRequest
     ) async -> (success: Bool, errorReason: String?) {
@@ -2132,6 +2419,26 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
                         continuation.resume(returning: (success, errorReason))
                     }
                 )
+            }
+        }
+    }
+
+    private func runConversion(
+        _ request: ConversionRequest,
+        cancellingAfter delayNanoseconds: UInt64
+    ) async -> (success: Bool, errorReason: String?) {
+        let converter = FFMPEGConverter()
+        return await withCheckedContinuation { continuation in
+            Task {
+                await converter.convert(
+                    request: request,
+                    progressUpdate: { _, _ in },
+                    completion: { success, errorReason in
+                        continuation.resume(returning: (success, errorReason))
+                    }
+                )
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+                await converter.cancelConversion()
             }
         }
     }
