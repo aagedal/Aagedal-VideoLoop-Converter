@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: forty-eight tests pass. The
+- The unit-test baseline is green: fifty tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only forty-eight unit tests. The UI test target still contains the generated
+- There are only fifty unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -175,12 +175,19 @@ end: essence moves, PKL hashes and sizes, ASSETMAP paths and lengths, CPL timing
 metadata, optional-audio omission, and IMF parser round-trip are covered without
 external tools. This exposed
 and fixed DCP CPL/PKL generation that ignored the requested content title,
-annotation, and audio language. The audit identified these high-risk follow-ups:
+annotation, and audio language.
+
+DCP and IMF audio post-processing now follows the same virtual source as the picture
+encode: concat groups extract across the full demuxer list, while image sequences
+open their associated audio file directly. Generated PCM fixtures verify the full
+concat duration and companion-WAV duration. The audio-only fallback also handles
+WAV/AIFF-style inputs whose stream topology is not available through SwiftExif,
+instead of silently treating them as mute.
+
+The audit identified these remaining high-risk follow-ups:
 
 - AV2 bypasses custom concat/image-sequence inputs and several generic command
   options;
-- DCP/IMF post-processing reopens only the primary source for audio instead of
-  respecting concat/image-sequence inputs;
 - generated IMF CPL `SourceEncoding` references need full MXF descriptor and
   subdescriptor coverage plus conformance validation.
 

@@ -819,6 +819,7 @@ actor FFMPEGConverter {
                     progressUpdate(0.82, "Extracting audio for DCP...")
                     let audioExtractionResult = await Self.extractAudioAsPCMWAV(
                         inputURL: capturedInputURL,
+                        customInputArguments: capturedRequest.customInputArguments,
                         outputFolder: FileManager.default.temporaryDirectory,
                         ffmpegPath: capturedFfmpegPath,
                         trimStart: capturedRequest.trimStart,
@@ -1207,6 +1208,7 @@ actor FFMPEGConverter {
                         print("[IMF] extracting audio")
                         let audioExtractionResult = await Self.extractAudioAsPCMWAV(
                             inputURL: capturedInputURL,
+                            customInputArguments: capturedRequest.customInputArguments,
                             outputFolder: FileManager.default.temporaryDirectory,
                             ffmpegPath: capturedFfmpegPath,
                             trimStart: capturedRequest.trimStart,
@@ -2616,18 +2618,121 @@ actor FFMPEGConverter {
         case failed(reason: String)
     }
 
-    private static func extractAudioAsPCMWAV(
+    struct PackageAudioInput: Equatable, Sendable {
+        let arguments: [String]
+        let probeURL: URL?
+        let ffmpegInputIndex: Int
+        let assumesSingleAudioStreamIfProbeUnavailable: Bool
+    }
+
+    private static let packageAudioOnlyExtensions: Set<String> = [
+        "wav", "aif", "aiff", "caf", "mp3", "aac", "m4a", "flac", "ogg", "oga", "opus", "wma"
+    ]
+
+    /// Resolves the audio source used by the DCP/IMF post-processing pass. The picture encode may
+    /// receive a virtual source through `customInputArguments`, so reopening `inputURL` here would
+    /// silently truncate concat groups to their first clip or lose image-sequence companion audio.
+    static func packageAudioInput(
         inputURL: URL,
+        customInputArguments: [String]?
+    ) -> PackageAudioInput {
+        guard let customInputArguments else {
+            return PackageAudioInput(
+                arguments: ["-i", inputURL.path],
+                probeURL: inputURL,
+                ffmpegInputIndex: 0,
+                assumesSingleAudioStreamIfProbeUnavailable: packageAudioOnlyExtensions.contains(
+                    inputURL.pathExtension.lowercased()
+                )
+            )
+        }
+
+        let inputPaths = customInputArguments.indices.compactMap { index -> String? in
+            guard customInputArguments[index] == "-i",
+                  customInputArguments.indices.contains(index + 1) else {
+                return nil
+            }
+            return customInputArguments[index + 1]
+        }
+
+        if customInputArguments.contains("-framerate") {
+            // Image sequences carry audio as their second input. The frames are unnecessary for
+            // PCM extraction, so open the associated audio directly and keep map indices simple.
+            guard inputPaths.count >= 2 else {
+                return PackageAudioInput(
+                    arguments: [],
+                    probeURL: nil,
+                    ffmpegInputIndex: 0,
+                    assumesSingleAudioStreamIfProbeUnavailable: false
+                )
+            }
+            let audioURL = URL(fileURLWithPath: inputPaths[1])
+            return PackageAudioInput(
+                arguments: ["-i", audioURL.path],
+                probeURL: audioURL,
+                ffmpegInputIndex: 0,
+                assumesSingleAudioStreamIfProbeUnavailable: true
+            )
+        }
+
+        if customInputArguments.contains("concat") {
+            // The concat demuxer exposes the merged stream as input 0. Probe the representative
+            // first clip for its stream layout, but extract from the full concat list.
+            return PackageAudioInput(
+                arguments: customInputArguments,
+                probeURL: inputURL,
+                ffmpegInputIndex: 0,
+                assumesSingleAudioStreamIfProbeUnavailable: packageAudioOnlyExtensions.contains(
+                    inputURL.pathExtension.lowercased()
+                )
+            )
+        }
+
+        // Preserve future custom input forms. `inputURL` remains the best available source for
+        // stream-layout probing; the custom arguments still control what FFmpeg actually reads.
+        return PackageAudioInput(
+            arguments: customInputArguments,
+            probeURL: inputURL,
+            ffmpegInputIndex: 0,
+            assumesSingleAudioStreamIfProbeUnavailable: false
+        )
+    }
+
+    static func extractAudioAsPCMWAV(
+        inputURL: URL,
+        customInputArguments: [String]? = nil,
         outputFolder: URL,
         ffmpegPath: String,
         trimStart: Double?,
         trimEnd: Double?,
         audioRoutingConfig: AudioRoutingConfig? = nil
     ) async -> AudioExtractionResult {
-        // Check if source has audio streams
-        guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
-              !audioStreams.isEmpty else {
-            logger.debug("No audio streams in source, skipping audio extraction for DCP")
+        let audioInput = packageAudioInput(
+            inputURL: inputURL,
+            customInputArguments: customInputArguments
+        )
+
+        // A sequence without companion audio has no probe URL and is a legitimate silent input.
+        guard let probeURL = audioInput.probeURL else {
+            logger.debug("No audio streams in resolved source, skipping package audio extraction")
+            return .noAudioInSource
+        }
+        let probedAudioStreams = await FFMPEGProbeService.fetchAudioStreams(for: probeURL) ?? []
+        let audioStreams: [FFMPEGProbeService.AudioStreamInfo]
+        if !probedAudioStreams.isEmpty {
+            audioStreams = probedAudioStreams
+        } else if audioInput.assumesSingleAudioStreamIfProbeUnavailable {
+            // SwiftExif intentionally delegates WAV/AIFF and a few other raw audio containers to
+            // AVFoundation for duration only, so it cannot report their stream topology. These are
+            // explicit audio-only sources; FFmpeg can safely address their sole stream as 0:a:0.
+            audioStreams = [FFMPEGProbeService.AudioStreamInfo(
+                index: 0,
+                channels: nil,
+                channelLayout: nil,
+                codecName: nil
+            )]
+        } else {
+            logger.debug("No audio streams in resolved source, skipping package audio extraction")
             return .noAudioInSource
         }
 
@@ -2641,7 +2746,7 @@ actor FFMPEGConverter {
             args.append(contentsOf: ["-ss", FFMPEGCommandBuilder.ffmpegTimeString(from: start)])
         }
 
-        args.append(contentsOf: ["-i", inputURL.path])
+        args.append(contentsOf: audioInput.arguments)
 
         // Apply trim duration
         if let durationArgs = FFMPEGCommandBuilder.trimDurationArgument(start: normalizedStart, end: FFMPEGCommandBuilder.normalizedTrimPoint(trimEnd)) {
@@ -2686,7 +2791,7 @@ actor FFMPEGConverter {
         if selectedStreamIndices.count > 1 && selectedAllMono {
             var filterInputs = ""
             for idx in selectedStreamIndices {
-                filterInputs += "[0:a:\(idx)]"
+                filterInputs += "[\(audioInput.ffmpegInputIndex):a:\(idx)]"
             }
             args.append(contentsOf: [
                 "-filter_complex", "\(filterInputs)amerge=inputs=\(selectedStreamIndices.count)[aout]",
@@ -2694,7 +2799,7 @@ actor FFMPEGConverter {
             ])
         } else {
             // Map a single audio stream
-            args.append(contentsOf: ["-map", "0:a:\(selectedStreamIndices[0])"])
+            args.append(contentsOf: ["-map", "\(audioInput.ffmpegInputIndex):a:\(selectedStreamIndices[0])"])
         }
 
         args.append(contentsOf: [

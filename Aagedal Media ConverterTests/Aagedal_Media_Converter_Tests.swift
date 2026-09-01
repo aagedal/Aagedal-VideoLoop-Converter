@@ -706,6 +706,97 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testPackageAudioExtractionUsesEntireConcatSource() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterConcatAudioTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let firstAudioURL = temporaryDirectory.appendingPathComponent("first.wav")
+        let secondAudioURL = temporaryDirectory.appendingPathComponent("second.wav")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.5",
+            "-c:a", "pcm_s16le", firstAudioURL.path
+        ])
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:duration=0.5",
+            "-c:a", "pcm_s16le", secondAudioURL.path
+        ])
+
+        let listURL = temporaryDirectory.appendingPathComponent("inputs.ffconcat")
+        let list = "file '\(firstAudioURL.path)'\nfile '\(secondAudioURL.path)'\n"
+        try Data(list.utf8).write(to: listURL)
+
+        let result = await FFMPEGConverter.extractAudioAsPCMWAV(
+            inputURL: firstAudioURL,
+            customInputArguments: ["-f", "concat", "-safe", "0", "-i", listURL.path],
+            outputFolder: temporaryDirectory,
+            ffmpegPath: ffmpegExecutableURL.path,
+            trimStart: nil,
+            trimEnd: nil
+        )
+
+        let outputURL: URL
+        switch result {
+        case .extracted(let url):
+            outputURL = url
+        case .noAudioInSource:
+            return XCTFail("Concat source was incorrectly treated as silent")
+        case .failed(let reason):
+            return XCTFail("Concat audio extraction failed: \(reason)")
+        }
+
+        let duration = try XCTUnwrap(ParsingUtils.parseDuration(from: inspectMedia(at: outputURL)))
+        XCTAssertEqual(duration, 1.0, accuracy: 0.02)
+    }
+
+    func testPackageAudioExtractionUsesImageSequenceCompanionAudio() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterSequenceAudioTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let audioURL = temporaryDirectory.appendingPathComponent("sequence.wav")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=0.75",
+            "-c:a", "pcm_s24le", audioURL.path
+        ])
+
+        let config = ImageSequenceConfig(
+            pattern: "frame_%04d.png",
+            directory: temporaryDirectory,
+            startNumber: 1,
+            endNumber: 18,
+            frameRate: 24,
+            imageFormat: .png,
+            associatedAudioURL: audioURL
+        )
+        let result = await FFMPEGConverter.extractAudioAsPCMWAV(
+            inputURL: temporaryDirectory,
+            customInputArguments: config.ffmpegInputArguments,
+            outputFolder: temporaryDirectory,
+            ffmpegPath: ffmpegExecutableURL.path,
+            trimStart: nil,
+            trimEnd: nil
+        )
+
+        let outputURL: URL
+        switch result {
+        case .extracted(let url):
+            outputURL = url
+        case .noAudioInSource:
+            return XCTFail("Image-sequence companion audio was incorrectly treated as missing")
+        case .failed(let reason):
+            return XCTFail("Image-sequence audio extraction failed: \(reason)")
+        }
+
+        let duration = try XCTUnwrap(ParsingUtils.parseDuration(from: inspectMedia(at: outputURL)))
+        XCTAssertEqual(duration, 0.75, accuracy: 0.02)
+    }
+
     func testDCPManifestAssemblyMovesDummyEssencesAndBuildsConsistentAssets() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AagedalMediaConverterDCPManifestTests-\(UUID().uuidString)", isDirectory: true)
@@ -1468,14 +1559,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
 
     @discardableResult
     private func runFFmpeg(_ arguments: [String]) throws -> String {
-        let sourceRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceBinary = sourceRoot
-            .appendingPathComponent("Aagedal Media Converter", isDirectory: true)
-            .appendingPathComponent("Binaries", isDirectory: true)
-            .appendingPathComponent("ffmpeg")
-        let executableURL = Bundle.main.url(forResource: "ffmpeg", withExtension: nil) ?? sourceBinary
+        let executableURL = ffmpegExecutableURL
 
         let process = Process()
         let standardError = Pipe()
@@ -1498,6 +1582,17 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             )
         }
         return log
+    }
+
+    private var ffmpegExecutableURL: URL {
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceBinary = sourceRoot
+            .appendingPathComponent("Aagedal Media Converter", isDirectory: true)
+            .appendingPathComponent("Binaries", isDirectory: true)
+            .appendingPathComponent("ffmpeg")
+        return Bundle.main.url(forResource: "ffmpeg", withExtension: nil) ?? sourceBinary
     }
 
     private func inspectMedia(at url: URL) throws -> String {
