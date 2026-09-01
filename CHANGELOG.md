@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Toolbar cancellation now fully closes the active conversion batch.** The queue could stop its FFmpeg process and update the visible row while leaving the original batch task suspended, especially when cancellation arrived during process startup. Batch completion is now registered before work starts and released by Cancel All, so cancellation cannot strand the conversion lifecycle.
 - **Failed and cancelled conversions no longer leave partial outputs or stale file-ownership records.** Ordinary-file exports now remove an incomplete destination and revoke its app-created registration after FFmpeg fails, is cancelled, or cannot launch, so a later unrelated file at the same path cannot be treated as safe to delete.
 - **Audio routing no longer duplicates the video stream map** when a preset's first explicit map selects audio; custom track ordering and channel operations now reuse the existing video map.
 - **Keep Subtitles is limited to subtitle-capable outputs.** Image sequences, animated stills, DCP/IMF MXF, IVF, and audio-only outputs no longer receive invalid subtitle codec arguments.

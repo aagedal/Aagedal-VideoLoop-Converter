@@ -1559,13 +1559,16 @@ struct ContentView: View {
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let fixtureURL = directory.appendingPathComponent("ui-test-fixture.mp4")
+        let fixtureDuration = ProcessInfo.processInfo.environment["AMC_UI_TEST_REALTIME_INPUT"] == "1"
+            ? 15
+            : 2
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
         process.arguments = [
             "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=\(fixtureDuration)",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=\(fixtureDuration)",
             "-map", "0:v:0", "-map", "1:a:0",
             "-c:v", "mpeg4", "-q:v", "5", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-shortest", fixtureURL.path,

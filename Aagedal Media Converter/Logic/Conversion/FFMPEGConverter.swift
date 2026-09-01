@@ -43,6 +43,7 @@ private final class ConversionCompletionGate: @unchecked Sendable {
 
 actor FFMPEGConverter {
     private var currentProcess: Process?
+    private var activeConversionID: UUID?
     /// Secondary process for multi-process pipelines (e.g. the AV2 ffmpeg→avmenc pipe).
     /// Tracked separately so `cancelConversion()` can terminate both halves.
     private var auxProcess: Process?
@@ -203,6 +204,8 @@ actor FFMPEGConverter {
             completion(false, "AV2 export does not support additional FFmpeg output arguments")
             return
         }
+        let conversionID = UUID()
+        activeConversionID = conversionID
 
         // Ensure output directory exists
         let fileManager = FileManager.default
@@ -676,7 +679,7 @@ actor FFMPEGConverter {
             errorPipe.fileHandleForReading.readabilityHandler = nil
 
             Task { [weak self] in
-                await self?.setCurrentProcess(nil)
+                await self?.finishTrackedConversion(conversionID)
                 await self?.setAuxProcess(nil)  // Clears the AV2 avmdec decoder when present
                 var success = process.terminationStatus == 0
                 if capturedIsIMFExport || capturedIsDCPExport {
@@ -1513,6 +1516,12 @@ actor FFMPEGConverter {
             }
         }
 
+        guard activeConversionID == conversionID else {
+            await clearCurrentProcess(if: process)
+            finish(false, "Conversion cancelled")
+            return
+        }
+
         do {
             try process.run()
             // For an AV2 .ivf source, start avmdec now (FFmpeg is already reading pipe:0) and
@@ -1533,7 +1542,7 @@ actor FFMPEGConverter {
             }
         } catch {
             Self.logger.error("Failed to run process: \(error.localizedDescription, privacy: .public)")
-            await setCurrentProcess(nil)
+            await finishTrackedConversion(conversionID)
             finish(false, "Failed to start FFmpeg: \(error.localizedDescription)")
         }
     }
@@ -3100,6 +3109,7 @@ actor FFMPEGConverter {
     }
 
     func cancelConversion() async {
+        activeConversionID = nil
         currentProcess?.terminate()
         auxProcess?.terminate()
         for worker in av2Workers where worker.isRunning { worker.terminate() }
@@ -3110,6 +3120,18 @@ actor FFMPEGConverter {
 
     private func setCurrentProcess(_ process: Process?) async {
         self.currentProcess = process
+    }
+
+    private func finishTrackedConversion(_ conversionID: UUID) async {
+        guard activeConversionID == conversionID else { return }
+        activeConversionID = nil
+        currentProcess = nil
+    }
+
+    private func clearCurrentProcess(if process: Process) async {
+        if currentProcess === process {
+            currentProcess = nil
+        }
     }
 
     private func setAuxProcess(_ process: Process?) async {

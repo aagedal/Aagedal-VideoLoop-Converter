@@ -48,7 +48,11 @@ actor ConversionManager: Sendable {
     private var currentOutputFolder: String?
     private var currentPreset: ExportPreset = .videoLoop
     private var allowedItemIDs: Set<UUID>? = nil
-    private var batchCompletionContinuation: CheckedContinuation<Void, Never>?
+    private var activeBatchID: UUID?
+    private var batchCompletionContinuation: (
+        batchID: UUID,
+        continuation: CheckedContinuation<Void, Never>
+    )?
 
     // Progress tracking with Swift Concurrency
     private var progressContinuation: AsyncStream<Double>.Continuation?
@@ -530,8 +534,8 @@ actor ConversionManager: Sendable {
         }
     }
 
-    private func executeMergePlan(droppedFiles: Binding<[VideoItem]>) async {
-        guard let plan = mergePlan else { return }
+    private func executeMergePlan(droppedFiles: Binding<[VideoItem]>, batchID: UUID) async {
+        guard activeBatchID == batchID, let plan = mergePlan else { return }
 
         let indices: [Int] = plan.itemIDs.compactMap { id in
             droppedFiles.wrappedValue.firstIndex(where: { $0.id == id })
@@ -540,7 +544,12 @@ actor ConversionManager: Sendable {
         guard indices.count == plan.itemIDs.count else {
             cleanupMergeArtifacts(for: plan)
             mergePlan = nil
-            await convertNextFile(droppedFiles: droppedFiles, outputFolder: plan.outputFolder, preset: plan.preset)
+            await convertNextFile(
+                droppedFiles: droppedFiles,
+                outputFolder: plan.outputFolder,
+                preset: plan.preset,
+                batchID: batchID
+            )
             return
         }
 
@@ -639,7 +648,8 @@ actor ConversionManager: Sendable {
                         indices: indices,
                         success: success,
                         errorReason: errorReason,
-                        droppedFiles: droppedFiles
+                        droppedFiles: droppedFiles,
+                        batchID: batchID
                     )
                 }
             }
@@ -870,8 +880,11 @@ actor ConversionManager: Sendable {
         indices: [Int],
         success: Bool,
         errorReason: String?,
-        droppedFiles: Binding<[VideoItem]>
+        droppedFiles: Binding<[VideoItem]>,
+        batchID: UUID
     ) async {
+        guard isBatchActive(batchID) else { return }
+
         let referenceURL = plan.segments.first?.originalURL
         let finalURL = plan.outputBaseURL.appendingPathExtension(plan.preset.outputExtension(for: referenceURL))
 
@@ -957,11 +970,12 @@ actor ConversionManager: Sendable {
         cleanupMergeArtifacts(for: plan)
         mergePlan = nil
 
-        if isConverting {
+        if isConverting, activeBatchID == batchID {
             await convertNextFile(
                 droppedFiles: droppedFiles,
                 outputFolder: plan.outputFolder,
-                preset: plan.preset
+                preset: plan.preset,
+                batchID: batchID
             )
         }
 
@@ -1499,6 +1513,8 @@ actor ConversionManager: Sendable {
         conformanceReferenceItemID: UUID? = nil,
         conformanceMetadata: [UUID: VideoMetadata]? = nil
     ) async {
+        let batchID = UUID()
+        activeBatchID = batchID
         self.isConverting = true
 
         // Apply group-level settings to individual items
@@ -1548,14 +1564,20 @@ actor ConversionManager: Sendable {
         self.currentPreset = preset
 
         startProgressTimer(droppedFiles: items)
-        await convertNextFile(
-            droppedFiles: items,
-            outputFolder: outputFolder,
-            preset: preset
-        )
-        // Wait for the batch to fully complete before returning to the caller.
+        guard isBatchActive(batchID) else { return }
+        // Install the completion continuation before starting work. The actor can
+        // be re-entered while convertNextFile awaits process launch, so cancellation
+        // must never be able to arrive before the waiter exists.
         await withCheckedContinuation { continuation in
-            self.batchCompletionContinuation = continuation
+            self.batchCompletionContinuation = (batchID, continuation)
+            Task {
+                await self.convertNextFile(
+                    droppedFiles: items,
+                    outputFolder: outputFolder,
+                    preset: preset,
+                    batchID: batchID
+                )
+            }
         }
     }
 
@@ -1567,6 +1589,8 @@ actor ConversionManager: Sendable {
         limitToIDs: Set<UUID>? = nil
     ) async {
         guard !self.isConverting else { return }
+        let batchID = UUID()
+        activeBatchID = batchID
         self.isConverting = true
         self.allowedItemIDs = limitToIDs
         self.currentDroppedFiles = droppedFiles
@@ -1580,29 +1604,38 @@ actor ConversionManager: Sendable {
         progressContinuation?.yield(0.0)
         // Start periodic updates so dock appears immediately
         startProgressTimer(droppedFiles: droppedFiles)
-        await convertNextFile(
-            droppedFiles: droppedFiles,
-            outputFolder: outputFolder,
-            preset: preset
-        )
-        // convertNextFile returns after starting the first file (completion is callback-based).
-        // Wait for the batch to fully complete before returning to the caller.
+        guard isBatchActive(batchID) else { return }
+        // Install the completion continuation before starting work. The actor can
+        // be re-entered while convertNextFile awaits process launch, so cancellation
+        // must never be able to arrive before the waiter exists.
         await withCheckedContinuation { continuation in
-            self.batchCompletionContinuation = continuation
+            self.batchCompletionContinuation = (batchID, continuation)
+            Task {
+                await self.convertNextFile(
+                    droppedFiles: droppedFiles,
+                    outputFolder: outputFolder,
+                    preset: preset,
+                    batchID: batchID
+                )
+            }
         }
     }
 
     private func convertNextFile(
         droppedFiles: Binding<[VideoItem]>,
         outputFolder: String,
-        preset: ExportPreset
+        preset: ExportPreset,
+        batchID: UUID
     ) async {
+        guard isConverting, activeBatchID == batchID else { return }
+
         // Update overall progress before starting next file
         await updateOverallProgress(droppedFiles: droppedFiles)
+        guard isConverting, activeBatchID == batchID else { return }
 
         if let plan = mergePlan, !plan.hasExecuted {
             mergePlan?.hasExecuted = true
-            await executeMergePlan(droppedFiles: droppedFiles)
+            await executeMergePlan(droppedFiles: droppedFiles, batchID: batchID)
             return
         }
 
@@ -1610,21 +1643,24 @@ actor ConversionManager: Sendable {
             $0.status == .waiting && (allowedItemIDs?.contains($0.id) ?? true)
         }) else {
             self.isConverting = false
+            self.activeBatchID = nil
             self.allowedItemIDs = nil
             progressContinuation?.yield(1.0)
             stopProgressTimer()
             releaseAllSecurityScopedAccess()
             // Signal batch completion so startConversion/convertGroup can return
-            if let continuation = batchCompletionContinuation {
-                batchCompletionContinuation = nil
-                continuation.resume()
-            }
+            finishBatch(batchID)
             return
         }
         
         let fileId = nextFile.id
         guard let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) else {
-            await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
+            await convertNextFile(
+                droppedFiles: droppedFiles,
+                outputFolder: outputFolder,
+                preset: preset,
+                batchID: batchID
+            )
             return
         }
         
@@ -1646,6 +1682,7 @@ actor ConversionManager: Sendable {
             droppedFiles.wrappedValue[idx].apply(details: details)
             droppedFiles.wrappedValue[idx].detailsLoaded = true
         }
+        guard isConverting, activeBatchID == batchID else { return }
         
         // Update status to converting
         droppedFiles.wrappedValue[idx].status = .converting
@@ -1664,7 +1701,12 @@ actor ConversionManager: Sendable {
                 droppedFiles.wrappedValue[idx].statusMessage = nil
                 SoundManager.shared.playError()
             }
-            await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
+            await convertNextFile(
+                droppedFiles: droppedFiles,
+                outputFolder: outputFolder,
+                preset: preset,
+                batchID: batchID
+            )
             return
         }
 
@@ -1683,7 +1725,12 @@ actor ConversionManager: Sendable {
                 droppedFiles.wrappedValue[idx].statusMessage = nil
                 SoundManager.shared.playError()
             }
-            await convertNextFile(droppedFiles: droppedFiles, outputFolder: outputFolder, preset: preset)
+            await convertNextFile(
+                droppedFiles: droppedFiles,
+                outputFolder: outputFolder,
+                preset: preset,
+                batchID: batchID
+            )
             return
         }
 
@@ -1741,7 +1788,15 @@ actor ConversionManager: Sendable {
         }()
 
         // For image sequence input, pass the FFMPEG input arguments and expected duration
-        let imageSeqInputArgs = currentItem.imageSequenceConfig?.ffmpegInputArguments
+        var customInputArguments = currentItem.imageSequenceConfig?.ffmpegInputArguments
+#if DEBUG
+        // Keep the real process/cancellation path under UI test while ensuring a
+        // tiny fixture cannot finish before automation has a chance to cancel it.
+        if customInputArguments == nil,
+           ProcessInfo.processInfo.environment["AMC_UI_TEST_REALTIME_INPUT"] == "1" {
+            customInputArguments = ["-re", "-i", inputURL.path]
+        }
+#endif
         let imageSeqExpectedDuration = currentItem.imageSequenceConfig?.durationSeconds
 
         // Auto-populate DCP/IMF metadata when the user never opened the editor.
@@ -1774,7 +1829,7 @@ actor ConversionManager: Sendable {
             synthesizedVideoRequest: synthesizedVideoRequest,
             waveformBackgroundImageURL: currentItem.waveformBackgroundImageURL,
             visualSourceURL: currentItem.imageSequenceConfig?.firstFrameURL,
-            customInputArguments: imageSeqInputArgs
+            customInputArguments: customInputArguments
         )
 
         // Throttle UI updates to ~4 Hz to avoid SwiftUI re-render storms during encoding
@@ -1805,6 +1860,10 @@ actor ConversionManager: Sendable {
             }
         ) { success, errorReason in
             Task { @MainActor in
+                // A cancelled batch may finish after the user has reset and started
+                // another one. Never let that stale callback mutate the new batch.
+                guard await self.isBatchActive(batchID) else { return }
+
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == fileId }) {
                     // Capture file size FIRST (before setting status to .done)
                     // This ensures all data is ready before SwiftUI re-renders
@@ -1970,11 +2029,12 @@ actor ConversionManager: Sendable {
                 }
 
                 // Only continue if conversion has not been cancelled
-                if await self.isConverting {
+                if await self.isBatchActive(batchID) {
                     await self.convertNextFile(
                         droppedFiles: droppedFiles,
                         outputFolder: outputFolder,
-                        preset: preset
+                        preset: preset,
+                        batchID: batchID
                     )
                 }
                 
@@ -1988,7 +2048,9 @@ actor ConversionManager: Sendable {
     }
 
     func cancelConversion() async {
+        let cancelledBatchID = activeBatchID
         self.isConverting = false
+        self.activeBatchID = nil
         await ffmpegConverter.cancelConversion()
         currentProcess = nil
 
@@ -2016,10 +2078,7 @@ actor ConversionManager: Sendable {
         stopProgressTimer()
         releaseAllSecurityScopedAccess()
         // Signal batch completion so the caller's await returns
-        if let continuation = batchCompletionContinuation {
-            batchCompletionContinuation = nil
-            continuation.resume()
-        }
+        finishBatch(cancelledBatchID)
     }
 
     /// Cancels a single video item without aborting the entire queue
@@ -2055,7 +2114,9 @@ actor ConversionManager: Sendable {
         }
     }
     func cancelAllConversions() async {
+        let cancelledBatchID = activeBatchID
         self.isConverting = false
+        self.activeBatchID = nil
         await ffmpegConverter.cancelConversion()
 
         // Clean up merge temp files if a merge was in progress
@@ -2081,6 +2142,19 @@ actor ConversionManager: Sendable {
         progressContinuation?.yield(0.0)
         stopProgressTimer()
         releaseAllSecurityScopedAccess()
+        finishBatch(cancelledBatchID)
+    }
+
+    private func isBatchActive(_ batchID: UUID) -> Bool {
+        isConverting && activeBatchID == batchID
+    }
+
+    private func finishBatch(_ batchID: UUID?) {
+        guard let batchID,
+              let waiter = batchCompletionContinuation,
+              waiter.batchID == batchID else { return }
+        batchCompletionContinuation = nil
+        waiter.continuation.resume()
     }
     
     // Convert duration string ("hh:mm:ss" or "mm:ss" or "ss") to seconds

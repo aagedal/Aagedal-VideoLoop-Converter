@@ -1174,6 +1174,16 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         setAccessibilityLabel(config.name)
         setAccessibilityValue(accessibilityStatusValue(for: config))
         setAccessibilityHelp(config.status == .failed ? config.conversionError : nil)
+
+        // Accessibility help is useful to VoiceOver but is not queryable through
+        // XCUIElement. Expose the visible status/error text as its own static-text
+        // element so automation and assistive clients can inspect the detail.
+        statusLabel.setAccessibilityElement(true)
+        statusLabel.setAccessibilityRole(.staticText)
+        statusLabel.setAccessibilityIdentifier("queue.item.detail")
+        let statusDetail = progressText(config: config)
+        statusLabel.setAccessibilityLabel(statusDetail)
+        statusLabel.setAccessibilityValue(statusDetail)
     }
 
     private func accessibilityStatusValue(for config: VideoFileCellConfiguration) -> String {

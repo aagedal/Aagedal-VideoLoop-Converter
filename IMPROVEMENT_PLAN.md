@@ -25,8 +25,8 @@ issue link when it starts.
   `ExportPreset.swift` (2,234).
 - There are only sixty-nine unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
-  and preset selection; conversion cancellation and result/error coverage remain to
-  be added.
+  preset selection, conversion success, conversion failure details, and start/cancel
+  state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
@@ -262,7 +262,7 @@ this milestone are now covered without committed media or leftover temporary fil
 
 ### 1.3 Replace the placeholder UI test with smoke coverage
 
-Status: in progress; launch and Settings smoke coverage added 2026-09-01.
+Status: completed 2026-09-01.
 
 Start with stable, high-value flows:
 
@@ -287,8 +287,19 @@ checking the exposed pane state. A DEBUG-only launch hook now generates a tiny m
 fixture in a caller-owned temporary directory and imports it through the production
 URL path, allowing the UI suite to verify queue import and preset selection without
 automating the sandboxed system file picker. The generated-fixture import and preset
-selection test passed twice consecutively. Start/cancel and result/error smoke coverage
-still need deterministic conversion scenarios.
+selection test passed twice consecutively. The same fixture now exercises a successful
+H.264 conversion through the production manager, while deleting the imported fixture
+before Start produces a deterministic missing-input failure whose technical detail is
+exposed through a dedicated accessibility element. Cancellation uses a DEBUG-only,
+real-time-paced 15-second fixture so automation observes the real FFmpeg process without
+depending on encoder speed. This exposed a batch-lifecycle race: cancellation could
+arrive before the completion waiter was installed, and Cancel All did not resume that
+waiter. The waiter is now installed before conversion starts and is released on every
+batch cancellation. Per-batch and per-process identities also prevent late callbacks
+from an older cancelled conversion from clearing or completing newer work, including
+cancellation during FFmpeg preflight before the process launches. Start/cancel,
+success, and failure UI tests passed together in two consecutive runs; the full
+sixty-nine-test unit target remains green.
 
 ## Priority 2 — Make long-running work reliable
 
