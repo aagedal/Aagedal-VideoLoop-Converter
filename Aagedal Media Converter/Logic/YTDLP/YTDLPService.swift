@@ -61,6 +61,19 @@ enum YTDLPFilenameRestrictionMode: String, CaseIterable, Identifiable {
 actor YTDLPService {
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "YTDLPService")
     private let updateService = YTDLPUpdateService.shared
+    private let subprocessRunner: any SubprocessRunning
+
+    private static let probeTimeout: Duration = .seconds(300)
+    private static let probeOutputLimit = 16 * 1024 * 1024
+
+    private struct ProbeResult {
+        let subprocess: SubprocessResult
+        let safeStandardError: String
+    }
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        self.subprocessRunner = subprocessRunner
+    }
 
     private enum CancelReason {
         case userRequested
@@ -114,6 +127,46 @@ actor YTDLPService {
         BinaryPathResolver.ffmpegPath
     }
 
+    private func runProbe(ytdlpPath: String, arguments: [String]) async throws -> ProbeResult {
+        // Keep the Homebrew/Python resolution in its existing compatibility helper while
+        // moving process ownership, draining, deadlines, and cancellation into the runner.
+        let configuredProcess = Process()
+        HomebrewPythonExecutor.configureProcess(
+            configuredProcess,
+            scriptPath: ytdlpPath,
+            arguments: arguments
+        )
+
+        guard let executableURL = configuredProcess.executableURL else {
+            throw YTDLPError.binaryNotFound
+        }
+
+        let request = SubprocessRequest(
+            executableURL: executableURL,
+            arguments: configuredProcess.arguments ?? [],
+            environment: configuredProcess.environment,
+            timeout: Self.probeTimeout,
+            standardOutputCaptureLimit: Self.probeOutputLimit,
+            standardErrorCaptureLimit: SubprocessRequest.defaultCaptureLimit,
+            sensitiveArgumentNames: ["--cookies", "--cookies-from-browser"]
+        )
+
+        do {
+            let result = try await subprocessRunner.run(request)
+            return ProbeResult(
+                subprocess: result,
+                safeStandardError: request.redactedDiagnostic(result.standardErrorText)
+            )
+        } catch let error as SubprocessRunnerError {
+            switch error {
+            case .timedOut:
+                throw YTDLPError.metadataFetchFailed("yt-dlp request timed out after five minutes")
+            case .failedToStart:
+                throw YTDLPError.metadataFetchFailed(error.localizedDescription)
+            }
+        }
+    }
+
     /// Fetches video metadata without downloading
     func fetchMetadata(url: String) async throws -> YTDLPMetadata {
         let startTime = Date()
@@ -128,96 +181,38 @@ actor YTDLPService {
 
         let denoPath = await updateService.ensureDenoInstalled()
 
-        // Run process handling on a background thread to avoid blocking async context
         let processStartTime = Date()
-        let result: (data: Data, error: String?, exitCode: Int32) = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global().async {
-                let process = Process()
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
-
-                // Configure process for Homebrew Python or regular executable
-                // Note: --ignore-config prevents yt-dlp from reading user config files
-                // Note: --remote-components ejs:github is required for YouTube JS challenge solving
-                var arguments = [
-                    "--ignore-config",
-                    "--remote-components", "ejs:github",
-                    "--cache-dir", AppConstants.ytdlpCacheDirectory.path
-                ]
-                if let denoPath {
-                    arguments.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
-                }
-
-                // Add browser cookies if configured
-                let cookiesBrowser = UserDefaults.standard.string(forKey: AppConstants.ytdlpCookiesBrowserKey) ?? ""
-                if !cookiesBrowser.isEmpty {
-                    arguments.append(contentsOf: ["--cookies-from-browser", cookiesBrowser])
-                }
-
-                // "--" ends flag parsing so a URL that somehow starts with "-" can't be
-                // interpreted as an option.
-                arguments.append(contentsOf: ["-j", "--no-download", "--no-warnings", "--", url])
-
-                HomebrewPythonExecutor.configureProcess(
-                    process,
-                    scriptPath: ytdlpPath,
-                    arguments: arguments
-                )
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
-                process.standardInput = FileHandle.nullDevice
-
-                // Read pipes in background to prevent buffer blocking
-                // Use a thread-safe container for captured data
-                final class DataContainer: @unchecked Sendable {
-                    var stdout = Data()
-                    var stderr = Data()
-                    let lock = NSLock()
-                }
-                let container = DataContainer()
-                let group = DispatchGroup()
-
-                group.enter()
-                DispatchQueue.global().async {
-                    let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    container.lock.lock()
-                    container.stdout = data
-                    container.lock.unlock()
-                    group.leave()
-                }
-
-                group.enter()
-                DispatchQueue.global().async {
-                    let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                    container.lock.lock()
-                    container.stderr = data
-                    container.lock.unlock()
-                    group.leave()
-                }
-
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    group.wait()
-
-                    let errorStr = String(data: container.stderr, encoding: .utf8)
-                    continuation.resume(returning: (container.stdout, errorStr, process.terminationStatus))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        var arguments = [
+            "--ignore-config",
+            "--remote-components", "ejs:github",
+            "--cache-dir", AppConstants.ytdlpCacheDirectory.path
+        ]
+        if let denoPath {
+            arguments.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
         }
+        let cookiesBrowser = UserDefaults.standard.string(forKey: AppConstants.ytdlpCookiesBrowserKey) ?? ""
+        if !cookiesBrowser.isEmpty {
+            arguments.append(contentsOf: ["--cookies-from-browser", cookiesBrowser])
+        }
+        arguments.append(contentsOf: ["-j", "--no-download", "--no-warnings", "--", url])
+
+        let probe = try await runProbe(ytdlpPath: ytdlpPath, arguments: arguments)
+        let result = probe.subprocess
 
         let processElapsed = Date().timeIntervalSince(processStartTime)
-        logger.info("[TIMING] yt-dlp metadata process completed in \(String(format: "%.2f", processElapsed))s, exit status: \(result.exitCode)")
+        logger.info("[TIMING] yt-dlp metadata process completed in \(String(format: "%.2f", processElapsed))s, exit status: \(result.terminationStatus)")
 
-        guard result.exitCode == 0 else {
-            let errorMessage = result.error ?? "Unknown error"
+        guard result.succeeded else {
+            let errorMessage = probe.safeStandardError.isEmpty ? "Unknown error" : probe.safeStandardError
             logger.error("yt-dlp metadata fetch failed: \(errorMessage)")
             throw YTDLPError.metadataFetchFailed(errorMessage)
         }
 
-        guard let json = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any] else {
+        guard result.discardedStandardOutputBytes == 0 else {
+            throw YTDLPError.metadataFetchFailed("yt-dlp metadata response exceeded the 16 MB safety limit")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: result.standardOutput) as? [String: Any] else {
             throw YTDLPError.metadataFetchFailed("Failed to parse JSON response")
         }
 
@@ -248,76 +243,33 @@ actor YTDLPService {
         }
         let denoPath = await updateService.ensureDenoInstalled()
 
-        let result: (data: Data, error: String?, exitCode: Int32) = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global().async {
-                let process = Process()
-                let stdoutPipe = Pipe()
-                let stderrPipe = Pipe()
+        var arguments = [
+            "--ignore-config",
+            "--remote-components", "ejs:github",
+            "--cache-dir", AppConstants.ytdlpCacheDirectory.path
+        ]
+        if let denoPath {
+            arguments.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
+        }
+        let cookiesBrowser = UserDefaults.standard.string(forKey: AppConstants.ytdlpCookiesBrowserKey) ?? ""
+        if !cookiesBrowser.isEmpty {
+            arguments.append(contentsOf: ["--cookies-from-browser", cookiesBrowser])
+        }
+        arguments.append(contentsOf: ["--flat-playlist", "-J", "--no-warnings", "--", url])
 
-                var arguments = [
-                    "--ignore-config",
-                    "--remote-components", "ejs:github",
-                    "--cache-dir", AppConstants.ytdlpCacheDirectory.path
-                ]
-                if let denoPath {
-                    arguments.append(contentsOf: ["--js-runtimes", "deno:\(denoPath)"])
-                }
+        let probe = try await runProbe(ytdlpPath: ytdlpPath, arguments: arguments)
+        let result = probe.subprocess
 
-                let cookiesBrowser = UserDefaults.standard.string(forKey: AppConstants.ytdlpCookiesBrowserKey) ?? ""
-                if !cookiesBrowser.isEmpty {
-                    arguments.append(contentsOf: ["--cookies-from-browser", cookiesBrowser])
-                }
-
-                arguments.append(contentsOf: ["--flat-playlist", "-J", "--no-warnings", "--", url])
-
-                HomebrewPythonExecutor.configureProcess(
-                    process,
-                    scriptPath: ytdlpPath,
-                    arguments: arguments
-                )
-                process.standardOutput = stdoutPipe
-                process.standardError = stderrPipe
-                process.standardInput = FileHandle.nullDevice
-
-                final class DataContainer: @unchecked Sendable {
-                    var stdout = Data()
-                    var stderr = Data()
-                    let lock = NSLock()
-                }
-                let container = DataContainer()
-                let group = DispatchGroup()
-
-                group.enter()
-                DispatchQueue.global().async {
-                    let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-                    container.lock.lock(); container.stdout = data; container.lock.unlock()
-                    group.leave()
-                }
-
-                group.enter()
-                DispatchQueue.global().async {
-                    let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                    container.lock.lock(); container.stderr = data; container.lock.unlock()
-                    group.leave()
-                }
-
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    group.wait()
-                    let errorStr = String(data: container.stderr, encoding: .utf8)
-                    continuation.resume(returning: (container.stdout, errorStr, process.terminationStatus))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        guard result.succeeded else {
+            let errorMessage = probe.safeStandardError.isEmpty ? "Unknown error" : probe.safeStandardError
+            throw YTDLPError.metadataFetchFailed(errorMessage)
         }
 
-        guard result.exitCode == 0 else {
-            throw YTDLPError.metadataFetchFailed(result.error ?? "Unknown error")
+        guard result.discardedStandardOutputBytes == 0 else {
+            throw YTDLPError.metadataFetchFailed("yt-dlp playlist response exceeded the 16 MB safety limit")
         }
 
-        guard let json = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any] else {
+        guard let json = try? JSONSerialization.jsonObject(with: result.standardOutput) as? [String: Any] else {
             throw YTDLPError.metadataFetchFailed("Failed to parse playlist JSON")
         }
 

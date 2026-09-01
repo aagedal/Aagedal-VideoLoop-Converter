@@ -16,9 +16,9 @@
 
 import Foundation
 import OSLog
-import SwiftExif
+import SwiftMediaMetadata
 
-/// Probe facade preserved for existing callers (ffprobe removed in favour of SwiftExif).
+/// Probe facade preserved for existing callers (ffprobe removed in favour of SwiftMediaMetadata).
 enum FFMPEGProbeService {
     struct AudioStreamInfo: Sendable {
         let index: Int?
@@ -36,7 +36,7 @@ enum FFMPEGProbeService {
         }
     }
 
-    /// Fetches audio stream metadata for the supplied input URL via SwiftExif.
+    /// Fetches audio stream metadata for the supplied input URL via SwiftMediaMetadata.
     static func fetchAudioStreams(for url: URL) async -> [AudioStreamInfo]? {
         guard SwiftExifMediaProbe.canReadVideo(url) else {
             // Audio-only containers go through readAudio — still materialise a single
@@ -61,26 +61,26 @@ enum FFMPEGProbeService {
                 channelLayout: $0.channelLayout,
                 codecName: $0.codec
             ) }
-            Logger().debug("SwiftExif audio streams for \(url.lastPathComponent): \(streams.map { "\($0.codecName ?? "unknown"):\($0.channels ?? 0)ch" })")
+            Logger().debug("SwiftMediaMetadata audio streams for \(url.lastPathComponent): \(streams.map { "\($0.codecName ?? "unknown"):\($0.channels ?? 0)ch" })")
             return streams
         } catch {
-            Logger().error("SwiftExif audio stream extraction failed for \(url.lastPathComponent): \(error.localizedDescription)")
+            Logger().error("SwiftMediaMetadata audio stream extraction failed for \(url.lastPathComponent): \(error.localizedDescription)")
             return nil
         }
     }
 
-    /// Returns the media duration reported by SwiftExif (or AVFoundation fallback).
+    /// Returns the media duration reported by SwiftMediaMetadata (or AVFoundation fallback).
     static func getVideoDuration(for url: URL) async -> Double? {
         await SwiftExifMediaProbe.duration(for: url)
     }
 
     // MARK: - Chapters
 
-    /// Fetches chapter markers for `url` via SwiftExif's container parsers.
+    /// Fetches chapter markers for `url` via SwiftMediaMetadata's container parsers.
     ///
     /// Supports MP4/MOV `chpl` boxes, QuickTime text-track chapters, and
     /// Matroska `Chapters` master elements. Returns an empty array for
-    /// containers SwiftExif can't parse (e.g. FLV, raw audio) or that carry
+    /// containers SwiftMediaMetadata can't parse (e.g. FLV, raw audio) or that carry
     /// no chapter data.
     ///
     /// Chapters whose duration can't be determined (Matroska open-ended
@@ -89,12 +89,12 @@ enum FFMPEGProbeService {
     static func fetchChapters(for url: URL) async -> [Chapter] {
         guard SwiftExifMediaProbe.canReadVideo(url) else { return [] }
 
-        let meta: SwiftExif.VideoMetadata
+        let meta: SwiftMediaMetadata.VideoMetadata
         do {
             meta = try await SwiftExifMediaProbe.readVideo(url)
         } catch {
             Logger(subsystem: "com.aagedal.MediaConverter", category: "ChapterProbe")
-                .debug("SwiftExif chapter read failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                .debug("SwiftMediaMetadata chapter read failed for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return []
         }
 

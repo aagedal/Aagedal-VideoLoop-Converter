@@ -5,10 +5,224 @@
 //  Created by Truls Aagedal on 30/06/2024.
 //
 
+import Darwin
 import XCTest
 @testable import Aagedal_Media_Converter
 
 final class Aagedal_Media_Converter_Tests: XCTestCase {
+
+    func testSubprocessRunnerCapturesOutputAndStructuredExit() async throws {
+        let result = try await SubprocessRunner().run(
+            SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "printf 'hello'; printf 'warning' >&2"]
+            )
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(result.terminationStatus, 0)
+        XCTAssertEqual(result.termination, .exited)
+        XCTAssertEqual(result.standardOutputText, "hello")
+        XCTAssertEqual(result.standardErrorText, "warning")
+        XCTAssertEqual(result.discardedStandardOutputBytes, 0)
+        XCTAssertEqual(result.discardedStandardErrorBytes, 0)
+    }
+
+    func testSubprocessRunnerReturnsNonzeroExitAsResult() async throws {
+        let result = try await SubprocessRunner().run(
+            SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "printf 'diagnostic' >&2; exit 23"]
+            )
+        )
+
+        XCTAssertFalse(result.succeeded)
+        XCTAssertEqual(result.terminationStatus, 23)
+        XCTAssertEqual(result.termination, .exited)
+        XCTAssertEqual(result.standardErrorText, "diagnostic")
+    }
+
+    func testSubprocessRunnerWritesStandardInput() async throws {
+        let input = Data("secret supplied over stdin\n".utf8)
+        let result = try await SubprocessRunner().run(
+            SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/cat"),
+                standardInput: input
+            )
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(result.standardOutput, input)
+    }
+
+    func testSubprocessRunnerDrainsBothStreamsAndBoundsCapturedTails() async throws {
+        let script = """
+        i=0
+        while [ "$i" -lt 3000 ]; do
+          printf 'out-%04d-abcdefghijklmnop\n' "$i"
+          printf 'err-%04d-abcdefghijklmnop\n' "$i" >&2
+          i=$((i + 1))
+        done
+        """
+        let result = try await SubprocessRunner().run(
+            SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", script],
+                standardOutputCaptureLimit: 4096,
+                standardErrorCaptureLimit: 4096
+            )
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertGreaterThan(result.discardedStandardOutputBytes, 0)
+        XCTAssertGreaterThan(result.discardedStandardErrorBytes, 0)
+        XCTAssertLessThanOrEqual(result.standardOutput.count, 4096)
+        XCTAssertLessThanOrEqual(result.standardError.count, 4096)
+        XCTAssertTrue(result.standardOutputText.contains("out-2999"))
+        XCTAssertTrue(result.standardErrorText.contains("err-2999"))
+    }
+
+    func testSubprocessRunnerDoesNotWaitForPipeInheritedByExitedChildDescendant() async throws {
+        let start = ContinuousClock.now
+        let result = try await SubprocessRunner().run(
+            SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "sleep 5 & child=$!; printf '%s\\n' \"$child\"; exit 0"]
+            )
+        )
+        let childText = result.standardOutputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let childPID = try XCTUnwrap(pid_t(childText))
+        defer { _ = Darwin.kill(childPID, SIGKILL) }
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testSubprocessRunnerTimeoutTerminatesDescendant() async throws {
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 30 & child=$!; printf '%s\\n' \"$child\"; wait \"$child\""],
+            timeout: .milliseconds(200),
+            terminationGracePeriod: .milliseconds(100)
+        )
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await SubprocessRunner().run(request)
+            XCTFail("Expected the subprocess to time out")
+        } catch let error as SubprocessRunnerError {
+            guard case let .timedOut(_, result) = error else {
+                return XCTFail("Expected a timeout error, got \(error)")
+            }
+            let childText = result.standardOutputText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let childPID = try XCTUnwrap(pid_t(childText))
+            let reapDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+            while Darwin.kill(childPID, 0) == 0, ContinuousClock.now < reapDeadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(Darwin.kill(childPID, 0), -1, "The descendant process was still running")
+            XCTAssertEqual(errno, ESRCH)
+        }
+
+        XCTAssertLessThan(start.duration(to: .now), .seconds(2))
+    }
+
+    func testSubprocessRunnerEscalatesForTermIgnoringDescendantAfterWrapperExits() async throws {
+        let script = """
+        (trap '' TERM
+         while :; do sleep 1; done) &
+        child=$!
+        printf '%s\n' "$child"
+        wait "$child"
+        """
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script],
+            timeout: .milliseconds(200),
+            terminationGracePeriod: .milliseconds(100)
+        )
+
+        do {
+            _ = try await SubprocessRunner().run(request)
+            XCTFail("Expected the subprocess to time out")
+        } catch let error as SubprocessRunnerError {
+            guard case let .timedOut(_, result) = error else {
+                return XCTFail("Expected a timeout error, got \(error)")
+            }
+            let childText = result.standardOutputText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let childPID = try XCTUnwrap(pid_t(childText))
+            let reapDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+            while Darwin.kill(childPID, 0) == 0, ContinuousClock.now < reapDeadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(Darwin.kill(childPID, 0), -1, "The TERM-ignoring descendant survived escalation")
+            XCTAssertEqual(errno, ESRCH)
+        }
+    }
+
+    func testSubprocessRunnerCancellationStopsPromptly() async throws {
+        let ready = expectation(description: "Subprocess became ready")
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 30 & child=$!; printf 'ready\\n'; wait \"$child\""],
+            terminationGracePeriod: .milliseconds(100)
+        )
+        let task = Task {
+            try await SubprocessRunner().run(request) { chunk in
+                if chunk.stream == .standardOutput,
+                   String(decoding: chunk.data, as: UTF8.self).contains("ready") {
+                    ready.fulfill()
+                }
+            }
+        }
+        await fulfillment(of: [ready], timeout: 2)
+
+        let cancelStart = ContinuousClock.now
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertLessThan(cancelStart.duration(to: .now), .seconds(2))
+    }
+
+    func testSubprocessRequestRedactsURLsAndSensitiveArguments() {
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tool"),
+            arguments: [
+                "--cookies-from-browser", "Safari:Personal",
+                "--token=top-secret",
+                "https://example.com/watch?v=private"
+            ],
+            sensitiveArgumentNames: ["--cookies-from-browser", "--token"]
+        )
+
+        let description = request.redactedCommandDescription
+        XCTAssertFalse(description.contains("Safari:Personal"))
+        XCTAssertFalse(description.contains("top-secret"))
+        XCTAssertFalse(description.contains("example.com"))
+        XCTAssertTrue(description.contains("--cookies-from-browser"))
+        XCTAssertTrue(description.contains("--token=<redacted>"))
+        XCTAssertTrue(description.contains("<url>"))
+    }
+
+    func testSubprocessRequestRedactsSensitiveValuesAndURLsFromDiagnostics() {
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tool"),
+            arguments: [
+                "--cookies-from-browser", "Safari:Personal",
+                "https://user:password@example.com/watch?signed=private"
+            ],
+            sensitiveArgumentNames: ["--cookies-from-browser"]
+        )
+
+        let diagnostic = request.redactedDiagnostic(
+            "Failed Safari:Personal while reading https://user:password@example.com/watch?signed=private"
+        )
+        XCTAssertEqual(diagnostic, "Failed <redacted> while reading <url>")
+    }
 
     func testParsingDurationSupportsVariableFractionalSecondPrecision() throws {
         XCTAssertEqual(

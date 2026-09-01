@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **yt-dlp metadata and playlist probes can no longer wait forever.** They now run through a shared cancellable subprocess layer with a five-minute deadline, concurrent stdout/stderr draining, bounded diagnostics, TERM-to-KILL descendant cleanup, and redacted cookie/URL command descriptions and error text.
 - **Toolbar cancellation now fully closes the active conversion batch.** The queue could stop its FFmpeg process and update the visible row while leaving the original batch task suspended, especially when cancellation arrived during process startup. Batch completion is now registered before work starts and released by Cancel All, so cancellation cannot strand the conversion lifecycle.
 - **Failed and cancelled conversions no longer leave partial outputs or stale file-ownership records.** Ordinary-file exports now remove an incomplete destination and revoke its app-created registration after FFmpeg fails, is cancelled, or cannot launch, so a later unrelated file at the same path cannot be treated as safe to delete.
 - **Audio routing no longer duplicates the video stream map** when a preset's first explicit map selects audio; custom track ordering and channel operations now reuse the existing video map.
@@ -88,7 +89,7 @@ The headline is experimental **AV2 encoding** via the bundled AOM AVM reference 
 
 ## Housekeeping
 
-- **SwiftExif's package repository now follows its SwiftMediaMetadata rename** (`aagedal/SwiftMediaMetadata`, 1.9.10). The Swift package still exports the source-compatible `SwiftExif` product and module, so consumers compile unchanged while dependency resolution no longer relies on the old repository redirect.
+- **SwiftExif's package repository now follows its SwiftMediaMetadata rename** and the app uses the latest 2.x release (`aagedal/SwiftMediaMetadata`, 2.0.0), so dependency resolution no longer relies on the old repository redirect.
 - **Release zips strip AppleDouble metadata** (`--norsrc --noextattr --noacl --noqtn`). Without this, `ditto` encodes xattrs / ACLs / creation dates as `._<name>` companions inside the zip, which macOS Sequoia no longer merges back on extract — they surface as visible files inside the `.app`, break the codesignature seal, and trip Gatekeeper's "app is damaged". The 4.1.2 release zip was re-packaged retroactively with the same fix.
 - Removed the stale `GEMINI.md` project-context file (recoverable from git history).
 

@@ -21,6 +21,7 @@
 		48EABB563E3687CD044F1DE3 /* AudioFrequencyAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB97784F4F5459DC7E6D8CD3 /* AudioFrequencyAnalyzer.swift */; };
 		4A82CAA45E362E122405B09C /* WhisperModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A661B3187048E83E24FB0AB /* WhisperModels.swift */; };
 		515A407918750E4E62409DA5 /* BinaryPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */; };
+		5C8B19E42F69000100A1C2D4 /* SubprocessRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C8B19E42F69000100A1C2D3 /* SubprocessRunner.swift */; };
 		59050FF1288247E2E02A60CA /* UploadModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BBC06DAF3F395A5C54B3064 /* UploadModels.swift */; };
 		5DA60AEC78445845148F3FFA /* VideoQueueTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E777B19FE611FEB91A8AD3C5 /* VideoQueueTableView.swift */; };
 		6400227984B060FA08D0B79C /* WhisperUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F741F78E5BA1732D892656E /* WhisperUpdateService.swift */; };
@@ -112,7 +113,7 @@
 		8ECEBC1C2ED766F400F1F67C /* CropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1A2ED766F400F1F67C /* CropOverlayView.swift */; };
 		8ECEBC1E2ED7CEC800F1F67C /* TimecodeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1D2ED7CEC800F1F67C /* TimecodeView.swift */; };
 		8ECEBC202ED8782800F1F67C /* MetadataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ECEBC1F2ED8782800F1F67C /* MetadataSettingsView.swift */; };
-		8ED369F12F8CEFFC00FB9A33 /* SwiftExif in Frameworks */ = {isa = PBXBuildFile; productRef = 8ED369F02F8CEFFC00FB9A33 /* SwiftExif */; };
+		8ED369F12F8CEFFC00FB9A33 /* SwiftMediaMetadata in Frameworks */ = {isa = PBXBuildFile; productRef = 8ED369F02F8CEFFC00FB9A33 /* SwiftMediaMetadata */; };
 		8EE0BB9C2E0892B70096171D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9B2E0892B70096171D /* SettingsView.swift */; };
 		8EE0BB9E2E089F520096171D /* DockProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EE0BB9D2E089F520096171D /* DockProgressView.swift */; };
 		8EE424DF2FAB6AB600AE0A1E /* bmxparse in Resources */ = {isa = PBXBuildFile; fileRef = 8EE424DD2FAB6AB600AE0A1E /* bmxparse */; };
@@ -259,6 +260,7 @@
 		07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = YTDLPSettingsView.swift; sourceTree = "<group>"; };
 		0A661B3187048E83E24FB0AB /* WhisperModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModels.swift; sourceTree = "<group>"; };
 		0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BinaryPathResolver.swift; sourceTree = "<group>"; };
+		5C8B19E42F69000100A1C2D3 /* SubprocessRunner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubprocessRunner.swift; sourceTree = "<group>"; };
 		1A1EE023174847EFC6A551B7 /* YTDLPProgressParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = YTDLPProgressParser.swift; path = YTDLP/YTDLPProgressParser.swift; sourceTree = "<group>"; };
 		1B28D978311204AF28106F84 /* VideoFileCellView+Actions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "VideoFileCellView+Actions.swift"; sourceTree = "<group>"; };
 		2FAC27FC4405A72BB163575D /* VideoFileCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VideoFileCellView.swift; sourceTree = "<group>"; };
@@ -487,7 +489,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C1DCF31F2FB2341100D617D4 /* Sparkle in Frameworks */,
-				8ED369F12F8CEFFC00FB9A33 /* SwiftExif in Frameworks */,
+				8ED369F12F8CEFFC00FB9A33 /* SwiftMediaMetadata in Frameworks */,
 				8E824ABA2EF8A9E1001A6B95 /* MPVKit-GPL in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -661,6 +663,7 @@
 				F317F243C3CAA85CE1E5E929 /* FileSafetyUtils.swift */,
 				AE61AEDA33E74EFF880B1E5C /* PowerAssertion.swift */,
 				0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */,
+				5C8B19E42F69000100A1C2D3 /* SubprocessRunner.swift */,
 				7E5111202605110001A03A02 /* InstallSource.swift */,
 			);
 			path = Utils;
@@ -1338,6 +1341,7 @@
 				7ECCCED958C0A9560D4FE7F0 /* FileSafetyUtils.swift in Sources */,
 				20C58566170247A891A6724C /* PowerAssertion.swift in Sources */,
 				515A407918750E4E62409DA5 /* BinaryPathResolver.swift in Sources */,
+				5C8B19E42F69000100A1C2D4 /* SubprocessRunner.swift in Sources */,
 				8EA25DC22F7AC9A80087B1F1 /* UploadSettingsView.swift in Sources */,
 				59050FF1288247E2E02A60CA /* UploadModels.swift in Sources */,
 				F12A11220000111111111112 /* FileZillaImporter.swift in Sources */,
@@ -3032,7 +3036,7 @@
 			repositoryURL = "https://github.com/aagedal/SwiftMediaMetadata.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 1.6.0;
+				minimumVersion = 2.0.0;
 			};
 		};
 		C1DCF31D2FB2341100D617D4 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
@@ -3051,10 +3055,10 @@
 			package = 8E824AE62EF8B66F001A6B95 /* XCRemoteSwiftPackageReference "MPVKit" */;
 			productName = "MPVKit-GPL";
 		};
-		8ED369F02F8CEFFC00FB9A33 /* SwiftExif */ = {
+		8ED369F02F8CEFFC00FB9A33 /* SwiftMediaMetadata */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 8ED369EF2F8CEFFC00FB9A33 /* XCRemoteSwiftPackageReference "SwiftMediaMetadata" */;
-			productName = SwiftExif;
+			productName = SwiftMediaMetadata;
 		};
 		C1DCF31E2FB2341100D617D4 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -452,7 +452,7 @@ actor AnalyticsService {
         return score
     }
 
-    /// Gets video duration in seconds via SwiftExif (AVFoundation fallback).
+    /// Gets video duration in seconds via SwiftMediaMetadata (AVFoundation fallback).
     private func getVideoDuration(for file: URL) async throws -> Double {
         guard let duration = await SwiftExifMediaProbe.duration(for: file), duration > 0 else {
             throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video duration")
@@ -460,7 +460,7 @@ actor AnalyticsService {
         return duration
     }
 
-    /// Gets video resolution (width x height) via SwiftExif.
+    /// Gets video resolution (width x height) via SwiftMediaMetadata.
     private func getVideoResolution(for file: URL) async throws -> (width: Int, height: Int) {
         guard SwiftExifMediaProbe.canReadVideo(file),
               let meta = try? await SwiftExifMediaProbe.readVideo(file),

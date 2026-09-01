@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: sixty-nine tests pass. The
+- The unit-test baseline is green: seventy-nine tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only sixty-nine unit tests. The UI test target now has deterministic smoke
+- There are only seventy-nine unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -299,13 +299,15 @@ batch cancellation. Per-batch and per-process identities also prevent late callb
 from an older cancelled conversion from clearing or completing newer work, including
 cancellation during FFmpeg preflight before the process launches. Start/cancel,
 success, and failure UI tests passed together in two consecutive runs; the full
-sixty-nine-test unit target remains green.
+seventy-nine-test unit target remains green.
 
 ## Priority 2 — Make long-running work reliable
 
 Target: after the correctness net; approximately 1–2 weeks.
 
 ### 2.1 Introduce one subprocess runner
+
+Status: in progress; shared runner and yt-dlp probe migration added 2026-09-01.
 
 Provide an injectable runner that owns:
 
@@ -323,6 +325,20 @@ change.
 
 Acceptance: cancelling a queue item reliably stops its child process, and no tool
 invocation can wait forever without an explicit policy.
+
+The first incremental slice introduces an injectable runner with structured exit
+results, concurrent stdout/stderr draining, independently bounded capture tails,
+stdin delivery, task cancellation, explicit deadlines, TERM-to-KILL escalation,
+descendant termination, incremental output events, elapsed timing, and log-safe URL
+and sensitive-argument redaction. Focused process tests cover successful and nonzero
+exits, stdin, output beyond pipe capacity, capture bounds, timeout, descendant cleanup,
+cancellation, TERM-ignoring-child escalation, and redaction. The duplicated yt-dlp
+metadata and playlist probes now use the runner with a five-minute deadline, a 16 MB
+JSON safety limit, bounded diagnostic stderr, redacted cookie/URL arguments, and
+sanitized length-bounded error text. The main yt-dlp download path retains its special
+live-stream cancellation semantics for the next migration; robust process-group isolation
+and the remaining FFmpeg/rclone/transcription/OCR/package call sites are still open, so
+this item remains in progress.
 
 ### 2.2 Remove sync-over-async waits
 
