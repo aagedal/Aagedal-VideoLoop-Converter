@@ -501,6 +501,7 @@ actor FFMPEGConverter {
             sourceMetadata: request.sourceMetadata,
             waveformRequest: request.waveformRequest,
             synthesizedVideoRequest: request.synthesizedVideoRequest,
+            visualSourceURL: request.visualSourceURL,
             customInputArguments: effectiveCustomInputArguments,
             additionalOutputArguments: request.additionalOutputArguments,
             isMuted: request.isMuted

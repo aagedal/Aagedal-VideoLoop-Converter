@@ -1773,6 +1773,7 @@ actor ConversionManager: Sendable {
             waveformRequest: waveformRequest,
             synthesizedVideoRequest: synthesizedVideoRequest,
             waveformBackgroundImageURL: currentItem.waveformBackgroundImageURL,
+            visualSourceURL: currentItem.imageSequenceConfig?.firstFrameURL,
             customInputArguments: imageSeqInputArgs
         )
 

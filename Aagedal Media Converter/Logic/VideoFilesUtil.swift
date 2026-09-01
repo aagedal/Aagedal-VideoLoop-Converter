@@ -97,8 +97,7 @@ struct VideoFileUtils: Sendable {
         let defaultTimecodeConfig = getDefaultTimecodeConfig()
 
         // Generate thumbnail from the first frame
-        let firstFrameURL = firstFrameURL(for: config)
-        let thumbnailData = generateImageSequenceThumbnail(from: firstFrameURL)
+        let thumbnailData = generateImageSequenceThumbnail(from: config.firstFrameURL)
 
         let counter = FileNameProcessor.customTemplateUsesCounter ? FileNameProcessor.nextCounterValue() : nil
         let outputURL = makeOutputURL(for: config.directory, outputFolder: outputFolder, preset: preset, counter: counter)
@@ -123,22 +122,6 @@ struct VideoFileUtils: Sendable {
         item.customCounterValue = counter
         item.refreshOutputFileCache()
         return item
-    }
-
-    /// Build the URL for the first frame in an image sequence
-    private static func firstFrameURL(for config: ImageSequenceConfig) -> URL {
-        // Extract padding width from pattern like "frame_%04d.png"
-        let pattern = config.pattern
-        var paddingWidth = 4
-        if let range = pattern.range(of: "%0") {
-            let afterPercent = pattern[range.upperBound...]
-            if let width = Int(String(afterPercent.prefix(while: { $0.isNumber }))) {
-                paddingWidth = width
-            }
-        }
-        let numberStr = String(format: "%0\(paddingWidth)d", config.startNumber)
-        let fileName = pattern.replacingOccurrences(of: "%0\(paddingWidth)d", with: numberStr)
-        return config.directory.appendingPathComponent(fileName)
     }
 
     /// Generate a thumbnail from an image file

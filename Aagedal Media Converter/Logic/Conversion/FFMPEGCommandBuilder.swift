@@ -15,6 +15,7 @@
 // (at your option) any later version.
 
 import Foundation
+import ImageIO
 import OSLog
 
 struct FFMPEGCommand {
@@ -83,6 +84,7 @@ enum FFMPEGCommandBuilder {
         sourceMetadata: VideoMetadata? = nil,
         waveformRequest: WaveformVideoRequest? = nil,
         synthesizedVideoRequest: SynthesizedVideoRequest? = nil,
+        visualSourceURL: URL? = nil,
         customInputArguments: [String]? = nil,
         additionalOutputArguments: [String]? = nil,
         isMuted: Bool = false
@@ -245,9 +247,12 @@ enum FFMPEGCommandBuilder {
            cropConfig.isActive,
            preset.outputsVisualFrames,
            preset.appliesCrop {
-            if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL),
-               let width = metadata.primaryVideoStream?.width,
-               let height = metadata.primaryVideoStream?.height {
+            if let geometry = await sourceGeometry(
+                for: visualSourceURL ?? inputURL,
+                sourceMetadata: visualSourceURL == nil ? sourceMetadata : nil
+            ) {
+                let width = geometry.width
+                let height = geometry.height
 
                 // Calculate effective Pixel Aspect Ratio (PAR)
                 // We use a robust detection strategy:
@@ -257,8 +262,8 @@ enum FFMPEGCommandBuilder {
                 // 4. If explicit PAR contradicts DAR (e.g. PAR=1 vs DAR=16:9 for 1440 width), use DAR-derived PAR.
                 // 5. Default to 1.0.
                 let effectivePAR: Double
-                let darValues = metadata.primaryVideoStream?.displayAspectRatio?.doubleValue
-                let parValues = metadata.primaryVideoStream?.pixelAspectRatio?.doubleValue
+                let darValues = geometry.displayAspectRatio
+                let parValues = geometry.pixelAspectRatio
                 
                 if let dar = darValues, dar > 0, height > 0 {
                     let resolutionAspect = Double(width) / Double(height)
@@ -385,6 +390,60 @@ enum FFMPEGCommandBuilder {
 }
 
 extension FFMPEGCommandBuilder {
+    private struct SourceGeometry {
+        let width: Int
+        let height: Int
+        let pixelAspectRatio: Double?
+        let displayAspectRatio: Double?
+    }
+
+    /// Resolve crop geometry from request metadata, a timed-media probe, or a still image.
+    /// Image-sequence requests point this at their first frame because their primary input URL
+    /// is the containing directory and cannot be probed as media.
+    private static func sourceGeometry(
+        for sourceURL: URL,
+        sourceMetadata: VideoMetadata?
+    ) async -> SourceGeometry? {
+        if let stream = sourceMetadata?.primaryVideoStream,
+           let width = stream.width,
+           let height = stream.height {
+            return SourceGeometry(
+                width: width,
+                height: height,
+                pixelAspectRatio: stream.pixelAspectRatio?.doubleValue,
+                displayAspectRatio: stream.displayAspectRatio?.doubleValue
+            )
+        }
+
+        if let metadata = try? await VideoMetadataService.shared.metadata(for: sourceURL),
+           let stream = metadata.primaryVideoStream,
+           let width = stream.width,
+           let height = stream.height {
+            return SourceGeometry(
+                width: width,
+                height: height,
+                pixelAspectRatio: stream.pixelAspectRatio?.doubleValue,
+                displayAspectRatio: stream.displayAspectRatio?.doubleValue
+            )
+        }
+
+        guard let imageSource = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0,
+              height > 0 else {
+            return nil
+        }
+
+        return SourceGeometry(
+            width: width,
+            height: height,
+            pixelAspectRatio: 1,
+            displayAspectRatio: Double(width) / Double(height)
+        )
+    }
+
     /// Returns subtitle mapping arguments only for containers supported by the
     /// preservation setting. Matroska can copy subtitle streams verbatim, while
     /// MP4 and MOV require text subtitles to be encoded as `mov_text`.

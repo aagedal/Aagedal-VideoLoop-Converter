@@ -534,6 +534,11 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
 
         XCTAssertEqual(config.frameCount, 48)
         XCTAssertEqual(config.durationSeconds, 2, accuracy: 0.000_001)
+        XCTAssertEqual(config.firstFrameURL.path, "/tmp/frames/shot_1001.exr")
+        var percentPrefixConfig = config
+        percentPrefixConfig.pattern = "shot%done_%04d.exr"
+        percentPrefixConfig.startNumber = 7
+        XCTAssertEqual(percentPrefixConfig.firstFrameURL.path, "/tmp/frames/shot%done_0007.exr")
         XCTAssertEqual(
             config.ffmpegInputArguments,
             [
@@ -597,6 +602,73 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
 
         let outputURL = temporaryDirectory.appendingPathComponent("frame_001.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let rawURL = temporaryDirectory.appendingPathComponent("cropped.rgb")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y", "-i", outputURL.path,
+            "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", rawURL.path
+        ])
+
+        let pixels = try Data(contentsOf: rawURL)
+        XCTAssertEqual(pixels.count, 32 * 32 * 3)
+        let centerPixelOffset = ((16 * 32) + 16) * 3
+        XCTAssertLessThan(pixels[centerPixelOffset], 30)
+        XCTAssertGreaterThan(pixels[centerPixelOffset + 1], 140)
+        XCTAssertLessThan(pixels[centerPixelOffset + 2], 30)
+    }
+
+    func testGeneratedImageSequenceInputUsesFirstFrameGeometryForCrop() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterImageSequenceInputCropTests-\(UUID().uuidString)", isDirectory: true)
+        let inputDirectory = temporaryDirectory.appendingPathComponent("input", isDirectory: true)
+        let outputDirectory = temporaryDirectory.appendingPathComponent("output", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputPatternURL = inputDirectory.appendingPathComponent("source_%04d.png")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi",
+            "-i", "color=c=red:s=64x32:r=1:d=2,drawbox=x=32:y=0:w=32:h=32:c=lime:t=fill",
+            "-frames:v", "2", "-start_number", "1001", inputPatternURL.path
+        ])
+
+        let config = ImageSequenceConfig(
+            pattern: "source_%04d.png",
+            directory: inputDirectory,
+            startNumber: 1001,
+            endNumber: 1002,
+            frameRate: 1,
+            imageFormat: .png
+        )
+        let outputPatternURL = outputDirectory.appendingPathComponent("cropped_%03d.png")
+
+        try await withPresetSettingsAsync([
+            AppConstants.imageSequenceExportFormatKey: ImageSequenceFormat.png.rawValue
+        ]) {
+            let command = await FFMPEGCommandBuilder.buildCommand(
+                inputURL: inputDirectory,
+                outputFileURL: outputPatternURL,
+                preset: .imageSequence,
+                comment: "",
+                includeDateTag: false,
+                trimStart: nil,
+                trimEnd: nil,
+                cropConfig: CropConfig(
+                    normalizedRect: CropRect(x: 0.5, y: 0, width: 0.5, height: 1)
+                ),
+                visualSourceURL: config.firstFrameURL,
+                customInputArguments: config.ffmpegInputArguments,
+                additionalOutputArguments: ["-frames:v", "1"]
+            )
+
+            XCTAssertEqual(try videoFilter(in: command.arguments), "crop=32:32:32:0")
+            try runFFmpeg(command.arguments)
+        }
+
+        let outputURL = outputDirectory.appendingPathComponent("cropped_001.png")
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
 
         let rawURL = temporaryDirectory.appendingPathComponent("cropped.rgb")
