@@ -560,6 +560,59 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testGeneratedImageSequenceExportRetainsEncoderAndAppliesCrop() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterImageSequenceCropTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("source.mov")
+        let outputPatternURL = temporaryDirectory.appendingPathComponent("frame_%03d.png")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi",
+            "-i", "color=c=red:s=64x32:r=1,drawbox=x=32:y=0:w=32:h=32:c=lime:t=fill",
+            "-frames:v", "1", "-c:v", "libx264", "-pix_fmt", "yuv420p", fixtureURL.path
+        ])
+
+        try await withPresetSettingsAsync([
+            AppConstants.imageSequenceExportFormatKey: ImageSequenceFormat.png.rawValue
+        ]) {
+            let command = await FFMPEGCommandBuilder.buildCommand(
+                inputURL: fixtureURL,
+                outputFileURL: outputPatternURL,
+                preset: .imageSequence,
+                comment: "",
+                includeDateTag: false,
+                trimStart: nil,
+                trimEnd: nil,
+                cropConfig: CropConfig(
+                    normalizedRect: CropRect(x: 0.5, y: 0, width: 0.5, height: 1)
+                )
+            )
+
+            XCTAssertTrue(command.arguments.containsAdjacent("-c:v", "png"))
+            XCTAssertEqual(try videoFilter(in: command.arguments), "crop=32:32:32:0")
+            try runFFmpeg(command.arguments)
+        }
+
+        let outputURL = temporaryDirectory.appendingPathComponent("frame_001.png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let rawURL = temporaryDirectory.appendingPathComponent("cropped.rgb")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y", "-i", outputURL.path,
+            "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", rawURL.path
+        ])
+
+        let pixels = try Data(contentsOf: rawURL)
+        XCTAssertEqual(pixels.count, 32 * 32 * 3)
+        let centerPixelOffset = ((16 * 32) + 16) * 3
+        XCTAssertLessThan(pixels[centerPixelOffset], 30)
+        XCTAssertGreaterThan(pixels[centerPixelOffset + 1], 140)
+        XCTAssertLessThan(pixels[centerPixelOffset + 2], 30)
+    }
+
     func testDCPCommandUsesSelectedCinemaProfileRateAndFitGeometry() throws {
         try withPresetSettings([
             AppConstants.dcpResolutionKey: DCPResolution.fourKFull.rawValue,
@@ -602,6 +655,36 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             ))
             XCTAssertFalse(arguments.contains("-cinema_mode"))
         }
+    }
+
+    func testIMFPictureFrameCountPrefersProducedFramesAndFallsBackToDuration() {
+        XCTAssertEqual(
+            FFMPEGConverter.resolvedIMFPictureFrameCount(
+                exactFrameCount: 48,
+                duration: 1.1,
+                editRateNumerator: 24,
+                editRateDenominator: 1
+            ),
+            48
+        )
+        XCTAssertEqual(
+            FFMPEGConverter.resolvedIMFPictureFrameCount(
+                exactFrameCount: nil,
+                duration: 10,
+                editRateNumerator: 30_000,
+                editRateDenominator: 1_001
+            ),
+            300
+        )
+        XCTAssertEqual(
+            FFMPEGConverter.resolvedIMFPictureFrameCount(
+                exactFrameCount: nil,
+                duration: nil,
+                editRateNumerator: 24,
+                editRateDenominator: 1
+            ),
+            0
+        )
     }
 
     func testIMFProResCommandUsesSelectedProfileAndHLGTags() throws {

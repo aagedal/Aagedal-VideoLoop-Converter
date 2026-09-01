@@ -243,7 +243,7 @@ enum FFMPEGCommandBuilder {
         // Apply crop to video filter if configured and preset supports it
         if let cropConfig = cropConfig,
            cropConfig.isActive,
-           preset.outputsVideoTrack,
+           preset.outputsVisualFrames,
            preset.appliesCrop {
             if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL),
                let width = metadata.primaryVideoStream?.width,
@@ -290,8 +290,9 @@ enum FFMPEGCommandBuilder {
             }
         }
 
-        // Only remove video arguments if preset doesn't output video (audio-only export)
-        if !preset.outputsVideoTrack {
+        // Only remove video arguments for audio-only exports. Image sequences do not contain an
+        // embedded video track, but still require their visual codec and filter arguments.
+        if !preset.outputsVisualFrames {
             removeVideoArguments(from: &ffmpegArgs)
         }
         

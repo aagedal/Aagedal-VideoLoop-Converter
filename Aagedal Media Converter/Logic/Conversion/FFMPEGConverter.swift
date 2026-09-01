@@ -984,6 +984,7 @@ actor FFMPEGConverter {
 
                     let fm = FileManager.default
                     var imfVideoMXF: URL? = nil
+                    var exactPictureFrameCount: Int? = nil
 
                     // ----- Video essence wrap -----
                     if capturedIsIMFJ2KExport {
@@ -1002,6 +1003,7 @@ actor FFMPEGConverter {
                             let jp2Files = (try? fm.contentsOfDirectory(atPath: jp2Dir.path))?
                                 .filter { $0.hasSuffix(".jp2") }
                                 .sorted() ?? []
+                            exactPictureFrameCount = jp2Files.count
                             print("[IMF] discovered \(jp2Files.count) JP2 frames in \(jp2Dir.path)")
 
                             if jp2Files.isEmpty {
@@ -1234,20 +1236,18 @@ actor FFMPEGConverter {
                             // (e.g. 156.36 s → 3754 frames @ 24 fps but only ~3752.6 audio
                             // frames worth of samples) produce a truncated MXF that Resolve
                             // refuses to play even though mpv tolerates it.
-                            let jp2FrameCount: Int
-                            if capturedIsIMFJ2KExport {
-                                let jp2Dir = capturedFinalOutputURL.deletingLastPathComponent()
-                                jp2FrameCount = (try? fm.contentsOfDirectory(atPath: jp2Dir.path))?
-                                    .filter { $0.hasSuffix(".jp2") }.count ?? 0
-                            } else {
-                                let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
-                                jp2FrameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
-                            }
+                            let duration = effectiveDurationBox.value ?? totalDurationBox.value
+                            let pictureFrameCount = Self.resolvedIMFPictureFrameCount(
+                                exactFrameCount: exactPictureFrameCount,
+                                duration: duration,
+                                editRateNumerator: frameRate.editRateNumerator,
+                                editRateDenominator: frameRate.editRateDenominator
+                            )
                             let wavURL: URL
-                            if jp2FrameCount > 0,
+                            if pictureFrameCount > 0,
                                let padded = await Self.padWAVToFrameCount(
                                    inputWAV: originalWavURL,
-                                   frameCount: jp2FrameCount,
+                                   frameCount: pictureFrameCount,
                                    editRateNumerator: frameRate.editRateNumerator,
                                    editRateDenominator: frameRate.editRateDenominator,
                                    ffmpegPath: capturedFfmpegPath
@@ -1256,7 +1256,7 @@ actor FFMPEGConverter {
                                 Self.cleanupTempFile(at: originalWavURL, label: "IMF audio WAV (pre-pad)")
                             } else {
                                 wavURL = originalWavURL
-                                print("[IMF] WAV padding skipped (frameCount=\(jp2FrameCount))")
+                                print("[IMF] WAV padding skipped (frameCount=\(pictureFrameCount))")
                             }
 
                             // Wrap PCM WAV → IMF audio MXF using asdcp-wrap. bmxtranswrap is
@@ -1337,8 +1337,13 @@ actor FFMPEGConverter {
                         progressUpdate(0.94, "Generating IMF manifests")
                         print("[IMF] generating manifests")
 
-                        let duration = effectiveDurationBox.value ?? totalDurationBox.value ?? 0
-                        let frameCount = Int(ceil(duration * Double(frameRate.editRateNumerator) / Double(frameRate.editRateDenominator)))
+                        let duration = effectiveDurationBox.value ?? totalDurationBox.value
+                        let frameCount = Self.resolvedIMFPictureFrameCount(
+                            exactFrameCount: exactPictureFrameCount,
+                            duration: duration,
+                            editRateNumerator: frameRate.editRateNumerator,
+                            editRateDenominator: frameRate.editRateDenominator
+                        )
 
                         let imfTitle: String
                         if let metaTitle = capturedRequest.imfMetadata?.contentTitleText, !metaTitle.isEmpty {
@@ -2760,6 +2765,32 @@ actor FFMPEGConverter {
 
     static func getVideoDuration(url: URL) async -> Double? {
         await FFMPEGProbeService.getVideoDuration(for: url)
+    }
+
+    /// Uses the produced App 2e image count when available so audio padding and the CPL agree
+    /// exactly with the wrapped picture essence. App 5 has no intermediate frame sequence, so it
+    /// retains the duration-based calculation.
+    static func resolvedIMFPictureFrameCount(
+        exactFrameCount: Int?,
+        duration: Double?,
+        editRateNumerator: Int,
+        editRateDenominator: Int
+    ) -> Int {
+        if let exactFrameCount, exactFrameCount > 0 {
+            return exactFrameCount
+        }
+
+        guard let duration,
+              duration.isFinite,
+              duration > 0,
+              editRateNumerator > 0,
+              editRateDenominator > 0 else {
+            return 0
+        }
+
+        return Int(ceil(
+            duration * Double(editRateNumerator) / Double(editRateDenominator)
+        ))
     }
 
     /// Pads (or, if already long enough, leaves alone) a 48 kHz PCM WAV so it has

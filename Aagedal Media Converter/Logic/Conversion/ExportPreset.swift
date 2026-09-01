@@ -1847,6 +1847,13 @@ enum ExportPreset: String, CaseIterable, Identifiable {
 }
 
 extension ExportPreset {
+    /// Indicates whether the preset produces visual frames that can be filtered and encoded.
+    /// Image-sequence exports do not contain a video *track*, but they still pass video frames
+    /// through FFmpeg and therefore must retain video codec/filter arguments.
+    var outputsVisualFrames: Bool {
+        self != .audioOnly
+    }
+
     /// Indicates whether this preset is expected to output a video track even if the source lacks one.
     var outputsVideoTrack: Bool {
         switch self {

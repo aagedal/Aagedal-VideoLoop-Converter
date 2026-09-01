@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: forty-two tests pass. The
+- The unit-test baseline is green: forty-four tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only forty-two unit tests. The UI test target still contains the generated
+- There are only forty-four unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -162,17 +162,22 @@ codec choices; AV2 chunk-count policy is covered for CQ, VBR, and short inputs.
 
 Generated fixed-rate media now verifies that AV2 start-only trims plan only the
 remaining duration and frame count, preventing parallel chunks from seeking beyond
-the source. The next slice should use generated media and dummy package essences to
-cover more assembled commands and manifests. The audit identified these high-risk
-follow-ups:
+the source. A generated color-band fixture now verifies that image-sequence exports
+retain their selected visual encoder and apply crop filters to the actual output
+pixels, rather than losing both behind the embedded-video-track capability. IMF App
+2e now retains its exact produced JP2 frame count before optional cleanup and reuses
+it for audio padding and CPL duration; App 5 retains a tested duration fallback. The
+next slice should use generated media and dummy package essences to cover more
+assembled commands and manifests. The audit identified these high-risk follow-ups:
 
 - AV2 bypasses custom concat/image-sequence inputs and several generic command
   options;
 - DCP/IMF post-processing reopens only the primary source for audio instead of
   respecting concat/image-sequence inputs;
-- image-sequence crop is blocked by the `outputsVideoTrack` capability gate;
-- IMF App 2e deletes JP2 frames before using their count for audio padding, and
-  generated CPL `SourceEncoding` references need descriptor coverage.
+- image-sequence inputs still need crop dimensions resolved from their first frame
+  instead of attempting to probe the sequence directory;
+- generated IMF CPL `SourceEncoding` references need full MXF descriptor and
+  subdescriptor coverage plus conformance validation.
 
 ### 1.2 Add small media-fixture integration tests
 
