@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: seventy-nine tests pass. The
+- The unit-test baseline is green: eighty-five tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only seventy-nine unit tests. The UI test target now has deterministic smoke
+- There are only eighty-five unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -299,7 +299,7 @@ batch cancellation. Per-batch and per-process identities also prevent late callb
 from an older cancelled conversion from clearing or completing newer work, including
 cancellation during FFmpeg preflight before the process launches. Start/cancel,
 success, and failure UI tests passed together in two consecutive runs; the full
-seventy-nine-test unit target remains green.
+eighty-five-test unit target remains green.
 
 ## Priority 2 — Make long-running work reliable
 
@@ -307,7 +307,7 @@ Target: after the correctness net; approximately 1–2 weeks.
 
 ### 2.1 Introduce one subprocess runner
 
-Status: in progress; shared runner and yt-dlp probe migration added 2026-09-01.
+Status: in progress; shared runner and yt-dlp migrations added 2026-09-01.
 
 Provide an injectable runner that owns:
 
@@ -335,10 +335,18 @@ exits, stdin, output beyond pipe capacity, capture bounds, timeout, descendant c
 cancellation, TERM-ignoring-child escalation, and redaction. The duplicated yt-dlp
 metadata and playlist probes now use the runner with a five-minute deadline, a 16 MB
 JSON safety limit, bounded diagnostic stderr, redacted cookie/URL arguments, and
-sanitized length-bounded error text. The main yt-dlp download path retains its special
-live-stream cancellation semantics for the next migration; robust process-group isolation
-and the remaining FFmpeg/rclone/transcription/OCR/package call sites are still open, so
-this item remains in progress.
+sanitized length-bounded error text. The main yt-dlp download path now uses the same
+runner while retaining its activity-based five-minute stall policy for indefinite live
+recordings. Incremental output is reassembled across arbitrary byte chunks; the final
+output-path line, progress, title, overwrite detection, and concise first error continue
+to be parsed without logging URLs or cookie values. Per-item cancellation handles preserve
+user-cancel, live-stop, and stall outcomes, cancel the full subprocess tree, and prevent
+one concurrent or late download from cancelling or clearing another. Fake-runner tests
+cover split output, successful result validation, redacted failures, explicit and parent-task
+cancellation, and live-stop behavior; the runner also verifies that every captured byte reaches its
+incremental handler, including final-drain bytes. Robust process-group isolation and the
+remaining FFmpeg/rclone/transcription/OCR/package call sites are still open, so this item
+remains in progress.
 
 ### 2.2 Remove sync-over-async waits
 

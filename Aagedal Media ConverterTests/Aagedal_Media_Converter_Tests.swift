@@ -55,6 +55,22 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(result.standardOutput, input)
     }
 
+    func testSubprocessRunnerDeliversEveryCapturedByteToIncrementalHandler() async throws {
+        let recorder = SubprocessChunkRecorder()
+        let result = try await SubprocessRunner().run(
+            SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "i=0; while [ $i -lt 2000 ]; do printf '%04d\\n' $i; i=$((i + 1)); done"]
+            )
+        ) { chunk in
+            recorder.append(chunk)
+        }
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(recorder.standardOutput, result.standardOutput)
+        XCTAssertEqual(recorder.standardError, result.standardError)
+    }
+
     func testSubprocessRunnerDrainsBothStreamsAndBoundsCapturedTails() async throws {
         let script = """
         i=0
@@ -222,6 +238,193 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             "Failed Safari:Personal while reading https://user:password@example.com/watch?signed=private"
         )
         XCTAssertEqual(diagnostic, "Failed <redacted> while reading <url>")
+    }
+
+    func testYTDLPDownloadUsesRunnerAndParsesSplitProgressAndOutputLines() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("YTDLPServiceTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let outputURL = temporaryDirectory.appendingPathComponent("Great Clip.mp4")
+        let runner = RecordingSubprocessRunner { request, outputHandler in
+            try Data("fixture".utf8).write(to: outputURL)
+            outputHandler?(
+                SubprocessOutputChunk(
+                    stream: .standardError,
+                    data: Data("[download] Destination: Great ".utf8)
+                )
+            )
+            outputHandler?(
+                SubprocessOutputChunk(
+                    stream: .standardError,
+                    data: Data("Clip.mp4\n[download]  42.5% of 10MiB at 2MiB/s\n".utf8)
+                )
+            )
+            let pathData = Data((outputURL.path + "\n").utf8)
+            let splitIndex = pathData.index(pathData.startIndex, offsetBy: pathData.count / 2)
+            outputHandler?(
+                SubprocessOutputChunk(stream: .standardOutput, data: pathData[..<splitIndex])
+            )
+            outputHandler?(
+                SubprocessOutputChunk(stream: .standardOutput, data: pathData[splitIndex...])
+            )
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .zero
+            )
+        }
+        let callbacks = YTDLPCallbackRecorder()
+        let service = YTDLPService(
+            updateService: StubYTDLPUpdateService(path: "/bin/sh"),
+            subprocessRunner: runner
+        )
+
+        let result = try await service.download(
+            url: "https://example.com/watch?v=private",
+            outputFolder: temporaryDirectory,
+            progress: { value, _, _ in callbacks.recordProgress(value) },
+            titleUpdate: { callbacks.recordTitle($0) }
+        )
+
+        XCTAssertEqual(result.outputURL, outputURL)
+        XCTAssertEqual(result.title, "Great Clip")
+        XCTAssertEqual(callbacks.titles, ["Great Clip"])
+        XCTAssertEqual(callbacks.progressValues.first ?? 0, 0.425, accuracy: 0.0001)
+        XCTAssertEqual(callbacks.progressValues.last, 1.0)
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.currentDirectoryURL, temporaryDirectory)
+        XCTAssertTrue(request.arguments.containsAdjacent("--", "https://example.com/watch?v=private"))
+        XCTAssertFalse(request.redactedCommandDescription.contains("example.com"))
+    }
+
+    func testYTDLPDownloadControlMapsUserCancellation() async throws {
+        let runner = BlockingSubprocessRunner()
+        let service = YTDLPService(
+            updateService: StubYTDLPUpdateService(path: "/bin/sh"),
+            subprocessRunner: runner
+        )
+        let control = YTDLPDownloadControl()
+        let downloadTask = Task {
+            try await service.download(
+                url: "https://example.com/watch?v=private",
+                outputFolder: FileManager.default.temporaryDirectory,
+                control: control,
+                progress: { _, _, _ in }
+            )
+        }
+
+        await runner.waitUntilStarted()
+        XCTAssertTrue(control.cancel())
+
+        do {
+            _ = try await downloadTask.value
+            XCTFail("Expected user cancellation")
+        } catch let error as YTDLPError {
+            guard case .cancelled = error else {
+                return XCTFail("Expected cancelled, got \(error)")
+            }
+        }
+    }
+
+    func testYTDLPDownloadRedactsURLFromFailureDiagnostic() async throws {
+        let diagnostic = "ERROR: failed while requesting https://example.com/watch?signed=private\n"
+        let runner = RecordingSubprocessRunner { _, outputHandler in
+            outputHandler?(
+                SubprocessOutputChunk(stream: .standardError, data: Data(diagnostic.utf8))
+            )
+            return SubprocessResult(
+                terminationStatus: 1,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .zero
+            )
+        }
+        let service = YTDLPService(
+            updateService: StubYTDLPUpdateService(path: "/bin/sh"),
+            subprocessRunner: runner
+        )
+
+        do {
+            _ = try await service.download(
+                url: "https://example.com/watch?signed=private",
+                outputFolder: FileManager.default.temporaryDirectory,
+                progress: { _, _, _ in }
+            )
+            XCTFail("Expected a download failure")
+        } catch let error as YTDLPError {
+            guard case let .downloadFailed(message) = error else {
+                return XCTFail("Expected downloadFailed, got \(error)")
+            }
+            XCTAssertEqual(message, "failed while requesting <url>")
+            XCTAssertFalse(message.contains("example.com"))
+        }
+    }
+
+    func testYTDLPDownloadMapsParentTaskCancellation() async throws {
+        let runner = BlockingSubprocessRunner()
+        let service = YTDLPService(
+            updateService: StubYTDLPUpdateService(path: "/bin/sh"),
+            subprocessRunner: runner
+        )
+        let downloadTask = Task {
+            try await service.download(
+                url: "https://example.com/watch?v=private",
+                outputFolder: FileManager.default.temporaryDirectory,
+                progress: { _, _, _ in }
+            )
+        }
+
+        await runner.waitUntilStarted()
+        downloadTask.cancel()
+
+        do {
+            _ = try await downloadTask.value
+            XCTFail("Expected parent-task cancellation")
+        } catch let error as YTDLPError {
+            guard case .cancelled = error else {
+                return XCTFail("Expected cancelled, got \(error)")
+            }
+        }
+    }
+
+    func testYTDLPDownloadControlPreservesLiveStopReason() async throws {
+        let runner = BlockingSubprocessRunner()
+        let service = YTDLPService(
+            updateService: StubYTDLPUpdateService(path: "/bin/sh"),
+            subprocessRunner: runner
+        )
+        let control = YTDLPDownloadControl()
+        let downloadTask = Task {
+            try await service.download(
+                url: "https://example.com/live",
+                outputFolder: FileManager.default.temporaryDirectory,
+                liveFromStart: true,
+                control: control,
+                progress: { _, _, _ in }
+            )
+        }
+
+        await runner.waitUntilStarted()
+        XCTAssertTrue(control.stopLiveRecording())
+
+        do {
+            _ = try await downloadTask.value
+            XCTFail("Expected live recording stop")
+        } catch let error as YTDLPError {
+            guard case .liveRecordingStopped = error else {
+                return XCTFail("Expected liveRecordingStopped, got \(error)")
+            }
+        }
     }
 
     func testParsingDurationSupportsVariableFractionalSecondPrecision() throws {
@@ -2829,4 +3032,151 @@ private struct ManifestAsset {
     let originalFileName: String?
     let path: String?
     let isPackingList: Bool
+}
+
+private struct StubYTDLPUpdateService: YTDLPUpdating {
+    let path: String?
+
+    func resolveYTDLPPath() async -> String? {
+        path
+    }
+
+    func ensureDenoInstalled() async -> String? {
+        nil
+    }
+}
+
+private final class RecordingSubprocessRunner: SubprocessRunning, @unchecked Sendable {
+    typealias Operation = @Sendable (
+        SubprocessRequest,
+        (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult
+
+    private let lock = NSLock()
+    private let operation: Operation
+    private var recordedRequest: SubprocessRequest?
+
+    init(operation: @escaping Operation) {
+        self.operation = operation
+    }
+
+    var lastRequest: SubprocessRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedRequest
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        lock.withLock {
+            recordedRequest = request
+        }
+        return try await operation(request, outputHandler)
+    }
+}
+
+private final class BlockingSubprocessRunner: SubprocessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            started = true
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            return waiters
+        }
+        for waiter in waiters {
+            waiter.resume()
+        }
+
+        try await Task.sleep(for: .seconds(30))
+        return SubprocessResult(
+            terminationStatus: 0,
+            termination: .exited,
+            standardOutput: Data(),
+            standardError: Data(),
+            discardedStandardOutputBytes: 0,
+            discardedStandardErrorBytes: 0,
+            duration: .seconds(30)
+        )
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if started {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                startWaiters.append(continuation)
+                lock.unlock()
+            }
+        }
+    }
+}
+
+private final class YTDLPCallbackRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedProgressValues: [Double] = []
+    private var recordedTitles: [String] = []
+
+    var progressValues: [Double] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedProgressValues
+    }
+
+    var titles: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedTitles
+    }
+
+    func recordProgress(_ value: Double) {
+        lock.lock()
+        recordedProgressValues.append(value)
+        lock.unlock()
+    }
+
+    func recordTitle(_ title: String) {
+        lock.lock()
+        recordedTitles.append(title)
+        lock.unlock()
+    }
+}
+
+private final class SubprocessChunkRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var output = Data()
+    private var error = Data()
+
+    var standardOutput: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return output
+    }
+
+    var standardError: Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return error
+    }
+
+    func append(_ chunk: SubprocessOutputChunk) {
+        lock.lock()
+        switch chunk.stream {
+        case .standardOutput:
+            output.append(chunk.data)
+        case .standardError:
+            error.append(chunk.data)
+        }
+        lock.unlock()
+    }
 }

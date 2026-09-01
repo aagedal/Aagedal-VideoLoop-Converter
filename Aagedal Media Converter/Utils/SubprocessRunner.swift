@@ -291,7 +291,6 @@ private final class SubprocessExecution: @unchecked Sendable {
     private var cause: SubprocessTerminationCause?
     private var terminationCleanupTask: Task<Void, Never>?
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    private let outputCallbackGroup = DispatchGroup()
     private var stdoutReadsFinished = false
     private var stderrReadsFinished = false
 
@@ -413,14 +412,20 @@ private final class SubprocessExecution: @unchecked Sendable {
         // deliberately nonblocking and cannot strand the caller after the direct child exits.
         stdoutReadLock.withLock {
             stdoutReadsFinished = true
-            appendRemainingData(from: stdoutPipe.fileHandleForReading, to: stdoutCollector)
+            appendRemainingData(
+                from: stdoutPipe.fileHandleForReading,
+                stream: .standardOutput,
+                to: stdoutCollector
+            )
         }
         stderrReadLock.withLock {
             stderrReadsFinished = true
-            appendRemainingData(from: stderrPipe.fileHandleForReading, to: stderrCollector)
+            appendRemainingData(
+                from: stderrPipe.fileHandleForReading,
+                stream: .standardError,
+                to: stderrCollector
+            )
         }
-        outputCallbackGroup.wait()
-
         let stdout = stdoutCollector.snapshot()
         let stderr = stderrCollector.snapshot()
         let reason: SubprocessTermination = process.terminationReason == .exit
@@ -444,28 +449,20 @@ private final class SubprocessExecution: @unchecked Sendable {
         readLock: NSLock
     ) {
         handle.readabilityHandler = { [outputHandler] fileHandle in
-            let data: Data? = readLock.withLock {
+            readLock.withLock {
                 switch stream {
                 case .standardOutput where self.stdoutReadsFinished:
-                    return nil
+                    return
                 case .standardError where self.stderrReadsFinished:
-                    return nil
+                    return
                 default:
                     break
                 }
 
                 let data = fileHandle.availableData
-                guard !data.isEmpty else { return nil }
+                guard !data.isEmpty else { return }
                 collector.append(data)
-                if outputHandler != nil {
-                    self.outputCallbackGroup.enter()
-                }
-                return data
-            }
-
-            if let data, let outputHandler {
-                defer { self.outputCallbackGroup.leave() }
-                outputHandler(SubprocessOutputChunk(stream: stream, data: data))
+                outputHandler?(SubprocessOutputChunk(stream: stream, data: data))
             }
         }
     }
@@ -475,7 +472,11 @@ private final class SubprocessExecution: @unchecked Sendable {
         stderrPipe.fileHandleForReading.readabilityHandler = nil
     }
 
-    private func appendRemainingData(from handle: FileHandle, to collector: BoundedDataCollector) {
+    private func appendRemainingData(
+        from handle: FileHandle,
+        stream: SubprocessOutputStream,
+        to collector: BoundedDataCollector
+    ) {
         let descriptor = handle.fileDescriptor
         let currentFlags = fcntl(descriptor, F_GETFL)
         if currentFlags >= 0 {
@@ -488,6 +489,7 @@ private final class SubprocessExecution: @unchecked Sendable {
                     break
                 }
                 collector.append(data)
+                outputHandler?(SubprocessOutputChunk(stream: stream, data: data))
             } catch {
                 break
             }

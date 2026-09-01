@@ -5,6 +5,83 @@
 import Foundation
 import OSLog
 
+protocol YTDLPUpdating: Sendable {
+    func resolveYTDLPPath() async -> String?
+    func ensureDenoInstalled() async -> String?
+}
+
+extension YTDLPUpdateService: YTDLPUpdating {}
+
+/// Per-download cancellation handle. Keeping this outside the service actor lets the UI
+/// stop the correct download immediately even while several actor calls are suspended in
+/// subprocess work.
+final class YTDLPDownloadControl: @unchecked Sendable {
+    fileprivate enum StopReason {
+        case userRequested
+        case liveRecordingStop
+        case stalled
+    }
+
+    private let lock = NSLock()
+    private var executionID: UUID?
+    private var cancelAction: (@Sendable () -> Void)?
+    private var stopReason: StopReason?
+
+    @discardableResult
+    func cancel() -> Bool {
+        terminate(reason: .userRequested)
+    }
+
+    @discardableResult
+    func stopLiveRecording() -> Bool {
+        terminate(reason: .liveRecordingStop)
+    }
+
+    fileprivate func install(id: UUID, cancel: @escaping @Sendable () -> Void) {
+        lock.lock()
+        executionID = id
+        cancelAction = cancel
+        let shouldCancelImmediately = stopReason != nil
+        lock.unlock()
+        if shouldCancelImmediately {
+            cancel()
+        }
+    }
+
+    fileprivate func markStalled() -> Bool {
+        terminate(reason: .stalled)
+    }
+
+    fileprivate func finish(id: UUID) -> StopReason? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard executionID == id else { return nil }
+        let reason = stopReason
+        executionID = nil
+        cancelAction = nil
+        stopReason = nil
+        return reason
+    }
+
+    fileprivate func reason(id: UUID) -> StopReason? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard executionID == id else { return nil }
+        return stopReason
+    }
+
+    private func terminate(reason: StopReason) -> Bool {
+        lock.lock()
+        if stopReason == nil {
+            stopReason = reason
+        }
+        let cancelAction = cancelAction
+        lock.unlock()
+        cancelAction?()
+        return cancelAction != nil
+    }
+}
+
 /// Metadata fetched from yt-dlp for a video URL
 struct YTDLPMetadata: Sendable {
     let title: String
@@ -60,7 +137,7 @@ enum YTDLPFilenameRestrictionMode: String, CaseIterable, Identifiable {
 /// Service for executing yt-dlp downloads
 actor YTDLPService {
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "YTDLPService")
-    private let updateService = YTDLPUpdateService.shared
+    private let updateService: any YTDLPUpdating
     private let subprocessRunner: any SubprocessRunning
 
     private static let probeTimeout: Duration = .seconds(300)
@@ -71,14 +148,12 @@ actor YTDLPService {
         let safeStandardError: String
     }
 
-    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+    init(
+        updateService: any YTDLPUpdating = YTDLPUpdateService.shared,
+        subprocessRunner: any SubprocessRunning = SubprocessRunner()
+    ) {
+        self.updateService = updateService
         self.subprocessRunner = subprocessRunner
-    }
-
-    private enum CancelReason {
-        case userRequested
-        case liveRecordingStop
-        case stalled
     }
 
     /// How long yt-dlp may produce no output before the stall watchdog kills it.
@@ -86,39 +161,62 @@ actor YTDLPService {
     private static let stallThresholdSeconds: TimeInterval = 300
     private static let stallCheckIntervalNanos: UInt64 = 30_000_000_000 // 30s
 
-    /// Thread-safe storage for the current process (accessible from any thread for cancellation)
-    private final class ProcessHolder: @unchecked Sendable {
-        private let lock = NSLock()
-        private var _process: Process?
-        private var _cancelReason: CancelReason?
-
-        var process: Process? {
-            get { lock.lock(); defer { lock.unlock() }; return _process }
-            set { lock.lock(); defer { lock.unlock() }; _process = newValue }
-        }
-
-        var cancelReason: CancelReason? {
-            get { lock.lock(); defer { lock.unlock() }; return _cancelReason }
-            set { lock.lock(); defer { lock.unlock() }; _cancelReason = newValue }
-        }
-
-        func terminate(reason: CancelReason) -> Bool {
-            lock.lock()
-            defer { lock.unlock() }
-            guard let proc = _process, proc.isRunning else { return false }
-            _cancelReason = reason
-            proc.terminate()
-            return true
-        }
-    }
-
-    private let processHolder = ProcessHolder()
-
     private final class DateBox: @unchecked Sendable {
         var value: Date
 
         init(value: Date) {
             self.value = value
+        }
+    }
+
+    /// Reassembles arbitrary runner chunks into complete UTF-8 lines independently for
+    /// stdout and stderr. yt-dlp progress lines can be split across pipe reads.
+    private final class LineAccumulator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var standardOutput = Data()
+        private var standardError = Data()
+
+        func consume(
+            _ chunk: SubprocessOutputChunk,
+            handler: (String, Bool) -> Void
+        ) {
+            lock.lock()
+            let lines: [String]
+            switch chunk.stream {
+            case .standardOutput:
+                standardOutput.append(chunk.data)
+                lines = Self.removeCompleteLines(from: &standardOutput)
+            case .standardError:
+                standardError.append(chunk.data)
+                lines = Self.removeCompleteLines(from: &standardError)
+            }
+            lock.unlock()
+            for line in lines {
+                handler(line, chunk.stream == .standardError)
+            }
+        }
+
+        func finish(handler: (String, Bool) -> Void) {
+            lock.lock()
+            let remaining = [
+                (String(decoding: standardOutput, as: UTF8.self), false),
+                (String(decoding: standardError, as: UTF8.self), true)
+            ].filter { !$0.0.isEmpty }
+            standardOutput.removeAll()
+            standardError.removeAll()
+            lock.unlock()
+            for (line, isStandardError) in remaining {
+                handler(line, isStandardError)
+            }
+        }
+
+        private static func removeCompleteLines(from buffer: inout Data) -> [String] {
+            var lines: [String] = []
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                lines.append(String(decoding: buffer[..<newline], as: UTF8.self))
+                buffer.removeSubrange(...newline)
+            }
+            return lines
         }
     }
 
@@ -326,12 +424,12 @@ actor YTDLPService {
         forceOverwrite: Bool = false,
         liveFromStart: Bool = false,
         audioOnly: Bool = false,
+        control: YTDLPDownloadControl = YTDLPDownloadControl(),
         progress: @escaping @Sendable (Double, String?, Bool) -> Void,
         titleUpdate: @escaping @Sendable (String) -> Void = { _ in }
     ) async throws -> YTDLPDownloadResult {
         let downloadStartTime = Date()
         logger.info("[TIMING] download() started")
-        processHolder.cancelReason = nil
 
         let pathResolveStart = Date()
         guard let ytdlpPath = await updateService.resolveYTDLPPath() else {
@@ -339,12 +437,6 @@ actor YTDLPService {
         }
         let pathResolveElapsed = Date().timeIntervalSince(pathResolveStart)
         logger.info("[TIMING] yt-dlp path resolved in \(String(format: "%.3f", pathResolveElapsed))s")
-
-        let process = Process()
-        let stderrPipe = Pipe()
-        let stdoutPipe = Pipe()
-
-        process.currentDirectoryURL = outputFolder
 
         // Build arguments array
         // Note: --ignore-config prevents yt-dlp from reading user config files
@@ -423,15 +515,24 @@ actor YTDLPService {
             url
         ])
 
-        // Configure process for Homebrew Python or regular executable
-        HomebrewPythonExecutor.configureProcess(process, scriptPath: ytdlpPath, arguments: args)
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        process.standardInput = FileHandle.nullDevice
-
-        // Store process for cancellation (thread-safe)
-        processHolder.cancelReason = nil
-        processHolder.process = process
+        // Keep Homebrew/Python resolution in its compatibility helper while the shared
+        // runner owns process launch, pipe draining, cancellation, and descendant cleanup.
+        let configuredProcess = Process()
+        HomebrewPythonExecutor.configureProcess(
+            configuredProcess,
+            scriptPath: ytdlpPath,
+            arguments: args
+        )
+        guard let executableURL = configuredProcess.executableURL else {
+            throw YTDLPError.binaryNotFound
+        }
+        let request = SubprocessRequest(
+            executableURL: executableURL,
+            arguments: configuredProcess.arguments ?? [],
+            environment: configuredProcess.environment,
+            currentDirectoryURL: outputFolder,
+            sensitiveArgumentNames: ["--cookies", "--cookies-from-browser"]
+        )
 
         // Use a class to hold mutable state for thread-safe access from the handler
         final class ParsedState: @unchecked Sendable {
@@ -492,6 +593,7 @@ actor YTDLPService {
             }
         }
         let parsedState = ParsedState()
+        let lineAccumulator = LineAccumulator()
         let processStartBox = DateBox(value: Date())
 
         // Capture logger for use in @Sendable closures and local functions
@@ -510,13 +612,13 @@ actor YTDLPService {
                     let delta = Date().timeIntervalSince(processStartBox.value)
                     logger.debug("First yt-dlp stderr after \(String(format: "%.3f", delta))s")
                 }
-                logger.debug("stderr: \(trimmed, privacy: .public)")
+                logger.debug("stderr: \(request.redactedDiagnostic(trimmed), privacy: .public)")
             } else {
                 if parsedState.markFirstStdout() {
                     let delta = Date().timeIntervalSince(processStartBox.value)
                     logger.debug("First yt-dlp stdout after \(String(format: "%.3f", delta))s")
                 }
-                logger.debug("stdout: \(trimmed, privacy: .public)")
+                logger.debug("stdout: \(request.redactedDiagnostic(trimmed), privacy: .public)")
             }
 
             // Parse progress from either stream
@@ -555,7 +657,7 @@ actor YTDLPService {
             if let error = YTDLPProgressParser.parseError(trimmed) {
                 parsedState.lock.lock()
                 if parsedState.firstError == nil {
-                    parsedState.firstError = error
+                    parsedState.firstError = request.redactedDiagnostic(error, limit: 2 * 1024)
                 }
                 parsedState.lock.unlock()
             }
@@ -590,13 +692,29 @@ actor YTDLPService {
         processStartBox.value = Date()
         parsedState.markActivity()
 
+        let executionID = UUID()
+        let subprocessTask = Task { [subprocessRunner] in
+            try await subprocessRunner.run(request) { chunk in
+                lineAccumulator.consume(chunk) { line, isStandardError in
+                    processLine(
+                        line.trimmingCharacters(in: .whitespacesAndNewlines),
+                        isStderr: isStandardError
+                    )
+                }
+            }
+        }
+        control.install(id: executionID) {
+            subprocessTask.cancel()
+        }
+        defer { _ = control.finish(id: executionID) }
+
         // Stall watchdog: if yt-dlp produces no output for `stallThresholdSeconds`,
         // terminate it so the UI isn't stuck forever on a dead connection. Fragment
         // progress for live streams keeps feeding the watchdog, so legitimate live
         // recordings are unaffected.
         let stallThreshold = Self.stallThresholdSeconds
         let stallCheckInterval = Self.stallCheckIntervalNanos
-        let watchdogHolder = processHolder
+        let watchdogControl = control
         let watchdogState = parsedState
         let watchdogLogger = logger
         let watchdogTask = Task.detached {
@@ -607,125 +725,15 @@ actor YTDLPService {
                 let elapsed = Date().timeIntervalSince(last)
                 if elapsed > stallThreshold {
                     watchdogLogger.warning("yt-dlp appears stalled (no output for \(Int(elapsed))s) — terminating")
-                    _ = watchdogHolder.terminate(reason: .stalled)
+                    _ = watchdogControl.markStalled()
                     break
                 }
             }
         }
         defer { watchdogTask.cancel() }
 
-        // Run process with background pipe reading using DispatchQueue
-        // This is more reliable than readabilityHandler with Swift concurrency
-        let terminationStatus: Int32 = try await withCheckedThrowingContinuation { continuation in
-            let group = DispatchGroup()
-
-            // Read stderr in background
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                logger.debug("stderr reader started")
-                let handle = stderrPipe.fileHandleForReading
-                var buffer = Data()
-                var chunkCount = 0
-                while true {
-                    let chunk = handle.availableData
-                    chunkCount += 1
-                    if chunkCount == 1 {
-                        logger.debug("stderr first chunk received, size: \(chunk.count)")
-                    }
-                    if chunk.isEmpty {
-                        logger.debug("stderr EOF after \(chunkCount) chunks")
-                        // Process any remaining data in buffer
-                        if !buffer.isEmpty, let str = String(data: buffer, encoding: .utf8) {
-                            for line in str.components(separatedBy: .newlines) {
-                                processLine(line.trimmingCharacters(in: .whitespacesAndNewlines), isStderr: true)
-                            }
-                        }
-                        break
-                    }
-                    buffer.append(chunk)
-                    // Process complete lines
-                    if let str = String(data: buffer, encoding: .utf8) {
-                        let lines = str.components(separatedBy: .newlines)
-                        // Keep the last incomplete line in buffer
-                        for i in 0..<(lines.count - 1) {
-                            processLine(lines[i].trimmingCharacters(in: .whitespacesAndNewlines), isStderr: true)
-                        }
-                        // Keep last line in buffer (might be incomplete)
-                        if let lastLine = lines.last, let lastLineData = lastLine.data(using: .utf8) {
-                            buffer = lastLineData
-                        } else {
-                            buffer = Data()
-                        }
-                    }
-                }
-                group.leave()
-            }
-
-            // Read stdout in background
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                logger.debug("stdout reader started")
-                let handle = stdoutPipe.fileHandleForReading
-                var buffer = Data()
-                var chunkCount = 0
-                while true {
-                    let chunk = handle.availableData
-                    chunkCount += 1
-                    if chunkCount == 1 {
-                        logger.debug("stdout first chunk received, size: \(chunk.count)")
-                    }
-                    if chunk.isEmpty {
-                        logger.debug("stdout EOF after \(chunkCount) chunks")
-                        // Process any remaining data in buffer
-                        if !buffer.isEmpty, let str = String(data: buffer, encoding: .utf8) {
-                            for line in str.components(separatedBy: .newlines) {
-                                processLine(line.trimmingCharacters(in: .whitespacesAndNewlines), isStderr: false)
-                            }
-                        }
-                        break
-                    }
-                    buffer.append(chunk)
-                    // Process complete lines
-                    if let str = String(data: buffer, encoding: .utf8) {
-                        let lines = str.components(separatedBy: .newlines)
-                        for i in 0..<(lines.count - 1) {
-                            processLine(lines[i].trimmingCharacters(in: .whitespacesAndNewlines), isStderr: false)
-                        }
-                        if let lastLine = lines.last, let lastLineData = lastLine.data(using: .utf8) {
-                            buffer = lastLineData
-                        } else {
-                            buffer = Data()
-                        }
-                    }
-                }
-                group.leave()
-            }
-
-            process.terminationHandler = { proc in
-                // Wait for pipe readers to finish before resuming
-                group.notify(queue: .global()) {
-                    continuation.resume(returning: proc.terminationStatus)
-                }
-            }
-
-            do {
-                try process.run()
-                logger.info("Process started with PID: \(process.processIdentifier)")
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-
-        let processRunElapsed = Date().timeIntervalSince(processStartBox.value)
-        logger.info("[TIMING] Download process completed in \(String(format: "%.2f", processRunElapsed))s")
-
-        // Clean up
-        processHolder.process = nil
-
-        let finalCancelReason = processHolder.cancelReason
-        processHolder.cancelReason = nil
-        if let finalCancelReason {
-            switch finalCancelReason {
+        func throwCancellation(_ reason: YTDLPDownloadControl.StopReason) throws -> Never {
+            switch reason {
             case .userRequested:
                 logger.info("Download cancelled")
                 throw YTDLPError.cancelled
@@ -737,6 +745,44 @@ actor YTDLPService {
                 throw YTDLPError.stalled
             }
         }
+
+        let subprocessResult: SubprocessResult
+        do {
+            subprocessResult = try await withTaskCancellationHandler {
+                try await subprocessTask.value
+            } onCancel: {
+                _ = control.cancel()
+            }
+            lineAccumulator.finish { line, isStandardError in
+                processLine(
+                    line.trimmingCharacters(in: .whitespacesAndNewlines),
+                    isStderr: isStandardError
+                )
+            }
+        } catch {
+            lineAccumulator.finish { line, isStandardError in
+                processLine(
+                    line.trimmingCharacters(in: .whitespacesAndNewlines),
+                    isStderr: isStandardError
+                )
+            }
+            if let reason = control.reason(id: executionID) {
+                try throwCancellation(reason)
+            }
+            if error is CancellationError {
+                throw error
+            }
+            throw YTDLPError.downloadFailed(request.redactedDiagnostic(error.localizedDescription))
+        }
+
+        let processRunElapsed = Date().timeIntervalSince(processStartBox.value)
+        logger.info("[TIMING] Download process completed in \(String(format: "%.2f", processRunElapsed))s")
+
+        if let reason = control.reason(id: executionID) {
+            try throwCancellation(reason)
+        }
+
+        let terminationStatus = subprocessResult.terminationStatus
 
         // Read final state
         let firstError = parsedState.read { $0.firstError }
@@ -754,7 +800,9 @@ actor YTDLPService {
 
         // Check exit status
         guard terminationStatus == 0 else {
-            let errorMessage = firstError ?? "Download failed with exit code \(terminationStatus)"
+            let diagnostic = request.redactedDiagnostic(subprocessResult.standardErrorText)
+            let errorMessage = firstError
+                ?? (diagnostic.isEmpty ? "Download failed with exit code \(terminationStatus)" : diagnostic)
             throw YTDLPError.downloadFailed(errorMessage)
         }
 
@@ -789,25 +837,19 @@ actor YTDLPService {
             throw YTDLPError.outputNotFound
         }
 
+        if Task.isCancelled {
+            _ = control.cancel()
+        }
+        if let reason = control.reason(id: executionID) {
+            try throwCancellation(reason)
+        }
+
         // Report 100% progress
         progress(1.0, nil, false)
 
         return YTDLPDownloadResult(outputURL: outputURL, title: videoTitle)
     }
 
-    /// Cancels the current download (nonisolated for immediate response)
-    nonisolated func cancelDownload() {
-        if processHolder.terminate(reason: .userRequested) {
-            logger.info("Download cancelled by user")
-        }
-    }
-
-    /// Stops a live stream download but keeps the partial file (nonisolated for immediate response)
-    nonisolated func stopLiveDownload() {
-        if processHolder.terminate(reason: .liveRecordingStop) {
-            logger.info("Live stream recording stopped (keeping partial file)")
-        }
-    }
 }
 
 enum YTDLPError: Error, LocalizedError {

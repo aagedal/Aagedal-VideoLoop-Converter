@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **yt-dlp downloads now use the shared cancellable subprocess layer.** Normal, forced, playlist, and live downloads share bounded concurrent output draining, redacted diagnostics, task/process-tree cancellation, and the existing five-minute inactivity watchdog. Per-item cancellation keeps simultaneous downloads isolated, and live recording stops still preserve their distinct partial-file recovery path.
 - **yt-dlp metadata and playlist probes can no longer wait forever.** They now run through a shared cancellable subprocess layer with a five-minute deadline, concurrent stdout/stderr draining, bounded diagnostics, TERM-to-KILL descendant cleanup, and redacted cookie/URL command descriptions and error text.
 - **Toolbar cancellation now fully closes the active conversion batch.** The queue could stop its FFmpeg process and update the visible row while leaving the original batch task suspended, especially when cancellation arrived during process startup. Batch completion is now registered before work starts and released by Cancel All, so cancellation cannot strand the conversion lifecycle.
 - **Failed and cancelled conversions no longer leave partial outputs or stale file-ownership records.** Ordinary-file exports now remove an incomplete destination and revoke its app-created registration after FFmpeg fails, is cancelled, or cannot launch, so a later unrelated file at the same path cannot be treated as safe to delete.
