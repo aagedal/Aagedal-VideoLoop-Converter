@@ -179,6 +179,48 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(pixels[centerPixelOffset + 2], 30)
     }
 
+    func testGeneratedVideoAudioFixtureRunsCoreConverterAndValidatesOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterCoreConversionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("source.mkv")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=24:duration=1",
+            "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=1",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "pcm_s16le",
+            fixtureURL.path
+        ])
+
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("converted")
+        let result = try await withPresetSettingsAsync([:]) {
+            await runConversion(ConversionRequest(
+                inputURL: fixtureURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                expectedDuration: 1
+            ))
+        }
+        XCTAssertTrue(result.success, result.errorReason ?? "Conversion failed without a reason")
+
+        let outputURL = outputBaseURL.appendingPathExtension(ExportPreset.h264.outputExtension(for: fixtureURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertGreaterThan((try outputURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0, 0)
+
+        let probedStreams = await FFMPEGProbeService.verifyOutputStreams(for: outputURL)
+        let streams = try XCTUnwrap(probedStreams)
+        XCTAssertEqual(streams.videoStreamCount, 1)
+        XCTAssertEqual(streams.audioStreamCount, 1)
+
+        let info = try await VideoMetadataService.shared.fetchEssentialInfo(for: outputURL)
+        XCTAssertEqual(info.width, 64)
+        XCTAssertEqual(info.height, 48)
+        XCTAssertEqual(info.duration, 1, accuracy: 0.15)
+    }
+
     func testCustomCommandTokenizationPreservesExplicitlyEmptyQuotedArguments() {
         XCTAssertEqual(
             ExportPreset.parseCustomCommand(#"-vf "" -metadata title='' -c:v libx264"#),
@@ -1323,6 +1365,79 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testAV2MatroskaMetadataUsesSharedCommentAndTimecodePolicy() throws {
+        try withPresetSettings([
+            AppConstants.commentPrefixKey: "Prefix",
+            AppConstants.commentSuffixKey: "Suffix",
+            AppConstants.commentSeparatorKey: " | ",
+            AppConstants.commentDateFormatKey: "yyyy-MM-dd",
+            AppConstants.dateTagPrefixKey: "Date"
+        ]) {
+            let comment = try XCTUnwrap(FFMPEGCommandBuilder.commentMetadataValue(
+                comment: "Hei fra AV2 🎬",
+                includeDateTag: true,
+                date: Date(timeIntervalSince1970: 0)
+            ))
+            XCTAssertEqual(comment, "Date: 1970-01-01 | Prefix | Hei fra AV2 🎬 | Suffix")
+
+            let timecode = try XCTUnwrap(FFMPEGCommandBuilder.resolvedTimecode(
+                timecodeConfig: TimecodeConfig(mode: .preserveSource),
+                sourceMetadata: videoMetadata(timecode: "01:02:03:12", frameRate: 24),
+                trimStart: 2
+            ))
+            XCTAssertEqual(timecode, "01:02:05:12")
+
+            let temporaryDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("AagedalMediaConverterMatroskaMetadataTests-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+            let outputURL = temporaryDirectory.appendingPathComponent("metadata.mkv")
+            try MatroskaMuxer.write(
+                to: outputURL,
+                video: MatroskaMuxer.VideoTrackInfo(
+                    codecPrivate: nil,
+                    width: 16,
+                    height: 16,
+                    fpsNumerator: 24,
+                    fpsDenominator: 1
+                ),
+                videoFrames: [MatroskaMuxer.VideoFrame(data: Data([0x12, 0x34]), isKeyframe: true)],
+                audio: nil,
+                audioFrames: [],
+                metadata: MatroskaMuxer.Metadata(comment: comment, timecode: timecode)
+            )
+
+            let data = try Data(contentsOf: outputURL)
+            XCTAssertNotNil(data.range(of: Data("COMMENT".utf8)))
+            XCTAssertNotNil(data.range(of: Data(comment.utf8)))
+            XCTAssertNotNil(data.range(of: Data(timecode.utf8)))
+            let firstTimecodeTag = try XCTUnwrap(data.range(of: Data("TIMECODE".utf8)))
+            XCTAssertNotNil(data[firstTimecodeTag.upperBound...].range(of: Data("TIMECODE".utf8)))
+            XCTAssertNotNil(data.range(of: Data([0x63, 0xC0, 0x80])))
+            XCTAssertNotNil(data.range(of: Data([0x63, 0xC5, 0x81, 0x01])))
+        }
+    }
+
+    func testAV2RejectsAdditionalFFmpegOutputArgumentsInsteadOfIgnoringThem() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterAV2ArgumentTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("source.mov")
+        try Data([0]).write(to: inputURL)
+        let result = await runConversion(ConversionRequest(
+            inputURL: inputURL,
+            outputURL: temporaryDirectory.appendingPathComponent("output"),
+            preset: .av2,
+            additionalOutputArguments: ["-metadata", "title=Must not be ignored"]
+        ))
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "AV2 export does not support additional FFmpeg output arguments")
+    }
+
     func testAudioRoutingPreservesSelectionOrderAndDuplicateTracks() {
         let tracks = [audioTrack(index: 0, channels: 2), audioTrack(index: 1, channels: 1)]
         let config = AudioRoutingConfig(
@@ -1639,10 +1754,10 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         try body()
     }
 
-    private func withPresetSettingsAsync(
+    private func withPresetSettingsAsync<Result>(
         _ overrides: [String: Any],
-        _ body: () async throws -> Void
-    ) async throws {
+        _ body: () async throws -> Result
+    ) async throws -> Result {
         let defaults = UserDefaults.standard
         let argumentDomain = "NSArgumentDomain"
         let originalArguments = defaults.volatileDomain(forName: argumentDomain)
@@ -1657,7 +1772,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             defaults.setVolatileDomain(originalArguments, forName: argumentDomain)
         }
 
-        try await body()
+        return try await body()
     }
 
     private var defaultPresetSettings: [String: Any] {
@@ -1726,6 +1841,23 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             )
         }
         return log
+    }
+
+    private func runConversion(
+        _ request: ConversionRequest
+    ) async -> (success: Bool, errorReason: String?) {
+        let converter = FFMPEGConverter()
+        return await withCheckedContinuation { continuation in
+            Task {
+                await converter.convert(
+                    request: request,
+                    progressUpdate: { _, _ in },
+                    completion: { success, errorReason in
+                        continuation.resume(returning: (success, errorReason))
+                    }
+                )
+            }
+        }
     }
 
     private var ffmpegExecutableURL: URL {

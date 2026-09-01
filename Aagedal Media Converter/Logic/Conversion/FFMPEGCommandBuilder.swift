@@ -815,7 +815,11 @@ extension FFMPEGCommandBuilder {
         value % 2 == 0 ? value : value + 1
     }
 
-    static func applyCommentMetadata(to ffmpegArgs: inout [String], comment: String, includeDateTag: Bool) {
+    static func commentMetadataValue(
+        comment: String,
+        includeDateTag: Bool,
+        date: Date = Date()
+    ) -> String? {
         let trimmedComment = comment.trimmingCharacters(in: .whitespacesAndNewlines)
         
         // Get prefix, suffix, separator, and date format from UserDefaults
@@ -832,7 +836,7 @@ extension FFMPEGCommandBuilder {
             if includeDateTag {
                 let dateFormatter = DateFormatter()
                 dateFormatter.dateFormat = commentDateFormat
-                let currentDateString = dateFormatter.string(from: Date())
+                let currentDateString = dateFormatter.string(from: date)
                 parts.append("\(effectiveDateTagPrefix): \(currentDateString)")
             }
             
@@ -851,6 +855,12 @@ extension FFMPEGCommandBuilder {
             guard !parts.isEmpty else { return nil }
             return parts.joined(separator: commentSeparator)
         }()
+
+        return commentText
+    }
+
+    static func applyCommentMetadata(to ffmpegArgs: inout [String], comment: String, includeDateTag: Bool) {
+        let commentText = commentMetadataValue(comment: comment, includeDateTag: includeDateTag)
 
         // First, remove any existing comment metadata from the arguments
         var index = 0
@@ -876,25 +886,34 @@ extension FFMPEGCommandBuilder {
         sourceMetadata: VideoMetadata?,
         trimStart: Double?
     ) async {
-        let timecodeValue: String?
+        let timecodeValue = resolvedTimecode(
+            timecodeConfig: timecodeConfig,
+            sourceMetadata: sourceMetadata,
+            trimStart: trimStart
+        )
 
+        replaceTimecodeMetadata(in: &ffmpegArgs, with: timecodeValue)
+    }
+
+    /// Resolves a configured timecode without assuming an FFmpeg output. The AV2
+    /// Matroska path uses the same policy when writing native container tags.
+    static func resolvedTimecode(
+        timecodeConfig: TimecodeConfig,
+        sourceMetadata: VideoMetadata?,
+        trimStart: Double?
+    ) -> String? {
         switch timecodeConfig.mode {
         case .preserveSource:
-            // Use timecode from source metadata, offsetting by trim-in point if present
             if let sourceTimecode = sourceMetadata?.timecode,
                let trimOffset = trimStart,
                trimOffset > 0,
                let frameRate = sourceMetadata?.primaryVideoStream?.frameRate?.value {
-                timecodeValue = offsetTimecode(sourceTimecode, bySeconds: trimOffset, frameRate: frameRate)
-            } else {
-                timecodeValue = sourceMetadata?.timecode
+                return offsetTimecode(sourceTimecode, bySeconds: trimOffset, frameRate: frameRate)
             }
-        case .manual(let tc):
-            // Use manually specified timecode
-            timecodeValue = tc.isEmpty ? nil : tc
+            return sourceMetadata?.timecode
+        case .manual(let timecode):
+            return timecode.isEmpty ? nil : timecode
         }
-
-        replaceTimecodeMetadata(in: &ffmpegArgs, with: timecodeValue)
     }
 
     /// Replaces both container and primary-video timecode metadata. QuickTime's

@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: fifty-three tests pass. The
+- The unit-test baseline is green: fifty-six tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only fifty-three unit tests. The UI test target still contains the generated
+- There are only fifty-six unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -194,15 +194,24 @@ including full concat audio and image-sequence companion files, and item-level m
 suppresses the audio track. Audio-only generated-video requests fail with a clear
 unsupported message instead of entering an incompatible AV2 path.
 
+AV2-in-Matroska now writes the same composed comment/date value and resolved
+manual or preserved timecode as the generic export path, including global and
+primary-video tags. Raw IVF remains metadata-free by design. Arbitrary additional
+FFmpeg output arguments now fail with a clear unsupported error instead of being
+silently discarded; there are currently no production AV2 callers that supply
+them.
+
 The audit identified these remaining high-risk follow-ups:
 
-- AV2 still bypasses generic comment/date metadata, timecode, additional output
-  arguments, and audio-routing policy; generated waveform/synthesized-video AV2
-  output remains unsupported;
+- AV2 still bypasses audio-routing policy, and its single-audio-track Matroska
+  writer cannot yet represent ordered or duplicated output tracks; generated
+  waveform/synthesized-video AV2 output remains unsupported;
 - generated IMF CPL `SourceEncoding` references need full MXF descriptor and
   subdescriptor coverage plus conformance validation.
 
 ### 1.2 Add small media-fixture integration tests
+
+Status: in progress; first core converter fixture added 2026-09-01.
 
 - Generate short fixtures in the test setup instead of committing large media.
 - Exercise one representative file per major family: video+audio, anamorphic,
@@ -214,6 +223,13 @@ The audit identified these remaining high-risk follow-ups:
 
 Acceptance: the core “import → command → convert → validate output” path runs in CI
 in a few minutes and leaves no temporary artifacts behind.
+
+A generated one-second video+audio Matroska fixture now drives
+`FFMPEGConverter.convert` through real output naming, process launch, progress
+handling, completion, and post-run validation. The test verifies the H.264 result
+contains one video and one audio stream with the expected dimensions and duration,
+and cleans its temporary directory. The multichannel, subtitle, malformed-input,
+cancellation, failure, existing-output, and source-overwrite cases remain open.
 
 ### 1.3 Replace the placeholder UI test with smoke coverage
 

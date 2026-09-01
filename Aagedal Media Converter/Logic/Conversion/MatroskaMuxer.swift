@@ -45,6 +45,12 @@ enum MatroskaMuxer {
         var seekPreRollNs: Int64? = nil   // Opus seek pre-roll (80 ms), in nanoseconds
     }
 
+    /// Global Matroska tags that apply to the whole output file.
+    struct Metadata: Sendable, Equatable {
+        var comment: String? = nil
+        var timecode: String? = nil
+    }
+
     /// A decoded video frame ready to mux: the raw bitstream payload + whether it is a key frame.
     struct VideoFrame: Sendable {
         let data: Data
@@ -80,7 +86,8 @@ enum MatroskaMuxer {
         video: VideoTrackInfo,
         videoFrames: [VideoFrame],
         audio: AudioTrackInfo?,
-        audioFrames: [AudioFrame]
+        audioFrames: [AudioFrame],
+        metadata: Metadata? = nil
     ) throws {
         guard !videoFrames.isEmpty else { throw MuxError.noVideoFrames }
 
@@ -204,6 +211,7 @@ enum MatroskaMuxer {
             cuesBody += element(0xBB, cuePoint)                                    // CuePoint
         }
         let cuesElement = cuePoints.isEmpty ? Data() : element(0x1C53BB6B, cuesBody)
+        let tagsElement = buildTags(metadata)
 
         // MARK: Assemble
         var segmentBody = Data()
@@ -211,6 +219,7 @@ enum MatroskaMuxer {
         segmentBody += tracksElement
         for ce in clusterElements { segmentBody += ce }
         segmentBody += cuesElement
+        segmentBody += tagsElement
         let segment = element(0x18538067, segmentBody)
 
         var file = Data()
@@ -268,6 +277,48 @@ enum MatroskaMuxer {
         audioSub += element(0x9F, uintData(UInt64(max(1, audio.channels)))) // Channels
         entry += element(0xE1, audioSub)                     // Audio
         return element(0xAE, entry)                          // TrackEntry
+    }
+
+    // MARK: - Global tags
+
+    private static func buildTags(_ metadata: Metadata?) -> Data {
+        guard let metadata else { return Data() }
+
+        let values: [(name: String, value: String?)] = [
+            ("COMMENT", metadata.comment),
+            ("TIMECODE", metadata.timecode)
+        ]
+        let populated = values.compactMap { pair -> (String, String)? in
+            guard let value = pair.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty else {
+                return nil
+            }
+            return (pair.name, value)
+        }
+        guard !populated.isEmpty else { return Data() }
+
+        var globalTag = element(0x63C0, Data())              // Targets (empty = whole Segment)
+        for (name, value) in populated {
+            var simpleTag = Data()
+            simpleTag += element(0x45A3, Data(name.utf8))    // TagName
+            simpleTag += element(0x4487, Data(value.utf8))   // TagString
+            globalTag += element(0x67C8, simpleTag)          // SimpleTag
+        }
+
+        var tags = element(0x7373, globalTag)                // Global Tag
+        if let timecode = metadata.timecode?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !timecode.isEmpty {
+            var targets = Data()
+            targets += element(0x63C5, uintData(1))          // TrackUID = primary video
+            var trackTag = element(0x63C0, targets)
+            var simpleTag = Data()
+            simpleTag += element(0x45A3, Data("TIMECODE".utf8))
+            simpleTag += element(0x4487, Data(timecode.utf8))
+            trackTag += element(0x67C8, simpleTag)
+            tags += element(0x7373, trackTag)
+        }
+
+        return element(0x1254C367, tags)                     // Tags
     }
 
     // MARK: - EBML primitives

@@ -164,6 +164,10 @@ actor FFMPEGConverter {
             completion(false, "FFmpeg binary not found")
             return
         }
+        guard preset != .av2 || request.additionalOutputArguments?.isEmpty != false else {
+            completion(false, "AV2 export does not support additional FFmpeg output arguments")
+            return
+        }
 
         // Ensure output directory exists
         let fileManager = FileManager.default
@@ -436,6 +440,10 @@ actor FFMPEGConverter {
                     sourceURL: inputURL,
                     customInputArguments: request.customInputArguments,
                     isMuted: request.isMuted,
+                    comment: request.comment,
+                    includeDateTag: request.includeDateTag,
+                    timecodeConfig: request.timecodeConfig,
+                    sourceMetadata: request.sourceMetadata,
                     trimStart: request.trimStart,
                     trimEnd: request.trimEnd,
                     bitDepth: bitDepth,
@@ -2044,6 +2052,10 @@ actor FFMPEGConverter {
         sourceURL: URL,
         customInputArguments: [String]?,
         isMuted: Bool,
+        comment: String,
+        includeDateTag: Bool,
+        timecodeConfig: TimecodeConfig?,
+        sourceMetadata knownSourceMetadata: VideoMetadata?,
         trimStart: Double?,
         trimEnd: Double?,
         bitDepth: Int,
@@ -2103,13 +2115,44 @@ actor FFMPEGConverter {
             audioFrames = frames
         }
 
-        // 4. Write the Matroska file.
+        // 4. Resolve global/container metadata. Raw IVF cannot carry these tags;
+        // the Matroska path keeps the same comment/date and timecode policy as
+        // ordinary FFmpeg-backed exports.
+        let sourceMetadata: VideoMetadata?
+        if case .preserveSource? = timecodeConfig?.mode, knownSourceMetadata == nil {
+            sourceMetadata = try? await VideoMetadataService.shared.metadata(for: sourceURL)
+        } else {
+            sourceMetadata = knownSourceMetadata
+        }
+        let timecode = timecodeConfig.flatMap {
+            FFMPEGCommandBuilder.resolvedTimecode(
+                timecodeConfig: $0,
+                sourceMetadata: sourceMetadata,
+                trimStart: trimStart
+            )
+        }
+        let metadata = MatroskaMuxer.Metadata(
+            comment: FFMPEGCommandBuilder.commentMetadataValue(
+                comment: comment,
+                includeDateTag: includeDateTag
+            ),
+            timecode: timecode
+        )
+
+        // 5. Write the Matroska file.
         let video = MatroskaMuxer.VideoTrackInfo(
             codecID: "V_AV2", codecPrivate: codecPrivate,
             width: width, height: height, fpsNumerator: fpsNum, fpsDenominator: fpsDen
         )
         do {
-            try MatroskaMuxer.write(to: outputURL, video: video, videoFrames: videoFrames, audio: audioInfo, audioFrames: audioFrames)
+            try MatroskaMuxer.write(
+                to: outputURL,
+                video: video,
+                videoFrames: videoFrames,
+                audio: audioInfo,
+                audioFrames: audioFrames,
+                metadata: metadata
+            )
         } catch {
             return (false, "AV2 muxing failed: \(error.localizedDescription)")
         }
