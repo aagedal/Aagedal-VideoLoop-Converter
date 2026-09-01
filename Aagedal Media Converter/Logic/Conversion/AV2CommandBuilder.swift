@@ -360,17 +360,20 @@ enum AV2CommandBuilder {
         let threadsSetting = intSetting(AppConstants.av2ThreadsKey, default: AppConstants.defaultAV2Threads)
         let threads = threadsSetting > 0 ? threadsSetting : ProcessInfo.processInfo.activeProcessorCount
 
-        // Effective duration (trim-aware) for progress + chunk partitioning.
-        let effectiveDuration: Double?
-        if let trimStart, let trimEnd, trimEnd > trimStart {
-            effectiveDuration = trimEnd - trimStart
-        } else if let trimEnd, trimEnd > 0, trimStart == nil {
-            effectiveDuration = trimEnd
-        } else if let streamDuration = stream.duration {
-            effectiveDuration = streamDuration
+        // Effective duration (trim-aware) for progress + chunk partitioning. Resolve the source
+        // duration first so start-only trims subtract their skipped prefix instead of planning the
+        // full source again (which can send the final chunks past EOF).
+        let sourceDuration: Double?
+        if let streamDuration = stream.duration {
+            sourceDuration = streamDuration
         } else {
-            effectiveDuration = await FFMPEGProbeService.getVideoDuration(for: inputURL)
+            sourceDuration = await FFMPEGProbeService.getVideoDuration(for: inputURL)
         }
+        let effectiveDuration = resolvedEffectiveDuration(
+            sourceDuration: sourceDuration,
+            trimStart: trimStart,
+            trimEnd: trimEnd
+        )
 
         // Auto-tiling for the single-process path (chunked omits tiles entirely).
         let autoTileColumns = tileColumns > 0 ? tileColumns : autoTileLog2(finalW, maxLog2: 3)
@@ -405,6 +408,25 @@ enum AV2CommandBuilder {
     }
 
     // MARK: - Helpers
+
+    /// Mirrors FFmpeg's trim arguments while keeping progress and chunk planning inside the
+    /// source's available duration. An invalid/non-increasing end behaves like a start-only trim,
+    /// matching the command builder's omission of `-t` in that case.
+    static func resolvedEffectiveDuration(
+        sourceDuration: Double?,
+        trimStart: Double?,
+        trimEnd: Double?
+    ) -> Double? {
+        let start = max(0, trimStart ?? 0)
+
+        if let trimEnd, trimEnd > start {
+            let effectiveEnd = sourceDuration.map { min(trimEnd, max(0, $0)) } ?? trimEnd
+            return max(0, effectiveEnd - start)
+        }
+
+        guard let sourceDuration else { return nil }
+        return max(0, sourceDuration - start)
+    }
 
     /// Rounds to the nearest even integer (codec requirement), with a floor of 2.
     private static func evenDimension(_ value: Double) -> Int {

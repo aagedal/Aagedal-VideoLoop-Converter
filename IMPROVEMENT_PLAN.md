@@ -1,6 +1,6 @@
 # Aagedal Media Converter Improvement Plan
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-01
 
 This is the prioritized improvement roadmap. `TODO.md` remains a small historical
 feature checklist; new improvement work should be tracked here with an owner or
@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: forty tests pass. The
+- The unit-test baseline is green: forty-two tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only forty unit tests. The UI test target still contains the generated
+- There are only forty-two unit tests. The UI test target still contains the generated
   placeholder test and has no assertions for an app workflow.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
@@ -160,11 +160,14 @@ a stale `tmcd` track. Image-sequence input/range/audio and JPEG quality are test
 DCP and IMF tests cover geometry, profiles, rational rates, HDR color tags, and
 codec choices; AV2 chunk-count policy is covered for CQ, VBR, and short inputs.
 
-The next slice should use generated media and dummy package essences to cover the
-assembled commands and manifests. The audit identified these high-risk follow-ups:
+Generated fixed-rate media now verifies that AV2 start-only trims plan only the
+remaining duration and frame count, preventing parallel chunks from seeking beyond
+the source. The next slice should use generated media and dummy package essences to
+cover more assembled commands and manifests. The audit identified these high-risk
+follow-ups:
 
 - AV2 bypasses custom concat/image-sequence inputs and several generic command
-  options, and start-only trim can overstate chunk duration;
+  options;
 - DCP/IMF post-processing reopens only the primary source for audio instead of
   respecting concat/image-sequence inputs;
 - image-sequence crop is blocked by the `outputsVideoTrack` capability gate;

@@ -642,6 +642,95 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testAV2EffectiveDurationHandlesEveryTrimShape() {
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedEffectiveDuration(
+                sourceDuration: 10,
+                trimStart: nil,
+                trimEnd: nil
+            ),
+            10
+        )
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedEffectiveDuration(
+                sourceDuration: 10,
+                trimStart: 2.5,
+                trimEnd: nil
+            ),
+            7.5
+        )
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedEffectiveDuration(
+                sourceDuration: 10,
+                trimStart: nil,
+                trimEnd: 4
+            ),
+            4
+        )
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedEffectiveDuration(
+                sourceDuration: 10,
+                trimStart: 2,
+                trimEnd: 6
+            ),
+            4
+        )
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedEffectiveDuration(
+                sourceDuration: 10,
+                trimStart: 8,
+                trimEnd: 20
+            ),
+            2
+        )
+        XCTAssertEqual(
+            AV2CommandBuilder.resolvedEffectiveDuration(
+                sourceDuration: 10,
+                trimStart: 12,
+                trimEnd: nil
+            ),
+            0
+        )
+    }
+
+    func testGeneratedAV2StartOnlyTrimPlansOnlyRemainingFrames() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterAV2TrimTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let fixtureURL = temporaryDirectory.appendingPathComponent("source.mov")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=32x32:rate=24:duration=4",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            fixtureURL.path
+        ])
+
+        try await withPresetSettingsAsync([
+            AppConstants.av2ParallelChunksKey: 2,
+            AppConstants.av2RateControlModeKey: AV2RateControlMode.constantQuality.rawValue
+        ]) {
+            let builtPlan = await AV2CommandBuilder.buildSegments(
+                inputURL: fixtureURL,
+                trimStart: 1.5,
+                trimEnd: nil,
+                cropConfig: nil
+            )
+            let plan = try XCTUnwrap(builtPlan)
+            defer { try? FileManager.default.removeItem(at: plan.segmentDirectory) }
+
+            XCTAssertEqual(plan.effectiveDuration ?? -1, 2.5, accuracy: 0.02)
+            XCTAssertEqual(plan.frameRate ?? -1, 24, accuracy: 0.01)
+            XCTAssertEqual(plan.totalFrames, 60)
+            XCTAssertEqual(plan.segments.map(\.frameCount).reduce(0, +), plan.totalFrames)
+            XCTAssertEqual(plan.segments.count, 2)
+            XCTAssertTrue(plan.segments[0].ffmpegArguments.containsAdjacent("-ss", "1.500000"))
+            XCTAssertTrue(plan.segments[1].ffmpegArguments.containsAdjacent("-ss", "2.750000"))
+            XCTAssertEqual(plan.segments.last?.frameCount, 30)
+        }
+    }
+
     func testAudioRoutingPreservesSelectionOrderAndDuplicateTracks() {
         let tracks = [audioTrack(index: 0, channels: 2), audioTrack(index: 1, channels: 1)]
         let config = AudioRoutingConfig(
