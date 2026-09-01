@@ -24,8 +24,9 @@ issue link when it starts.
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
 - There are only sixty-nine unit tests. The UI test target now has deterministic smoke
-  assertions for empty-queue launch and Settings navigation; fixture import, preset
-  selection, conversion cancellation, and result/error coverage remain to be added.
+  assertions for empty-queue launch, Settings navigation, generated-fixture import,
+  and preset selection; conversion cancellation and result/error coverage remain to
+  be added.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
@@ -33,9 +34,10 @@ issue link when it starts.
   do not share one cancellation, timeout, pipe-draining, and error-reporting layer.
 - `SwiftExifMediaProbe.durationSync` bridges async AVFoundation work with an
   unbounded semaphore wait.
-- The empty queue, primary conversion toolbar, and Settings navigation now have a
-  tested accessibility-identifier contract. Most icon-heavy and custom AppKit/SwiftUI
-  controls still need explicit labels, state values, and flow coverage.
+- The empty queue, imported queue rows, primary conversion toolbar, and Settings
+  navigation now have a tested accessibility-identifier contract. Most icon-heavy
+  and custom AppKit/SwiftUI controls still need explicit labels, state values, and
+  flow coverage.
 - The string catalog has 1,197 entries; 87 entries have no Norwegian localization.
   Some are format tokens or App Intent phrases, so they must be classified before
   translating.
@@ -277,13 +279,16 @@ Acceptance: the UI suite contains real assertions and is deterministic across tw
 consecutive clean runs.
 
 The stale UI-test host target name has been corrected. Stable accessibility
-identifiers now cover the empty queue, Import, Preset, Start/Cancel, Settings, and
-each Settings sidebar pane. The generated placeholder test has been replaced with
-empty-queue/toolbar assertions and a Settings test that opens the window and moves
-from General to Presets to Metadata while checking the exposed pane state. Both
-tests passed twice consecutively. A deterministic generated-fixture launch hook is
-still needed before adding import, preset-selection, start/cancel, and result/error
-smoke coverage without automating the sandboxed system file picker.
+identifiers now cover the empty queue, imported queue rows and their state, Import,
+Preset, Start/Cancel, Settings, and each Settings sidebar pane. The generated
+placeholder test has been replaced with empty-queue/toolbar assertions and a Settings
+test that opens the window and moves from General to Presets to Metadata while
+checking the exposed pane state. A DEBUG-only launch hook now generates a tiny media
+fixture in a caller-owned temporary directory and imports it through the production
+URL path, allowing the UI suite to verify queue import and preset selection without
+automating the sandboxed system file picker. The generated-fixture import and preset
+selection test passed twice consecutively. Start/cancel and result/error smoke coverage
+still need deterministic conversion scenarios.
 
 ## Priority 2 — Make long-running work reliable
 

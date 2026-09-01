@@ -64,6 +64,9 @@ struct ContentView: View {
     @State private var isConverting: Bool = false
     @State private var overallProgress: Double = 0.0
     @State private var isFileImporterPresented = false
+#if DEBUG
+    @State private var hasHandledUITestFixtureLaunch = false
+#endif
     /// Set when a convert App Intent opened the file importer with no file input
     /// (Spotlight/Siri phrase). After the user picks files, conversion starts.
     @State private var pendingConvertAfterImport = false
@@ -653,6 +656,9 @@ struct ContentView: View {
                 }
                 .task {
                     await startProgressUpdates()
+#if DEBUG
+                    await importUITestFixtureIfRequested()
+#endif
                 }
                 .onAppear {
                     setupScheduledDownloads()
@@ -1517,6 +1523,89 @@ struct ContentView: View {
             Self.logger.error("Error selecting files: \(error.localizedDescription, privacy: .public)")
         }
     }
+
+#if DEBUG
+    /// Generates and imports a tiny media file when the UI test target requests it.
+    /// The namespaced environment flag keeps normal Debug launches unchanged, while
+    /// the caller-provided directory lets the UI test remove every generated artifact.
+    @MainActor
+    private func importUITestFixtureIfRequested() async {
+        guard !hasHandledUITestFixtureLaunch,
+              ProcessInfo.processInfo.environment["AMC_UI_TEST_GENERATED_FIXTURE"] == "1" else {
+            return
+        }
+        hasHandledUITestFixtureLaunch = true
+
+        guard let directoryPath = ProcessInfo.processInfo.environment["AMC_UI_TEST_FIXTURE_DIRECTORY"],
+              !directoryPath.isEmpty else {
+            Self.logger.error("UI test fixture launch is missing AMC_UI_TEST_FIXTURE_DIRECTORY")
+            return
+        }
+
+        do {
+            let fixtureURL = try await Self.generateUITestFixture(
+                in: URL(fileURLWithPath: directoryPath, isDirectory: true)
+            )
+            handleFileSelection(result: .success([fixtureURL]))
+        } catch {
+            Self.logger.error("Unable to generate UI test fixture: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    nonisolated private static func generateUITestFixture(in directory: URL) async throws -> URL {
+        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+            throw UITestFixtureError.missingFFmpeg
+        }
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fixtureURL = directory.appendingPathComponent("ui-test-fixture.mp4")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpegPath)
+        process.arguments = [
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "mpeg4", "-q:v", "5", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-shortest", fixtureURL.path,
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        let exitStatus = try await withCheckedThrowingContinuation { continuation in
+            process.terminationHandler = { finishedProcess in
+                continuation.resume(returning: finishedProcess.terminationStatus)
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                continuation.resume(throwing: error)
+            }
+        }
+
+        guard exitStatus == 0,
+              FileManager.default.fileExists(atPath: fixtureURL.path) else {
+            throw UITestFixtureError.generationFailed(exitStatus)
+        }
+        return fixtureURL
+    }
+
+    private enum UITestFixtureError: LocalizedError {
+        case missingFFmpeg
+        case generationFailed(Int32)
+
+        var errorDescription: String? {
+            switch self {
+            case .missingFFmpeg:
+                return "The bundled FFmpeg executable could not be resolved."
+            case .generationFailed(let status):
+                return "FFmpeg exited with status \(status)."
+            }
+        }
+    }
+#endif
 
     private func startProgressUpdates() async {
         progressTask?.cancel()

@@ -918,6 +918,7 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
     func configure(with config: VideoFileCellConfiguration, actionHandler: @escaping (CellAction) -> Void) {
         let prev = self.currentConfig
         self.actionHandler = actionHandler
+        updateAccessibilityContract(with: config)
 
         // Skip entirely if config unchanged
         if let prev, prev == config {
@@ -1161,6 +1162,29 @@ final class VideoFileCellView: NSTableCellView, NSTextFieldDelegate {
         }
 
         self.currentConfig = config
+    }
+
+    /// Exposes a stable, localization-independent status contract to VoiceOver
+    /// and UI automation. This runs before the unchanged-config fast path so a
+    /// reused AppKit cell can never retain another queue item's accessibility data.
+    private func updateAccessibilityContract(with config: VideoFileCellConfiguration) {
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityIdentifier("queue.item")
+        setAccessibilityLabel(config.name)
+        setAccessibilityValue(accessibilityStatusValue(for: config))
+        setAccessibilityHelp(config.status == .failed ? config.conversionError : nil)
+    }
+
+    private func accessibilityStatusValue(for config: VideoFileCellConfiguration) -> String {
+        switch config.status {
+        case .waiting: return "waiting"
+        case .converting: return "converting"
+        case .done: return "done"
+        case .failed: return "failed"
+        case .cancelled: return "cancelled"
+        @unknown default: return "unknown"
+        }
     }
 
     // MARK: - Layout Updates
