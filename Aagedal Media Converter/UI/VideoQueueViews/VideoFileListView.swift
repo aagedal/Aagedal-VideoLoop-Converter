@@ -788,7 +788,7 @@ struct VideoFileListView: View {
                 // Start upload immediately for source files
                 let itemID = droppedFiles[index].id
                 Task {
-                    await UploadManager.shared.startUpload(itemID: itemID)
+                    UploadManager.shared.startUpload(itemID: itemID)
                 }
             }
         }

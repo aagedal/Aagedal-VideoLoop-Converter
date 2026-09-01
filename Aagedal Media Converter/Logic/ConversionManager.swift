@@ -1961,7 +1961,7 @@ actor ConversionManager: Sendable {
                     // Trigger upload if enabled for this item
                     if success && droppedFiles.wrappedValue[idx].uploadEnabled {
                         Task {
-                            await UploadManager.shared.startUpload(itemID: fileId)
+                            UploadManager.shared.startUpload(itemID: fileId)
                         }
                     }
 

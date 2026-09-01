@@ -55,6 +55,7 @@ struct SubprocessRequest: Sendable {
     let standardOutputCaptureLimit: Int
     let standardErrorCaptureLimit: Int
     let sensitiveArgumentNames: Set<String>
+    let sensitiveValues: Set<String>
     let redactURLs: Bool
 
     init(
@@ -68,6 +69,7 @@ struct SubprocessRequest: Sendable {
         standardOutputCaptureLimit: Int = SubprocessRequest.defaultCaptureLimit,
         standardErrorCaptureLimit: Int = SubprocessRequest.defaultCaptureLimit,
         sensitiveArgumentNames: Set<String> = [],
+        sensitiveValues: Set<String> = [],
         redactURLs: Bool = true
     ) {
         self.executableURL = executableURL
@@ -80,6 +82,7 @@ struct SubprocessRequest: Sendable {
         self.standardOutputCaptureLimit = max(standardOutputCaptureLimit, 0)
         self.standardErrorCaptureLimit = max(standardErrorCaptureLimit, 0)
         self.sensitiveArgumentNames = sensitiveArgumentNames
+        self.sensitiveValues = sensitiveValues
         self.redactURLs = redactURLs
     }
 
@@ -90,6 +93,10 @@ struct SubprocessRequest: Sendable {
         let redactedArguments = arguments.map { argument -> String in
             if redactNext {
                 redactNext = false
+                return "<redacted>"
+            }
+
+            if sensitiveValues.contains(argument) {
                 return "<redacted>"
             }
 
@@ -122,6 +129,10 @@ struct SubprocessRequest: Sendable {
     func redactedDiagnostic(_ diagnostic: String, limit: Int = 8 * 1024) -> String {
         var redacted = diagnostic
         var redactNext = false
+
+        for value in sensitiveValues.filter({ !$0.isEmpty }).sorted(by: { $0.count > $1.count }) {
+            redacted = redacted.replacingOccurrences(of: value, with: "<redacted>")
+        }
 
         for argument in arguments {
             if redactNext {

@@ -1319,7 +1319,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                         parent.droppedFiles[idx].uploadSourceFile.toggle()
                         if parent.droppedFiles[idx].uploadSourceFile {
                             parent.droppedFiles[idx].uploadEnabled = true
-                            Task { await UploadManager.shared.startUpload(itemID: itemID) }
+                            Task { UploadManager.shared.startUpload(itemID: itemID) }
                         }
                     } else {
                         parent.droppedFiles[idx].uploadEnabled.toggle()

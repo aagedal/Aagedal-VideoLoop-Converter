@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: eighty-five tests pass. The
+- The unit-test baseline is green: ninety-three tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only eighty-five unit tests. The UI test target now has deterministic smoke
+- There are only ninety-three unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -299,7 +299,7 @@ batch cancellation. Per-batch and per-process identities also prevent late callb
 from an older cancelled conversion from clearing or completing newer work, including
 cancellation during FFmpeg preflight before the process launches. Start/cancel,
 success, and failure UI tests passed together in two consecutive runs; the full
-eighty-five-test unit target remains green.
+ninety-three-test unit target remains green.
 
 ## Priority 2 — Make long-running work reliable
 
@@ -345,8 +345,21 @@ one concurrent or late download from cancelling or clearing another. Fake-runner
 cover split output, successful result validation, redacted failures, explicit and parent-task
 cancellation, and live-stop behavior; the runner also verifies that every captured byte reaches its
 incremental handler, including final-drain bytes. Robust process-group isolation and the
-remaining FFmpeg/rclone/transcription/OCR/package call sites are still open, so this item
-remains in progress.
+remaining call sites are still open, so this item remains in progress.
+
+The rclone upload, connection-test, and password-obscuring paths now use the shared
+runner with six-hour, one-minute, and five-second deadlines respectively, bounded
+stdout/stderr capture, stdin-only password delivery, and redacted paths, destinations,
+key files, and credentials. Inherited rclone configuration variables are scrubbed before
+the request-specific in-memory remote is installed. Arbitrary output chunks are
+reassembled into complete progress/error lines, including final unterminated output.
+Upload cancellation now follows each item's Swift task instead of a single mutable
+`Process`, so cancelling one concurrent
+upload cannot terminate another; execution identities also prevent late progress,
+completion, or cleanup from an older attempt from overwriting a retry. Fake-runner tests
+cover split/final progress, request construction, diagnostic redaction, connection error
+classification, password timeout/stdin behavior, and isolated concurrent cancellation.
+FFmpeg, transcription, OCR, package-update, and remaining wrapper call sites are still open.
 
 ### 2.2 Remove sync-over-async waits
 

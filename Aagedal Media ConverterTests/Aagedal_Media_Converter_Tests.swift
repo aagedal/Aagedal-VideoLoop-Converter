@@ -231,13 +231,302 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
                 "--cookies-from-browser", "Safari:Personal",
                 "https://user:password@example.com/watch?signed=private"
             ],
-            sensitiveArgumentNames: ["--cookies-from-browser"]
+            sensitiveArgumentNames: ["--cookies-from-browser"],
+            sensitiveValues: ["environment-secret"]
         )
 
         let diagnostic = request.redactedDiagnostic(
-            "Failed Safari:Personal while reading https://user:password@example.com/watch?signed=private"
+            "Failed Safari:Personal environment-secret while reading https://user:password@example.com/watch?signed=private"
         )
-        XCTAssertEqual(diagnostic, "Failed <redacted> while reading <url>")
+        XCTAssertEqual(diagnostic, "Failed <redacted> <redacted> while reading <url>")
+    }
+
+    func testSubprocessRequestRedactsOverlappingSensitiveValuesLongestFirst() {
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/tool"),
+            sensitiveValues: ["ABC", "ABCDEF"]
+        )
+
+        let diagnostic = request.redactedDiagnostic("keys ABCDEF and ABC")
+
+        XCTAssertEqual(diagnostic, "keys <redacted> and <redacted>")
+        XCTAssertFalse(diagnostic.contains("DEF"))
+    }
+
+    func testRcloneEnvironmentDropsInheritedRemoteConfiguration() {
+        let environment = RcloneService.sanitizedEnvironment(
+            base: [
+                "PATH": "/usr/bin",
+                "RCLONE_CONFIG": "/private/config",
+                "RCLONE_CONFIG_UPLOAD_PASS": "inherited-secret",
+                "RCLONE_CONFIG_OTHER_TYPE": "s3"
+            ],
+            overrides: [
+                "RCLONE_CONFIG_UPLOAD_TYPE": "sftp",
+                "RCLONE_CONFIG_UPLOAD_HOST": "media.example"
+            ]
+        )
+
+        XCTAssertEqual(environment["PATH"], "/usr/bin")
+        XCTAssertEqual(environment["RCLONE_CONFIG"], "/dev/null")
+        XCTAssertEqual(environment["RCLONE_CONFIG_UPLOAD_TYPE"], "sftp")
+        XCTAssertEqual(environment["RCLONE_CONFIG_UPLOAD_HOST"], "media.example")
+        XCTAssertNil(environment["RCLONE_CONFIG_UPLOAD_PASS"])
+        XCTAssertNil(environment["RCLONE_CONFIG_OTHER_TYPE"])
+    }
+
+    func testRcloneUploadUsesRunnerAndParsesSplitAndFinalProgressLines() async throws {
+        let runner = RecordingSubprocessRunner { _, outputHandler in
+            outputHandler?(
+                SubprocessOutputChunk(
+                    stream: .standardError,
+                    data: Data("Transferred: 1 MiB / 2 MiB, 50%, 4 MiB/s, ".utf8)
+                )
+            )
+            outputHandler?(
+                SubprocessOutputChunk(
+                    stream: .standardError,
+                    data: Data("ETA 1s\n".utf8)
+                )
+            )
+            outputHandler?(
+                SubprocessOutputChunk(
+                    stream: .standardOutput,
+                    data: Data("Transferred: 2 MiB / 2 MiB, 100%, 5 MiB/s, ETA 0s".utf8)
+                )
+            )
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(3)
+            )
+        }
+        let service = RcloneService(
+            updateService: StubRcloneUpdateService(path: "/usr/bin/rclone-fixture"),
+            subprocessRunner: runner
+        )
+        let callbacks = RcloneCallbackRecorder()
+        let localURL = URL(fileURLWithPath: "/private/tmp/Secret Clip.mov")
+        let config = UploadConfig(
+            server: "media.example",
+            port: 22,
+            username: "editor",
+            remotePath: "/deliveries",
+            backendType: .sftp,
+            sftpKeyFilePath: "/private/keys/upload-key"
+        )
+
+        let result = try await service.upload(
+            localFile: localURL,
+            config: config,
+            progress: { value, speed in callbacks.record(value: value, speed: speed) }
+        )
+
+        XCTAssertTrue(result.success)
+        XCTAssertEqual(result.remotePath, "/deliveries/Secret Clip.mov")
+        XCTAssertEqual(result.bytesTransferred, 2 * 1024 * 1024)
+        XCTAssertEqual(result.duration, 3, accuracy: 0.001)
+        XCTAssertTrue(callbacks.values.contains(0.5))
+        XCTAssertEqual(callbacks.values.last, 1.0)
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, "/usr/bin/rclone-fixture")
+        XCTAssertEqual(request.timeout, .seconds(6 * 60 * 60))
+        XCTAssertTrue(request.arguments.containsAdjacent("copy", localURL.path))
+        XCTAssertEqual(request.environment?["RCLONE_CONFIG_UPLOAD_TYPE"], "sftp")
+        XCTAssertEqual(request.environment?["RCLONE_CONFIG_UPLOAD_KEY_FILE"], "/private/keys/upload-key")
+        XCTAssertEqual(request.environment?["RCLONE_CONFIG"], "/dev/null")
+        XCTAssertFalse(request.redactedCommandDescription.contains(localURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains("upload:/deliveries"))
+        XCTAssertFalse(request.redactedDiagnostic("leaked /private/keys/upload-key").contains("upload-key"))
+    }
+
+    func testRcloneUploadRedactsConnectionFailureDetails() async throws {
+        let localURL = URL(fileURLWithPath: "/private/tmp/Secret.mov")
+        let diagnostic = "Failed: connection refused at sftp://user:password@example.com/private for \(localURL.path)\n"
+        let runner = RecordingSubprocessRunner { _, outputHandler in
+            outputHandler?(
+                SubprocessOutputChunk(stream: .standardError, data: Data(diagnostic.utf8))
+            )
+            return SubprocessResult(
+                terminationStatus: 1,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(1)
+            )
+        }
+        let service = RcloneService(
+            updateService: StubRcloneUpdateService(path: "/usr/bin/rclone-fixture"),
+            subprocessRunner: runner
+        )
+        let config = UploadConfig(
+            server: "media.example",
+            port: 22,
+            username: "editor",
+            remotePath: "/deliveries",
+            backendType: .sftp,
+            sftpKeyFilePath: "/private/keys/upload-key"
+        )
+
+        do {
+            _ = try await service.upload(localFile: localURL, config: config, progress: { _, _ in })
+            XCTFail("Expected connection failure")
+        } catch let error as UploadError {
+            guard case let .connectionFailed(message) = error else {
+                return XCTFail("Expected connectionFailed, got \(error)")
+            }
+            XCTAssertTrue(message.contains("<url>"))
+            XCTAssertTrue(message.contains("<redacted>"))
+            XCTAssertFalse(message.contains("example.com"))
+            XCTAssertFalse(message.contains("password"))
+            XCTAssertFalse(message.contains(localURL.path))
+        }
+    }
+
+    func testRcloneObscureUsesRunnerStdinAndRedactsPassword() async throws {
+        let password = "correct horse battery staple"
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("obscured-value\n".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let service = RcloneService(
+            updateService: StubRcloneUpdateService(path: "/usr/bin/rclone-fixture"),
+            subprocessRunner: runner
+        )
+
+        let obscured = try await service.obscurePassword(password, rclonePath: "/usr/bin/rclone-fixture")
+
+        XCTAssertEqual(obscured, "obscured-value")
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.arguments, ["obscure", "-"])
+        XCTAssertEqual(request.standardInput, Data((password + "\n").utf8))
+        XCTAssertEqual(request.timeout, .seconds(5))
+        XCTAssertFalse(request.redactedDiagnostic("echoed \(password)").contains(password))
+        XCTAssertFalse(request.redactedCommandDescription.contains(password))
+    }
+
+    func testRcloneObscureMapsRunnerTimeout() async throws {
+        let runner = RecordingSubprocessRunner { request, _ in
+            let result = SubprocessResult(
+                terminationStatus: SIGTERM,
+                termination: .uncaughtSignal,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(5)
+            )
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: result
+            )
+        }
+        let service = RcloneService(
+            updateService: StubRcloneUpdateService(path: "/usr/bin/rclone-fixture"),
+            subprocessRunner: runner
+        )
+
+        do {
+            _ = try await service.obscurePassword("secret", rclonePath: "/usr/bin/rclone-fixture")
+            XCTFail("Expected timeout")
+        } catch let error as UploadError {
+            guard case let .uploadFailed(message) = error else {
+                return XCTFail("Expected uploadFailed, got \(error)")
+            }
+            XCTAssertEqual(message, "Failed to obscure password: timed out")
+        }
+    }
+
+    func testRcloneConnectionTestUsesRunnerDeadlineAndMapsAuthentication() async throws {
+        let diagnostic = "530 Login incorrect\n"
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 1,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(1)
+            )
+        }
+        let service = RcloneService(
+            updateService: StubRcloneUpdateService(path: "/usr/bin/rclone-fixture"),
+            subprocessRunner: runner
+        )
+        let config = UploadConfig(
+            server: "media.example",
+            port: 22,
+            username: "editor",
+            remotePath: "/deliveries",
+            backendType: .sftp,
+            sftpKeyFilePath: "/private/keys/upload-key"
+        )
+
+        do {
+            _ = try await service.testConnection(config: config)
+            XCTFail("Expected authentication failure")
+        } catch let error as UploadError {
+            guard case .authenticationFailed = error else {
+                return XCTFail("Expected authenticationFailed, got \(error)")
+            }
+        }
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.arguments.first, "lsd")
+        XCTAssertEqual(request.timeout, .seconds(60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+    }
+
+    func testConcurrentRcloneUploadsCancelOnlyTheirOwnRunnerInvocation() async throws {
+        let runner = SelectiveRcloneRunner()
+        let service = RcloneService(
+            updateService: StubRcloneUpdateService(path: "/usr/bin/rclone-fixture"),
+            subprocessRunner: runner
+        )
+        let config = UploadConfig(
+            server: "media.example",
+            port: 22,
+            username: "editor",
+            remotePath: "/deliveries",
+            backendType: .sftp,
+            sftpKeyFilePath: "/private/keys/upload-key"
+        )
+        let cancelledURL = URL(fileURLWithPath: "/private/tmp/cancel.mov")
+        let completedURL = URL(fileURLWithPath: "/private/tmp/complete.mov")
+        let cancelledTask = Task {
+            try await service.upload(localFile: cancelledURL, config: config, progress: { _, _ in })
+        }
+        let completedTask = Task {
+            try await service.upload(localFile: completedURL, config: config, progress: { _, _ in })
+        }
+
+        await runner.waitUntilStarted(count: 2)
+        cancelledTask.cancel()
+
+        let completedResult = try await completedTask.value
+        XCTAssertTrue(completedResult.success)
+        do {
+            _ = try await cancelledTask.value
+            XCTFail("Expected the selected upload to be cancelled")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertEqual(runner.cancelledPaths, [cancelledURL.path])
     }
 
     func testYTDLPDownloadUsesRunnerAndParsesSplitProgressAndOutputLines() async throws {
@@ -3046,6 +3335,14 @@ private struct StubYTDLPUpdateService: YTDLPUpdating {
     }
 }
 
+private struct StubRcloneUpdateService: RcloneUpdating {
+    let path: String?
+
+    func resolveRclonePath() async -> String? {
+        path
+    }
+}
+
 private final class RecordingSubprocessRunner: SubprocessRunning, @unchecked Sendable {
     typealias Operation = @Sendable (
         SubprocessRequest,
@@ -3118,6 +3415,90 @@ private final class BlockingSubprocessRunner: SubprocessRunning, @unchecked Send
                 startWaiters.append(continuation)
                 lock.unlock()
             }
+        }
+    }
+}
+
+private final class SelectiveRcloneRunner: SubprocessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedCount = 0
+    private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var recordedCancelledPaths: [String] = []
+
+    var cancelledPaths: [String] {
+        lock.withLock { recordedCancelledPaths }
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        let localPath = request.arguments.count > 1 ? request.arguments[1] : ""
+        signalStarted()
+
+        if localPath.contains("cancel") {
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                lock.withLock {
+                    recordedCancelledPaths.append(localPath)
+                }
+                throw error
+            }
+        }
+
+        return SubprocessResult(
+            terminationStatus: 0,
+            termination: .exited,
+            standardOutput: Data(),
+            standardError: Data(),
+            discardedStandardOutputBytes: 0,
+            discardedStandardErrorBytes: 0,
+            duration: .seconds(1)
+        )
+    }
+
+    func waitUntilStarted(count: Int) async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                if startedCount >= count {
+                    return true
+                }
+                startWaiters.append((count, continuation))
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func signalStarted() {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            startedCount += 1
+            let ready = startWaiters.filter { startedCount >= $0.count }
+            startWaiters.removeAll { startedCount >= $0.count }
+            return ready.map(\.continuation)
+        }
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+}
+
+private final class RcloneCallbackRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedValues: [Double] = []
+    private var recordedSpeeds: [String?] = []
+
+    var values: [Double] {
+        lock.withLock { recordedValues }
+    }
+
+    func record(value: Double, speed: String?) {
+        lock.withLock {
+            recordedValues.append(value)
+            recordedSpeeds.append(speed)
         }
     }
 }
