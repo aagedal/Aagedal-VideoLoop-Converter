@@ -118,7 +118,10 @@ struct SubprocessRequest: Sendable {
             return argument
         }
 
-        return ([executableURL.path] + redactedArguments)
+        let executableDescription = sensitiveValues.contains(executableURL.path)
+            ? "<redacted-executable>"
+            : executableURL.path
+        return ([executableDescription] + redactedArguments)
             .map(Self.shellQuoted)
             .joined(separator: " ")
     }

@@ -254,6 +254,322 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(diagnostic.contains("DEF"))
     }
 
+    func testWaveformPCMDecoderUsesSharedRunnerPolicyAndProducesBands() async throws {
+        let inputURL = URL(fileURLWithPath: "/private/fixture/secret audio.wav")
+        let runner = RecordingSubprocessRunner { request, _ in
+            let outputPath = try XCTUnwrap(request.arguments.last)
+            let samples = (0..<4_096).map { index in
+                Float(sin(Double(index) * 0.05))
+            }
+            let data = samples.withUnsafeBytes { Data($0) }
+            try data.write(to: URL(fileURLWithPath: outputPath))
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+
+        let bands = try await WaveformPCMDecoder.decode(
+            url: inputURL,
+            ffmpegPath: "/private/fixture/ffmpeg",
+            frameRate: 2,
+            duration: 1,
+            bandCount: 8,
+            subprocessRunner: runner
+        )
+
+        XCTAssertEqual(bands.bandCount, 8)
+        XCTAssertEqual(bands.frameCount, 2)
+        XCTAssertEqual(bands.magnitudes.count, 2)
+        XCTAssertEqual(bands.magnitudes.first?.count, 8)
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, "/private/fixture/ffmpeg")
+        XCTAssertEqual(request.timeout, .seconds(12 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 64 * 1024)
+        XCTAssertTrue(request.arguments.contains(inputURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(try XCTUnwrap(request.arguments.last)))
+    }
+
+    func testNativeWaveformRendererUsesSharedRunnerAndProducesImage() async throws {
+        let inputURL = URL(fileURLWithPath: "/private/fixture/preview audio.wav")
+        let runner = RecordingSubprocessRunner { request, _ in
+            let outputPath = try XCTUnwrap(request.arguments.last)
+            let samples = (0..<800).map { index in
+                Float(sin(Double(index) * 0.1))
+            }
+            let data = samples.withUnsafeBytes { Data($0) }
+            try data.write(to: URL(fileURLWithPath: outputPath))
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+
+        let image = try await NativeWaveformRenderer.generateWaveform(
+            url: inputURL,
+            ffmpegPath: "/private/fixture/ffmpeg",
+            streamIndex: 2,
+            duration: 1,
+            width: 32,
+            height: 40,
+            subprocessRunner: runner
+        )
+
+        XCTAssertEqual(image.size.width, 400)
+        XCTAssertEqual(image.size.height, 40)
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.timeout, .seconds(12 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 64 * 1024)
+        XCTAssertTrue(request.arguments.contains("0:a:2"))
+        XCTAssertFalse(request.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(try XCTUnwrap(request.arguments.last)))
+    }
+
+    func testNativeWaveformRendererProducesPerChannelImagesThroughSharedRunner() async throws {
+        let runner = RecordingSubprocessRunner { request, _ in
+            let outputPath = try XCTUnwrap(request.arguments.last)
+            let samples = (0..<1_600).map { index in
+                Float(sin(Double(index) * 0.1))
+            }
+            let data = samples.withUnsafeBytes { Data($0) }
+            try data.write(to: URL(fileURLWithPath: outputPath))
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+
+        let (images, labels) = try await NativeWaveformRenderer.generatePerChannelWaveforms(
+            url: URL(fileURLWithPath: "/private/fixture/stereo.wav"),
+            ffmpegPath: "/private/fixture/ffmpeg",
+            streamIndex: 1,
+            channelCount: 2,
+            channelLayout: "stereo",
+            duration: 1,
+            width: 32,
+            heightPerChannel: 30,
+            subprocessRunner: runner
+        )
+
+        XCTAssertEqual(images.count, 2)
+        XCTAssertEqual(images.map(\.size.width), [800, 800])
+        XCTAssertEqual(images.map(\.size.height), [30, 30])
+        XCTAssertEqual(labels, ["Left", "Right"])
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertTrue(request.arguments.contains("0:a:1"))
+        XCTAssertFalse(request.arguments.contains("-ac"))
+    }
+
+    func testWaveformPCMDecoderBoundsAndRedactsFailureDiagnostic() async throws {
+        let inputURL = URL(fileURLWithPath: "/private/fixture/secret audio.wav")
+        let runner = RecordingSubprocessRunner { request, _ in
+            let outputPath = request.arguments.last ?? "/private/fixture/output.raw"
+            let repeated = String(repeating: "x", count: 3_000)
+            let diagnostic = "\(repeated) failed \(inputURL.path) \(outputPath) https://example.com/private"
+            return SubprocessResult(
+                terminationStatus: 7,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+
+        do {
+            _ = try await WaveformPCMDecoder.decode(
+                url: inputURL,
+                ffmpegPath: "/private/fixture/ffmpeg",
+                frameRate: 1,
+                duration: 1,
+                subprocessRunner: runner
+            )
+            XCTFail("Expected decode failure")
+        } catch let error as WaveformPCMDecoderError {
+            guard case let .decodeFailed(diagnostic) = error else {
+                return XCTFail("Expected decodeFailed, got \(error)")
+            }
+            XCTAssertLessThanOrEqual(diagnostic.count, 2_001)
+            XCTAssertTrue(diagnostic.contains("<redacted>"), diagnostic)
+            XCTAssertTrue(diagnostic.contains("<url>"), diagnostic)
+            XCTAssertFalse(diagnostic.contains(inputURL.path), diagnostic)
+            XCTAssertFalse(diagnostic.contains("example.com"), diagnostic)
+        }
+    }
+
+    func testNativeWaveformRendererMapsRunnerTimeout() async throws {
+        let runner = RecordingSubprocessRunner { request, _ in
+            let result = SubprocessResult(
+                terminationStatus: SIGKILL,
+                termination: .uncaughtSignal,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(12 * 60 * 60)
+            )
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: result
+            )
+        }
+
+        do {
+            _ = try await NativeWaveformRenderer.generateWaveform(
+                url: URL(fileURLWithPath: "/private/fixture/audio.wav"),
+                ffmpegPath: "/private/fixture/ffmpeg",
+                streamIndex: 0,
+                duration: 1,
+                width: 400,
+                height: 40,
+                subprocessRunner: runner
+            )
+            XCTFail("Expected timeout")
+        } catch let error as PreviewAssetError {
+            XCTAssertTrue(error.localizedDescription.contains("timed out"), error.localizedDescription)
+        }
+    }
+
+    func testWaveformPCMDecoderMapsRunnerTimeout() async throws {
+        let runner = RecordingSubprocessRunner { request, _ in
+            let result = SubprocessResult(
+                terminationStatus: SIGKILL,
+                termination: .uncaughtSignal,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(12 * 60 * 60)
+            )
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: result
+            )
+        }
+
+        do {
+            _ = try await WaveformPCMDecoder.decode(
+                url: URL(fileURLWithPath: "/private/fixture/audio.wav"),
+                ffmpegPath: "/private/fixture/ffmpeg",
+                frameRate: 1,
+                duration: 1,
+                subprocessRunner: runner
+            )
+            XCTFail("Expected timeout")
+        } catch let error as WaveformPCMDecoderError {
+            guard case let .decodeFailed(message) = error else {
+                return XCTFail("Expected decodeFailed, got \(error)")
+            }
+            XCTAssertEqual(message, "FFmpeg audio decode timed out")
+        }
+    }
+
+    func testNativeWaveformRendererRedactsNonzeroFailure() async throws {
+        let inputURL = URL(fileURLWithPath: "/private/fixture/secret preview.wav")
+        let runner = RecordingSubprocessRunner { request, _ in
+            let outputPath = request.arguments.last ?? "/private/fixture/output.raw"
+            let diagnostic = "failed \(inputURL.path) \(outputPath) https://example.com/private"
+            return SubprocessResult(
+                terminationStatus: 9,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+
+        do {
+            _ = try await NativeWaveformRenderer.generateWaveform(
+                url: inputURL,
+                ffmpegPath: "/private/fixture/ffmpeg",
+                streamIndex: 0,
+                duration: 1,
+                width: 400,
+                height: 40,
+                subprocessRunner: runner
+            )
+            XCTFail("Expected process failure")
+        } catch let error as PreviewAssetError {
+            let diagnostic = error.localizedDescription
+            XCTAssertTrue(diagnostic.contains("<redacted>"), diagnostic)
+            XCTAssertTrue(diagnostic.contains("<url>"), diagnostic)
+            XCTAssertFalse(diagnostic.contains(inputURL.path), diagnostic)
+            XCTAssertFalse(diagnostic.contains("example.com"), diagnostic)
+        }
+    }
+
+    func testWaveformPCMDecoderRedactsCustomExecutableOnLaunchFailure() async throws {
+        let ffmpegPath = "/Users/fixture/Private Tools/ffmpeg"
+        let runner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.failedToStart(
+                command: request.redactedCommandDescription,
+                underlying: "Could not launch \(request.executableURL.path)"
+            )
+        }
+
+        do {
+            _ = try await WaveformPCMDecoder.decode(
+                url: URL(fileURLWithPath: "/private/fixture/audio.wav"),
+                ffmpegPath: ffmpegPath,
+                frameRate: 1,
+                duration: 1,
+                subprocessRunner: runner
+            )
+            XCTFail("Expected launch failure")
+        } catch let error as WaveformPCMDecoderError {
+            guard case let .decodeFailed(diagnostic) = error else {
+                return XCTFail("Expected decodeFailed, got \(error)")
+            }
+            XCTAssertTrue(diagnostic.contains("<redacted-executable>"), diagnostic)
+            XCTAssertTrue(diagnostic.contains("<redacted>"), diagnostic)
+            XCTAssertFalse(diagnostic.contains(ffmpegPath), diagnostic)
+        }
+    }
+
+    func testWaveformPCMDecoderCancellationReachesSharedRunner() async throws {
+        let runner = BlockingSubprocessRunner()
+        let task = Task {
+            try await WaveformPCMDecoder.decode(
+                url: URL(fileURLWithPath: "/private/fixture/audio.wav"),
+                ffmpegPath: "/private/fixture/ffmpeg",
+                frameRate: 1,
+                duration: 1,
+                subprocessRunner: runner
+            )
+        }
+
+        await runner.waitUntilStarted()
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+    }
+
     func testTesseractOCREngineUsesSharedRunnerWithDeadlineAndEnvironment() async throws {
         let runner = RecordingSubprocessRunner { _, _ in
             SubprocessResult(
@@ -2578,6 +2894,70 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             outputURL: outputBaseURL,
             preset: .h264,
             includeDateTag: false
+        )
+        let resultTask = Task {
+            await withCheckedContinuation { continuation in
+                Task {
+                    await converter.convert(
+                        request: request,
+                        progressUpdate: { _, _ in },
+                        completion: { success, errorReason in
+                            continuation.resume(returning: (success, errorReason))
+                        }
+                    )
+                }
+            }
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        await converter.cancelConversion()
+        let result = await resultTask.value
+
+        XCTAssertFalse(result.0)
+        XCTAssertEqual(result.1, "Conversion cancelled")
+        XCTAssertEqual(runner.cancelledCount, 1)
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testCoreConverterCancellationStopsNativeWaveformAnalysis() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WaveformAnalysisCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = CountingBlockingSubprocessRunner()
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let waveformRequest = WaveformVideoRequest(
+            width: 640,
+            height: 360,
+            backgroundHex: "000000",
+            foregroundHex: "FFFFFF",
+            normalizeAudio: false,
+            style: .linear,
+            frameRate: 24,
+            renderingEngine: .swift,
+            swiftStyle: .capsules,
+            bandCount: 16,
+            frequencyDistribution: .logarithmic,
+            foregroundGradientEnabled: false,
+            foregroundGradientEndHex: "FFFFFF",
+            backgroundGradientEnabled: false,
+            backgroundGradientEndHex: "000000",
+            waveformOpacity: 1
+        )
+        let request = ConversionRequest(
+            inputURL: temporaryDirectory.appendingPathComponent("input.wav"),
+            outputURL: outputBaseURL,
+            preset: .h264,
+            includeDateTag: false,
+            expectedDuration: 1,
+            waveformRequest: waveformRequest
         )
         let resultTask = Task {
             await withCheckedContinuation { continuation in

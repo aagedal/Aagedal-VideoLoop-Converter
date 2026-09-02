@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 133 tests pass. The
+- The unit-test baseline is green: 143 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 133 unit tests. The UI test target now has deterministic smoke
+- There are only 143 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -431,8 +431,21 @@ superseded-retry isolation; the generated-media conversion, file-safety, malform
 and real cancellation fixtures remain green. AV2 source decoding still uses its explicit
 avmdec-to-FFmpeg pipe until the runner supports streaming stdin.
 
-Package-update, native-waveform, AV2 pipe, DCP/IMF wrapper, and remaining helper call
-sites are still open.
+The one-shot FFmpeg decoders used by native waveform export analysis and preview waveform
+images now use the shared runner with twelve-hour deadlines, bounded stderr capture,
+private-path redaction, process-tree cancellation, and injectable test fakes. Native
+waveform analysis is tracked as part of the active conversion, so queue cancellation can
+stop it before the streaming video encoder starts. Conversion-identity checks fence every
+async hand-off into that encoder, its progress and termination callbacks cannot mutate a
+newer attempt, its frame writer is cancelled with the conversion, and FFT work checks
+cancellation periodically. Focused tests cover mono and per-channel PCM/image output,
+request policy, redacted bounded failures (including custom executable paths), timeout
+mapping, direct cancellation, and converter-level cancellation. Those tests also exposed
+and fixed a short-audio FFT range crash by zero-padding requested frames beyond the
+available PCM samples.
+
+Package-update, preview-generator, native-waveform streaming encoder, AV2 pipe, DCP/IMF
+wrapper, analytics, and remaining helper call sites are still open.
 
 ### 2.2 Remove sync-over-async waits
 

@@ -108,6 +108,9 @@ private final class ConversionOutputReservations: @unchecked Sendable {
 actor FFMPEGConverter {
     private var currentProcess: Process?
     private var currentSubprocessTask: Task<Void, Never>?
+    private var currentWaveformAnalysisTask: Task<FrequencyBandData, Error>?
+    private var currentWaveformAnalysisID: UUID?
+    private var currentWaveformFrameWriterTask: Task<Void, Never>?
     private var currentProgressGate: ConversionProgressGate?
     private var activeConversionID: UUID?
     /// Secondary process for multi-process pipelines (e.g. the AV2 ffmpeg→avmenc pipe).
@@ -284,6 +287,11 @@ actor FFMPEGConverter {
         }
         currentProgressGate?.invalidate()
         currentSubprocessTask?.cancel()
+        currentWaveformAnalysisTask?.cancel()
+        currentWaveformAnalysisTask = nil
+        currentWaveformAnalysisID = nil
+        currentWaveformFrameWriterTask?.cancel()
+        currentWaveformFrameWriterTask = nil
         currentProcess?.terminate()
         auxProcess?.terminate()
         for worker in av2Workers where worker.isRunning { worker.terminate() }
@@ -492,6 +500,7 @@ actor FFMPEGConverter {
         // MARK: Native waveform rendering branch (Swift engine)
         if let waveformRequest = request.waveformRequest, waveformRequest.renderingEngine == .swift {
             await runNativeWaveformConversion(
+                conversionID: conversionID,
                 inputURL: inputURL,
                 ffmpegOutputURL: ffmpegOutputURL,
                 ffmpegPath: ffmpegPath,
@@ -2735,6 +2744,7 @@ actor FFMPEGConverter {
     }
 
     private func runNativeWaveformConversion(
+        conversionID: UUID,
         inputURL: URL,
         ffmpegOutputURL: URL,
         ffmpegPath: String,
@@ -2758,6 +2768,23 @@ actor FFMPEGConverter {
     ) async {
         Self.logger.info("Starting native waveform conversion (Swift engine)")
 
+        let progressGate = ConversionProgressGate()
+        currentProgressGate?.invalidate()
+        currentProgressGate = progressGate
+        let gatedProgressUpdate: @Sendable (Double, String?) -> Void = { progress, status in
+            progressGate.run {
+                progressUpdate(progress, status)
+            }
+        }
+        let complete: @Sendable (Bool, String?) async -> Void = { [weak self] success, errorReason in
+            guard let self else {
+                completion(false, errorReason ?? "Conversion cancelled")
+                return
+            }
+            let wasActive = await self.finishTrackedConversion(conversionID)
+            completion(success && wasActive, wasActive ? errorReason : "Conversion cancelled")
+        }
+
         // Compute effective duration for the render
         let effectiveDuration: Double
         if let trimStart, let trimEnd, trimEnd > trimStart {
@@ -2768,15 +2795,21 @@ actor FFMPEGConverter {
             effectiveDuration = duration
         } else {
             Self.logger.error("Cannot determine audio duration for native waveform")
-            completion(false, "Cannot determine audio duration")
+            await complete(false, "Cannot determine audio duration")
+            return
+        }
+        guard activeConversionID == conversionID else {
+            await complete(false, "Conversion cancelled")
             return
         }
 
         // Phase 1: Decode audio and compute frequency bands (~10% of progress)
-        progressUpdate(0.02, "Analyzing audio…")
+        gatedProgressUpdate(0.02, "Analyzing audio…")
         let frequencyData: FrequencyBandData
-        do {
-            frequencyData = try await WaveformPCMDecoder.decode(
+        let analysisID = UUID()
+        let runner = subprocessRunner
+        let analysisTask = Task {
+            try await WaveformPCMDecoder.decode(
                 url: inputURL,
                 ffmpegPath: ffmpegPath,
                 frameRate: waveformRequest.frameRate,
@@ -2786,15 +2819,32 @@ actor FFMPEGConverter {
                 normalizeAudio: waveformRequest.normalizeAudio,
                 audioRoutingConfig: audioRoutingConfig,
                 trimStart: trimStart,
-                trimEnd: trimEnd
+                trimEnd: trimEnd,
+                subprocessRunner: runner
             )
+        }
+        currentWaveformAnalysisTask?.cancel()
+        currentWaveformAnalysisTask = analysisTask
+        currentWaveformAnalysisID = analysisID
+        do {
+            frequencyData = try await analysisTask.value
         } catch {
+            clearWaveformAnalysis(if: analysisID)
+            if error is CancellationError {
+                await complete(false, "Conversion cancelled")
+                return
+            }
             Self.logger.error("PCM decode/FFT failed: \(error.localizedDescription)")
-            completion(false, "Audio analysis failed: \(error.localizedDescription)")
+            await complete(false, "Audio analysis failed: \(error.localizedDescription)")
+            return
+        }
+        clearWaveformAnalysis(if: analysisID)
+        guard activeConversionID == conversionID else {
+            await complete(false, "Conversion cancelled")
             return
         }
 
-        progressUpdate(0.10, "Rendering waveform…")
+        gatedProgressUpdate(0.10, "Rendering waveform…")
 
         // Phase 2: Build FFmpeg encoding command with rawvideo pipe input
         let command = await FFMPEGCommandBuilder.nativeWaveformEncodingCommand(
@@ -2812,10 +2862,14 @@ actor FFMPEGConverter {
             includeDateTag: includeDateTag,
             additionalOutputArguments: additionalOutputArguments
         )
+        guard activeConversionID == conversionID else {
+            await complete(false, "Conversion cancelled")
+            return
+        }
 
         // Phase 3: Start FFmpeg with stdin pipe for video frames
         let process = Process()
-        await setCurrentProcess(process)
+        currentProcess = process
         process.executableURL = URL(fileURLWithPath: ffmpegPath)
         process.arguments = command.arguments
 
@@ -2825,7 +2879,20 @@ actor FFMPEGConverter {
         process.standardError = errorPipe
         process.standardOutput = FileHandle.nullDevice
 
-        Self.logger.info("FFmpeg native waveform command: \(ffmpegPath, privacy: .public) \(command.arguments.joined(separator: " "), privacy: .public)")
+        let privateCommandValues = Set(
+            command.arguments.filter { $0.hasPrefix("/") } + [
+                ffmpegPath,
+                inputURL.path,
+                ffmpegOutputURL.path,
+                outputFileURL.path,
+            ]
+        )
+        let logSafeRequest = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: ffmpegPath),
+            arguments: command.arguments,
+            sensitiveValues: privateCommandValues
+        )
+        Self.logger.info("FFmpeg native waveform command: \(logSafeRequest.redactedCommandDescription, privacy: .public)")
 
         let stderrCollector = StderrCollector()
         let capturedNeedsBMXRewrap = needsBMXRewrap
@@ -2847,14 +2914,18 @@ actor FFMPEGConverter {
             errorPipe.fileHandleForReading.readabilityHandler = nil
 
             Task { [weak self] in
-                await self?.setCurrentProcess(nil)
-                var success = process.terminationStatus == 0
+                await self?.clearCurrentProcess(if: process)
+                let isActive = await self?.isActiveConversion(conversionID) ?? false
+                var success = process.terminationStatus == 0 && isActive
                 Self.logger.info("Native waveform FFmpeg terminated with status: \(process.terminationStatus)")
 
-                var errorReason: String? = nil
-                if !success {
+                var errorReason: String? = isActive ? nil : "Conversion cancelled"
+                if !success && isActive {
                     let collectedStderr = await stderrCollector.snapshot()
-                    let stderrString = String(data: collectedStderr, encoding: .utf8) ?? "(unable to decode)"
+                    let stderrString = logSafeRequest.redactedDiagnostic(
+                        String(decoding: collectedStderr, as: UTF8.self),
+                        limit: 64 * 1024
+                    )
                     Self.logger.error("FFmpeg native waveform stderr:\n\(stderrString, privacy: .public)\n-- end --")
                     errorReason = Self.extractErrorReason(from: stderrString, exitCode: process.terminationStatus)
                 }
@@ -2862,49 +2933,54 @@ actor FFMPEGConverter {
                 // BMX rewrap for AVC-Intra if needed
                 if success && capturedNeedsBMXRewrap, let tempMXF = capturedTempMXFURL {
                     Self.logger.info("Running bmxtranswrap for native waveform output")
-                    progressUpdate(0.95, "Rewrapping to OP1a...")
+                    gatedProgressUpdate(0.95, "Rewrapping to OP1a...")
 
                     let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(
                         inputURL: capturedInputURL,
                         audioRoutingConfig: capturedAudioRoutingConfig
                     )
-                    let bmxResult = await BMXService.shared.rewrapToOP1a(
-                        inputURL: tempMXF,
-                        outputURL: capturedFinalOutputURL,
-                        clipName: capturedInputBaseName,
-                        mcaLabelsFile: mcaLabelsFile,
-                        progress: { bmxProgress in
-                            let overallProgress = 0.95 + (bmxProgress * 0.05)
-                            Task { @MainActor in
-                                progressUpdate(overallProgress, "Rewrapping to OP1a...")
+                    if await self?.isActiveConversion(conversionID) == true {
+                        let bmxResult = await BMXService.shared.rewrapToOP1a(
+                            inputURL: tempMXF,
+                            outputURL: capturedFinalOutputURL,
+                            clipName: capturedInputBaseName,
+                            mcaLabelsFile: mcaLabelsFile,
+                            progress: { bmxProgress in
+                                let overallProgress = 0.95 + (bmxProgress * 0.05)
+                                Task { @MainActor in
+                                    gatedProgressUpdate(overallProgress, "Rewrapping to OP1a...")
+                                }
+                            }
+                        )
+                        if !bmxResult.success {
+                            Self.logger.error("bmxtranswrap failed for native waveform")
+                            do {
+                                try FileManager.default.copyItem(at: tempMXF, to: capturedFinalOutputURL)
+                            } catch {
+                                success = false
                             }
                         }
-                    )
+                    } else {
+                        success = false
+                        errorReason = "Conversion cancelled"
+                    }
                     if let mcaLabelsFile {
                         Self.cleanupTempFile(at: mcaLabelsFile, label: "MCA labels")
-                    }
-
-                    if !bmxResult.success {
-                        Self.logger.error("bmxtranswrap failed for native waveform")
-                        do {
-                            try FileManager.default.copyItem(at: tempMXF, to: capturedFinalOutputURL)
-                        } catch {
-                            success = false
-                        }
                     }
                     Self.cleanupTempFile(at: tempMXF, label: "waveform BMX rewrap temp MXF")
                 }
 
-                completion(success, errorReason)
+                await complete(success, errorReason)
             }
         }
 
         do {
             try process.run()
         } catch {
-            Self.logger.error("Failed to start native waveform FFmpeg: \(error.localizedDescription, privacy: .public)")
-            await setCurrentProcess(nil)
-            completion(false, "Failed to start FFmpeg: \(error.localizedDescription)")
+            let safeError = logSafeRequest.redactedDiagnostic(error.localizedDescription, limit: 1_000)
+            Self.logger.error("Failed to start native waveform FFmpeg: \(safeError, privacy: .public)")
+            await clearCurrentProcess(if: process)
+            await complete(false, "Failed to start FFmpeg: \(safeError)")
             return
         }
 
@@ -2921,7 +2997,7 @@ actor FFMPEGConverter {
         }
 
         // Phase 4: Write rendered frames to the pipe on a background task
-        Task.detached { [frequencyData, waveformRequest, backgroundCGImage] in
+        let frameWriterTask = Task.detached { [frequencyData, waveformRequest, backgroundCGImage] in
             await WaveformFramePipeWriter.writeFrames(
                 to: stdinPipe,
                 frequencyData: frequencyData,
@@ -2939,10 +3015,12 @@ actor FFMPEGConverter {
                 progressUpdate: { renderProgress in
                     // Map render progress to 10%–95% of overall progress
                     let overall = 0.10 + renderProgress * 0.85
-                    progressUpdate(overall, "Rendering waveform…")
+                    gatedProgressUpdate(overall, "Rendering waveform…")
                 }
             )
         }
+        currentWaveformFrameWriterTask?.cancel()
+        currentWaveformFrameWriterTask = frameWriterTask
     }
 
     // MARK: - Audio Extraction for Image Sequence Export
@@ -3257,6 +3335,11 @@ actor FFMPEGConverter {
         currentProgressGate = nil
         currentSubprocessTask?.cancel()
         currentSubprocessTask = nil
+        currentWaveformAnalysisTask?.cancel()
+        currentWaveformAnalysisTask = nil
+        currentWaveformAnalysisID = nil
+        currentWaveformFrameWriterTask?.cancel()
+        currentWaveformFrameWriterTask = nil
         currentProcess?.terminate()
         auxProcess?.terminate()
         for worker in av2Workers where worker.isRunning { worker.terminate() }
@@ -3276,6 +3359,10 @@ actor FFMPEGConverter {
         currentProgressGate?.invalidate()
         currentProgressGate = nil
         currentSubprocessTask = nil
+        currentWaveformAnalysisTask = nil
+        currentWaveformAnalysisID = nil
+        currentWaveformFrameWriterTask?.cancel()
+        currentWaveformFrameWriterTask = nil
         currentProcess = nil
         auxProcess = nil
         return true
@@ -3285,6 +3372,16 @@ actor FFMPEGConverter {
         if currentProcess === process {
             currentProcess = nil
         }
+    }
+
+    private func clearWaveformAnalysis(if analysisID: UUID) {
+        guard currentWaveformAnalysisID == analysisID else { return }
+        currentWaveformAnalysisTask = nil
+        currentWaveformAnalysisID = nil
+    }
+
+    private func isActiveConversion(_ conversionID: UUID) -> Bool {
+        activeConversionID == conversionID
     }
 
     private func setAuxProcess(_ process: Process?) async {
