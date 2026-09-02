@@ -6,6 +6,7 @@
 //
 
 import Darwin
+import os
 import XCTest
 @testable import Aagedal_Media_Converter
 
@@ -406,6 +407,181 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
 
         do {
             _ = try await recognitionTask.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+    }
+
+    func testTesseractSubtitleExtractorUsesSharedRunnerWithDeadlineAndRedaction() async throws {
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+        let extractor = TesseractSubtitleStreamExtractor(subprocessRunner: runner)
+        let source = "/private/media/secret source.mkv"
+        let output = "/private/tmp/secret output.sup"
+
+        try await extractor.extract(
+            source: source,
+            streamIndex: 2,
+            outputPath: output,
+            ffmpegPath: "/fixture/ffmpeg"
+        )
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, "/fixture/ffmpeg")
+        XCTAssertEqual(
+            request.arguments,
+            ["-y", "-i", source, "-map", "0:s:2", "-c", "copy", output]
+        )
+        XCTAssertEqual(request.timeout, .seconds(30 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(source))
+        XCTAssertFalse(request.redactedCommandDescription.contains(output))
+    }
+
+    func testTesseractSubtitleExtractorReassemblesSplitProgressOutput() async throws {
+        let progressReported = expectation(description: "split FFmpeg progress parsed")
+        let runner = RecordingSubprocessRunner { _, outputHandler in
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("Duration: 00:00:10.00, start: 0.000000\nframe=1 time=00:00:".utf8)
+            ))
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("05.00 bitrate=0.0kbits/s\r".utf8)
+            ))
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+        let extractor = TesseractSubtitleStreamExtractor(subprocessRunner: runner)
+        let reportedProgress = OSAllocatedUnfairLock<Double?>(initialState: nil)
+
+        try await extractor.extract(
+            source: "/private/media/input.mkv",
+            streamIndex: 0,
+            outputPath: "/private/tmp/output.sup",
+            ffmpegPath: "/fixture/ffmpeg"
+        ) { progress in
+            reportedProgress.withLock { $0 = progress }
+            progressReported.fulfill()
+        }
+
+        await fulfillment(of: [progressReported], timeout: 1.0)
+        XCTAssertEqual(
+            try XCTUnwrap(reportedProgress.withLock { $0 }),
+            0.5,
+            accuracy: 0.001
+        )
+    }
+
+    func testTesseractSubtitleExtractorMapsTimeoutToActionableError() async throws {
+        let runner = RecordingSubprocessRunner { request, _ in
+            let result = SubprocessResult(
+                terminationStatus: SIGTERM,
+                termination: .uncaughtSignal,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(30 * 60)
+            )
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: result
+            )
+        }
+        let extractor = TesseractSubtitleStreamExtractor(subprocessRunner: runner)
+
+        do {
+            try await extractor.extract(
+                source: "/private/media/input.mkv",
+                streamIndex: 0,
+                outputPath: "/private/tmp/output.sup",
+                ffmpegPath: "/fixture/ffmpeg"
+            )
+            XCTFail("Expected timeout")
+        } catch let error as TesseractServiceError {
+            guard case .extractionFailed(let detail) = error else {
+                return XCTFail("Expected extractionFailed, got \(error)")
+            }
+            XCTAssertEqual(detail, "FFmpeg exceeded the 30-minute subtitle extraction limit")
+        }
+    }
+
+    func testTesseractSubtitleExtractorBoundsAndRedactsFailureDiagnostic() async throws {
+        let source = "/private/media/private-source.mkv"
+        let output = "/private/tmp/private-output.sup"
+        let runner = RecordingSubprocessRunner { _, _ in
+            let diagnostic = String(repeating: "x", count: 400)
+                + " failed \(source) -> \(output) at https://example.com/private"
+            return SubprocessResult(
+                terminationStatus: 9,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+        let extractor = TesseractSubtitleStreamExtractor(subprocessRunner: runner)
+
+        do {
+            try await extractor.extract(
+                source: source,
+                streamIndex: 0,
+                outputPath: output,
+                ffmpegPath: "/fixture/ffmpeg"
+            )
+            XCTFail("Expected process failure")
+        } catch let error as TesseractServiceError {
+            guard case .extractionFailed(let detail) = error else {
+                return XCTFail("Expected extractionFailed, got \(error)")
+            }
+            XCTAssertTrue(detail.hasPrefix("FFmpeg exited 9: …"), detail)
+            XCTAssertTrue(detail.contains("<redacted>"), detail)
+            XCTAssertTrue(detail.contains("<url>"), detail)
+            XCTAssertFalse(detail.contains(source), detail)
+            XCTAssertFalse(detail.contains(output), detail)
+            XCTAssertFalse(detail.contains("example.com"), detail)
+            XCTAssertLessThanOrEqual(detail.count, 319)
+        }
+    }
+
+    func testTesseractSubtitleExtractorPropagatesTaskCancellation() async throws {
+        let runner = BlockingSubprocessRunner()
+        let extractor = TesseractSubtitleStreamExtractor(subprocessRunner: runner)
+        let extractionTask = Task {
+            try await extractor.extract(
+                source: "/private/media/input.mkv",
+                streamIndex: 0,
+                outputPath: "/private/tmp/output.sup",
+                ffmpegPath: "/fixture/ffmpeg"
+            )
+        }
+
+        await runner.waitUntilStarted()
+        extractionTask.cancel()
+
+        do {
+            _ = try await extractionTask.value
             XCTFail("Expected cancellation")
         } catch is CancellationError {
             // Expected.
