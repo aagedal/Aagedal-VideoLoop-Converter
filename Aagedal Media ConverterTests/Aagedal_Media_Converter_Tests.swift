@@ -273,6 +273,159 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testPreviewAssetGeneratorUsesSharedRunnerWithBoundedRedactedPolicy() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PreviewRunnerPolicy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let sourceURL = temporaryDirectory.appendingPathComponent("secret source.mov")
+        let destinationURL = temporaryDirectory.appendingPathComponent("secret thumbnail.png")
+        let executableURL = URL(fileURLWithPath: "/private/tools/ffmpeg")
+        let runner = RecordingSubprocessRunner { _, _ in
+            try Data("preview".utf8).write(to: destinationURL)
+            return successfulSubprocessResult()
+        }
+        let generator = PreviewAssetGenerator(subprocessRunner: runner)
+
+        try await generator.runProcess(
+            executable: executableURL,
+            arguments: ["-hide_banner", "-i", sourceURL.path, "-y", destinationURL.path],
+            forURL: sourceURL,
+            outputURL: destinationURL
+        )
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL, executableURL)
+        XCTAssertEqual(request.timeout, .seconds(30 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(executableURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(sourceURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(destinationURL.path))
+    }
+
+    func testPreviewAssetGeneratorReturnsBoundedRedactedFailureAndMapsTimeout() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PreviewRunnerFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let sourceURL = temporaryDirectory.appendingPathComponent("private.mov")
+        let destinationURL = temporaryDirectory.appendingPathComponent("private.png")
+        let longDiagnostic = String(repeating: "x", count: 10_000)
+            + " failed \(sourceURL.path) while writing \(destinationURL.path) from https://example.com/private"
+        let failureRunner = RecordingSubprocessRunner { _, _ in
+            try Data("partial".utf8).write(to: destinationURL)
+            return successfulSubprocessResult(standardError: longDiagnostic, terminationStatus: 9)
+        }
+        let failureGenerator = PreviewAssetGenerator(subprocessRunner: failureRunner)
+
+        do {
+            try await failureGenerator.runProcess(
+                executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                arguments: ["-i", sourceURL.path, destinationURL.path],
+                forURL: sourceURL,
+                outputURL: destinationURL
+            )
+            XCTFail("Expected preview generation to fail")
+        } catch let error as PreviewAssetError {
+            let message = error.localizedDescription
+            XCTAssertLessThanOrEqual(message.count, 8_256)
+            XCTAssertTrue(message.contains("<redacted>"), message)
+            XCTAssertTrue(message.contains("<url>"), message)
+            XCTAssertFalse(message.contains(sourceURL.path), message)
+            XCTAssertFalse(message.contains(destinationURL.path), message)
+            XCTAssertFalse(message.contains("example.com"), message)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destinationURL.path))
+        }
+
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(terminationStatus: SIGKILL)
+            )
+        }
+        let timeoutGenerator = PreviewAssetGenerator(subprocessRunner: timeoutRunner)
+
+        do {
+            try await timeoutGenerator.runProcess(
+                executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                arguments: ["-i", sourceURL.path, destinationURL.path],
+                forURL: sourceURL,
+                outputURL: destinationURL
+            )
+            XCTFail("Expected preview generation to time out")
+        } catch let error as PreviewAssetError {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Failed to generate preview assets: Preview subprocess timed out after 30 minutes."
+            )
+        }
+    }
+
+    func testPreviewAssetGeneratorTargetedCancellationStopsSharedRunner() async throws {
+        let sourceURL = URL(fileURLWithPath: "/private/media/source.mov")
+        let outputURL = URL(fileURLWithPath: "/private/cache/output.png")
+        let runner = CountingBlockingSubprocessRunner()
+        let generator = PreviewAssetGenerator(subprocessRunner: runner)
+        let task = Task {
+            try await generator.runProcess(
+                executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                arguments: ["-i", sourceURL.path, outputURL.path],
+                forURL: sourceURL,
+                outputURL: outputURL
+            )
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        await generator.cancelGeneration(for: sourceURL)
+
+        do {
+            try await task.value
+            XCTFail("Expected preview generation cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertEqual(runner.cancelledCount, 1)
+    }
+
+    func testPreviewAssetGeneratorTerminateAllStopsEveryTrackedRunnerTask() async throws {
+        let runner = CountingBlockingSubprocessRunner()
+        let generator = PreviewAssetGenerator(subprocessRunner: runner)
+        let firstSource = URL(fileURLWithPath: "/private/media/first.mov")
+        let secondSource = URL(fileURLWithPath: "/private/media/second.mov")
+        let firstOutput = URL(fileURLWithPath: "/private/cache/first.png")
+        let secondOutput = URL(fileURLWithPath: "/private/cache/second.png")
+        let firstTask = Task {
+            try await generator.runProcess(
+                executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                arguments: ["-i", firstSource.path, firstOutput.path],
+                forURL: firstSource,
+                outputURL: firstOutput
+            )
+        }
+        let secondTask = Task {
+            try await generator.runProcess(
+                executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                arguments: ["-i", secondSource.path, secondOutput.path],
+                forURL: secondSource,
+                outputURL: secondOutput
+            )
+        }
+
+        await runner.waitUntilStarted(count: 2)
+        await generator.terminateAllProcesses()
+
+        for task in [firstTask, secondTask] {
+            do {
+                try await task.value
+                XCTFail("Expected app-termination cancellation")
+            } catch is CancellationError {
+                // Expected.
+            }
+        }
+        XCTAssertEqual(runner.cancelledCount, 2)
+    }
+
     func testBMXRewrapUsesSharedRunnerWithBoundedPolicyAndSplitProgress() async throws {
         let fixture = try makeBMXFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
