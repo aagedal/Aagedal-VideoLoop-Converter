@@ -754,6 +754,8 @@ struct VideoItem: Identifiable, Equatable, Sendable {
     var subtitleStatus: SubtitleStatus = .notQueued
     /// Subtitle generation progress (0.0 to 1.0)
     var subtitleProgress: Double = 0.0
+    /// Per-attempt token used to route cancellation without affecting a later retry.
+    var subtitleOperationID: UUID? = nil
     /// Path to generated SRT file
     var subtitleFilePath: URL? = nil
     /// Which method (Whisper or OCR) was chosen by the user for this item

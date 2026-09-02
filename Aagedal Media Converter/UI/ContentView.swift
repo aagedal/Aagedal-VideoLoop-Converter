@@ -432,9 +432,7 @@ struct ContentView: View {
                 DownloadManager.shared.cancelScheduledDownload(itemID: item.id)
             }
             if item.subtitleStatus.isInProgress {
-                Task { await TesseractService.shared.cancelGeneration() }
-                Task { await WhisperService.shared.cancelGeneration() }
-                Task { await ParakeetService.shared.cancelGeneration() }
+                cancelSubtitleGeneration(for: item)
             }
             // Cancel in-progress preview generation (thumbnails/waveforms) to free CPU
             Task { await PreviewAssetGenerator.shared.cancelGeneration(for: item.url) }
@@ -2195,9 +2193,7 @@ struct ContentView: View {
                 DownloadManager.shared.cancelScheduledDownload(itemID: item.id)
             }
             if item.subtitleStatus.isInProgress {
-                Task { await TesseractService.shared.cancelGeneration() }
-                Task { await WhisperService.shared.cancelGeneration() }
-                Task { await ParakeetService.shared.cancelGeneration() }
+                cancelSubtitleGeneration(for: item)
             }
             // Cancel in-progress preview generation (thumbnails/waveforms) to free CPU
             Task { await PreviewAssetGenerator.shared.cancelGeneration(for: item.url) }
@@ -2216,6 +2212,21 @@ struct ContentView: View {
         queueOrder.removeAll()
         overallProgress = 0.0
         dockProgressUpdater.reset()
+    }
+
+    private func cancelSubtitleGeneration(for item: VideoItem) {
+        switch item.subtitleMethod {
+        case .ocr:
+            if let operationID = item.subtitleOperationID {
+                Task { await TesseractService.shared.cancelGeneration(operationID: operationID) }
+            }
+        case .whisper:
+            if let operationID = item.subtitleOperationID {
+                Task { await WhisperService.shared.cancelGeneration(operationID: operationID) }
+            }
+        case .parakeet:
+            Task { await ParakeetService.shared.cancelGeneration() }
+        }
     }
 
     private func resetAllFiles(optionKeyPressed: Bool = false) {

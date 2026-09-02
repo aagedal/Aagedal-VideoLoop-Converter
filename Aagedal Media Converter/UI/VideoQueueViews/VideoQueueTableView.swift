@@ -71,6 +71,43 @@ func draggingSourceIsInternal(_ info: any NSDraggingInfo, tableView: NSTableView
     return false
 }
 
+struct QueueSubtitleCancellationTarget: Equatable {
+    let method: SubtitleConversionMethod
+    let operationID: UUID?
+}
+
+/// Resolves and invalidates a subtitle attempt in either queue storage location.
+/// Returning the target before clearing its token lets the caller route cancellation
+/// to the correct service while stale callbacks are fenced immediately.
+enum QueueSubtitleCancellationState {
+    static func takeTarget(
+        itemID: UUID,
+        droppedFiles: inout [VideoItem],
+        encodingGroups: inout [EncodingGroup]
+    ) -> QueueSubtitleCancellationTarget? {
+        if let index = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+            return takeTarget(from: &droppedFiles[index])
+        }
+
+        for groupIndex in encodingGroups.indices {
+            if let itemIndex = encodingGroups[groupIndex].items.firstIndex(where: { $0.id == itemID }) {
+                return takeTarget(from: &encodingGroups[groupIndex].items[itemIndex])
+            }
+        }
+        return nil
+    }
+
+    private static func takeTarget(from item: inout VideoItem) -> QueueSubtitleCancellationTarget {
+        let target = QueueSubtitleCancellationTarget(
+            method: item.subtitleMethod,
+            operationID: item.subtitleOperationID
+        )
+        item.subtitleStatus = .notQueued
+        item.subtitleOperationID = nil
+        return target
+    }
+}
+
 // MARK: - Queue Table Handle
 //
 // Lightweight bridge letting a SwiftUI parent ask the NSTableView questions
@@ -1293,11 +1330,31 @@ struct VideoQueueTableView: NSViewRepresentable {
                     parent.onDelete(IndexSet(integer: idx))
                 }
             case .cancelSubtitleGeneration:
-                Task { await TesseractService.shared.cancelGeneration() }
-                Task { await WhisperService.shared.cancelGeneration() }
-                Task { await ParakeetService.shared.cancelGeneration() }
-                if let idx = droppedFilesIndex[itemID] {
-                    parent.droppedFiles[idx].subtitleStatus = .notQueued
+                if let target = QueueSubtitleCancellationState.takeTarget(
+                    itemID: itemID,
+                    droppedFiles: &parent.droppedFiles,
+                    encodingGroups: &parent.encodingGroups
+                ) {
+                    switch target.method {
+                    case .ocr:
+                        if let operationID = target.operationID {
+                            Task {
+                                await TesseractService.shared.cancelGeneration(
+                                    operationID: operationID
+                                )
+                            }
+                        }
+                    case .whisper:
+                        if let operationID = target.operationID {
+                            Task {
+                                await WhisperService.shared.cancelGeneration(
+                                    operationID: operationID
+                                )
+                            }
+                        }
+                    case .parakeet:
+                        Task { await ParakeetService.shared.cancelGeneration() }
+                    }
                 }
             case .cancelAnalytics:
                 Task { await AnalyticsService.shared.cancelAnalysis() }

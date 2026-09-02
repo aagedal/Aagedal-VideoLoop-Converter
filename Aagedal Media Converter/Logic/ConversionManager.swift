@@ -27,6 +27,24 @@ private func progressIsDuration(_ s: String?) -> Bool {
     return etaDurationRegex.firstMatch(in: s, range: range) != nil
 }
 
+@MainActor
+enum SubtitleEmbeddingCommit {
+    /// Keeps attempt validation and filesystem publication in one synchronous
+    /// MainActor critical section. `replaceItemAt` preserves the destination if
+    /// publication fails, unlike a remove-then-move sequence.
+    static func publishIfCurrent(
+        temporaryURL: URL,
+        destinationURL: URL,
+        isCurrent: () -> Bool,
+        didPublish: () -> Void
+    ) throws -> Bool {
+        guard isCurrent() else { return false }
+        _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: temporaryURL)
+        didPublish()
+        return true
+    }
+}
+
 actor ConversionManager: Sendable {
     @MainActor static let shared = ConversionManager()
     private init() {}
@@ -2231,18 +2249,22 @@ actor ConversionManager: Sendable {
         let model = WhisperModel(rawValue: modelRaw) ?? .base
         let language = UserDefaults.standard.string(forKey: AppConstants.whisperLanguageKey) ?? AppConstants.defaultWhisperLanguage
 
-        // Update status to pending
+        let operationID = UUID()
+        // Publish the attempt token before dispatching work so an immediate cancel is routable.
         await MainActor.run {
             if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
                 droppedFiles.wrappedValue[idx].subtitleStatus = .pending
+                droppedFiles.wrappedValue[idx].subtitleOperationID = operationID
             }
         }
 
         // Verify model is downloaded
         guard WhisperModelManager.shared.isModelDownloaded(model) else {
             await MainActor.run {
-                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .failed("Model not downloaded")
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
                 }
             }
             return
@@ -2257,11 +2279,13 @@ actor ConversionManager: Sendable {
                 outputDirectory: outputDir,
                 model: model,
                 language: language,
+                operationID: operationID,
                 audioStreamIndex: audioStreamIndex
             ) { [weak self] whisperProgress in
                 Task { @MainActor in
                     guard let _ = self else { return }
-                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                       droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                         switch whisperProgress.stage {
                         case .extractingAudio:
                             droppedFiles.wrappedValue[idx].subtitleStatus = .extractingAudio
@@ -2279,13 +2303,17 @@ actor ConversionManager: Sendable {
                 }
             }
 
-            await MainActor.run {
-                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+            let isCurrentAttempt = await MainActor.run { () -> Bool in
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .completed
                     droppedFiles.wrappedValue[idx].subtitleFilePath = srtURL
                     droppedFiles.wrappedValue[idx].subtitleProgress = 1.0
+                    return true
                 }
+                return false
             }
+            guard isCurrentAttempt else { return }
 
             logger.info("Subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
@@ -2296,14 +2324,32 @@ actor ConversionManager: Sendable {
                     srtURL: srtURL,
                     into: inputURL,
                     itemID: itemID,
+                    operationID: operationID,
                     droppedFiles: droppedFiles
                 )
             }
 
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
+                }
+            }
+
+        } catch WhisperServiceError.cancelled {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .notQueued
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
+                }
+            }
         } catch {
             await MainActor.run {
-                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
                 }
             }
             logger.error("Subtitle generation failed: \(error.localizedDescription, privacy: .public)")
@@ -2377,6 +2423,7 @@ actor ConversionManager: Sendable {
                     srtURL: srtURL,
                     into: inputURL,
                     itemID: itemID,
+                    operationID: nil,
                     droppedFiles: droppedFiles
                 )
             }
@@ -2437,9 +2484,11 @@ actor ConversionManager: Sendable {
             }
         }()
 
+        let operationID = UUID()
         await MainActor.run {
             if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
                 droppedFiles.wrappedValue[idx].subtitleStatus = .pending
+                droppedFiles.wrappedValue[idx].subtitleOperationID = operationID
             }
         }
 
@@ -2449,13 +2498,15 @@ actor ConversionManager: Sendable {
             let srtURL = try await TesseractService.shared.generateSubtitles(
                 sourceFile: sourceURL,
                 outputDirectory: outputDir,
+                operationID: operationID,
                 subtitleStreamIndex: streamIndex,
                 codec: codec,
                 language: language
             ) { [weak self] ocrProgress in
                 Task { @MainActor in
                     guard let _ = self else { return }
-                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                       droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                         switch ocrProgress.stage {
                         case .extractingTrack:
                             droppedFiles.wrappedValue[idx].subtitleStatus = .extractingAudio
@@ -2475,13 +2526,17 @@ actor ConversionManager: Sendable {
                 }
             }
 
-            await MainActor.run {
-                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+            let isCurrentAttempt = await MainActor.run { () -> Bool in
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .completed
                     droppedFiles.wrappedValue[idx].subtitleFilePath = srtURL
                     droppedFiles.wrappedValue[idx].subtitleProgress = 1.0
+                    return true
                 }
+                return false
             }
+            guard isCurrentAttempt else { return }
 
             logger.info("OCR subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
@@ -2492,14 +2547,32 @@ actor ConversionManager: Sendable {
                     srtURL: srtURL,
                     into: outputURL,
                     itemID: itemID,
+                    operationID: operationID,
                     droppedFiles: droppedFiles
                 )
             }
 
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
+                }
+            }
+
+        } catch TesseractServiceError.cancelled {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .notQueued
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
+                }
+            }
         } catch {
             await MainActor.run {
-                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
                 }
             }
             logger.error("OCR subtitle generation failed: \(error.localizedDescription, privacy: .public)")
@@ -2514,6 +2587,7 @@ actor ConversionManager: Sendable {
         srtURL: URL,
         into videoURL: URL,
         itemID: UUID,
+        operationID: UUID?,
         droppedFiles: Binding<[VideoItem]>
     ) async {
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
@@ -2521,11 +2595,15 @@ actor ConversionManager: Sendable {
             return
         }
 
-        await MainActor.run {
-            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+        let beganCurrentAttempt = await MainActor.run { () -> Bool in
+            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+               operationID == nil || droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                 droppedFiles.wrappedValue[idx].subtitleStatus = .embedding
+                return true
             }
+            return false
         }
+        guard beganCurrentAttempt else { return }
 
         let ext = videoURL.pathExtension.lowercased()
         let tempURL = videoURL.deletingLastPathComponent()
@@ -2571,25 +2649,38 @@ actor ConversionManager: Sendable {
             process.waitUntilExit()
 
             if process.terminationStatus == 0 {
-                // Replace original with muxed version
-                let fm = FileManager.default
-                try fm.removeItem(at: videoURL)
-                try fm.moveItem(at: tempURL, to: videoURL)
+                let didPublish = try await MainActor.run { () throws -> Bool in
+                    try SubtitleEmbeddingCommit.publishIfCurrent(
+                        temporaryURL: tempURL,
+                        destinationURL: videoURL,
+                        isCurrent: {
+                            guard let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) else {
+                                return false
+                            }
+                            return operationID == nil ||
+                                droppedFiles.wrappedValue[idx].subtitleOperationID == operationID
+                        },
+                        didPublish: {
+                            if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                                droppedFiles.wrappedValue[idx].subtitleStatus = .completed
+                            }
+                        }
+                    )
+                }
+                guard didPublish else {
+                    try? FileManager.default.removeItem(at: tempURL)
+                    return
+                }
 
                 logger.info("Subtitles embedded into \(videoURL.lastPathComponent, privacy: .public)")
-
-                await MainActor.run {
-                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
-                        droppedFiles.wrappedValue[idx].subtitleStatus = .completed
-                    }
-                }
             } else {
                 // Clean up temp file on failure
                 try? FileManager.default.removeItem(at: tempURL)
                 logger.error("Subtitle embedding failed with exit code \(process.terminationStatus)")
 
                 await MainActor.run {
-                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                       operationID == nil || droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                         droppedFiles.wrappedValue[idx].subtitleStatus = .failed("Subtitle embedding failed")
                     }
                 }
@@ -2599,7 +2690,8 @@ actor ConversionManager: Sendable {
             logger.error("Subtitle embedding error: \(error.localizedDescription, privacy: .public)")
 
             await MainActor.run {
-                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   operationID == nil || droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
                 }
             }

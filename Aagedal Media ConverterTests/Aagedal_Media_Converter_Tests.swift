@@ -588,7 +588,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
-    func testTesseractServiceCancelGenerationCancelsAllOverlappingExtractions() async throws {
+    func testTesseractServiceCancelGenerationCancelsOnlyMatchingOverlappingExtraction() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("TesseractServiceCancellation-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -603,6 +603,8 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         try Data().write(to: secondSourceURL)
         let runner = CountingBlockingSubprocessRunner()
         let service = TesseractService(subprocessRunner: runner)
+        let firstOperationID = UUID()
+        let secondOperationID = UUID()
 
         try await withPresetSettingsAsync([
             AppConstants.ocrEngineKey: OCREngineKind.appleVision.rawValue
@@ -611,6 +613,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
                 try await service.generateSubtitles(
                     sourceFile: firstSourceURL,
                     outputDirectory: temporaryDirectory,
+                    operationID: firstOperationID,
                     subtitleStreamIndex: 0,
                     codec: "hdmv_pgs_subtitle",
                     language: "eng"
@@ -620,6 +623,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
                 try await service.generateSubtitles(
                     sourceFile: secondSourceURL,
                     outputDirectory: temporaryDirectory,
+                    operationID: secondOperationID,
                     subtitleStreamIndex: 0,
                     codec: "hdmv_pgs_subtitle",
                     language: "eng"
@@ -627,20 +631,730 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             }
 
             await runner.waitUntilStarted(count: 2)
-            await service.cancelGeneration()
+            await service.cancelGeneration(operationID: firstOperationID)
 
-            for generationTask in [firstGenerationTask, secondGenerationTask] {
-                do {
-                    _ = try await generationTask.value
-                    XCTFail("Expected service cancellation")
-                } catch let error as TesseractServiceError {
-                    guard case .cancelled = error else {
-                        return XCTFail("Expected cancelled, got \(error)")
-                    }
+            do {
+                _ = try await firstGenerationTask.value
+                XCTFail("Expected service cancellation")
+            } catch let error as TesseractServiceError {
+                guard case .cancelled = error else {
+                    return XCTFail("Expected cancelled, got \(error)")
+                }
+            }
+            try await Task.sleep(for: .milliseconds(20))
+            XCTAssertEqual(runner.cancelledCount, 1)
+
+            await service.cancelGeneration(operationID: secondOperationID)
+            do {
+                _ = try await secondGenerationTask.value
+                XCTFail("Expected second service cancellation")
+            } catch let error as TesseractServiceError {
+                guard case .cancelled = error else {
+                    return XCTFail("Expected cancelled, got \(error)")
                 }
             }
             XCTAssertEqual(runner.cancelledCount, 2)
         }
+    }
+
+    func testWhisperTranscriberUsesSharedRunnerWithDeadlineRedactionAndSplitProgress() async throws {
+        let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let runner = RecordingSubprocessRunner { _, outputHandler in
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("Duration: 00:00".utf8)
+            ))
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data(":10.00\rframe=12 time=00:00:05".utf8)
+            ))
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data(".00 speed=1.0x".utf8)
+            ))
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(5)
+            )
+        }
+        let transcriber = WhisperFFmpegTranscriber(subprocessRunner: runner)
+        let input = URL(fileURLWithPath: "/private/media/source: secret.mov")
+        let model = URL(fileURLWithPath: "/private/models/model's:v1.bin")
+        let output = URL(fileURLWithPath: "/private/output/subtitles: secret.srt")
+
+        try await transcriber.transcribe(
+            inputFile: input,
+            modelPath: model,
+            outputFile: output,
+            ffmpegPath: "/fixture/ffmpeg",
+            language: "nb",
+            audioStreamIndex: 3
+        ) { update in
+            progressValues.withLock { $0.append(update.percentage) }
+        }
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        let filter = WhisperFFmpegTranscriber.filter(
+            modelPath: model.path,
+            outputPath: output.path,
+            language: "nb"
+        )
+        XCTAssertEqual(request.executableURL.path, "/fixture/ffmpeg")
+        XCTAssertEqual(request.arguments, [
+            "-nostdin", "-i", input.path,
+            "-map", "0:3",
+            "-af", filter,
+            "-f", "null", "-"
+        ])
+        XCTAssertEqual(request.timeout, .seconds(12 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(input.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(model.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(output.path))
+        XCTAssertEqual(progressValues.withLock { $0 }, [0.5])
+    }
+
+    func testWhisperFilterEscapingRoundTripsThroughBundledFFmpegParser() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhisperFilterEscaping-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let modelPath = temporaryDirectory.appendingPathComponent(
+            "model:comma,semi;bracket[one]slash\\quote'apost.bin"
+        )
+        let destinationPath = temporaryDirectory.appendingPathComponent(
+            "dest:comma,semi;bracket[two]slash\\quote'apost.srt"
+        )
+        let filter = WhisperFFmpegTranscriber.filter(
+            modelPath: modelPath.path,
+            outputPath: destinationPath.path,
+            language: "auto"
+        )
+        let result = try await SubprocessRunner().run(SubprocessRequest(
+            executableURL: ffmpegExecutableURL,
+            arguments: [
+                "-hide_banner", "-loglevel", "debug",
+                "-f", "lavfi", "-i", "anullsrc=d=0.01",
+                "-af", filter,
+                "-f", "null", "-"
+            ],
+            timeout: .seconds(10),
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: 512 * 1024
+        ))
+
+        XCTAssertFalse(result.succeeded)
+        let diagnostic = result.standardErrorText
+        XCTAssertTrue(diagnostic.contains("Setting 'model' to value '\(modelPath.path)'"), diagnostic)
+        XCTAssertTrue(
+            diagnostic.contains("Setting 'destination' to value '\(destinationPath.path)'"),
+            diagnostic
+        )
+        XCTAssertFalse(diagnostic.contains("Error parsing filter"), diagnostic)
+        XCTAssertFalse(diagnostic.contains("Error parsing filterchain"), diagnostic)
+        XCTAssertFalse(diagnostic.contains("No option name near"), diagnostic)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destinationPath.path))
+    }
+
+    func testWhisperTranscriberMapsTimeoutToActionableError() async throws {
+        let runner = RecordingSubprocessRunner { request, _ in
+            let result = SubprocessResult(
+                terminationStatus: SIGTERM,
+                termination: .uncaughtSignal,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(12 * 60 * 60)
+            )
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: result
+            )
+        }
+        let transcriber = WhisperFFmpegTranscriber(subprocessRunner: runner)
+
+        do {
+            try await transcriber.transcribe(
+                inputFile: URL(fileURLWithPath: "/private/media/source.mov"),
+                modelPath: URL(fileURLWithPath: "/private/models/model.bin"),
+                outputFile: URL(fileURLWithPath: "/private/output/subtitles.srt"),
+                ffmpegPath: "/fixture/ffmpeg",
+                language: "auto",
+                audioStreamIndex: nil
+            ) { _ in }
+            XCTFail("Expected timeout")
+        } catch let error as WhisperServiceError {
+            guard case let .transcriptionFailed(message) = error else {
+                return XCTFail("Expected transcriptionFailed, got \(error)")
+            }
+            XCTAssertEqual(message, "FFmpeg exceeded the 12-hour transcription limit")
+        }
+    }
+
+    func testWhisperTranscriberBoundsAndRedactsFailureDiagnostic() async throws {
+        let input = URL(fileURLWithPath: "/private/media/private source.mov")
+        let model = URL(fileURLWithPath: "/private/models/private model.bin")
+        let output = URL(fileURLWithPath: "/private/output/private subtitles.srt")
+        let runner = RecordingSubprocessRunner { _, _ in
+            let diagnostic = "failed \(input.path) \(model.path) \(output.path) https://example.com/private"
+            return SubprocessResult(
+                terminationStatus: 9,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(1)
+            )
+        }
+        let transcriber = WhisperFFmpegTranscriber(subprocessRunner: runner)
+
+        do {
+            try await transcriber.transcribe(
+                inputFile: input,
+                modelPath: model,
+                outputFile: output,
+                ffmpegPath: "/fixture/ffmpeg",
+                language: "auto",
+                audioStreamIndex: nil
+            ) { _ in }
+            XCTFail("Expected process failure")
+        } catch let error as WhisperServiceError {
+            guard case let .transcriptionFailed(message) = error else {
+                return XCTFail("Expected transcriptionFailed, got \(error)")
+            }
+            XCTAssertTrue(message.contains("FFmpeg exited 9"))
+            XCTAssertTrue(message.contains("<redacted>"))
+            XCTAssertTrue(message.contains("<url>"))
+            XCTAssertFalse(message.contains(input.path))
+            XCTAssertFalse(message.contains(model.path))
+            XCTAssertFalse(message.contains(output.path))
+            XCTAssertFalse(message.contains("example.com"))
+            XCTAssertLessThanOrEqual(message.count, 550)
+        }
+    }
+
+    func testWhisperTranscriberPropagatesTaskCancellation() async throws {
+        let runner = BlockingSubprocessRunner()
+        let transcriber = WhisperFFmpegTranscriber(subprocessRunner: runner)
+        let transcriptionTask = Task {
+            try await transcriber.transcribe(
+                inputFile: URL(fileURLWithPath: "/private/media/source.mov"),
+                modelPath: URL(fileURLWithPath: "/private/models/model.bin"),
+                outputFile: URL(fileURLWithPath: "/private/output/subtitles.srt"),
+                ffmpegPath: "/fixture/ffmpeg",
+                language: "auto",
+                audioStreamIndex: nil
+            ) { _ in }
+        }
+
+        await runner.waitUntilStarted()
+        transcriptionTask.cancel()
+
+        do {
+            try await transcriptionTask.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+    }
+
+    func testWhisperServiceCancelGenerationCancelsOnlyMatchingOverlappingTranscription() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhisperServiceCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = CountingBlockingSubprocessRunner()
+        let modelProvider = StubWhisperModelProvider(
+            path: temporaryDirectory.appendingPathComponent("model.bin")
+        )
+        let service = WhisperService(
+            modelManager: modelProvider,
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        let firstInput = temporaryDirectory.appendingPathComponent("first.mov")
+        let secondInput = temporaryDirectory.appendingPathComponent("second.mov")
+        let firstOperationID = UUID()
+        let secondOperationID = UUID()
+
+        let firstTask = Task {
+            try await service.generateSubtitles(
+                inputFile: firstInput,
+                outputDirectory: temporaryDirectory,
+                model: .base,
+                language: "auto",
+                operationID: firstOperationID
+            ) { _ in }
+        }
+        let secondTask = Task {
+            try await service.generateSubtitles(
+                inputFile: secondInput,
+                outputDirectory: temporaryDirectory,
+                model: .base,
+                language: "auto",
+                operationID: secondOperationID
+            ) { _ in }
+        }
+
+        await runner.waitUntilStarted(count: 2)
+        await service.cancelGeneration(operationID: firstOperationID)
+
+        do {
+            _ = try await firstTask.value
+            XCTFail("Expected service cancellation")
+        } catch let error as WhisperServiceError {
+            guard case .cancelled = error else {
+                return XCTFail("Expected cancelled, got \(error)")
+            }
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(runner.cancelledCount, 1)
+
+        await service.cancelGeneration(operationID: secondOperationID)
+        do {
+            _ = try await secondTask.value
+            XCTFail("Expected second service cancellation")
+        } catch let error as WhisperServiceError {
+            guard case .cancelled = error else {
+                return XCTFail("Expected cancelled, got \(error)")
+            }
+        }
+        XCTAssertEqual(runner.cancelledCount, 2)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: temporaryDirectory.appendingPathComponent("first.srt").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: temporaryDirectory.appendingPathComponent("second.srt").path
+        ))
+    }
+
+    func testWhisperServiceRemembersCancellationThatArrivesBeforeRegistration() async throws {
+        let operationID = UUID()
+        let runner = RecordingSubprocessRunner { _, _ in
+            XCTFail("Cancelled operation must not launch FFmpeg")
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .zero
+            )
+        }
+        let service = WhisperService(
+            modelManager: StubWhisperModelProvider(
+                path: URL(fileURLWithPath: "/fixture/model.bin")
+            ),
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        await service.cancelGeneration(operationID: operationID)
+
+        do {
+            _ = try await service.generateSubtitles(
+                inputFile: URL(fileURLWithPath: "/fixture/input.mov"),
+                outputDirectory: URL(fileURLWithPath: "/fixture"),
+                model: .base,
+                language: "auto",
+                operationID: operationID
+            ) { _ in }
+            XCTFail("Expected cancellation")
+        } catch let error as WhisperServiceError {
+            guard case .cancelled = error else {
+                return XCTFail("Expected cancelled, got \(error)")
+            }
+        }
+        XCTAssertNil(runner.lastRequest)
+    }
+
+    func testTesseractServiceRemembersCancellationThatArrivesBeforeRegistration() async throws {
+        let operationID = UUID()
+        let runner = RecordingSubprocessRunner { _, _ in
+            XCTFail("Cancelled operation must not launch FFmpeg")
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .zero
+            )
+        }
+        let service = TesseractService(subprocessRunner: runner)
+        await service.cancelGeneration(operationID: operationID)
+
+        do {
+            _ = try await service.generateSubtitles(
+                sourceFile: URL(fileURLWithPath: "/fixture/input.mkv"),
+                outputDirectory: URL(fileURLWithPath: "/fixture"),
+                operationID: operationID,
+                subtitleStreamIndex: 0,
+                codec: "hdmv_pgs_subtitle",
+                language: "eng"
+            ) { _ in }
+            XCTFail("Expected cancellation")
+        } catch let error as TesseractServiceError {
+            guard case .cancelled = error else {
+                return XCTFail("Expected cancelled, got \(error)")
+            }
+        }
+        XCTAssertNil(runner.lastRequest)
+    }
+
+    func testWhisperServiceReservesDistinctOutputsForConcurrentSameBasenameRuns() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhisperServiceConcurrentOutput-\(UUID().uuidString)")
+        let firstInputDirectory = temporaryDirectory.appendingPathComponent("video")
+        let secondInputDirectory = temporaryDirectory.appendingPathComponent("audio")
+        let outputDirectory = temporaryDirectory.appendingPathComponent("output")
+        for directory in [firstInputDirectory, secondInputDirectory, outputDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = CoordinatedWhisperOutputRunner(expectedCount: 2)
+        let service = WhisperService(
+            modelManager: StubWhisperModelProvider(
+                path: temporaryDirectory.appendingPathComponent("model.bin")
+            ),
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        let firstTask = Task {
+            try await service.generateSubtitles(
+                inputFile: firstInputDirectory.appendingPathComponent("clip.mov"),
+                outputDirectory: outputDirectory,
+                model: .base,
+                language: "auto",
+                operationID: UUID()
+            ) { _ in }
+        }
+        let secondTask = Task {
+            try await service.generateSubtitles(
+                inputFile: secondInputDirectory.appendingPathComponent("clip.wav"),
+                outputDirectory: outputDirectory,
+                model: .base,
+                language: "auto",
+                operationID: UUID()
+            ) { _ in }
+        }
+
+        let firstOutput = try await firstTask.value
+        let secondOutput = try await secondTask.value
+
+        XCTAssertEqual(Set([firstOutput.lastPathComponent, secondOutput.lastPathComponent]), Set([
+            "clip.srt", "clip.whisper.srt"
+        ]))
+        XCTAssertNotEqual(
+            try String(contentsOf: firstOutput, encoding: .utf8),
+            try String(contentsOf: secondOutput, encoding: .utf8)
+        )
+    }
+
+    func testWhisperServiceUsesShortStagingNameForLongBasename() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhisperServiceLongName-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let baseName = String(repeating: "a", count: 245)
+        let runner = CoordinatedWhisperOutputRunner(expectedCount: 2)
+        let service = WhisperService(
+            modelManager: StubWhisperModelProvider(
+                path: temporaryDirectory.appendingPathComponent("model.bin")
+            ),
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+
+        let firstTask = Task {
+            try await service.generateSubtitles(
+                inputFile: temporaryDirectory.appendingPathComponent(baseName + ".mov"),
+                outputDirectory: temporaryDirectory,
+                model: .base,
+                language: "auto",
+                operationID: UUID()
+            ) { _ in }
+        }
+        let secondTask = Task {
+            try await service.generateSubtitles(
+                inputFile: temporaryDirectory.appendingPathComponent(baseName + ".wav"),
+                outputDirectory: temporaryDirectory,
+                model: .base,
+                language: "auto",
+                operationID: UUID()
+            ) { _ in }
+        }
+
+        let firstOutput = try await firstTask.value
+        let secondOutput = try await secondTask.value
+        let outputs = [firstOutput, secondOutput]
+        XCTAssertEqual(Set(outputs.map(\.lastPathComponent)).count, 2)
+        XCTAssertTrue(outputs.contains { $0.lastPathComponent == baseName + ".srt" })
+        for output in outputs {
+            XCTAssertLessThanOrEqual(output.lastPathComponent.utf8.count, 255)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+        }
+    }
+
+    func testWhisperServiceFailedRerunPreservesExistingSubtitle() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhisperServicePreserve-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let input = temporaryDirectory.appendingPathComponent("clip.mov")
+        let existingSubtitle = temporaryDirectory.appendingPathComponent("clip.srt")
+        try "existing subtitle".write(to: existingSubtitle, atomically: true, encoding: .utf8)
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 7,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data("filter failed".utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let service = WhisperService(
+            modelManager: StubWhisperModelProvider(
+                path: temporaryDirectory.appendingPathComponent("model.bin")
+            ),
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+
+        do {
+            _ = try await service.generateSubtitles(
+                inputFile: input,
+                outputDirectory: temporaryDirectory,
+                model: .base,
+                language: "auto",
+                operationID: UUID()
+            ) { _ in }
+            XCTFail("Expected transcription failure")
+        } catch let error as WhisperServiceError {
+            guard case .transcriptionFailed = error else {
+                return XCTFail("Expected transcriptionFailed, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(
+            try String(contentsOf: existingSubtitle, encoding: .utf8),
+            "existing subtitle"
+        )
+        let stagedFiles = try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+            .filter { $0.contains(".whisper-") }
+        XCTAssertTrue(stagedFiles.isEmpty)
+    }
+
+    func testWhisperServicePublishesStagedSubtitleOverExistingOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhisperServicePublish-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let input = temporaryDirectory.appendingPathComponent("clip.mov")
+        let existingSubtitle = temporaryDirectory.appendingPathComponent("clip.srt")
+        try "existing subtitle".write(to: existingSubtitle, atomically: true, encoding: .utf8)
+        let runner = RecordingSubprocessRunner { request, _ in
+            let stagedURL = try XCTUnwrap(whisperDestinationURL(in: request))
+            try "1\n00:00:00,000 --> 00:00:01,000\nNew text\n".write(
+                to: stagedURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let service = WhisperService(
+            modelManager: StubWhisperModelProvider(
+                path: temporaryDirectory.appendingPathComponent("model.bin")
+            ),
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+
+        let result = try await service.generateSubtitles(
+            inputFile: input,
+            outputDirectory: temporaryDirectory,
+            model: .base,
+            language: "auto",
+            operationID: UUID()
+        ) { _ in }
+
+        XCTAssertEqual(result, existingSubtitle)
+        XCTAssertTrue(try String(contentsOf: existingSubtitle, encoding: .utf8).contains("New text"))
+        let stagedFiles = try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+            .filter { $0.contains(".whisper-") }
+        XCTAssertTrue(stagedFiles.isEmpty)
+    }
+
+    func testWhisperServiceMapsLateParentCancellationBeforePublishingOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WhisperServiceLateCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = DeferredSuccessfulWhisperRunner()
+        let service = WhisperService(
+            modelManager: StubWhisperModelProvider(
+                path: temporaryDirectory.appendingPathComponent("model.bin")
+            ),
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        let input = temporaryDirectory.appendingPathComponent("clip.mov")
+        let generationTask = Task {
+            try await service.generateSubtitles(
+                inputFile: input,
+                outputDirectory: temporaryDirectory,
+                model: .base,
+                language: "auto",
+                operationID: UUID()
+            ) { _ in }
+        }
+
+        await runner.waitUntilStarted()
+        generationTask.cancel()
+        runner.release()
+
+        do {
+            _ = try await generationTask.value
+            XCTFail("Expected cancellation")
+        } catch let error as WhisperServiceError {
+            guard case .cancelled = error else {
+                return XCTFail("Expected cancelled, got \(error)")
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: temporaryDirectory.appendingPathComponent("clip.srt").path
+        ))
+        let stagedFiles = try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+            .filter { $0.contains(".whisper-") }
+        XCTAssertTrue(stagedFiles.isEmpty)
+    }
+
+    func testQueueSubtitleCancellationFindsAndInvalidatesGroupedItem() {
+        let operationID = UUID()
+        var item = VideoItem(
+            url: URL(fileURLWithPath: "/fixture/grouped.mov"),
+            name: "grouped.mov",
+            size: 0,
+            duration: "00:01:00",
+            status: .done,
+            progress: 1,
+            eta: nil,
+            outputURL: nil
+        )
+        item.subtitleMethod = .whisper
+        item.subtitleStatus = .generating(progress: 0.5)
+        item.subtitleOperationID = operationID
+        let itemID = item.id
+        var droppedFiles: [VideoItem] = []
+        var encodingGroups = [EncodingGroup(name: "Group", items: [item])]
+
+        let target = QueueSubtitleCancellationState.takeTarget(
+            itemID: itemID,
+            droppedFiles: &droppedFiles,
+            encodingGroups: &encodingGroups
+        )
+
+        XCTAssertEqual(target, QueueSubtitleCancellationTarget(
+            method: .whisper,
+            operationID: operationID
+        ))
+        XCTAssertEqual(encodingGroups[0].items[0].subtitleStatus, .notQueued)
+        XCTAssertNil(encodingGroups[0].items[0].subtitleOperationID)
+    }
+
+    @MainActor
+    func testSubtitleEmbeddingCommitRejectsSupersededAttempt() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SubtitleEmbeddingStale-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoURL = temporaryDirectory.appendingPathComponent("video.mov")
+        let stagedURL = temporaryDirectory.appendingPathComponent("staged.mov")
+        try Data("original".utf8).write(to: videoURL)
+        try Data("stale embed".utf8).write(to: stagedURL)
+        var markedComplete = false
+
+        let published = try SubtitleEmbeddingCommit.publishIfCurrent(
+            temporaryURL: stagedURL,
+            destinationURL: videoURL,
+            isCurrent: { false },
+            didPublish: { markedComplete = true }
+        )
+
+        XCTAssertFalse(published)
+        XCTAssertFalse(markedComplete)
+        XCTAssertEqual(try String(contentsOf: videoURL, encoding: .utf8), "original")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedURL.path))
+    }
+
+    @MainActor
+    func testSubtitleEmbeddingCommitPreservesVideoWhenReplacementFails() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SubtitleEmbeddingFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoURL = temporaryDirectory.appendingPathComponent("video.mov")
+        let missingStagedURL = temporaryDirectory.appendingPathComponent("missing.mov")
+        try Data("original".utf8).write(to: videoURL)
+        var markedComplete = false
+
+        XCTAssertThrowsError(try SubtitleEmbeddingCommit.publishIfCurrent(
+            temporaryURL: missingStagedURL,
+            destinationURL: videoURL,
+            isCurrent: { true },
+            didPublish: { markedComplete = true }
+        ))
+        XCTAssertFalse(markedComplete)
+        XCTAssertEqual(try String(contentsOf: videoURL, encoding: .utf8), "original")
     }
 
     func testRcloneEnvironmentDropsInheritedRemoteConfiguration() {
@@ -3659,6 +4373,23 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
 
 }
 
+private func whisperDestinationURL(in request: SubprocessRequest) -> URL? {
+    guard let filterIndex = request.arguments.firstIndex(of: "-af"),
+          request.arguments.indices.contains(filterIndex + 1) else {
+        return nil
+    }
+    let filter = request.arguments[filterIndex + 1]
+    guard let start = filter.range(of: "destination=")?.upperBound,
+          let end = filter.range(of: ":use_gpu=true", range: start..<filter.endIndex)?.lowerBound else {
+        return nil
+    }
+    let escapedPath = String(filter[start..<end])
+    return URL(fileURLWithPath: escapedPath
+        .replacingOccurrences(of: "\\:", with: ":")
+        .replacingOccurrences(of: "\\'", with: "'")
+        .replacingOccurrences(of: "\\\\", with: "\\"))
+}
+
 private extension Array where Element == String {
     func containsAdjacent(_ first: String, _ second: String) -> Bool {
         adjacentPairCount(first, second) > 0
@@ -3730,6 +4461,18 @@ private struct StubRcloneUpdateService: RcloneUpdating {
 
     func resolveRclonePath() async -> String? {
         path
+    }
+}
+
+private struct StubWhisperModelProvider: WhisperModelProviding {
+    let path: URL
+
+    func modelPath(for model: WhisperModel) -> URL {
+        path
+    }
+
+    func isModelDownloaded(_ model: WhisperModel) -> Bool {
+        true
     }
 }
 
@@ -3871,6 +4614,112 @@ private final class CountingBlockingSubprocessRunner: SubprocessRunning, @unchec
         for waiter in waiters {
             waiter.resume()
         }
+    }
+}
+
+private final class DeferredSuccessfulWhisperRunner: SubprocessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        await withCheckedContinuation { continuation in
+            let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                releaseContinuation = continuation
+                started = true
+                let waiters = startWaiters
+                startWaiters.removeAll()
+                return waiters
+            }
+            for waiter in waiters { waiter.resume() }
+        }
+        let stagedURL = try XCTUnwrap(whisperDestinationURL(in: request))
+        try "1\n00:00:00,000 --> 00:00:01,000\nLate output\n".write(
+            to: stagedURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        return SubprocessResult(
+            terminationStatus: 0,
+            termination: .exited,
+            standardOutput: Data(),
+            standardError: Data(),
+            discardedStandardOutputBytes: 0,
+            discardedStandardErrorBytes: 0,
+            duration: .milliseconds(10)
+        )
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !started else { return true }
+                startWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately { continuation.resume() }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            defer { releaseContinuation = nil }
+            return releaseContinuation
+        }
+        continuation?.resume()
+    }
+}
+
+private final class CoordinatedWhisperOutputRunner: SubprocessRunning, @unchecked Sendable {
+    private let expectedCount: Int
+    private let lock = NSLock()
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    init(expectedCount: Int) {
+        self.expectedCount = expectedCount
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        await withCheckedContinuation { continuation in
+            let continuations = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                waiting.append(continuation)
+                guard waiting.count == expectedCount else { return [] }
+                let continuations = waiting
+                waiting.removeAll()
+                return continuations
+            }
+            for continuation in continuations { continuation.resume() }
+        }
+
+        let stagedURL = try XCTUnwrap(whisperDestinationURL(in: request))
+        let inputName: String = {
+            guard let inputIndex = request.arguments.firstIndex(of: "-i"),
+                  request.arguments.indices.contains(inputIndex + 1) else {
+                return "unknown"
+            }
+            return URL(fileURLWithPath: request.arguments[inputIndex + 1]).lastPathComponent
+        }()
+        try "1\n00:00:00,000 --> 00:00:01,000\n\(inputName)\n".write(
+            to: stagedURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        return SubprocessResult(
+            terminationStatus: 0,
+            termination: .exited,
+            standardOutput: Data(),
+            standardError: Data(),
+            discardedStandardOutputBytes: 0,
+            discardedStandardErrorBytes: 0,
+            duration: .milliseconds(10)
+        )
     }
 }
 

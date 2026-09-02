@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 104 tests pass. The
+- The unit-test baseline is green: 120 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 104 unit tests. The UI test target now has deterministic smoke
+- There are only 120 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -299,7 +299,7 @@ batch cancellation. Per-batch and per-process identities also prevent late callb
 from an older cancelled conversion from clearing or completing newer work, including
 cancellation during FFmpeg preflight before the process launches. Start/cancel,
 success, and failure UI tests passed together in two consecutive runs; the full
-104-test unit target remains green.
+120-test unit target remains green.
 
 ## Priority 2 — Make long-running work reliable
 
@@ -307,8 +307,8 @@ Target: after the correctness net; approximately 1–2 weeks.
 
 ### 2.1 Introduce one subprocess runner
 
-Status: in progress; shared runner plus yt-dlp, rclone, and OCR migrations added
-2026-09-01–02.
+Status: in progress; shared runner plus yt-dlp, rclone, OCR, and Whisper migrations
+added 2026-09-01–02.
 
 Provide an injectable runner that owns:
 
@@ -373,13 +373,38 @@ The OCR pipeline's FFmpeg subtitle-stream extraction now uses the shared runner 
 Its thirty-minute deadline terminates the process tree, stderr capture is bounded, source
 and scratch paths are redacted from concise failure details, and user or parent-task
 cancellation reaches the runner through run-keyed extraction tasks. Concurrent OCR runs
-retain independent task slots, while the service's global cancellation action stops every
-active extraction or recognition task. Incremental FFmpeg progress is reassembled across
+retain independent task slots, while per-attempt operation IDs ensure a row-level cancel
+stops only that item's current extraction or recognition tasks; a cancellation dispatched
+before actor registration is retained for that attempt, and an explicit cancel-all path
+remains available for batch shutdown. Incremental FFmpeg progress is reassembled across
 arbitrary output chunks without treating partial records as real progress. Fake-runner
 tests cover request construction, deadline/capture policy, split progress, timeout mapping,
-bounded redacted failures, direct task cancellation, and overlapping service cancellation.
-The main FFmpeg conversion path, transcription, package-update, and remaining wrapper call
-sites are still open.
+bounded redacted failures, early/direct task cancellation, and isolated overlapping service
+cancellation.
+The FFmpeg Whisper-filter transcription path now uses the shared runner with a generous
+twelve-hour deadline, bounded stderr capture, process-tree cancellation, and redacted
+input, model, output, and filter paths. Its progress parser reassembles arbitrary stderr
+chunks and final unterminated records before interpreting duration and timestamp updates.
+The actor no longer blocks in `waitUntilExit`, and per-attempt operation IDs keep overlapping
+transcription cancellation isolated without poisoning a later retry. A cancellation dispatched
+before actor registration is remembered for that attempt; parent-task cancellation follows the
+same path and is rechecked before publication. Each run writes a short UUID-only staged SRT and
+replaces its reserved destination only after success, so cancellation and failed reruns preserve
+an existing valid subtitle. Concurrent same-basename runs reserve distinct final names instead
+of overwriting one another. Queue progress, completion, and embedding publication are fenced by
+the same attempt ID, preventing a cancelled or superseded run from mutating the current row;
+grouped queue children use the same targeted cancellation route. The guarded embedding commit
+uses atomic replacement so a publication failure preserves the original video. The raw filter
+string, including private model and output paths, is no longer logged, and its values now use
+both required FFmpeg escaping layers. Focused fake-runner
+tests cover request construction, stream selection, deadline and capture policy, split progress,
+timeout mapping, bounded redacted diagnostics, early/direct/late task cancellation, isolated
+overlapping cancellation, long filenames, concurrent destination reservation, and staged
+publication. A bundled-FFmpeg parser test also round-trips paths containing colons, commas,
+semicolons, brackets, backslashes, and apostrophes without loading a real model.
+
+The main FFmpeg conversion path, Parakeet transcription, package-update, and remaining
+wrapper call sites are still open.
 
 ### 2.2 Remove sync-over-async waits
 

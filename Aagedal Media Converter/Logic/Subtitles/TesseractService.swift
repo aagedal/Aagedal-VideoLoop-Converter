@@ -87,6 +87,8 @@ actor TesseractService {
     private let subtitleStreamExtractor: TesseractSubtitleStreamExtractor
     private var activeRunIDs: Set<UUID> = []
     private var cancelledRunIDs: Set<UUID> = []
+    private var cancelledOperationIDs: Set<UUID> = []
+    private var runIDsByOperationID: [UUID: Set<UUID>] = [:]
     private var currentExtractionTasks: [UUID: Task<Void, Error>] = [:]
     private var currentOCRTasks: [UUID: Task<String, Error>] = [:]
 
@@ -116,14 +118,18 @@ actor TesseractService {
     func generateSubtitles(
         sourceFile: URL,
         outputDirectory: URL,
+        operationID: UUID,
         subtitleStreamIndex: Int,
         codec: String,
         language: String,
         progress: @escaping @Sendable (TesseractProgress) -> Void
     ) async throws -> URL {
         let runID = UUID()
-        activeRunIDs.insert(runID)
-        defer { finishRun(runID) }
+        registerRun(runID, operationID: operationID)
+        defer { finishRun(runID, operationID: operationID) }
+        guard !cancelledRunIDs.contains(runID) else {
+            throw TesseractServiceError.cancelled
+        }
         let baseName = sourceFile.deletingPathExtension().lastPathComponent
         let srtURL = SubtitleSRTNaming.outputURL(directory: outputDirectory, baseName: baseName, method: .ocr)
         return try await runPipeline(
@@ -141,14 +147,18 @@ actor TesseractService {
     /// the source file. Used for "transcribe-only" (Option+click) mode.
     func generateSubtitlesOnly(
         sourceFile: URL,
+        operationID: UUID,
         subtitleStreamIndex: Int,
         codec: String,
         language: String,
         progress: @escaping @Sendable (TesseractProgress) -> Void
     ) async throws -> URL {
         let runID = UUID()
-        activeRunIDs.insert(runID)
-        defer { finishRun(runID) }
+        registerRun(runID, operationID: operationID)
+        defer { finishRun(runID, operationID: operationID) }
+        guard !cancelledRunIDs.contains(runID) else {
+            throw TesseractServiceError.cancelled
+        }
         let outputDirectory = sourceFile.deletingLastPathComponent()
         let baseName = sourceFile.deletingPathExtension().lastPathComponent
         let srtURL = SubtitleSRTNaming.outputURL(directory: outputDirectory, baseName: baseName, method: .ocr)
@@ -163,15 +173,22 @@ actor TesseractService {
         )
     }
 
-    /// Cancels any in-progress OCR run.
-    func cancelGeneration() {
+    /// Cancels OCR associated with one queue item or user operation.
+    func cancelGeneration(operationID: UUID) {
+        cancelledOperationIDs.insert(operationID)
+        let runIDs = runIDsByOperationID[operationID] ?? []
+        cancelledRunIDs.formUnion(runIDs)
+        for runID in runIDs {
+            currentExtractionTasks[runID]?.cancel()
+            currentOCRTasks[runID]?.cancel()
+        }
+    }
+
+    /// Stops every active OCR run during an explicit batch shutdown.
+    func cancelAllGeneration() {
         cancelledRunIDs.formUnion(activeRunIDs)
-        for task in currentExtractionTasks.values {
-            task.cancel()
-        }
-        for task in currentOCRTasks.values {
-            task.cancel()
-        }
+        for task in currentExtractionTasks.values { task.cancel() }
+        for task in currentOCRTasks.values { task.cancel() }
     }
 
     // MARK: - Pipeline
@@ -426,11 +443,24 @@ actor TesseractService {
         return lower == "pgssub" || lower == "hdmv_pgs_subtitle" || lower == "s_hdmv/pgs"
     }
 
-    private func finishRun(_ runID: UUID) {
+    private func registerRun(_ runID: UUID, operationID: UUID) {
+        activeRunIDs.insert(runID)
+        runIDsByOperationID[operationID, default: []].insert(runID)
+        if cancelledOperationIDs.contains(operationID) {
+            cancelledRunIDs.insert(runID)
+        }
+    }
+
+    private func finishRun(_ runID: UUID, operationID: UUID) {
         currentExtractionTasks.removeValue(forKey: runID)?.cancel()
         currentOCRTasks.removeValue(forKey: runID)?.cancel()
         activeRunIDs.remove(runID)
         cancelledRunIDs.remove(runID)
+        runIDsByOperationID[operationID]?.remove(runID)
+        if runIDsByOperationID[operationID]?.isEmpty == true {
+            runIDsByOperationID.removeValue(forKey: operationID)
+            cancelledOperationIDs.remove(operationID)
+        }
     }
 }
 

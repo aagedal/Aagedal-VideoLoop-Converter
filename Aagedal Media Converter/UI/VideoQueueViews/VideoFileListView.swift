@@ -1153,11 +1153,13 @@ struct VideoFileListView: View {
             return
         }
 
-        // Update status to pending
+        let operationID = UUID()
+        // Update status to pending and publish the attempt token before dispatching work.
         await MainActor.run {
             if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
                 droppedFiles[idx].subtitleMethod = .whisper
                 droppedFiles[idx].subtitleStatus = .pending
+                droppedFiles[idx].subtitleOperationID = operationID
             }
         }
 
@@ -1166,11 +1168,13 @@ struct VideoFileListView: View {
                 inputFile: inputURL,
                 model: model,
                 language: language,
+                operationID: operationID,
                 audioStreamIndex: audioStreamIndex
             ) { whisperProgress in
                 Task { @MainActor in
                     if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }),
-                       self.droppedFiles[idx].subtitleStatus.isInProgress {
+                       self.droppedFiles[idx].subtitleStatus.isInProgress,
+                       self.droppedFiles[idx].subtitleOperationID == operationID {
                         switch whisperProgress.stage {
                         case .extractingAudio:
                             self.droppedFiles[idx].subtitleStatus = .extractingAudio
@@ -1189,24 +1193,30 @@ struct VideoFileListView: View {
             }
 
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .completed
                     droppedFiles[idx].subtitleFilePath = srtURL
                     droppedFiles[idx].subtitleProgress = 1.0
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
             Self.logger.info("Transcribe-only completed: \(srtURL.lastPathComponent, privacy: .public)")
 
         } catch WhisperServiceError.cancelled {
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .notQueued
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
         } catch {
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .failed(error.localizedDescription)
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
             Self.logger.error("Transcribe-only failed: \(error.localizedDescription, privacy: .public)")
@@ -1350,23 +1360,27 @@ struct VideoFileListView: View {
             return
         }
 
+        let operationID = UUID()
         await MainActor.run {
             if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
                 droppedFiles[idx].subtitleMethod = .ocr
                 droppedFiles[idx].subtitleStatus = .pending
+                droppedFiles[idx].subtitleOperationID = operationID
             }
         }
 
         do {
             let srtURL = try await TesseractService.shared.generateSubtitlesOnly(
                 sourceFile: sourceURL,
+                operationID: operationID,
                 subtitleStreamIndex: streamIndex,
                 codec: codec,
                 language: language
             ) { ocrProgress in
                 Task { @MainActor in
                     if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }),
-                       self.droppedFiles[idx].subtitleStatus.isInProgress {
+                       self.droppedFiles[idx].subtitleStatus.isInProgress,
+                       self.droppedFiles[idx].subtitleOperationID == operationID {
                         switch ocrProgress.stage {
                         case .extractingTrack, .parsingFrames:
                             self.droppedFiles[idx].subtitleStatus = .extractingAudio
@@ -1385,24 +1399,30 @@ struct VideoFileListView: View {
             }
 
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .completed
                     droppedFiles[idx].subtitleFilePath = srtURL
                     droppedFiles[idx].subtitleProgress = 1.0
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
             Self.logger.info("OCR-only completed: \(srtURL.lastPathComponent, privacy: .public)")
 
         } catch TesseractServiceError.cancelled {
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .notQueued
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
         } catch {
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .failed(error.localizedDescription)
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
             Self.logger.error("OCR-only failed: \(error.localizedDescription, privacy: .public)")
