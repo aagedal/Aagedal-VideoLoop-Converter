@@ -588,6 +588,61 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testTesseractServiceCancelGenerationCancelsAllOverlappingExtractions() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TesseractServiceCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let firstSourceURL = temporaryDirectory.appendingPathComponent("first.mkv")
+        let secondSourceURL = temporaryDirectory.appendingPathComponent("second.mkv")
+        try Data().write(to: firstSourceURL)
+        try Data().write(to: secondSourceURL)
+        let runner = CountingBlockingSubprocessRunner()
+        let service = TesseractService(subprocessRunner: runner)
+
+        try await withPresetSettingsAsync([
+            AppConstants.ocrEngineKey: OCREngineKind.appleVision.rawValue
+        ]) {
+            let firstGenerationTask = Task {
+                try await service.generateSubtitles(
+                    sourceFile: firstSourceURL,
+                    outputDirectory: temporaryDirectory,
+                    subtitleStreamIndex: 0,
+                    codec: "hdmv_pgs_subtitle",
+                    language: "eng"
+                ) { _ in }
+            }
+            let secondGenerationTask = Task {
+                try await service.generateSubtitles(
+                    sourceFile: secondSourceURL,
+                    outputDirectory: temporaryDirectory,
+                    subtitleStreamIndex: 0,
+                    codec: "hdmv_pgs_subtitle",
+                    language: "eng"
+                ) { _ in }
+            }
+
+            await runner.waitUntilStarted(count: 2)
+            await service.cancelGeneration()
+
+            for generationTask in [firstGenerationTask, secondGenerationTask] {
+                do {
+                    _ = try await generationTask.value
+                    XCTFail("Expected service cancellation")
+                } catch let error as TesseractServiceError {
+                    guard case .cancelled = error else {
+                        return XCTFail("Expected cancelled, got \(error)")
+                    }
+                }
+            }
+            XCTAssertEqual(runner.cancelledCount, 2)
+        }
+    }
+
     func testRcloneEnvironmentDropsInheritedRemoteConfiguration() {
         let environment = RcloneService.sanitizedEnvironment(
             base: [
@@ -3750,6 +3805,71 @@ private final class BlockingSubprocessRunner: SubprocessRunning, @unchecked Send
                 startWaiters.append(continuation)
                 lock.unlock()
             }
+        }
+    }
+}
+
+private final class CountingBlockingSubprocessRunner: SubprocessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedCount = 0
+    private var recordedCancelledCount = 0
+    private var startWaiters: [(
+        count: Int,
+        continuation: CheckedContinuation<Void, Never>
+    )] = []
+
+    var cancelledCount: Int {
+        lock.withLock { recordedCancelledCount }
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        signalStarted()
+        do {
+            try await Task.sleep(for: .seconds(30))
+        } catch {
+            lock.withLock {
+                recordedCancelledCount += 1
+            }
+            throw error
+        }
+        return SubprocessResult(
+            terminationStatus: 0,
+            termination: .exited,
+            standardOutput: Data(),
+            standardError: Data(),
+            discardedStandardOutputBytes: 0,
+            discardedStandardErrorBytes: 0,
+            duration: .seconds(30)
+        )
+    }
+
+    func waitUntilStarted(count: Int) async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard startedCount < count else { return true }
+                startWaiters.append((count, continuation))
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func signalStarted() {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            startedCount += 1
+            let ready = startWaiters
+                .filter { startedCount >= $0.count }
+                .map(\.continuation)
+            startWaiters.removeAll { startedCount >= $0.count }
+            return ready
+        }
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 }

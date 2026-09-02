@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Bitmap-subtitle extraction now uses the shared cancellable subprocess layer.** The FFmpeg stage before OCR has process-tree cancellation, a thirty-minute deadline, bounded diagnostics, redacted source and scratch paths, and split-chunk-safe progress parsing, so a wedged extraction cannot pin the queue or leak private paths in its failure message.
 - **rclone uploads now use the shared cancellable subprocess layer.** Uploads, connection tests, and password obscuring have explicit deadlines, bounded output capture, split-line-safe progress parsing, stdin-only password delivery, and redacted diagnostics. Cancelling one item now terminates only that upload, while late callbacks from an older attempt cannot overwrite or clear a retry.
 - **yt-dlp downloads now use the shared cancellable subprocess layer.** Normal, forced, playlist, and live downloads share bounded concurrent output draining, redacted diagnostics, task/process-tree cancellation, and the existing five-minute inactivity watchdog. Per-item cancellation keeps simultaneous downloads isolated, and live recording stops still preserve their distinct partial-file recovery path.
 - **yt-dlp metadata and playlist probes can no longer wait forever.** They now run through a shared cancellable subprocess layer with a five-minute deadline, concurrent stdout/stderr draining, bounded diagnostics, TERM-to-KILL descendant cleanup, and redacted cookie/URL command descriptions and error text.
