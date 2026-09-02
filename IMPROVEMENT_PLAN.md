@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 143 tests pass. The
+- The unit-test baseline is green: 149 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,15 +23,16 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 143 unit tests. The UI test target now has deterministic smoke
+- There are only 149 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools are launched from roughly 50 `Process` construction sites. They
-  do not share one cancellation, timeout, pipe-draining, and error-reporting layer.
+- External tools still have 38 direct `Process` construction sites outside the
+  shared runner and UI-test fixture. The remaining paths do not yet share one
+  cancellation, timeout, pipe-draining, and error-reporting layer.
 - `SwiftExifMediaProbe.durationSync` bridges async AVFoundation work with an
   unbounded semaphore wait.
 - The empty queue, imported queue rows, primary conversion toolbar, and Settings
@@ -444,10 +445,23 @@ mapping, direct cancellation, and converter-level cancellation. Those tests also
 and fixed a short-audio FFT range crash by zero-padding requested frames beyond the
 available PCM samples.
 
-Package-update, preview-generator, native-waveform streaming encoder, AV2 pipe, DCP/IMF
-wrapper, analytics, and remaining helper call sites are still open.
+Rclone package resolution now uses the shared runner for both custom-binary identity
+validation and the active-version query. The duplicated direct `Process` launches and
+hand-rolled watchdog were replaced by one injectable five-second probe with bounded stdout
+and stderr, process-tree cancellation, structured exit checking, and executable-path
+redaction. Focused fake-runner tests cover request policy, accepted and rejected output,
+nonzero exit, cancellation, and the update service's injected active-version path.
+
+Remaining package-update, preview-generator, native-waveform streaming encoder, AV2 pipe,
+DCP/IMF wrapper, analytics, and remaining helper call sites are still open.
+The refreshed direct-process audit ranks `AnalyticsService`, the centralized
+`PreviewAssetGenerator.runProcess`, and `BMXService` as the next high-value slices.
+Native-waveform streaming and AV2 pipelines should wait until the runner supports
+incremental stdin and coordinated multi-process pipes.
 
 ### 2.2 Remove sync-over-async waits
+
+Status: in progress; image-sequence duration compatibility bridge bounded 2026-09-02.
 
 - Make image-sequence duration probing async end-to-end, or give the compatibility
   bridge a bounded timeout while callers are migrated.
@@ -458,6 +472,13 @@ wrapper, analytics, and remaining helper call sites are still open.
 
 Acceptance: Thread Sanitizer smoke runs show no new races, and stalled media probes
 cannot indefinitely block an import.
+
+The synchronous image-sequence audio-duration compatibility bridge now limits its
+AVFoundation fallback to five seconds and cancels the detached load on timeout. Its
+shared result is lock-protected so a late completion cannot race the caller after the
+deadline. Deterministic tests cover successful delivery and a stalled async probe
+returning promptly; migrating image-sequence detection async end-to-end and the wider
+wait/cancellation audit remain open.
 
 ### 2.3 Standardize user-visible errors
 

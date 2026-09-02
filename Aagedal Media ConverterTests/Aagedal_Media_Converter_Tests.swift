@@ -254,6 +254,150 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(diagnostic.contains("DEF"))
     }
 
+    func testSynchronousDurationBridgeReturnsLoadedDuration() {
+        let duration = SwiftExifMediaProbe.waitForAsyncDuration(timeout: 1) {
+            2.5
+        }
+
+        XCTAssertEqual(duration, 2.5)
+    }
+
+    func testSynchronousDurationBridgeTimesOutWithoutBlockingImportForever() {
+        let start = ContinuousClock.now
+        let duration = SwiftExifMediaProbe.waitForAsyncDuration(timeout: 0.05) {
+            try? await Task.sleep(for: .seconds(30))
+            return 12
+        }
+
+        XCTAssertNil(duration)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testRcloneBinaryVerifierUsesSharedRunnerWithBoundedVersionProbePolicy() async throws {
+        let binaryPath = "/private/tools/custom rclone"
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("rclone v1.70.3\n- os/version: fixture\n".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+
+        let version = await RcloneBinaryVerifier.versionString(
+            of: binaryPath,
+            subprocessRunner: runner
+        )
+
+        XCTAssertEqual(version, "rclone v1.70.3")
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, binaryPath)
+        XCTAssertEqual(request.arguments, ["--version"])
+        XCTAssertEqual(request.timeout, .seconds(5))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 8 * 1024)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 8 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(binaryPath))
+    }
+
+    func testRcloneBinaryVerifierRejectsNonzeroAndUnexpectedOutput() async {
+        let nonzeroRunner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 7,
+                termination: .exited,
+                standardOutput: Data("rclone v1.70.3\n".utf8),
+                standardError: Data("probe failed".utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let unexpectedRunner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("not-rclone 1.0\n".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+
+        let nonzeroVersion = await RcloneBinaryVerifier.versionString(
+            of: "/private/tools/rclone",
+            subprocessRunner: nonzeroRunner
+        )
+        let unexpectedVersion = await RcloneBinaryVerifier.versionString(
+            of: "/private/tools/rclone",
+            subprocessRunner: unexpectedRunner
+        )
+
+        XCTAssertNil(nonzeroVersion)
+        XCTAssertNil(unexpectedVersion)
+    }
+
+    func testRcloneBinaryVerifierCancellationReachesSharedRunner() async {
+        let runner = BlockingSubprocessRunner()
+        let probeTask = Task {
+            await RcloneBinaryVerifier.versionString(
+                of: "/private/tools/rclone",
+                subprocessRunner: runner
+            )
+        }
+
+        await runner.waitUntilStarted()
+        probeTask.cancel()
+
+        let version = await probeTask.value
+        XCTAssertNil(version)
+    }
+
+    func testRcloneUpdateServiceUsesInjectedRunnerForActiveVersion() async throws {
+        let defaults = UserDefaults.standard
+        let originalSource = defaults.object(forKey: AppConstants.rcloneBinarySourceKey)
+        let originalCustomPath = defaults.object(forKey: AppConstants.rcloneCustomPathKey)
+        defer {
+            if let originalSource {
+                defaults.set(originalSource, forKey: AppConstants.rcloneBinarySourceKey)
+            } else {
+                defaults.removeObject(forKey: AppConstants.rcloneBinarySourceKey)
+            }
+            if let originalCustomPath {
+                defaults.set(originalCustomPath, forKey: AppConstants.rcloneCustomPathKey)
+            } else {
+                defaults.removeObject(forKey: AppConstants.rcloneCustomPathKey)
+            }
+        }
+
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rclone-version-fixture-\(UUID().uuidString)")
+        try Data().write(to: temporaryURL)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        defaults.set(BinarySourceSelection.custom.rawValue, forKey: AppConstants.rcloneBinarySourceKey)
+        defaults.set(temporaryURL.path, forKey: AppConstants.rcloneCustomPathKey)
+
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("rclone v1.70.3-beta\n".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let service = RcloneUpdateService(subprocessRunner: runner)
+
+        let version = await service.getCurrentVersion()
+
+        XCTAssertEqual(version, "v1.70.3")
+        XCTAssertEqual(runner.lastRequest?.executableURL.path, temporaryURL.path)
+    }
+
     func testWaveformPCMDecoderUsesSharedRunnerPolicyAndProducesBands() async throws {
         let inputURL = URL(fileURLWithPath: "/private/fixture/secret audio.wav")
         let runner = RecordingSubprocessRunner { request, _ in
