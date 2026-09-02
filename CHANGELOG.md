@@ -98,7 +98,7 @@ The headline is experimental **AV2 encoding** via the bundled AOM AVM reference 
 
 ## Housekeeping
 
-- **SwiftExif's package repository now follows its SwiftMediaMetadata rename** and the app uses the latest 2.x release (`aagedal/SwiftMediaMetadata`, 2.0.0), so dependency resolution no longer relies on the old repository redirect.
+- **SwiftMediaMetadata updated to 3.0.0.** The package remains on its renamed `aagedal/SwiftMediaMetadata` repository and now includes the new lossless XMP, preservation-policy, and metadata-capability APIs. The app's current read-only integration remains source-compatible with the major update.
 - **Release zips strip AppleDouble metadata** (`--norsrc --noextattr --noacl --noqtn`). Without this, `ditto` encodes xattrs / ACLs / creation dates as `._<name>` companions inside the zip, which macOS Sequoia no longer merges back on extract — they surface as visible files inside the `.app`, break the codesignature seal, and trip Gatekeeper's "app is damaged". The 4.1.2 release zip was re-packaged retroactively with the same fix.
 - Removed the stale `GEMINI.md` project-context file (recoverable from git history).
 
