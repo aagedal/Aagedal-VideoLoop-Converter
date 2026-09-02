@@ -253,6 +253,165 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(diagnostic.contains("DEF"))
     }
 
+    func testTesseractOCREngineUsesSharedRunnerWithDeadlineAndEnvironment() async throws {
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("recognized text\n".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+        let engine = TesseractOCREngine(
+            tesseractPath: "/fixture/tesseract",
+            tessdataPrefix: "/fixture/tessdata",
+            subprocessRunner: runner
+        )
+        let imageURL = URL(fileURLWithPath: "/private/tmp/subtitle frame.png")
+
+        let text = try await engine.recognize(pngURL: imageURL, language: "nor+eng")
+
+        XCTAssertEqual(text, "recognized text\n")
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, "/fixture/tesseract")
+        XCTAssertEqual(request.arguments, [imageURL.path, "stdout", "--psm", "6", "-l", "nor+eng"])
+        XCTAssertEqual(request.environment?["TESSDATA_PREFIX"], "/fixture/tessdata")
+        XCTAssertEqual(request.timeout, .seconds(10))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 256 * 1024)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(imageURL.path))
+    }
+
+    func testTesseractOCREngineMapsTimeoutToActionableError() async throws {
+        let runner = RecordingSubprocessRunner { request, _ in
+            let result = SubprocessResult(
+                terminationStatus: SIGTERM,
+                termination: .uncaughtSignal,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(10)
+            )
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: result
+            )
+        }
+        let engine = TesseractOCREngine(
+            tesseractPath: "/fixture/tesseract",
+            tessdataPrefix: nil,
+            subprocessRunner: runner
+        )
+
+        do {
+            _ = try await engine.recognize(
+                pngURL: URL(fileURLWithPath: "/private/tmp/frame.png"),
+                language: "eng"
+            )
+            XCTFail("Expected timeout")
+        } catch let error as TesseractOCREngineError {
+            guard case .timedOut = error else {
+                return XCTFail("Expected timedOut, got \(error)")
+            }
+            XCTAssertEqual(error.errorDescription, "tesseract exceeded the 10-second per-frame limit")
+        }
+    }
+
+    func testTesseractOCREngineBoundsAndRedactsFailureDiagnostic() async throws {
+        let imageURL = URL(fileURLWithPath: "/private/tmp/private-frame.png")
+        let runner = RecordingSubprocessRunner { _, _ in
+            let diagnostic = "failed to read \(imageURL.path) from https://example.com/private"
+            return SubprocessResult(
+                terminationStatus: 7,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+        let engine = TesseractOCREngine(
+            tesseractPath: "/fixture/tesseract",
+            tessdataPrefix: nil,
+            subprocessRunner: runner
+        )
+
+        do {
+            _ = try await engine.recognize(pngURL: imageURL, language: "eng")
+            XCTFail("Expected process failure")
+        } catch let error as TesseractOCREngineError {
+            guard case let .processFailed(exitCode, diagnostic) = error else {
+                return XCTFail("Expected processFailed, got \(error)")
+            }
+            XCTAssertEqual(exitCode, 7)
+            XCTAssertTrue(diagnostic.contains("<redacted>"))
+            XCTAssertTrue(diagnostic.contains("<url>"))
+            XCTAssertFalse(diagnostic.contains(imageURL.path))
+            XCTAssertFalse(diagnostic.contains("example.com"))
+        }
+    }
+
+    func testTesseractOCREngineRejectsTruncatedRecognitionOutput() async throws {
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("tail".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 1,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+        let engine = TesseractOCREngine(
+            tesseractPath: "/fixture/tesseract",
+            tessdataPrefix: nil,
+            subprocessRunner: runner
+        )
+
+        do {
+            _ = try await engine.recognize(
+                pngURL: URL(fileURLWithPath: "/private/tmp/frame.png"),
+                language: "eng"
+            )
+            XCTFail("Expected oversized-output failure")
+        } catch let error as TesseractOCREngineError {
+            guard case .outputTooLarge = error else {
+                return XCTFail("Expected outputTooLarge, got \(error)")
+            }
+        }
+    }
+
+    func testTesseractOCREnginePropagatesTaskCancellation() async throws {
+        let runner = BlockingSubprocessRunner()
+        let engine = TesseractOCREngine(
+            tesseractPath: "/fixture/tesseract",
+            tessdataPrefix: nil,
+            subprocessRunner: runner
+        )
+        let recognitionTask = Task {
+            try await engine.recognize(
+                pngURL: URL(fileURLWithPath: "/private/tmp/frame.png"),
+                language: "eng"
+            )
+        }
+
+        await runner.waitUntilStarted()
+        recognitionTask.cancel()
+
+        do {
+            _ = try await recognitionTask.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+    }
+
     func testRcloneEnvironmentDropsInheritedRemoteConfiguration() {
         let environment = RcloneService.sanitizedEnvironment(
             base: [

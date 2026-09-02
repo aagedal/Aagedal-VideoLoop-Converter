@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: ninety-three tests pass. The
+- The unit-test baseline is green: ninety-eight tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,040 lines), `ConversionManager.swift` (2,816),
   `ContentView.swift` (2,808), `VideoFileListView.swift` (2,237), and
   `ExportPreset.swift` (2,234).
-- There are only ninety-three unit tests. The UI test target now has deterministic smoke
+- There are only ninety-eight unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -299,7 +299,7 @@ batch cancellation. Per-batch and per-process identities also prevent late callb
 from an older cancelled conversion from clearing or completing newer work, including
 cancellation during FFmpeg preflight before the process launches. Start/cancel,
 success, and failure UI tests passed together in two consecutive runs; the full
-ninety-three-test unit target remains green.
+ninety-eight-test unit target remains green.
 
 ## Priority 2 — Make long-running work reliable
 
@@ -359,7 +359,15 @@ upload cannot terminate another; execution identities also prevent late progress
 completion, or cleanup from an older attempt from overwriting a retry. Fake-runner tests
 cover split/final progress, request construction, diagnostic redaction, connection error
 classification, password timeout/stdin behavior, and isolated concurrent cancellation.
-FFmpeg, transcription, OCR, package-update, and remaining wrapper call sites are still open.
+
+Per-frame Tesseract OCR now uses the shared runner instead of a detached task around
+`Process.waitUntilExit`. Its existing ten-second limit is enforced by the runner with
+process-tree termination, stdout/stderr are drained concurrently into bounded captures,
+input paths are redacted from diagnostics, and parent-task cancellation propagates through
+the shared cancellation path. Focused fake-runner tests cover request construction and
+environment, timeout mapping, redacted failures, truncated-output rejection, and
+cancellation. FFmpeg, transcription, package-update, and remaining wrapper call sites are
+still open, along with the FFmpeg extraction stage in the OCR pipeline.
 
 ### 2.2 Remove sync-over-async waits
 
