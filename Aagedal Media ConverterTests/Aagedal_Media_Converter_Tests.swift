@@ -273,6 +273,303 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testAnalyticsServiceUsesSharedRunnerWithBoundedPolicyAndSplitProgress() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let stderr = """
+        Duration: 00:00:10.00, start: 0.000000, bitrate: 1000 kb/s
+        frame=25 fps=0.0 time=00:00:05.00 bitrate=N/A speed=10x
+        [Parsed_psnr_0 @ fixture] PSNR y:38.12 u:42.34 v:43.56 average:39.01 min:25.67 max:48.90
+        """
+        let runner = RecordingSubprocessRunner { _, outputHandler in
+            for text in [
+                "Duration: 00:00:",
+                "10.00\rframe=25 fps=0.0 time=00:00:05",
+                ".00\r"
+            ] {
+                outputHandler?(SubprocessOutputChunk(stream: .standardError, data: Data(text.utf8)))
+            }
+            return successfulSubprocessResult(standardError: stderr)
+        }
+        let ffmpegPath = "/private/tools/analytics ffmpeg"
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { ffmpegPath }
+        )
+
+        let results = try await service.runAnalytics(
+            sourceFile: fixture.source,
+            encodedFile: fixture.encoded,
+            enabledMetrics: [.psnr],
+            vmafModel: .vmaf_v0_6_1
+        ) { metric, progress in
+            XCTAssertEqual(metric, .psnr)
+            progressValues.withLock { $0.append(progress) }
+        }
+
+        let result = try XCTUnwrap(results.first)
+        XCTAssertEqual(result.metric, .psnr)
+        XCTAssertEqual(result.overallScore, 39.01, accuracy: 0.0001)
+        XCTAssertEqual(result.channelScores?["Y"], 38.12)
+        XCTAssertEqual(result.min, 25.67)
+        XCTAssertEqual(result.max, 48.90)
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, ffmpegPath)
+        XCTAssertEqual(request.arguments, [
+            "-nostdin",
+            "-i", fixture.encoded.path,
+            "-i", fixture.source.path,
+            "-filter_complex", "[1:v][0:v]scale2ref=flags=bicubic[ref][dist];[dist][ref]psnr",
+            "-f", "null", "-"
+        ])
+        XCTAssertEqual(request.timeout, .seconds(12 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(ffmpegPath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(fixture.source.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(fixture.encoded.path))
+        XCTAssertEqual(progressValues.withLock { $0 }, [0.5, 1.0])
+    }
+
+    func testAnalyticsServiceParsesVMAFAndCleansItsTemporaryLog() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let recordedLogPath = OSAllocatedUnfairLock<String?>(initialState: nil)
+        let runner = RecordingSubprocessRunner { request, _ in
+            let filter = try XCTUnwrap(request.arguments.first(where: { $0.contains("log_path=") }))
+            let pathStart = try XCTUnwrap(filter.range(of: "log_path=")?.upperBound)
+            let pathEnd = try XCTUnwrap(filter.range(of: ":log_fmt=json", range: pathStart..<filter.endIndex)?.lowerBound)
+            let path = String(filter[pathStart..<pathEnd]).replacingOccurrences(of: "\\:", with: ":")
+            recordedLogPath.withLock { $0 = path }
+            let json = """
+            {"pooled_metrics":{"vmaf":{"mean":94.25,"min":88.5,"max":99.1}}}
+            """
+            try Data(json.utf8).write(to: URL(fileURLWithPath: path))
+            return successfulSubprocessResult()
+        }
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+
+        let results = try await service.runAnalytics(
+            sourceFile: fixture.source,
+            encodedFile: fixture.encoded,
+            enabledMetrics: [.vmaf],
+            vmafModel: .vmaf_v0_6_1neg
+        ) { _, _ in }
+
+        let result = try XCTUnwrap(results.first)
+        XCTAssertEqual(result.overallScore, 94.25)
+        XCTAssertEqual(result.min, 88.5)
+        XCTAssertEqual(result.max, 99.1)
+        let logPath = try XCTUnwrap(recordedLogPath.withLock { $0 })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: logPath))
+        XCTAssertTrue(runner.lastRequest?.arguments.contains(where: { $0.contains("model=version=vmaf_v0.6.1neg") }) == true)
+    }
+
+    func testAnalyticsServiceRunsSSIMULACRAFrameToolsThroughSharedRunner() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let ffmpegPath = "/private/tools/ffmpeg"
+        let ssimulacra2Path = "/private/tools/ssimulacra2_rs"
+        let runner = SequencedRecordingSubprocessRunner { index, _, _ in
+            switch index {
+            case 0, 1:
+                return successfulSubprocessResult()
+            case 2:
+                return successfulSubprocessResult(standardOutput: "Score: 97.53500802\n")
+            default:
+                XCTFail("Unexpected analytics subprocess \(index)")
+                return successfulSubprocessResult()
+            }
+        }
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { ffmpegPath },
+            ssimulacra2PathProvider: { ssimulacra2Path },
+            mediaInfoProvider: StubAnalyticsMediaInfoProvider(
+                duration: 1,
+                resolution: (width: 640, height: 360)
+            ),
+            ssimulacra2MaxFramesOverride: 1
+        )
+
+        let results = try await service.runAnalytics(
+            sourceFile: fixture.source,
+            encodedFile: fixture.encoded,
+            enabledMetrics: [.ssimulacra2],
+            vmafModel: .vmaf_v0_6_1
+        ) { _, _ in }
+
+        XCTAssertEqual(results.first?.overallScore, 97.53500802)
+        let requests = runner.requests
+        XCTAssertEqual(requests.count, 3)
+        XCTAssertEqual(requests[0].executableURL.path, ffmpegPath)
+        XCTAssertEqual(requests[0].timeout, .seconds(10 * 60))
+        XCTAssertEqual(requests[0].standardOutputCaptureLimit, 0)
+        XCTAssertEqual(requests[1].executableURL.path, ffmpegPath)
+        XCTAssertTrue(requests[1].arguments.contains("scale=640:360"))
+        XCTAssertEqual(requests[2].executableURL.path, ssimulacra2Path)
+        XCTAssertEqual(requests[2].arguments.first, "image")
+        XCTAssertEqual(requests[2].timeout, .seconds(2 * 60))
+        XCTAssertEqual(requests[2].standardOutputCaptureLimit, 4 * 1024)
+        XCTAssertFalse(requests[2].redactedCommandDescription.contains(ssimulacra2Path))
+    }
+
+    func testAnalyticsServiceRedactsFailedFFmpegDiagnostics() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 7,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data("Could not open \(fixture.source.path) or \(fixture.encoded.path)".utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+
+        do {
+            _ = try await service.runAnalytics(
+                sourceFile: fixture.source,
+                encodedFile: fixture.encoded,
+                enabledMetrics: [.psnr],
+                vmafModel: .vmaf_v0_6_1
+            ) { _, _ in }
+            XCTFail("Expected analytics to fail")
+        } catch let AnalyticsError.metricFailed(metric, reason) {
+            XCTAssertEqual(metric, .psnr)
+            XCTAssertTrue(reason.contains("FFmpeg exited 7"))
+            XCTAssertTrue(reason.contains("<redacted>"))
+            XCTAssertFalse(reason.contains(fixture.source.path))
+            XCTAssertFalse(reason.contains(fixture.encoded.path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testAnalyticsServiceCancellationReachesSharedRunner() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let runner = BlockingSubprocessRunner()
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let analyticsTask = Task {
+            try await service.runAnalytics(
+                sourceFile: fixture.source,
+                encodedFile: fixture.encoded,
+                enabledMetrics: [.psnr],
+                vmafModel: .vmaf_v0_6_1
+            ) { _, _ in }
+        }
+
+        await runner.waitUntilStarted()
+        await service.cancelAnalysis()
+
+        do {
+            _ = try await analyticsTask.value
+            XCTFail("Expected analytics cancellation")
+        } catch AnalyticsError.cancelled {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testAnalyticsServiceTimeoutIsActionableAndPathSafe() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let runner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: SubprocessResult(
+                    terminationStatus: SIGTERM,
+                    termination: .uncaughtSignal,
+                    standardOutput: Data(),
+                    standardError: Data(fixture.source.path.utf8),
+                    discardedStandardOutputBytes: 0,
+                    discardedStandardErrorBytes: 0,
+                    duration: .seconds(12 * 60 * 60)
+                )
+            )
+        }
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+
+        do {
+            _ = try await service.runAnalytics(
+                sourceFile: fixture.source,
+                encodedFile: fixture.encoded,
+                enabledMetrics: [.xpsnr],
+                vmafModel: .vmaf_v0_6_1
+            ) { _, _ in }
+            XCTFail("Expected analytics timeout")
+        } catch let AnalyticsError.metricFailed(metric, reason) {
+            XCTAssertEqual(metric, .xpsnr)
+            XCTAssertEqual(reason, "FFmpeg exceeded the 12-hour analytics limit")
+            XCTAssertFalse(reason.contains(fixture.source.path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testStartingNewAnalyticsCancelsOnlySupersededAttempt() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let firstStarted = expectation(description: "First analytics attempt started")
+        let psnrSummary = "[Parsed_psnr_0 @ fixture] PSNR y:38.12 u:42.34 v:43.56 average:39.01 min:25.67 max:48.90"
+        let runner = SequencedRecordingSubprocessRunner { index, _, _ in
+            if index == 0 {
+                firstStarted.fulfill()
+                try await Task.sleep(for: .seconds(30))
+            }
+            return successfulSubprocessResult(standardError: psnrSummary)
+        }
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let firstTask = Task {
+            try await service.runAnalytics(
+                sourceFile: fixture.source,
+                encodedFile: fixture.encoded,
+                enabledMetrics: [.psnr],
+                vmafModel: .vmaf_v0_6_1
+            ) { _, _ in }
+        }
+        await fulfillment(of: [firstStarted], timeout: 2)
+
+        let secondResults = try await service.runAnalytics(
+            sourceFile: fixture.source,
+            encodedFile: fixture.encoded,
+            enabledMetrics: [.psnr],
+            vmafModel: .vmaf_v0_6_1
+        ) { _, _ in }
+
+        XCTAssertEqual(secondResults.first?.overallScore, 39.01)
+        do {
+            _ = try await firstTask.value
+            XCTFail("Expected the superseded analytics attempt to be cancelled")
+        } catch AnalyticsError.cancelled {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected first-attempt error: \(error)")
+        }
+    }
+
     func testRcloneBinaryVerifierUsesSharedRunnerWithBoundedVersionProbePolicy() async throws {
         let binaryPath = "/private/tools/custom rclone"
         let runner = RecordingSubprocessRunner { _, _ in
@@ -5598,6 +5895,50 @@ private extension Array where Element == String {
     }
 }
 
+private func makeAnalyticsFixtureFiles() throws -> (directory: URL, source: URL, encoded: URL) {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("analytics fixture \(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    do {
+        let source = directory.appendingPathComponent("private source.mov")
+        let encoded = directory.appendingPathComponent("private encoded.mov")
+        try Data("source".utf8).write(to: source)
+        try Data("encoded".utf8).write(to: encoded)
+        return (directory, source, encoded)
+    } catch {
+        try? FileManager.default.removeItem(at: directory)
+        throw error
+    }
+}
+
+private func successfulSubprocessResult(
+    standardOutput: String = "",
+    standardError: String = ""
+) -> SubprocessResult {
+    SubprocessResult(
+        terminationStatus: 0,
+        termination: .exited,
+        standardOutput: Data(standardOutput.utf8),
+        standardError: Data(standardError.utf8),
+        discardedStandardOutputBytes: 0,
+        discardedStandardErrorBytes: 0,
+        duration: .milliseconds(10)
+    )
+}
+
+private struct StubAnalyticsMediaInfoProvider: AnalyticsMediaInfoProviding {
+    let duration: Double?
+    let resolution: (width: Int, height: Int)?
+
+    func duration(for file: URL) async -> Double? {
+        duration
+    }
+
+    func resolution(for file: URL) async -> (width: Int, height: Int)? {
+        resolution
+    }
+}
+
 private struct PresetCommandExpectation {
     enum Media {
         case videoOnly
@@ -5696,6 +6037,38 @@ private final class RecordingSubprocessRunner: SubprocessRunning, @unchecked Sen
             recordedRequest = request
         }
         return try await operation(request, outputHandler)
+    }
+}
+
+private final class SequencedRecordingSubprocessRunner: SubprocessRunning, @unchecked Sendable {
+    typealias Operation = @Sendable (
+        Int,
+        SubprocessRequest,
+        (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult
+
+    private let lock = NSLock()
+    private let operation: Operation
+    private var recordedRequests: [SubprocessRequest] = []
+
+    init(operation: @escaping Operation) {
+        self.operation = operation
+    }
+
+    var requests: [SubprocessRequest] {
+        lock.withLock { recordedRequests }
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        let index = lock.withLock { () -> Int in
+            let index = recordedRequests.count
+            recordedRequests.append(request)
+            return index
+        }
+        return try await operation(index, request, outputHandler)
     }
 }
 

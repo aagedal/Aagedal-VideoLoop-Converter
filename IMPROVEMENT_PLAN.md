@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 149 tests pass. The
+- The unit-test baseline is green: 156 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,14 +23,14 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 149 unit tests. The UI test target now has deterministic smoke
+- There are only 156 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 38 direct `Process` construction sites outside the
+- External tools still have 36 direct `Process` construction sites outside the
   shared runner and UI-test fixture. The remaining paths do not yet share one
   cancellation, timeout, pipe-draining, and error-reporting layer.
 - `SwiftExifMediaProbe.durationSync` bridges async AVFoundation work with an
@@ -308,8 +308,8 @@ Target: after the correctness net; approximately 1–2 weeks.
 
 ### 2.1 Introduce one subprocess runner
 
-Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet, and
-the ordinary FFmpeg conversion path migrated 2026-09-01–02.
+Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
+analytics, and the ordinary FFmpeg conversion path migrated 2026-09-01–02.
 
 Provide an injectable runner that owns:
 
@@ -452,10 +452,21 @@ and stderr, process-tree cancellation, structured exit checking, and executable-
 redaction. Focused fake-runner tests cover request policy, accepted and rejected output,
 nonzero exit, cancellation, and the update service's injected active-version path.
 
+Video-quality analytics now uses the shared runner for VMAF, PSNR, XPSNR, per-frame
+FFmpeg extraction, and SSIMULACRA2 comparison. The actor no longer blocks in
+`waitUntilExit`; each tool has an explicit deadline, bounded output capture,
+process-tree cancellation, and private-path redaction. FFmpeg progress is reassembled
+across arbitrary CR/LF chunks, VMAF scratch logs are removed on every exit, and an
+attempt identity prevents a superseded analysis from clearing or cancelling its
+replacement. Injectable media metadata and subprocess seams provide focused coverage
+for request policy, split progress, result parsing, scratch cleanup, SSIMULACRA2's
+three-stage tool flow, timeout/nonzero diagnostics, direct cancellation, and overlapping
+attempt isolation.
+
 Remaining package-update, preview-generator, native-waveform streaming encoder, AV2 pipe,
-DCP/IMF wrapper, analytics, and remaining helper call sites are still open.
-The refreshed direct-process audit ranks `AnalyticsService`, the centralized
-`PreviewAssetGenerator.runProcess`, and `BMXService` as the next high-value slices.
+DCP/IMF wrapper, and helper call sites are still open. The refreshed direct-process
+audit ranks the centralized `PreviewAssetGenerator.runProcess` and `BMXService` as
+the next high-value slices.
 Native-waveform streaming and AV2 pipelines should wait until the runner supports
 incremental stdin and coordinated multi-process pipes.
 
