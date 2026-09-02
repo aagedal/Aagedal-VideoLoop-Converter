@@ -2370,10 +2370,12 @@ actor ConversionManager: Sendable {
         let model = ParakeetModel.model(for: modelId) ?? ParakeetModel.allModels[0]
         let language = UserDefaults.standard.string(forKey: AppConstants.parakeetLanguageKey) ?? AppConstants.defaultParakeetLanguage
 
-        // Update status to pending
+        let operationID = UUID()
+        // Publish the attempt token before dispatching work so an immediate cancel is routable.
         await MainActor.run {
             if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
                 droppedFiles.wrappedValue[idx].subtitleStatus = .pending
+                droppedFiles.wrappedValue[idx].subtitleOperationID = operationID
             }
         }
 
@@ -2386,11 +2388,13 @@ actor ConversionManager: Sendable {
                 outputDirectory: outputDir,
                 model: model,
                 language: language,
+                operationID: operationID,
                 audioStreamIndex: audioStreamIndex
             ) { [weak self] parakeetProgress in
                 Task { @MainActor in
                     guard let _ = self else { return }
-                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                       droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                         switch parakeetProgress.stage {
                         case .extractingAudio:
                             droppedFiles.wrappedValue[idx].subtitleStatus = .extractingAudio
@@ -2406,13 +2410,17 @@ actor ConversionManager: Sendable {
                 }
             }
 
-            await MainActor.run {
-                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+            let isCurrentAttempt = await MainActor.run { () -> Bool in
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .completed
                     droppedFiles.wrappedValue[idx].subtitleFilePath = srtURL
                     droppedFiles.wrappedValue[idx].subtitleProgress = 1.0
+                    return true
                 }
+                return false
             }
+            guard isCurrentAttempt else { return }
 
             logger.info("Parakeet subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
@@ -2423,15 +2431,32 @@ actor ConversionManager: Sendable {
                     srtURL: srtURL,
                     into: inputURL,
                     itemID: itemID,
-                    operationID: nil,
+                    operationID: operationID,
                     droppedFiles: droppedFiles
                 )
             }
 
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
+                }
+            }
+
+        } catch ParakeetServiceError.cancelled {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .notQueued
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
+                }
+            }
         } catch {
             await MainActor.run {
-                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
                     droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                    droppedFiles.wrappedValue[idx].subtitleOperationID = nil
                 }
             }
             logger.error("Parakeet subtitle generation failed: \(error.localizedDescription, privacy: .public)")

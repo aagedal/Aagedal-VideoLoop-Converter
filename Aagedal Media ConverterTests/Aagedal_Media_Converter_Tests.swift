@@ -1270,6 +1270,382 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertTrue(stagedFiles.isEmpty)
     }
 
+    func testParakeetTranscriberUsesSharedRunnerWithDeadlineRedactionAndSplitProgress() async throws {
+        let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let runner = RecordingSubprocessRunner { _, outputHandler in
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("Processing chunk 1/".utf8)
+            ))
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardOutput,
+                data: Data("unrelated stdout\n".utf8)
+            ))
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("4\n".utf8)
+            ))
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardOutput,
+                data: Data("Progress 50.0%".utf8)
+            ))
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(2)
+            )
+        }
+        let transcriber = ParakeetCLITranscriber(subprocessRunner: runner)
+        let input = URL(fileURLWithPath: "/private/media/private input.wav")
+        let output = URL(fileURLWithPath: "/private/output/private staging")
+
+        try await transcriber.transcribe(
+            inputFile: input,
+            outputDirectory: output,
+            parakeetPath: "/fixture/parakeet-mlx",
+            ffmpegPath: "/fixture/tools/ffmpeg",
+            modelID: "mlx-community/parakeet-fixture",
+            chunkDuration: 120,
+            overlapDuration: 12
+        ) { update in
+            progressValues.withLock { $0.append(update.percentage) }
+        }
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, "/fixture/parakeet-mlx")
+        XCTAssertEqual(request.arguments, [
+            input.path,
+            "--output-format", "srt",
+            "--output-dir", output.path,
+            "--model", "mlx-community/parakeet-fixture",
+            "--chunk-duration", "120",
+            "--overlap-duration", "12"
+        ])
+        XCTAssertEqual(request.timeout, .seconds(12 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 256 * 1024)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertTrue(request.environment?["PATH"]?.contains("/fixture/tools") == true)
+        XCTAssertFalse(request.redactedCommandDescription.contains(input.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(output.path))
+        XCTAssertEqual(progressValues.withLock { $0 }, [0.25, 0.5])
+    }
+
+    func testParakeetTranscriberMapsTimeoutAndRedactsFailureDiagnostics() async throws {
+        let input = URL(fileURLWithPath: "/private/media/private input.wav")
+        let output = URL(fileURLWithPath: "/private/output/private staging")
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: SubprocessResult(
+                    terminationStatus: SIGTERM,
+                    termination: .uncaughtSignal,
+                    standardOutput: Data(),
+                    standardError: Data(),
+                    discardedStandardOutputBytes: 0,
+                    discardedStandardErrorBytes: 0,
+                    duration: .seconds(12 * 60 * 60)
+                )
+            )
+        }
+        let timeoutTranscriber = ParakeetCLITranscriber(subprocessRunner: timeoutRunner)
+
+        do {
+            try await timeoutTranscriber.transcribe(
+                inputFile: input,
+                outputDirectory: output,
+                parakeetPath: "/fixture/parakeet-mlx",
+                ffmpegPath: nil,
+                modelID: "fixture",
+                chunkDuration: AppConstants.defaultParakeetChunkDuration,
+                overlapDuration: AppConstants.defaultParakeetOverlapDuration
+            ) { _ in }
+            XCTFail("Expected timeout")
+        } catch let error as ParakeetServiceError {
+            guard case let .transcriptionFailed(message) = error else {
+                return XCTFail("Expected transcriptionFailed, got \(error)")
+            }
+            XCTAssertEqual(message, "parakeet-mlx exceeded the 12-hour transcription limit")
+        }
+
+        let failureRunner = RecordingSubprocessRunner { _, _ in
+            let diagnostic = "failed \(input.path) in \(output.path) at https://example.com/private"
+            return SubprocessResult(
+                terminationStatus: 9,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(diagnostic.utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(1)
+            )
+        }
+        let failureTranscriber = ParakeetCLITranscriber(subprocessRunner: failureRunner)
+        do {
+            try await failureTranscriber.transcribe(
+                inputFile: input,
+                outputDirectory: output,
+                parakeetPath: "/fixture/parakeet-mlx",
+                ffmpegPath: nil,
+                modelID: "fixture",
+                chunkDuration: 0,
+                overlapDuration: 0
+            ) { _ in }
+            XCTFail("Expected process failure")
+        } catch let error as ParakeetServiceError {
+            guard case let .transcriptionFailed(message) = error else {
+                return XCTFail("Expected transcriptionFailed, got \(error)")
+            }
+            XCTAssertTrue(message.contains("parakeet-mlx exited 9"))
+            XCTAssertTrue(message.contains("<redacted>"))
+            XCTAssertTrue(message.contains("<url>"))
+            XCTAssertFalse(message.contains(input.path))
+            XCTAssertFalse(message.contains(output.path))
+            XCTAssertFalse(message.contains("example.com"))
+            XCTAssertLessThanOrEqual(message.count, 550)
+        }
+    }
+
+    func testParakeetAudioExtractorUsesSharedRunnerAndRedactsPaths() async throws {
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(1)
+            )
+        }
+        let extractor = ParakeetAudioExtractor(subprocessRunner: runner)
+        let input = URL(fileURLWithPath: "/private/media/private source.mov")
+        let output = URL(fileURLWithPath: "/private/tmp/private audio.wav")
+
+        try await extractor.extract(
+            inputFile: input,
+            outputFile: output,
+            ffmpegPath: "/fixture/ffmpeg",
+            audioStreamIndex: 3
+        )
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.arguments, [
+            "-y", "-nostdin", "-i", input.path, "-map", "0:3",
+            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", output.path
+        ])
+        XCTAssertEqual(request.timeout, .seconds(2 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(input.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(output.path))
+    }
+
+    func testParakeetServiceCancelGenerationCancelsOnlyMatchingOverlappingRun() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ParakeetCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = CountingBlockingSubprocessRunner()
+        let service = fixtureParakeetService(runner: runner)
+        let firstOperationID = UUID()
+        let secondOperationID = UUID()
+        let firstTask = Task {
+            try await service.generateSubtitles(
+                inputFile: temporaryDirectory.appendingPathComponent("first.mov"),
+                outputDirectory: temporaryDirectory,
+                model: ParakeetModel.allModels[0],
+                language: "en",
+                operationID: firstOperationID
+            ) { _ in }
+        }
+        let secondTask = Task {
+            try await service.generateSubtitles(
+                inputFile: temporaryDirectory.appendingPathComponent("second.mov"),
+                outputDirectory: temporaryDirectory,
+                model: ParakeetModel.allModels[0],
+                language: "en",
+                operationID: secondOperationID
+            ) { _ in }
+        }
+
+        await runner.waitUntilStarted(count: 2)
+        await service.cancelGeneration(operationID: firstOperationID)
+        do {
+            _ = try await firstTask.value
+            XCTFail("Expected first run cancellation")
+        } catch let error as ParakeetServiceError {
+            guard case .cancelled = error else { return XCTFail("Expected cancelled, got \(error)") }
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(runner.cancelledCount, 1)
+
+        await service.cancelGeneration(operationID: secondOperationID)
+        do {
+            _ = try await secondTask.value
+            XCTFail("Expected second run cancellation")
+        } catch let error as ParakeetServiceError {
+            guard case .cancelled = error else { return XCTFail("Expected cancelled, got \(error)") }
+        }
+        XCTAssertEqual(runner.cancelledCount, 2)
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+            .filter { $0.hasPrefix(".parakeet-") }.isEmpty)
+    }
+
+    func testParakeetServiceRemembersCancellationBeforeRegistration() async throws {
+        let operationID = UUID()
+        let runner = RecordingSubprocessRunner { _, _ in
+            XCTFail("Cancelled operation must not launch parakeet-mlx")
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .zero
+            )
+        }
+        let service = fixtureParakeetService(runner: runner)
+        await service.cancelGeneration(operationID: operationID)
+
+        do {
+            _ = try await service.generateSubtitles(
+                inputFile: URL(fileURLWithPath: "/fixture/input.mov"),
+                outputDirectory: URL(fileURLWithPath: "/fixture"),
+                model: ParakeetModel.allModels[0],
+                language: "en",
+                operationID: operationID
+            ) { _ in }
+            XCTFail("Expected cancellation")
+        } catch let error as ParakeetServiceError {
+            guard case .cancelled = error else { return XCTFail("Expected cancelled, got \(error)") }
+        }
+        XCTAssertNil(runner.lastRequest)
+    }
+
+    func testParakeetServiceFailedRerunPreservesExistingSubtitle() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ParakeetPreserve-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let existingSubtitle = temporaryDirectory.appendingPathComponent("clip.srt")
+        try "existing subtitle".write(to: existingSubtitle, atomically: true, encoding: .utf8)
+        let runner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 7,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data("transcription failed".utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let service = fixtureParakeetService(runner: runner)
+
+        do {
+            _ = try await service.generateSubtitles(
+                inputFile: temporaryDirectory.appendingPathComponent("clip.mov"),
+                outputDirectory: temporaryDirectory,
+                model: ParakeetModel.allModels[0],
+                language: "en",
+                operationID: UUID()
+            ) { _ in }
+            XCTFail("Expected transcription failure")
+        } catch let error as ParakeetServiceError {
+            guard case .transcriptionFailed = error else {
+                return XCTFail("Expected transcriptionFailed, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(try String(contentsOf: existingSubtitle, encoding: .utf8), "existing subtitle")
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+            .filter { $0.hasPrefix(".parakeet-") }.isEmpty)
+    }
+
+    func testParakeetServiceMapsLateParentCancellationBeforePublishingOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ParakeetLateCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = DeferredSuccessfulParakeetRunner()
+        let service = fixtureParakeetService(runner: runner)
+        let generationTask = Task {
+            try await service.generateSubtitles(
+                inputFile: temporaryDirectory.appendingPathComponent("clip.mov"),
+                outputDirectory: temporaryDirectory,
+                model: ParakeetModel.allModels[0],
+                language: "en",
+                operationID: UUID()
+            ) { _ in }
+        }
+
+        await runner.waitUntilStarted()
+        generationTask.cancel()
+        runner.release()
+
+        do {
+            _ = try await generationTask.value
+            XCTFail("Expected cancellation")
+        } catch let error as ParakeetServiceError {
+            guard case .cancelled = error else { return XCTFail("Expected cancelled, got \(error)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: temporaryDirectory.appendingPathComponent("clip.srt").path
+        ))
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: temporaryDirectory.path)
+            .filter { $0.hasPrefix(".parakeet-") }.isEmpty)
+    }
+
+    func testParakeetServicePublishesStagedOutputAndReservesConcurrentDestinations() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ParakeetPublishing-\(UUID().uuidString)")
+        let firstInputDirectory = temporaryDirectory.appendingPathComponent("video")
+        let secondInputDirectory = temporaryDirectory.appendingPathComponent("audio")
+        let outputDirectory = temporaryDirectory.appendingPathComponent("output")
+        for directory in [firstInputDirectory, secondInputDirectory, outputDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = CoordinatedParakeetOutputRunner(expectedCount: 2)
+        let service = fixtureParakeetService(runner: runner)
+        let firstTask = Task {
+            try await service.generateSubtitles(
+                inputFile: firstInputDirectory.appendingPathComponent("clip.mov"),
+                outputDirectory: outputDirectory,
+                model: ParakeetModel.allModels[0],
+                language: "en",
+                operationID: UUID()
+            ) { _ in }
+        }
+        let secondTask = Task {
+            try await service.generateSubtitles(
+                inputFile: secondInputDirectory.appendingPathComponent("clip.wav"),
+                outputDirectory: outputDirectory,
+                model: ParakeetModel.allModels[0],
+                language: "en",
+                operationID: UUID()
+            ) { _ in }
+        }
+
+        let outputs = try await [firstTask.value, secondTask.value]
+        XCTAssertEqual(Set(outputs.map(\.lastPathComponent)), Set(["clip.srt", "clip.parakeet.srt"]))
+        XCTAssertNotEqual(
+            try String(contentsOf: outputs[0], encoding: .utf8),
+            try String(contentsOf: outputs[1], encoding: .utf8)
+        )
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: outputDirectory.path)
+            .filter { $0.hasPrefix(".parakeet-") }.isEmpty)
+    }
+
     func testQueueSubtitleCancellationFindsAndInvalidatesGroupedItem() {
         let operationID = UUID()
         var item = VideoItem(
@@ -4390,6 +4766,25 @@ private func whisperDestinationURL(in request: SubprocessRequest) -> URL? {
         .replacingOccurrences(of: "\\\\", with: "\\"))
 }
 
+private func fixtureParakeetService(runner: any SubprocessRunning) -> ParakeetService {
+    ParakeetService(
+        subprocessRunner: runner,
+        parakeetPathProvider: { "/fixture/parakeet-mlx" },
+        ffmpegPathProvider: { "/fixture/ffmpeg" },
+        chunkDurationProvider: { AppConstants.defaultParakeetChunkDuration },
+        overlapDurationProvider: { AppConstants.defaultParakeetOverlapDuration }
+    )
+}
+
+private func parakeetDestinationURL(in request: SubprocessRequest) -> URL? {
+    guard let outputDirectoryIndex = request.arguments.firstIndex(of: "--output-dir"),
+          request.arguments.indices.contains(outputDirectoryIndex + 1) else {
+        return nil
+    }
+    return URL(fileURLWithPath: request.arguments[outputDirectoryIndex + 1])
+        .appendingPathComponent("input.srt")
+}
+
 private extension Array where Element == String {
     func containsAdjacent(_ first: String, _ second: String) -> Bool {
         adjacentPairCount(first, second) > 0
@@ -4720,6 +5115,106 @@ private final class CoordinatedWhisperOutputRunner: SubprocessRunning, @unchecke
             discardedStandardErrorBytes: 0,
             duration: .milliseconds(10)
         )
+    }
+}
+
+private final class CoordinatedParakeetOutputRunner: SubprocessRunning, @unchecked Sendable {
+    private let expectedCount: Int
+    private let lock = NSLock()
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    init(expectedCount: Int) {
+        self.expectedCount = expectedCount
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        await withCheckedContinuation { continuation in
+            let continuations = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                waiting.append(continuation)
+                guard waiting.count == expectedCount else { return [] }
+                let continuations = waiting
+                waiting.removeAll()
+                return continuations
+            }
+            for continuation in continuations { continuation.resume() }
+        }
+
+        let stagedURL = try XCTUnwrap(parakeetDestinationURL(in: request))
+        let inputName = URL(fileURLWithPath: request.arguments.first ?? "unknown").pathExtension
+        try "1\n00:00:00,000 --> 00:00:01,000\n\(inputName)\n".write(
+            to: stagedURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        return SubprocessResult(
+            terminationStatus: 0,
+            termination: .exited,
+            standardOutput: Data(),
+            standardError: Data(),
+            discardedStandardOutputBytes: 0,
+            discardedStandardErrorBytes: 0,
+            duration: .milliseconds(10)
+        )
+    }
+}
+
+private final class DeferredSuccessfulParakeetRunner: SubprocessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        await withCheckedContinuation { continuation in
+            let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                releaseContinuation = continuation
+                started = true
+                let waiters = startWaiters
+                startWaiters.removeAll()
+                return waiters
+            }
+            for waiter in waiters { waiter.resume() }
+        }
+        let stagedURL = try XCTUnwrap(parakeetDestinationURL(in: request))
+        try "1\n00:00:00,000 --> 00:00:01,000\nLate output\n".write(
+            to: stagedURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        return SubprocessResult(
+            terminationStatus: 0,
+            termination: .exited,
+            standardOutput: Data(),
+            standardError: Data(),
+            discardedStandardOutputBytes: 0,
+            discardedStandardErrorBytes: 0,
+            duration: .milliseconds(10)
+        )
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !started else { return true }
+                startWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately { continuation.resume() }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            defer { releaseContinuation = nil }
+            return releaseContinuation
+        }
+        continuation?.resume()
     }
 }
 

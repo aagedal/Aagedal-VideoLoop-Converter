@@ -1353,7 +1353,13 @@ struct VideoQueueTableView: NSViewRepresentable {
                             }
                         }
                     case .parakeet:
-                        Task { await ParakeetService.shared.cancelGeneration() }
+                        if let operationID = target.operationID {
+                            Task {
+                                await ParakeetService.shared.cancelGeneration(
+                                    operationID: operationID
+                                )
+                            }
+                        }
                     }
                 }
             case .cancelAnalytics:

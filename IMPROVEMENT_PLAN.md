@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 120 tests pass. The
+- The unit-test baseline is green: 128 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 120 unit tests. The UI test target now has deterministic smoke
+- There are only 128 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -299,7 +299,7 @@ batch cancellation. Per-batch and per-process identities also prevent late callb
 from an older cancelled conversion from clearing or completing newer work, including
 cancellation during FFmpeg preflight before the process launches. Start/cancel,
 success, and failure UI tests passed together in two consecutive runs; the full
-120-test unit target remains green.
+128-test unit target remains green.
 
 ## Priority 2 — Make long-running work reliable
 
@@ -403,8 +403,21 @@ overlapping cancellation, long filenames, concurrent destination reservation, an
 publication. A bundled-FFmpeg parser test also round-trips paths containing colons, commas,
 semicolons, brackets, backslashes, and apostrophes without loading a real model.
 
-The main FFmpeg conversion path, Parakeet transcription, package-update, and remaining
-wrapper call sites are still open.
+The Parakeet pipeline now uses the shared runner for both selected-track FFmpeg extraction
+and parakeet-mlx transcription. Both stages have process-tree cancellation, bounded output,
+redacted private paths, and explicit two- and twelve-hour deadlines. Progress parsing keeps
+stdout and stderr records separate while reassembling arbitrary chunks and final unterminated
+records. Per-attempt operation IDs isolate overlapping and grouped queue cancellation, including
+cancel-before-registration and parent-task cancellation, and fence stale progress, completion,
+and subtitle embedding. Each run transcribes through a short UUID staging directory and atomically
+publishes to a reserved destination only after its final cancellation check, preserving an existing
+subtitle on failure and preventing concurrent same-basename runs from colliding. Focused fake-runner
+tests cover request construction, environment and selected-stream mapping, deadlines and capture
+policy, split/final progress, timeout and redacted failure mapping, isolated overlapping and early
+cancellation, late parent cancellation, staging cleanup, failed-rerun preservation, and concurrent
+publication.
+
+The main FFmpeg conversion path, package-update, and remaining wrapper call sites are still open.
 
 ### 2.2 Remove sync-over-async waits
 

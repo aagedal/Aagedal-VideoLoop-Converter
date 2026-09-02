@@ -2225,7 +2225,9 @@ struct ContentView: View {
                 Task { await WhisperService.shared.cancelGeneration(operationID: operationID) }
             }
         case .parakeet:
-            Task { await ParakeetService.shared.cancelGeneration() }
+            if let operationID = item.subtitleOperationID {
+                Task { await ParakeetService.shared.cancelGeneration(operationID: operationID) }
+            }
         }
     }
 

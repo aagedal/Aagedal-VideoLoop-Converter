@@ -1246,11 +1246,13 @@ struct VideoFileListView: View {
         // Get language from settings
         let language = UserDefaults.standard.string(forKey: AppConstants.parakeetLanguageKey) ?? AppConstants.defaultParakeetLanguage
 
-        // Update status to pending
+        let operationID = UUID()
+        // Publish the attempt token before dispatching work so an immediate cancel is routable.
         await MainActor.run {
             if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
                 droppedFiles[idx].subtitleMethod = .parakeet
                 droppedFiles[idx].subtitleStatus = .pending
+                droppedFiles[idx].subtitleOperationID = operationID
             }
         }
 
@@ -1259,11 +1261,13 @@ struct VideoFileListView: View {
                 inputFile: inputURL,
                 model: model,
                 language: language,
+                operationID: operationID,
                 audioStreamIndex: audioStreamIndex
             ) { parakeetProgress in
                 Task { @MainActor in
                     if let idx = self.droppedFiles.firstIndex(where: { $0.id == itemID }),
-                       self.droppedFiles[idx].subtitleStatus.isInProgress {
+                       self.droppedFiles[idx].subtitleStatus.isInProgress,
+                       self.droppedFiles[idx].subtitleOperationID == operationID {
                         switch parakeetProgress.stage {
                         case .extractingAudio:
                             self.droppedFiles[idx].subtitleStatus = .extractingAudio
@@ -1280,24 +1284,30 @@ struct VideoFileListView: View {
             }
 
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .completed
                     droppedFiles[idx].subtitleFilePath = srtURL
                     droppedFiles[idx].subtitleProgress = 1.0
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
             Self.logger.info("Parakeet transcribe-only completed: \(srtURL.lastPathComponent, privacy: .public)")
 
         } catch ParakeetServiceError.cancelled {
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .notQueued
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
         } catch {
             await MainActor.run {
-                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                if let idx = droppedFiles.firstIndex(where: { $0.id == itemID }),
+                   droppedFiles[idx].subtitleOperationID == operationID {
                     droppedFiles[idx].subtitleStatus = .failed(error.localizedDescription)
+                    droppedFiles[idx].subtitleOperationID = nil
                 }
             }
             Self.logger.error("Parakeet transcribe-only failed: \(error.localizedDescription, privacy: .public)")
