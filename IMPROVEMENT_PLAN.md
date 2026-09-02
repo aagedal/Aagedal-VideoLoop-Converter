@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 128 tests pass. The
+- The unit-test baseline is green: 133 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 128 unit tests. The UI test target now has deterministic smoke
+- There are only 133 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -299,7 +299,7 @@ batch cancellation. Per-batch and per-process identities also prevent late callb
 from an older cancelled conversion from clearing or completing newer work, including
 cancellation during FFmpeg preflight before the process launches. Start/cancel,
 success, and failure UI tests passed together in two consecutive runs; the full
-128-test unit target remains green.
+unit target remains green.
 
 ## Priority 2 — Make long-running work reliable
 
@@ -307,8 +307,8 @@ Target: after the correctness net; approximately 1–2 weeks.
 
 ### 2.1 Introduce one subprocess runner
 
-Status: in progress; shared runner plus yt-dlp, rclone, OCR, and Whisper migrations
-added 2026-09-01–02.
+Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet, and
+the ordinary FFmpeg conversion path migrated 2026-09-01–02.
 
 Provide an injectable runner that owns:
 
@@ -417,7 +417,22 @@ policy, split/final progress, timeout and redacted failure mapping, isolated ove
 cancellation, late parent cancellation, staging cleanup, failed-rerun preservation, and concurrent
 publication.
 
-The main FFmpeg conversion path, package-update, and remaining wrapper call sites are still open.
+The ordinary single-process FFmpeg conversion path now uses the shared runner with a
+seven-day safety deadline, bounded stderr capture, redacted command/error paths,
+process-tree cancellation, and CR/LF progress-record reassembly across arbitrary output
+chunks. Per-conversion task and progress gates prevent late output from a cancelled or
+superseded encode from mutating the next attempt. Per-attempt output reservations also
+keep delayed cleanup away from a same-destination retry, and conversion-ID ownership keeps
+stale handlers from clearing a newer AV2 process handle. Timeout, cancellation, nonzero
+exit, launch failure, output validation, and failed-output cleanup continue through the
+same single completion gate. Fake-runner tests cover request policy, split progress,
+diagnostic redaction, timeout mapping, task cancellation, and same-destination
+superseded-retry isolation; the generated-media conversion, file-safety, malformed-input,
+and real cancellation fixtures remain green. AV2 source decoding still uses its explicit
+avmdec-to-FFmpeg pipe until the runner supports streaming stdin.
+
+Package-update, native-waveform, AV2 pipe, DCP/IMF wrapper, and remaining helper call
+sites are still open.
 
 ### 2.2 Remove sync-over-async waits
 

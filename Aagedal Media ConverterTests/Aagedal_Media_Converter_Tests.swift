@@ -2407,6 +2407,271 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(info.duration, 1, accuracy: 0.15)
     }
 
+    func testCoreConverterUsesSharedRunnerPolicyAndReassemblesSplitProgress() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FFmpegRunnerPolicy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let runner = RecordingSubprocessRunner { request, outputHandler in
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("frame= 150 fps=30 time=00:00:0".utf8)
+            ))
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("5.00 speed=1.0x\r".utf8)
+            ))
+            let outputPath = try XCTUnwrap(request.arguments.last)
+            let outputURL = URL(fileURLWithPath: outputPath)
+            try Data("encoded fixture".utf8).write(to: outputURL)
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data(),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/private/ffmpeg" }
+        )
+        let inputURL = temporaryDirectory.appendingPathComponent("private source.mov")
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("private output")
+        let result = await runConversion(
+            ConversionRequest(
+                inputURL: inputURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                expectedDuration: 10,
+                customInputArguments: [
+                    "-f", "lavfi", "-i", "testsrc2=size=64x48:rate=30:duration=10"
+                ]
+            ),
+            using: converter,
+            progressUpdate: { progress, _ in
+                progressValues.withLock { $0.append(progress) }
+            }
+        )
+
+        XCTAssertTrue(result.success, result.errorReason ?? "Conversion failed without a reason")
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(progressValues.withLock { values in
+            values.contains { abs($0 - 0.5) < 0.001 }
+        })
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, "/fixture/private/ffmpeg")
+        XCTAssertEqual(request.timeout, .seconds(7 * 24 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 512 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(outputBaseURL.path))
+    }
+
+    func testCoreConverterRedactsPrivatePathsFromRunnerFailure() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FFmpegRunnerRedaction-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("secret source.mov")
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("secret output")
+        let runner = RecordingSubprocessRunner { request, _ in
+            let outputPath = request.arguments.last ?? outputBaseURL.path
+            return SubprocessResult(
+                terminationStatus: 7,
+                termination: .exited,
+                standardOutput: Data(),
+                standardError: Data("Error opening \(inputURL.path); could not write \(outputPath)".utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(20)
+            )
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        let result = await runConversion(
+            ConversionRequest(
+                inputURL: inputURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false
+            ),
+            using: converter
+        )
+
+        XCTAssertFalse(result.success)
+        let reason = try XCTUnwrap(result.errorReason)
+        XCTAssertTrue(reason.contains("<redacted>"), reason)
+        XCTAssertFalse(reason.contains(inputURL.path), reason)
+        XCTAssertFalse(reason.contains(outputBaseURL.path), reason)
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testCoreConverterMapsRunnerTimeoutAndCleansReservedOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FFmpegRunnerTimeout-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = RecordingSubprocessRunner { request, _ in
+            let result = SubprocessResult(
+                terminationStatus: SIGKILL,
+                termination: .uncaughtSignal,
+                standardOutput: Data(),
+                standardError: Data("timed out".utf8),
+                discardedStandardOutputBytes: 0,
+                discardedStandardErrorBytes: 0,
+                duration: .seconds(7 * 24 * 60 * 60)
+            )
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: result
+            )
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let result = await runConversion(
+            ConversionRequest(
+                inputURL: temporaryDirectory.appendingPathComponent("input.mov"),
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false
+            ),
+            using: converter
+        )
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "FFmpeg conversion timed out after 7 days")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testCoreConverterCancellationCancelsSharedRunner() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FFmpegRunnerCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = CountingBlockingSubprocessRunner()
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let request = ConversionRequest(
+            inputURL: temporaryDirectory.appendingPathComponent("input.mov"),
+            outputURL: outputBaseURL,
+            preset: .h264,
+            includeDateTag: false
+        )
+        let resultTask = Task {
+            await withCheckedContinuation { continuation in
+                Task {
+                    await converter.convert(
+                        request: request,
+                        progressUpdate: { _, _ in },
+                        completion: { success, errorReason in
+                            continuation.resume(returning: (success, errorReason))
+                        }
+                    )
+                }
+            }
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        await converter.cancelConversion()
+        let result = await resultTask.value
+
+        XCTAssertFalse(result.0)
+        XCTAssertEqual(result.1, "Conversion cancelled")
+        XCTAssertEqual(runner.cancelledCount, 1)
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testCoreConverterSupersededRunCannotPublishLateProgressOrClearRetry() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FFmpegRunnerSupersession-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = SupersedingFFMPEGRunner()
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/fixture/ffmpeg" }
+        )
+        let firstProgress = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let sharedOutputBaseURL = temporaryDirectory.appendingPathComponent("shared-output")
+        let firstRequest = ConversionRequest(
+            inputURL: temporaryDirectory.appendingPathComponent("first.mov"),
+            outputURL: sharedOutputBaseURL,
+            preset: .h264,
+            includeDateTag: false,
+            expectedDuration: 10
+        )
+        let firstTask = Task {
+            await withCheckedContinuation { continuation in
+                Task {
+                    await converter.convert(
+                        request: firstRequest,
+                        progressUpdate: { progress, _ in
+                            firstProgress.withLock { $0.append(progress) }
+                        },
+                        completion: { success, errorReason in
+                            continuation.resume(returning: (
+                                success: success,
+                                errorReason: errorReason
+                            ))
+                        }
+                    )
+                }
+            }
+        }
+        await runner.waitUntilFirstStarted()
+
+        let secondResult = await runConversion(
+            ConversionRequest(
+                inputURL: temporaryDirectory.appendingPathComponent("second.mov"),
+                outputURL: sharedOutputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                expectedDuration: 10
+            ),
+            using: converter
+        )
+        runner.releaseCancelledFirst()
+        let firstResult = await firstTask.value
+        try await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertFalse(firstResult.success)
+        XCTAssertEqual(firstResult.errorReason, "Conversion cancelled")
+        XCTAssertTrue(secondResult.success, secondResult.errorReason ?? "Retry failed without a reason")
+        XCTAssertTrue(firstProgress.withLock(\.isEmpty))
+        XCTAssertEqual(runner.cancelledCount, 1)
+        let cancelledOutputURL = sharedOutputBaseURL.appendingPathExtension("mp4")
+        let retryOutputURL = temporaryDirectory.appendingPathComponent("shared-output_1.mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cancelledOutputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(cancelledOutputURL))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retryOutputURL.path))
+        XCTAssertTrue(FileSafetyUtils.isCreatedByApp(retryOutputURL))
+    }
+
     func testGeneratedMultichannelFixtureDownmixesThroughCoreConverter() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AagedalMediaConverterMultichannelTests-\(UUID().uuidString)", isDirectory: true)
@@ -4596,11 +4861,19 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         _ request: ConversionRequest
     ) async -> (success: Bool, errorReason: String?) {
         let converter = FFMPEGConverter()
+        return await runConversion(request, using: converter)
+    }
+
+    private func runConversion(
+        _ request: ConversionRequest,
+        using converter: FFMPEGConverter,
+        progressUpdate: @escaping @Sendable (Double, String?) -> Void = { _, _ in }
+    ) async -> (success: Bool, errorReason: String?) {
         return await withCheckedContinuation { continuation in
             Task {
                 await converter.convert(
                     request: request,
-                    progressUpdate: { _, _ in },
+                    progressUpdate: progressUpdate,
                     completion: { success, errorReason in
                         continuation.resume(returning: (success, errorReason))
                     }
@@ -5009,6 +5282,101 @@ private final class CountingBlockingSubprocessRunner: SubprocessRunning, @unchec
         for waiter in waiters {
             waiter.resume()
         }
+    }
+}
+
+private final class SupersedingFFMPEGRunner: SubprocessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var invocationCount = 0
+    private var firstStarted = false
+    private var firstStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstCancellationReleaseRequested = false
+    private var firstCancellationContinuation: CheckedContinuation<Void, Never>?
+    private var recordedCancelledCount = 0
+
+    var cancelledCount: Int {
+        lock.withLock { recordedCancelledCount }
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        let invocation = lock.withLock { () -> Int in
+            invocationCount += 1
+            return invocationCount
+        }
+
+        if invocation == 1 {
+            signalFirstStarted()
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                // Simulate a final pipe callback racing cancellation. The converter's
+                // per-attempt gate must suppress this 90% update.
+                outputHandler?(SubprocessOutputChunk(
+                    stream: .standardError,
+                    data: Data("frame=270 time=00:00:09.00 speed=1.0x\r".utf8)
+                ))
+                lock.withLock { recordedCancelledCount += 1 }
+                await waitForFirstCancellationRelease()
+                throw CancellationError()
+            }
+        }
+
+        let outputPath = try XCTUnwrap(request.arguments.last)
+        try Data("retry output".utf8).write(to: URL(fileURLWithPath: outputPath))
+        return SubprocessResult(
+            terminationStatus: 0,
+            termination: .exited,
+            standardOutput: Data(),
+            standardError: Data(),
+            discardedStandardOutputBytes: 0,
+            discardedStandardErrorBytes: 0,
+            duration: .milliseconds(10)
+        )
+    }
+
+    func waitUntilFirstStarted() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !firstStarted else { return true }
+                firstStartWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately { continuation.resume() }
+        }
+    }
+
+    func releaseCancelledFirst() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            firstCancellationReleaseRequested = true
+            let continuation = firstCancellationContinuation
+            firstCancellationContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+
+    private func waitForFirstCancellationRelease() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !firstCancellationReleaseRequested else { return true }
+                firstCancellationContinuation = continuation
+                return false
+            }
+            if resumeImmediately { continuation.resume() }
+        }
+    }
+
+    private func signalFirstStarted() {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            firstStarted = true
+            let waiters = firstStartWaiters
+            firstStartWaiters.removeAll()
+            return waiters
+        }
+        for waiter in waiters { waiter.resume() }
     }
 }
 
