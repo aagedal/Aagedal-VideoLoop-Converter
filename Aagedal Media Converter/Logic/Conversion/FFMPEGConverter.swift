@@ -113,6 +113,8 @@ actor FFMPEGConverter {
     private var currentWaveformFrameWriterTask: Task<Void, Never>?
     private var currentProgressGate: ConversionProgressGate?
     private var activeConversionID: UUID?
+    private var postProcessingConversionID: UUID?
+    private var activeBMXOperationID: UUID?
     /// Secondary process for multi-process pipelines (e.g. the AV2 ffmpeg→avmenc pipe).
     /// Tracked separately so `cancelConversion()` can terminate both halves.
     private var auxProcess: Process?
@@ -292,6 +294,14 @@ actor FFMPEGConverter {
         currentWaveformAnalysisID = nil
         currentWaveformFrameWriterTask?.cancel()
         currentWaveformFrameWriterTask = nil
+        let supersededBMXOperationID = activeBMXOperationID
+        activeConversionID = nil
+        postProcessingConversionID = nil
+        activeBMXOperationID = nil
+        if let supersededBMXOperationID {
+            await BMXService.shared.cancel(operationID: supersededBMXOperationID)
+            _ = await BMXService.shared.finishCancellationTracking(operationID: supersededBMXOperationID)
+        }
         currentProcess?.terminate()
         auxProcess?.terminate()
         for worker in av2Workers where worker.isRunning { worker.terminate() }
@@ -774,7 +784,10 @@ actor FFMPEGConverter {
 
         let handleFFmpegTermination: @Sendable (Int32, Data, String?) -> Void = { [weak self] exitStatus, stderrData, forcedErrorReason in
             Task { [weak self] in
-                let wasActive = await self?.finishTrackedConversion(conversionID) ?? false
+                let wasActive = await self?.beginPostProcessing(
+                    conversionID,
+                    usesBMX: capturedNeedsBMXRewrap || capturedIsIMFProResExport
+                ) ?? false
                 var success = exitStatus == 0 && wasActive && forcedErrorReason == nil
                 if capturedIsIMFExport || capturedIsDCPExport {
                     print("[IMF/DCP] termination handler entered, ffmpeg exit=\(exitStatus), success=\(success), isIMF=\(capturedIsIMFExport), isDCP=\(capturedIsDCPExport)")
@@ -821,6 +834,7 @@ actor FFMPEGConverter {
                         outputURL: capturedFinalOutputURL,
                         clipName: capturedInputBaseName,
                         mcaLabelsFile: mcaLabelsFile,
+                        operationID: conversionID,
                         progress: { bmxProgress in
                             // Map bmx progress to 95-100% range
                             let overallProgress = 0.95 + (bmxProgress * 0.05)
@@ -829,11 +843,19 @@ actor FFMPEGConverter {
                             }
                         }
                     )
+                    let lateCancellation = await BMXService.shared.finishCancellationTracking(
+                        operationID: conversionID
+                    )
+                    await self?.clearActiveBMXOperation(if: conversionID)
                     if let mcaLabelsFile {
                         Self.cleanupTempFile(at: mcaLabelsFile, label: "MCA labels")
                     }
 
-                    if bmxResult.success {
+                    let stillOwnsPostProcessing = await self?.isPostProcessing(conversionID) ?? false
+                    if bmxResult.cancelled || lateCancellation || !stillOwnsPostProcessing {
+                        success = false
+                        errorReason = "Conversion cancelled"
+                    } else if bmxResult.success {
                         Self.logger.info("bmxtranswrap completed: \(capturedFinalOutputURL.lastPathComponent)")
                     } else {
                         Self.logger.error("bmxtranswrap failed, keeping FFmpeg output as fallback")
@@ -854,6 +876,14 @@ actor FFMPEGConverter {
                 // Clean up temp audio file if it exists
                 if let tempURL = capturedTempAudioURL {
                     Self.cleanupTempFile(at: tempURL, label: "AVC-Intra pre-processed audio")
+                }
+
+                if success {
+                    let stillOwnsPostProcessing = await self?.isPostProcessing(conversionID) ?? false
+                    if !stillOwnsPostProcessing {
+                        success = false
+                        errorReason = "Conversion cancelled"
+                    }
                 }
 
                 // DCP assembly: wrap JP2 frames + audio WAV into DCP-compliant MXF using asdcp-wrap
@@ -1348,6 +1378,7 @@ actor FFMPEGConverter {
                             codingEquations: bmxFlags.codingEquations,
                             clipName: capturedInputBaseName,
                             mcaLabelsFile: nil,
+                            operationID: conversionID,
                             progress: { bmxProgress in
                                 // Map bmx 0..1 onto the 0.78 → 0.84 sub-band of overall progress.
                                 let overall = 0.78 + bmxProgress * 0.06
@@ -1355,7 +1386,15 @@ actor FFMPEGConverter {
                                 progressUpdate(overall, "Wrapping ProRes → MXF \(pct)%")
                             }
                         )
-                        if bmxResult.success {
+                        let lateCancellation = await BMXService.shared.finishCancellationTracking(
+                            operationID: conversionID
+                        )
+                        await self?.clearActiveBMXOperation(if: conversionID)
+                        let stillOwnsPostProcessing = await self?.isPostProcessing(conversionID) ?? false
+                        if bmxResult.cancelled || lateCancellation || !stillOwnsPostProcessing {
+                            errorReason = "Conversion cancelled"
+                            success = false
+                        } else if bmxResult.success {
                             imfVideoMXF = tmpVideoMXF
                             Self.logger.info("IMF video essence created (App #5)")
                         } else {
@@ -1608,6 +1647,11 @@ actor FFMPEGConverter {
                     }
                 }
 
+                let stillOwned = await self?.finishPostProcessing(if: conversionID) ?? false
+                if !stillOwned {
+                    success = false
+                    errorReason = "Conversion cancelled"
+                }
                 finish(success, errorReason)
             }
         }
@@ -2939,12 +2983,13 @@ actor FFMPEGConverter {
                         inputURL: capturedInputURL,
                         audioRoutingConfig: capturedAudioRoutingConfig
                     )
-                    if await self?.isActiveConversion(conversionID) == true {
+                    if await self?.activateBMXOperationIfActiveConversion(conversionID) == true {
                         let bmxResult = await BMXService.shared.rewrapToOP1a(
                             inputURL: tempMXF,
                             outputURL: capturedFinalOutputURL,
                             clipName: capturedInputBaseName,
                             mcaLabelsFile: mcaLabelsFile,
+                            operationID: conversionID,
                             progress: { bmxProgress in
                                 let overallProgress = 0.95 + (bmxProgress * 0.05)
                                 Task { @MainActor in
@@ -2952,7 +2997,15 @@ actor FFMPEGConverter {
                                 }
                             }
                         )
-                        if !bmxResult.success {
+                        let lateCancellation = await BMXService.shared.finishCancellationTracking(
+                            operationID: conversionID
+                        )
+                        await self?.clearActiveBMXOperation(if: conversionID)
+                        let stillOwnsConversion = await self?.isActiveConversion(conversionID) ?? false
+                        if bmxResult.cancelled || lateCancellation || !stillOwnsConversion {
+                            success = false
+                            errorReason = "Conversion cancelled"
+                        } else if !bmxResult.success {
                             Self.logger.error("bmxtranswrap failed for native waveform")
                             do {
                                 try FileManager.default.copyItem(at: tempMXF, to: capturedFinalOutputURL)
@@ -3330,7 +3383,10 @@ actor FFMPEGConverter {
     }
 
     func cancelConversion() async {
+        let bmxOperationID = activeBMXOperationID
         activeConversionID = nil
+        postProcessingConversionID = nil
+        activeBMXOperationID = nil
         currentProgressGate?.invalidate()
         currentProgressGate = nil
         currentSubprocessTask?.cancel()
@@ -3340,6 +3396,10 @@ actor FFMPEGConverter {
         currentWaveformAnalysisID = nil
         currentWaveformFrameWriterTask?.cancel()
         currentWaveformFrameWriterTask = nil
+        if let bmxOperationID {
+            await BMXService.shared.cancel(operationID: bmxOperationID)
+            _ = await BMXService.shared.finishCancellationTracking(operationID: bmxOperationID)
+        }
         currentProcess?.terminate()
         auxProcess?.terminate()
         for worker in av2Workers where worker.isRunning { worker.terminate() }
@@ -3366,6 +3426,62 @@ actor FFMPEGConverter {
         currentProcess = nil
         auxProcess = nil
         return true
+    }
+
+    @discardableResult
+    private func beginPostProcessing(_ conversionID: UUID, usesBMX: Bool) async -> Bool {
+        guard activeConversionID == conversionID else { return false }
+        if usesBMX {
+            await BMXService.shared.prepareCancellationTracking(operationID: conversionID)
+            guard activeConversionID == conversionID else {
+                _ = await BMXService.shared.finishCancellationTracking(operationID: conversionID)
+                return false
+            }
+        }
+        activeConversionID = nil
+        postProcessingConversionID = conversionID
+        activeBMXOperationID = usesBMX ? conversionID : nil
+        currentProgressGate?.invalidate()
+        currentProgressGate = nil
+        currentSubprocessTask = nil
+        currentWaveformAnalysisTask = nil
+        currentWaveformAnalysisID = nil
+        currentWaveformFrameWriterTask?.cancel()
+        currentWaveformFrameWriterTask = nil
+        currentProcess = nil
+        auxProcess = nil
+        return true
+    }
+
+    private func finishPostProcessing(if conversionID: UUID) async -> Bool {
+        guard postProcessingConversionID == conversionID else { return false }
+        postProcessingConversionID = nil
+        if activeBMXOperationID == conversionID {
+            activeBMXOperationID = nil
+            _ = await BMXService.shared.finishCancellationTracking(operationID: conversionID)
+        }
+        return true
+    }
+
+    private func activateBMXOperationIfActiveConversion(_ conversionID: UUID) async -> Bool {
+        guard activeConversionID == conversionID else { return false }
+        await BMXService.shared.prepareCancellationTracking(operationID: conversionID)
+        guard activeConversionID == conversionID else {
+            _ = await BMXService.shared.finishCancellationTracking(operationID: conversionID)
+            return false
+        }
+        activeBMXOperationID = conversionID
+        return true
+    }
+
+    private func clearActiveBMXOperation(if conversionID: UUID) {
+        if activeBMXOperationID == conversionID {
+            activeBMXOperationID = nil
+        }
+    }
+
+    private func isPostProcessing(_ conversionID: UUID) -> Bool {
+        postProcessingConversionID == conversionID
     }
 
     private func clearCurrentProcess(if process: Process) async {

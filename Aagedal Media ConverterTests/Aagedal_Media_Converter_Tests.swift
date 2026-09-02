@@ -273,6 +273,357 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testBMXRewrapUsesSharedRunnerWithBoundedPolicyAndSplitProgress() async throws {
+        let fixture = try makeBMXFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let bmxPath = "/private/tools/bmxtranswrap"
+        let runner = RecordingSubprocessRunner { request, outputHandler in
+            outputHandler?(SubprocessOutputChunk(stream: .standardOutput, data: Data("12".utf8)))
+            outputHandler?(SubprocessOutputChunk(stream: .standardError, data: Data("ignored 77%\n".utf8)))
+            outputHandler?(SubprocessOutputChunk(stream: .standardOutput, data: Data(".5%\r99%".utf8)))
+            try Data("rewrapped".utf8).write(to: XCTUnwrap(bmxOutputURL(in: request)))
+            return successfulSubprocessResult()
+        }
+        let service = BMXService(
+            subprocessRunner: runner,
+            bmxtranswrapPathProvider: { bmxPath },
+            mxf2rawPathProvider: { "/private/tools/mxf2raw" }
+        )
+
+        let result = await service.rewrapToIMFOP1a(
+            inputURL: fixture.input,
+            outputURL: fixture.output,
+            colorPrimaries: "bt2020",
+            transferCharacteristic: "st2084",
+            codingEquations: "bt2020",
+            clipName: "Fixture"
+        ) { value in
+            progressValues.withLock { $0.append(value) }
+        }
+
+        XCTAssertTrue(result.success)
+        XCTAssertEqual(progressValues.withLock { $0 }, [0.125, 0.99, 1.0])
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, bmxPath)
+        XCTAssertEqual(request.arguments, [
+            "-t", "op1a",
+            "--color-prim", "bt2020",
+            "--transfer-ch", "st2084",
+            "--coding-eq", "bt2020",
+            "--clip", "Fixture",
+            "-o", fixture.output.path,
+            "-p",
+            fixture.input.path,
+        ])
+        XCTAssertEqual(request.timeout, .seconds(12 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(bmxPath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(fixture.input.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(fixture.output.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains("Fixture"))
+    }
+
+    func testBMXRewrapReturnsBoundedRedactedFailure() async throws {
+        let fixture = try makeBMXFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let runner = RecordingSubprocessRunner { request, _ in
+            try Data("partial".utf8).write(to: XCTUnwrap(bmxOutputURL(in: request)))
+            return successfulSubprocessResult(
+                standardError: String(repeating: "x", count: 10_000)
+                    + " failed \(fixture.input.path) at https://example.com/private",
+                terminationStatus: 9
+            )
+        }
+        let service = BMXService(
+            subprocessRunner: runner,
+            bmxtranswrapPathProvider: { "/private/tools/bmxtranswrap" }
+        )
+
+        let result = await service.rewrapToOP1a(
+            inputURL: fixture.input,
+            outputURL: fixture.output
+        ) { _ in }
+
+        XCTAssertFalse(result.success)
+        XCTAssertLessThanOrEqual(result.stderr.count, 8_193)
+        XCTAssertTrue(result.stderr.contains("<redacted>"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("<url>"), result.stderr)
+        XCTAssertFalse(result.stderr.contains(fixture.input.path), result.stderr)
+        XCTAssertFalse(result.stderr.contains("example.com"), result.stderr)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.output.path))
+    }
+
+    func testBMXRewrapRejectsSuccessfulExitWithoutOutput() async throws {
+        let fixture = try makeBMXFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let runner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult()
+        }
+        let service = BMXService(
+            subprocessRunner: runner,
+            bmxtranswrapPathProvider: { "/private/tools/bmxtranswrap" }
+        )
+
+        let result = await service.rewrapToOP1a(
+            inputURL: fixture.input,
+            outputURL: fixture.output
+        ) { _ in }
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.stderr, "bmxtranswrap did not produce a valid output file")
+    }
+
+    func testBMXRewrapMapsTimeoutAndExplicitCancellation() async throws {
+        let fixture = try makeBMXFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: SubprocessResult(
+                    terminationStatus: SIGKILL,
+                    termination: .uncaughtSignal,
+                    standardOutput: Data(),
+                    standardError: Data(),
+                    discardedStandardOutputBytes: 0,
+                    discardedStandardErrorBytes: 0,
+                    duration: .seconds(12 * 60 * 60)
+                )
+            )
+        }
+        let timeoutService = BMXService(
+            subprocessRunner: timeoutRunner,
+            bmxtranswrapPathProvider: { "/private/tools/bmxtranswrap" }
+        )
+        let timeoutResult = await timeoutService.rewrapToOP1a(
+            inputURL: fixture.input,
+            outputURL: fixture.output
+        ) { _ in }
+        XCTAssertFalse(timeoutResult.success)
+        XCTAssertEqual(timeoutResult.stderr, "bmxtranswrap exceeded the 12-hour processing limit")
+
+        let blockingRunner = CountingBlockingSubprocessRunner()
+        let cancellationService = BMXService(
+            subprocessRunner: blockingRunner,
+            bmxtranswrapPathProvider: { "/private/tools/bmxtranswrap" }
+        )
+        let task = Task {
+            await cancellationService.rewrapToOP1a(
+                inputURL: fixture.input,
+                outputURL: fixture.output
+            ) { _ in }
+        }
+        await blockingRunner.waitUntilStarted(count: 1)
+        await cancellationService.cancel()
+        let cancelledResult = await task.value
+        XCTAssertFalse(cancelledResult.success)
+        XCTAssertTrue(cancelledResult.cancelled)
+        XCTAssertEqual(cancelledResult.stderr, "bmxtranswrap cancelled")
+        XCTAssertEqual(blockingRunner.cancelledCount, 1)
+
+        let stubbornRunner = ControllableBMXSubprocessRunner()
+        let stubbornService = BMXService(
+            subprocessRunner: stubbornRunner,
+            bmxtranswrapPathProvider: { "/private/tools/bmxtranswrap" }
+        )
+        let stubbornTask = Task {
+            await stubbornService.rewrapToOP1a(
+                inputURL: fixture.input,
+                outputURL: fixture.output,
+                operationID: stubbornRunner.firstOperationID
+            ) { _ in }
+        }
+        await stubbornRunner.waitUntilStarted(count: 1)
+        await stubbornService.cancel(operationID: stubbornRunner.firstOperationID)
+        _ = await stubbornService.finishCancellationTracking(operationID: stubbornRunner.firstOperationID)
+        stubbornRunner.releaseFirst()
+        let stubbornResult = await stubbornTask.value
+        XCTAssertTrue(stubbornResult.cancelled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.output.path))
+    }
+
+    func testBMXRemembersTargetedCancellationBeforeRunnerRegistration() async throws {
+        let fixture = try makeBMXFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let operationID = UUID()
+        let runner = RecordingSubprocessRunner { _, _ in
+            XCTFail("A pre-cancelled BMX operation must not launch")
+            return successfulSubprocessResult()
+        }
+        let service = BMXService(
+            subprocessRunner: runner,
+            bmxtranswrapPathProvider: { "/private/tools/bmxtranswrap" }
+        )
+        await service.prepareCancellationTracking(operationID: operationID)
+        await service.cancel(operationID: operationID)
+
+        let result = await service.rewrapToOP1a(
+            inputURL: fixture.input,
+            outputURL: fixture.output,
+            operationID: operationID
+        ) { _ in }
+
+        XCTAssertTrue(result.cancelled)
+        XCTAssertNil(runner.lastRequest)
+    }
+
+    func testBMXSerializesOverlappingRewrapsThroughOutputValidation() async throws {
+        let fixture = try makeBMXFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let runner = ControllableBMXSubprocessRunner()
+        let service = BMXService(
+            subprocessRunner: runner,
+            bmxtranswrapPathProvider: { "/private/tools/bmxtranswrap" }
+        )
+        let firstTask = Task {
+            await service.rewrapToOP1a(
+                inputURL: fixture.input,
+                outputURL: fixture.output
+            ) { _ in }
+        }
+        await runner.waitUntilStarted(count: 1)
+        let secondTask = Task {
+            await service.rewrapToOP1a(
+                inputURL: fixture.input,
+                outputURL: fixture.directory.appendingPathComponent("second.mxf"),
+                operationID: runner.secondOperationID
+            ) { _ in }
+        }
+
+        let queueDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while !(await service.isWaitingForTranswrapSlot(operationID: runner.secondOperationID)),
+              ContinuousClock.now < queueDeadline {
+            await Task.yield()
+        }
+        XCTAssertEqual(runner.startedCount, 1)
+        runner.releaseFirst()
+        let firstResult = await firstTask.value
+        let secondResult = await secondTask.value
+        XCTAssertTrue(firstResult.success)
+        XCTAssertTrue(secondResult.success)
+        XCTAssertEqual(runner.startedCount, 2)
+    }
+
+    func testBMXQueuedCancellationReturnsBeforeActiveRewrapCompletes() async throws {
+        let fixture = try makeBMXFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let runner = ControllableBMXSubprocessRunner()
+        let service = BMXService(
+            subprocessRunner: runner,
+            bmxtranswrapPathProvider: { "/private/tools/bmxtranswrap" }
+        )
+        let firstTask = Task {
+            await service.rewrapToOP1a(
+                inputURL: fixture.input,
+                outputURL: fixture.output,
+                operationID: runner.firstOperationID
+            ) { _ in }
+        }
+        await runner.waitUntilStarted(count: 1)
+        await service.prepareCancellationTracking(operationID: runner.secondOperationID)
+        let secondTask = Task {
+            await service.rewrapToOP1a(
+                inputURL: fixture.input,
+                outputURL: fixture.directory.appendingPathComponent("cancelled-second.mxf"),
+                operationID: runner.secondOperationID
+            ) { _ in }
+        }
+        let queueDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while !(await service.isWaitingForTranswrapSlot(operationID: runner.secondOperationID)),
+              ContinuousClock.now < queueDeadline {
+            await Task.yield()
+        }
+        let isQueued = await service.isWaitingForTranswrapSlot(operationID: runner.secondOperationID)
+        XCTAssertTrue(isQueued)
+
+        await service.cancel(operationID: runner.secondOperationID)
+        let secondFinished = expectation(description: "queued BMX cancellation returns promptly")
+        Task {
+            _ = await secondTask.value
+            secondFinished.fulfill()
+        }
+        await fulfillment(of: [secondFinished], timeout: 1.0)
+        let cancelledResult = await secondTask.value
+        XCTAssertTrue(cancelledResult.cancelled)
+        XCTAssertEqual(runner.startedCount, 1)
+
+        runner.releaseFirst()
+        let firstResult = await firstTask.value
+        XCTAssertTrue(firstResult.success)
+    }
+
+    func testBMXMXFProbesUseSharedRunnerAndParseMCALabels() async throws {
+        let fixture = try makeBMXFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let xml = """
+        <bmx><clip><tracks><track index="0">
+          <essence_kind>Sound</essence_kind>
+          <sound_descriptor><channel_count>2</channel_count><sampling_rate>48000/1</sampling_rate></sound_descriptor>
+          <mca_labels>
+            <channel_label><mca_channel_id>1</mca_channel_id><tag_symbol>chL</tag_symbol><tag_name>Left</tag_name></channel_label>
+            <channel_label><mca_channel_id>2</mca_channel_id><tag_symbol>chR</tag_symbol><tag_name>Right</tag_name></channel_label>
+            <soundfield_group><tag_symbol>sgST</tag_symbol><tag_name>Stereo</tag_name></soundfield_group>
+            <group_of_soundfield_group><tag_symbol>aeDX</tag_symbol><tag_name>Dialog</tag_name></group_of_soundfield_group>
+          </mca_labels>
+        </track></tracks></clip></bmx>
+        """
+        let runner = SequencedRecordingSubprocessRunner { index, _, _ in
+            if index == 0 {
+                return successfulSubprocessResult(standardOutput: "Operational Pattern: OP-1a\n")
+            }
+            return successfulSubprocessResult(standardOutput: xml)
+        }
+        let mxf2rawPath = "/private/tools/mxf2raw"
+        let service = BMXService(
+            subprocessRunner: runner,
+            mxf2rawPathProvider: { mxf2rawPath }
+        )
+
+        let isOP1a = await service.isOP1a(url: fixture.input)
+        XCTAssertTrue(isOP1a)
+        let probedLabels = await service.getAudioTrackLabels(url: fixture.input)
+        let labels = try XCTUnwrap(probedLabels)
+        let track = try XCTUnwrap(labels.first)
+        XCTAssertEqual(track.trackNumber, 1)
+        XCTAssertEqual(track.channelCount, 2)
+        XCTAssertEqual(track.sampleRate, 48_000)
+        XCTAssertEqual(track.soundfieldGroup, "Stereo")
+        XCTAssertEqual(track.audioElement, "Dialog")
+        XCTAssertEqual(track.channelLabels, ["Left", "Right"])
+
+        let requests = runner.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].arguments, ["--info", fixture.input.path])
+        XCTAssertEqual(requests[0].timeout, .seconds(5 * 60))
+        XCTAssertEqual(requests[0].standardOutputCaptureLimit, 4 * 1024 * 1024)
+        XCTAssertEqual(requests[1].arguments, [
+            "--info", "--info-format", "xml", "--mca-detail", fixture.input.path,
+        ])
+        XCTAssertEqual(requests[1].standardOutputCaptureLimit, 16 * 1024 * 1024)
+        XCTAssertEqual(requests[1].standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(requests[1].redactedCommandDescription.contains(mxf2rawPath))
+        XCTAssertFalse(requests[1].redactedCommandDescription.contains(fixture.input.path))
+
+        let truncatedRunner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("Operational Pattern: OP-1a".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 1,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let truncatedService = BMXService(
+            subprocessRunner: truncatedRunner,
+            mxf2rawPathProvider: { mxf2rawPath }
+        )
+        let truncatedInfo = await truncatedService.getMXFInfo(url: fixture.input)
+        XCTAssertNil(truncatedInfo)
+    }
+
     func testAnalyticsServiceUsesSharedRunnerWithBoundedPolicyAndSplitProgress() async throws {
         let fixture = try makeAnalyticsFixtureFiles()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -5911,12 +6262,34 @@ private func makeAnalyticsFixtureFiles() throws -> (directory: URL, source: URL,
     }
 }
 
+private func makeBMXFixture() throws -> (directory: URL, input: URL, output: URL) {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("BMX fixture \(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    do {
+        let input = directory.appendingPathComponent("private source.mxf")
+        let output = directory.appendingPathComponent("private output.mxf")
+        try Data("fixture".utf8).write(to: input)
+        return (directory, input, output)
+    } catch {
+        try? FileManager.default.removeItem(at: directory)
+        throw error
+    }
+}
+
+private func bmxOutputURL(in request: SubprocessRequest) -> URL? {
+    guard let outputIndex = request.arguments.firstIndex(of: "-o"),
+          request.arguments.indices.contains(outputIndex + 1) else { return nil }
+    return URL(fileURLWithPath: request.arguments[outputIndex + 1])
+}
+
 private func successfulSubprocessResult(
     standardOutput: String = "",
-    standardError: String = ""
+    standardError: String = "",
+    terminationStatus: Int32 = 0
 ) -> SubprocessResult {
     SubprocessResult(
-        terminationStatus: 0,
+        terminationStatus: terminationStatus,
         termination: .exited,
         standardOutput: Data(standardOutput.utf8),
         standardError: Data(standardError.utf8),
@@ -6069,6 +6442,89 @@ private final class SequencedRecordingSubprocessRunner: SubprocessRunning, @unch
             return index
         }
         return try await operation(index, request, outputHandler)
+    }
+}
+
+private final class ControllableBMXSubprocessRunner: SubprocessRunning, @unchecked Sendable {
+    let firstOperationID = UUID()
+    let secondOperationID = UUID()
+
+    private let lock = NSLock()
+    private var recordedStartedCount = 0
+    private var startWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var firstReleaseRequested = false
+    private var firstReleaseContinuation: CheckedContinuation<Void, Never>?
+
+    var startedCount: Int {
+        lock.withLock { recordedStartedCount }
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        let invocation = signalStarted()
+        if invocation == 1 {
+            await waitForFirstRelease()
+        }
+        let outputURL = try XCTUnwrap(bmxOutputURL(in: request))
+        try Data("rewrapped-\(invocation)".utf8).write(to: outputURL)
+        return successfulSubprocessResult()
+    }
+
+    func waitUntilStarted(count: Int) async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard recordedStartedCount < count else { return true }
+                startWaiters.append((count, continuation))
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    func releaseFirst() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            if let continuation = firstReleaseContinuation {
+                firstReleaseContinuation = nil
+                return continuation
+            }
+            firstReleaseRequested = true
+            return nil
+        }
+        continuation?.resume()
+    }
+
+    private func signalStarted() -> Int {
+        let state = lock.withLock { () -> (Int, [CheckedContinuation<Void, Never>]) in
+            recordedStartedCount += 1
+            let invocation = recordedStartedCount
+            let ready = startWaiters
+                .filter { invocation >= $0.0 }
+                .map(\.1)
+            startWaiters.removeAll { invocation >= $0.0 }
+            return (invocation, ready)
+        }
+        state.1.forEach { $0.resume() }
+        return state.0
+    }
+
+    private func waitForFirstRelease() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                if firstReleaseRequested {
+                    firstReleaseRequested = false
+                    return true
+                }
+                firstReleaseContinuation = continuation
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
     }
 }
 

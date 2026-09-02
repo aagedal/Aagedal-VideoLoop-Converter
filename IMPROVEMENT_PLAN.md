@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 156 tests pass. The
+- The unit-test baseline is green: 164 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,18 +23,19 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 156 unit tests. The UI test target now has deterministic smoke
+- There are only 164 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 36 direct `Process` construction sites outside the
+- External tools still have 33 direct `Process` construction sites outside the
   shared runner and UI-test fixture. The remaining paths do not yet share one
   cancellation, timeout, pipe-draining, and error-reporting layer.
-- `SwiftExifMediaProbe.durationSync` bridges async AVFoundation work with an
-  unbounded semaphore wait.
+- `SwiftExifMediaProbe.durationSync` still bridges async AVFoundation work through
+  a synchronous compatibility wait, now bounded to five seconds while callers are
+  migrated.
 - The empty queue, imported queue rows, primary conversion toolbar, and Settings
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
@@ -463,10 +464,24 @@ for request policy, split progress, result parsing, scratch cleanup, SSIMULACRA2
 three-stage tool flow, timeout/nonzero diagnostics, direct cancellation, and overlapping
 attempt isolation.
 
+BMX package rewrapping and MXF metadata/MCA-label probes now use the shared runner.
+`bmxtranswrap` has a twelve-hour deadline, process-tree cancellation, bounded and
+redacted diagnostics, split-record-safe progress parsing, serialized execution, and
+nonempty-output validation. Conversion-scoped cancellation is retained when it wins
+the race before subprocess registration, without affecting another conversion. The
+`mxf2raw` probes have five-minute deadlines and bounded output, reject truncated or
+nonzero results instead of parsing partial metadata, and keep their existing MCA
+cache and security-scope lifetime. Operation-aware queue cancellation removes a
+waiting rewrap immediately, and post-processing ownership prevents a cancelled or
+superseded conversion from reporting late success. Fake-runner tests cover request
+policy, progress, redaction, timeout, direct, queued, and pre-registration cancellation,
+serialization, missing and partial outputs, OP1a detection, MCA parsing, and
+truncated-probe rejection.
+
 Remaining package-update, preview-generator, native-waveform streaming encoder, AV2 pipe,
 DCP/IMF wrapper, and helper call sites are still open. The refreshed direct-process
-audit ranks the centralized `PreviewAssetGenerator.runProcess` and `BMXService` as
-the next high-value slices.
+audit ranks the centralized `PreviewAssetGenerator.runProcess` as the next high-value
+slice.
 Native-waveform streaming and AV2 pipelines should wait until the runner supports
 incremental stdin and coordinated multi-process pipes.
 
