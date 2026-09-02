@@ -7,14 +7,87 @@ import Darwin
 import Foundation
 import OSLog
 
+/// Bounded subprocess boundary for the lightweight version checks used by the
+/// yt-dlp settings UI. Keeping parsing here makes the updater independently
+/// testable without changing its binary-selection or download policy.
+struct YTDLPVersionProbe: Sendable {
+    static let timeout: Duration = .seconds(3)
+    static let captureLimit = 64 * 1024
+
+    private let subprocessRunner: any SubprocessRunning
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        self.subprocessRunner = subprocessRunner
+    }
+
+    func denoVersion(at path: String) async -> String? {
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: path),
+            arguments: ["--version"],
+            timeout: Self.timeout,
+            standardOutputCaptureLimit: Self.captureLimit,
+            standardErrorCaptureLimit: Self.captureLimit,
+            sensitiveValues: [path]
+        )
+        guard let output = await successfulOutput(for: request) else { return nil }
+
+        let firstLine = output.split(separator: "\n", omittingEmptySubsequences: false).first ?? ""
+        let parts = firstLine.split(whereSeparator: \.isWhitespace)
+        if parts.count >= 2 {
+            return String(parts[1])
+        }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func ytdlpVersion(at path: String) async -> String? {
+        // Preserve the existing Homebrew/Python resolution while the shared runner
+        // owns launch, draining, cancellation, and deadline enforcement.
+        let configuredProcess = Process()
+        HomebrewPythonExecutor.configureProcess(
+            configuredProcess,
+            scriptPath: path,
+            arguments: ["--version"]
+        )
+        guard let executableURL = configuredProcess.executableURL else { return nil }
+
+        let request = SubprocessRequest(
+            executableURL: executableURL,
+            arguments: configuredProcess.arguments ?? [],
+            environment: configuredProcess.environment,
+            timeout: Self.timeout,
+            standardOutputCaptureLimit: Self.captureLimit,
+            standardErrorCaptureLimit: Self.captureLimit,
+            sensitiveValues: [path]
+        )
+        guard let output = await successfulOutput(for: request) else { return nil }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func successfulOutput(for request: SubprocessRequest) async -> String? {
+        do {
+            let result = try await subprocessRunner.run(request)
+            guard result.succeeded,
+                  result.discardedStandardOutputBytes == 0 else { return nil }
+            return result.standardOutputText
+        } catch {
+            return nil
+        }
+    }
+}
+
 /// Manages yt-dlp binary resolution with priority: custom path > downloaded > bundled
 actor YTDLPUpdateService {
     static let shared = YTDLPUpdateService()
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "YTDLPUpdate")
+    private let versionProbe: YTDLPVersionProbe
     private var denoInstallTask: Task<String?, Never>?
     private var cachedDenoPath: String?
     private var activeDownloadTasks: [YTDLPDownloadKind: URLSessionDownloadTask] = [:]
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        versionProbe = YTDLPVersionProbe(subprocessRunner: subprocessRunner)
+    }
 
     /// Path to bundled yt-dlp binary in app bundle
     /// Note: We don't bundle yt-dlp anymore because PyInstaller binaries
@@ -303,21 +376,7 @@ actor YTDLPUpdateService {
             return cached
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: denoPath)
-        process.arguments = ["--version"]
-        if let output = await runProcessWithTimeout(process, timeout: 3.0, label: "deno --version") {
-            let lines = output.split(separator: "\n")
-            if let firstLine = lines.first {
-                let parts = firstLine.split(separator: " ")
-                if parts.count >= 2 {
-                    return String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-            }
-            return output.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        return nil
+        return await versionProbe.denoVersion(at: denoPath)
     }
 
     /// Checks if a deno update is available
@@ -468,14 +527,7 @@ actor YTDLPUpdateService {
             return cached
         }
 
-        let process = Process()
-        // Configure process for Homebrew Python or regular executable
-        HomebrewPythonExecutor.configureProcess(process, scriptPath: ytdlpPath, arguments: ["--version"])
-        if let output = await runProcessWithTimeout(process, timeout: 3.0, label: "yt-dlp --version") {
-            return output.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        return nil
+        return await versionProbe.ytdlpVersion(at: ytdlpPath)
     }
 
     /// Pre-warms the yt-dlp binary by running it once in the background.
@@ -852,39 +904,6 @@ actor YTDLPUpdateService {
         if result != 0 && errno != 93 && errno != 1 {
             logger.warning("Failed to remove quarantine attribute: \(errno)")
         }
-    }
-
-    private func runProcessWithTimeout(
-        _ process: Process,
-        timeout: TimeInterval,
-        label: String
-    ) async -> String? {
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            logger.error("Failed to run \(label): \(error.localizedDescription)")
-            return nil
-        }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-
-        if process.isRunning {
-            logger.warning("\(label) timed out after \(timeout)s")
-            process.terminate()
-            try? await Task.sleep(for: .seconds(1))
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-            }
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)
     }
 
     /// Cancels the active download for the given kind, if any. No-op otherwise.

@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 168 tests pass. The
+- The unit-test baseline is green: 171 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -30,8 +30,8 @@ issue link when it starts.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 31 direct `Process` construction sites outside the
-  shared runner and UI-test fixtures. Twenty-eight are active launches; three are
+- External tools still have 30 direct `Process` construction sites outside the
+  shared runner and UI-test fixtures. Twenty-six are active launches; four are
   configuration-only shims that already hand execution to the shared runner. The
   remaining launch paths do not yet share one cancellation, timeout, pipe-draining,
   and error-reporting layer.
@@ -312,7 +312,8 @@ Target: after the correctness net; approximately 1–2 weeks.
 ### 2.1 Introduce one subprocess runner
 
 Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
-analytics, and the ordinary FFmpeg conversion path migrated 2026-09-01–02.
+analytics, package-version probes, and the ordinary FFmpeg conversion path migrated
+2026-09-01–02.
 
 Provide an injectable runner that owns:
 
@@ -490,12 +491,22 @@ also prevents cleanup from an older cancelled generation removing a replacement.
 Focused fake-runner tests cover request policy, bounded redacted failures, timeout
 mapping, targeted cancellation, and cancellation of every tracked process.
 
-Remaining package-update, native-waveform streaming encoder, AV2 pipe, DCP/IMF wrapper,
-ConversionManager subtitle embedding, and helper call sites are still open. The refreshed
-audit counts 28 direct production launches plus three configuration-only `Process`
-shims. One-shot DCP/IMF and subtitle-embedding helpers can migrate independently;
-native-waveform streaming and AV2 pipelines should wait for incremental stdin and
-coordinated multi-process support.
+The yt-dlp updater's active yt-dlp and Deno version probes now use the shared runner
+instead of a polling loop with manual TERM/KILL handling. Both probes have a
+three-second deadline, bounded stdout and stderr, executable-path redaction,
+process-tree cancellation, structured exit checking, and truncated-output rejection.
+Focused fake-runner tests cover request construction, tool-specific parsing, nonzero
+exit, launch failure, timeout, truncation, and parent-task cancellation. The existing
+Homebrew/Python resolver remains a configuration-only shim until it exposes runner
+request components directly.
+
+Remaining package extraction/warm-up, native-waveform streaming encoder, AV2 pipe,
+DCP/IMF wrapper, ConversionManager subtitle embedding, and helper call sites are still
+open. The refreshed audit counts 26 direct production launches plus four
+configuration-only `Process` shims. One-shot merge preparation and binary-version
+helpers can migrate independently. DCP/IMF post-processing and subtitle embedding need
+explicit task ownership as part of their migration; native-waveform streaming and AV2
+pipelines should wait for incremental stdin and coordinated multi-process support.
 
 ### 2.2 Remove sync-over-async waits
 

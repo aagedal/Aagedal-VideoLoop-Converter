@@ -273,6 +273,101 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testYTDLPVersionProbeUsesBoundedRunnerAndParsesToolVersions() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("YTDLPVersionProbe-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let ytdlpURL = temporaryDirectory.appendingPathComponent("private yt-dlp")
+        try Data([0xCF, 0xFA, 0xED, 0xFE]).write(to: ytdlpURL)
+        let runner = SequencedRecordingSubprocessRunner { index, _, _ in
+            switch index {
+            case 0:
+                return successfulSubprocessResult(
+                    standardOutput: "deno 2.4.1 (stable, aarch64-apple-darwin)\nv8 13.7\n"
+                )
+            default:
+                return successfulSubprocessResult(standardOutput: "2026.09.01\n")
+            }
+        }
+        let probe = YTDLPVersionProbe(subprocessRunner: runner)
+
+        let denoVersion = await probe.denoVersion(at: "/private/tools/deno")
+        let ytdlpVersion = await probe.ytdlpVersion(at: ytdlpURL.path)
+
+        XCTAssertEqual(denoVersion, "2.4.1")
+        XCTAssertEqual(ytdlpVersion, "2026.09.01")
+        let requests = runner.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].executableURL.path, "/private/tools/deno")
+        XCTAssertEqual(requests[0].arguments, ["--version"])
+        XCTAssertEqual(requests[1].executableURL, ytdlpURL)
+        XCTAssertEqual(requests[1].arguments, ["--version"])
+        for request in requests {
+            XCTAssertEqual(request.timeout, .seconds(3))
+            XCTAssertEqual(request.standardOutputCaptureLimit, 64 * 1024)
+            XCTAssertEqual(request.standardErrorCaptureLimit, 64 * 1024)
+            XCTAssertFalse(request.redactedCommandDescription.contains("private"))
+        }
+    }
+
+    func testYTDLPVersionProbeRejectsNonzeroTruncatedAndFailedRuns() async {
+        let nonzeroRunner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult(standardOutput: "deno 9.9.9\n", terminationStatus: 7)
+        }
+        let nonzeroVersion = await YTDLPVersionProbe(subprocessRunner: nonzeroRunner)
+            .denoVersion(at: "/deno")
+        XCTAssertNil(nonzeroVersion)
+
+        let truncatedRunner = RecordingSubprocessRunner { _, _ in
+            SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("2026.09.01".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 1,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let truncatedVersion = await YTDLPVersionProbe(subprocessRunner: truncatedRunner)
+            .ytdlpVersion(at: "/yt-dlp")
+        XCTAssertNil(truncatedVersion)
+
+        let failedRunner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.failedToStart(
+                command: request.redactedCommandDescription,
+                underlying: "fixture launch failure"
+            )
+        }
+        let failedVersion = await YTDLPVersionProbe(subprocessRunner: failedRunner)
+            .denoVersion(at: "/deno")
+        XCTAssertNil(failedVersion)
+    }
+
+    func testYTDLPVersionProbeMapsTimeoutAndParentCancellationToNil() async {
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(terminationStatus: SIGKILL)
+            )
+        }
+        let timeoutVersion = await YTDLPVersionProbe(subprocessRunner: timeoutRunner)
+            .denoVersion(at: "/deno")
+        XCTAssertNil(timeoutVersion)
+
+        let blockingRunner = CountingBlockingSubprocessRunner()
+        let probe = YTDLPVersionProbe(subprocessRunner: blockingRunner)
+        let task = Task { await probe.denoVersion(at: "/deno") }
+        await blockingRunner.waitUntilStarted(count: 1)
+        task.cancel()
+
+        let cancelledVersion = await task.value
+        XCTAssertNil(cancelledVersion)
+        XCTAssertEqual(blockingRunner.cancelledCount, 1)
+    }
+
     func testPreviewAssetGeneratorUsesSharedRunnerWithBoundedRedactedPolicy() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PreviewRunnerPolicy-\(UUID().uuidString)")
