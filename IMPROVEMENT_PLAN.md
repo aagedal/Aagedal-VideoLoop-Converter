@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 174 tests pass. The
+- The unit-test baseline is green: 177 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,15 +23,15 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 174 unit tests. The UI test target now has deterministic smoke
+- There are only 177 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 29 direct `Process` construction sites outside the
-  shared runner and UI-test fixtures. Twenty-five are active launches; four are
+- External tools still have 27 direct `Process` construction sites outside the
+  shared runner and UI-test fixtures. Twenty-three are active launches; four are
   configuration-only shims that already hand execution to the shared runner. The
   remaining launch paths do not yet share one cancellation, timeout, pipe-draining,
   and error-reporting layer.
@@ -511,10 +511,19 @@ Failed, timed-out, and cancelled runs remove partial prepared clips. Fake-runner
 cover request policy, redaction, missing and empty output validation, failure and timeout
 cleanup, and parent-task cancellation.
 
+The shared FFmpeg/Parakeet and Tesseract version helpers now use the shared runner
+instead of waiting synchronously and draining one pipe only after exit. Both variants
+have a five-second deadline, concurrent bounded capture, executable-path redaction,
+structured exit checking, selected-stream truncation rejection, and parent-task
+cancellation. Focused fake-runner tests cover stdout/stderr parsing, request policy,
+nonzero, truncated, and empty results, timeout mapping, and cancellation.
+
 Remaining package extraction/warm-up, native-waveform streaming encoder, AV2 pipe,
-DCP/IMF wrapper, ConversionManager subtitle embedding, and helper call sites are still
-open. The refreshed audit counts 25 direct production launches plus four
-configuration-only `Process` shims. Binary-version helpers can migrate independently.
+DCP/IMF wrapper, ConversionManager subtitle embedding, screenshot capture, and
+specialty helper call sites are still open. The refreshed audit counts 23 direct
+production launches plus four configuration-only `Process` shims. Screenshot capture
+can migrate independently; the synchronous Whisper capability/version cache needs an
+async state redesign.
 DCP/IMF post-processing and subtitle embedding need explicit task ownership as part of
 their migration; native-waveform streaming and AV2 pipelines should wait for
 incremental stdin and coordinated multi-process support.

@@ -254,6 +254,122 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(diagnostic.contains("DEF"))
     }
 
+    func testBinaryVersionProbeUsesBoundedRunnerAndExplicitOutputStream() async throws {
+        let runner = SequencedRecordingSubprocessRunner { index, _, _ in
+            switch index {
+            case 0:
+                return successfulSubprocessResult(
+                    standardOutput: "ffmpeg version 8.0\nconfiguration details\n"
+                )
+            default:
+                return successfulSubprocessResult(
+                    standardError: "tesseract 5.5.1\n leptonica-1.85.0\n"
+                )
+            }
+        }
+        let probe = BinaryVersionProbe(subprocessRunner: runner)
+
+        let ffmpegVersion = await probe.firstLine(
+            at: "/private/tools/ffmpeg",
+            arguments: ["-version"],
+            outputStream: .standardOutput
+        )
+        let tesseractVersion = await probe.firstLine(
+            at: "/private/tools/tesseract",
+            arguments: ["--version"],
+            outputStream: .standardError
+        )
+
+        XCTAssertEqual(ffmpegVersion, "ffmpeg version 8.0")
+        XCTAssertEqual(tesseractVersion, "tesseract 5.5.1")
+        let requests = runner.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests[0].arguments, ["-version"])
+        XCTAssertEqual(requests[1].arguments, ["--version"])
+        for request in requests {
+            XCTAssertEqual(request.timeout, .seconds(5))
+            XCTAssertEqual(request.standardOutputCaptureLimit, 64 * 1024)
+            XCTAssertEqual(request.standardErrorCaptureLimit, 64 * 1024)
+            XCTAssertFalse(request.redactedCommandDescription.contains("/private/tools"))
+        }
+    }
+
+    func testBinaryVersionProbeRejectsNonzeroTruncatedAndEmptyOutput() async {
+        let runner = SequencedRecordingSubprocessRunner { index, _, _ in
+            switch index {
+            case 0:
+                return successfulSubprocessResult(
+                    standardOutput: "tool 1.0\n",
+                    terminationStatus: 2
+                )
+            case 1:
+                return SubprocessResult(
+                    terminationStatus: 0,
+                    termination: .exited,
+                    standardOutput: Data(),
+                    standardError: Data("tool 1.0".utf8),
+                    discardedStandardOutputBytes: 0,
+                    discardedStandardErrorBytes: 1,
+                    duration: .milliseconds(10)
+                )
+            default:
+                return successfulSubprocessResult(standardOutput: "\nsecond line")
+            }
+        }
+        let probe = BinaryVersionProbe(subprocessRunner: runner)
+
+        let nonzero = await probe.firstLine(
+            at: "/tool",
+            arguments: ["--version"],
+            outputStream: .standardOutput
+        )
+        let truncated = await probe.firstLine(
+            at: "/tool",
+            arguments: ["--version"],
+            outputStream: .standardError
+        )
+        let empty = await probe.firstLine(
+            at: "/tool",
+            arguments: ["--version"],
+            outputStream: .standardOutput
+        )
+
+        XCTAssertNil(nonzero)
+        XCTAssertNil(truncated)
+        XCTAssertNil(empty)
+    }
+
+    func testBinaryVersionProbeMapsTimeoutAndParentCancellationToNil() async {
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(terminationStatus: SIGKILL)
+            )
+        }
+        let timeoutVersion = await BinaryVersionProbe(subprocessRunner: timeoutRunner).firstLine(
+            at: "/tool",
+            arguments: ["--version"],
+            outputStream: .standardOutput
+        )
+        XCTAssertNil(timeoutVersion)
+
+        let blockingRunner = CountingBlockingSubprocessRunner()
+        let probe = BinaryVersionProbe(subprocessRunner: blockingRunner)
+        let task = Task {
+            await probe.firstLine(
+                at: "/tool",
+                arguments: ["--version"],
+                outputStream: .standardOutput
+            )
+        }
+        await blockingRunner.waitUntilStarted(count: 1)
+        task.cancel()
+
+        let cancelledVersion = await task.value
+        XCTAssertNil(cancelledVersion)
+        XCTAssertEqual(blockingRunner.cancelledCount, 1)
+    }
+
     func testMergePreparationUsesBoundedRunnerAndRequiresNonemptyOutput() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MergePreparation-\(UUID().uuidString)")

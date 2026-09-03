@@ -11,6 +11,63 @@ enum BinarySourceSelection: String, CaseIterable {
     case custom
 }
 
+enum BinaryVersionOutputStream: Sendable {
+    case standardOutput
+    case standardError
+}
+
+/// Bounded subprocess boundary for lightweight version checks shared by binary
+/// settings panes. Some tools report their version on stdout while others use
+/// stderr, so the expected stream is explicit instead of inferred from output.
+struct BinaryVersionProbe: Sendable {
+    static let timeout: Duration = .seconds(5)
+    static let captureLimit = 64 * 1024
+
+    private let subprocessRunner: any SubprocessRunning
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        self.subprocessRunner = subprocessRunner
+    }
+
+    func firstLine(
+        at path: String,
+        arguments: [String],
+        outputStream: BinaryVersionOutputStream
+    ) async -> String? {
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: path),
+            arguments: arguments,
+            timeout: Self.timeout,
+            standardOutputCaptureLimit: Self.captureLimit,
+            standardErrorCaptureLimit: Self.captureLimit,
+            sensitiveValues: [path]
+        )
+
+        do {
+            let result = try await subprocessRunner.run(request)
+            guard result.succeeded else { return nil }
+
+            let data: Data
+            switch outputStream {
+            case .standardOutput:
+                guard result.discardedStandardOutputBytes == 0 else { return nil }
+                data = result.standardOutput
+            case .standardError:
+                guard result.discardedStandardErrorBytes == 0 else { return nil }
+                data = result.standardError
+            }
+
+            let firstLine = String(decoding: data, as: UTF8.self)
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .first?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return firstLine.isEmpty ? nil : firstLine
+        } catch {
+            return nil
+        }
+    }
+}
+
 /// Resolves paths to external binaries (ffmpeg, ffprobe, yt-dlp)
 /// Priority: 1) Custom path from settings, 2) Bundled in app
 enum BinaryPathResolver {
@@ -82,29 +139,11 @@ enum BinaryPathResolver {
 
     /// Gets the version of a binary by running it with --version
     static func getVersion(at path: String) async -> String? {
-        let process = Process()
-        let pipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = ["-version"]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                // Extract first line which typically contains version info
-                let firstLine = output.components(separatedBy: .newlines).first ?? ""
-                return firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        } catch {
-            return nil
-        }
-
-        return nil
+        await BinaryVersionProbe().firstLine(
+            at: path,
+            arguments: ["-version"],
+            outputStream: .standardOutput
+        )
     }
 
     /// Gets ffmpeg version string
@@ -206,21 +245,11 @@ enum BinaryPathResolver {
     /// Returns the tesseract version string
     static func getTesseractVersion() async -> String? {
         guard let path = tesseractPath else { return nil }
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = ["--version"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = pipe
-        do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                return output.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        } catch { return nil }
-        return nil
+        return await BinaryVersionProbe().firstLine(
+            at: path,
+            arguments: ["--version"],
+            outputStream: .standardError
+        )
     }
 
     private static func selectedTesseractSource() -> BinarySourceSelection? {
