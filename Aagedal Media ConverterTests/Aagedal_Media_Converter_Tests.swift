@@ -261,9 +261,13 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
                 return successfulSubprocessResult(
                     standardOutput: "ffmpeg version 8.0\nconfiguration details\n"
                 )
+            case 1:
+                return successfulSubprocessResult(
+                    standardOutput: "tesseract 5.5.1\n leptonica-1.85.0\n"
+                )
             default:
                 return successfulSubprocessResult(
-                    standardError: "tesseract 5.5.1\n leptonica-1.85.0\n"
+                    standardError: "tool 2.0\ndiagnostic details\n"
                 )
             }
         }
@@ -277,15 +281,22 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         let tesseractVersion = await probe.firstLine(
             at: "/private/tools/tesseract",
             arguments: ["--version"],
+            outputStream: .standardOutput
+        )
+        let stderrVersion = await probe.firstLine(
+            at: "/private/tools/stderr-tool",
+            arguments: ["--version"],
             outputStream: .standardError
         )
 
         XCTAssertEqual(ffmpegVersion, "ffmpeg version 8.0")
         XCTAssertEqual(tesseractVersion, "tesseract 5.5.1")
+        XCTAssertEqual(stderrVersion, "tool 2.0")
         let requests = runner.requests
-        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.count, 3)
         XCTAssertEqual(requests[0].arguments, ["-version"])
         XCTAssertEqual(requests[1].arguments, ["--version"])
+        XCTAssertEqual(requests[2].arguments, ["--version"])
         for request in requests {
             XCTAssertEqual(request.timeout, .seconds(5))
             XCTAssertEqual(request.standardOutputCaptureLimit, 64 * 1024)
@@ -368,6 +379,270 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         let cancelledVersion = await task.value
         XCTAssertNil(cancelledVersion)
         XCTAssertEqual(blockingRunner.cancelledCount, 1)
+    }
+
+    func testScreenshotCaptureSubprocessUsesBoundedRedactedRequestAndRequiresOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotCapture-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let executableURL = URL(fileURLWithPath: "/private/tools/ffmpeg")
+        let sourceURL = temporaryDirectory.appendingPathComponent("private source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("private screenshot.png")
+        let arguments = ["-i", sourceURL.path, "-frames:v", "1", outputURL.path]
+        let runner = RecordingSubprocessRunner { _, _ in
+            try Data("image data".utf8).write(to: outputURL)
+            return successfulSubprocessResult()
+        }
+
+        try await ScreenshotCaptureSubprocess(subprocessRunner: runner).run(
+            executable: executableURL,
+            arguments: arguments,
+            sourceURL: sourceURL,
+            outputURL: outputURL
+        )
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.arguments, arguments)
+        XCTAssertEqual(request.timeout, .seconds(30 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(executableURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(sourceURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(outputURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    func testScreenshotCaptureSubprocessRedactsFailureAndRemovesPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let sourceURL = temporaryDirectory.appendingPathComponent("private source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("private screenshot.png")
+        let runner = RecordingSubprocessRunner { _, _ in
+            try Data("partial image".utf8).write(to: outputURL)
+            return successfulSubprocessResult(
+                standardError: "Could not read \(sourceURL.path) or write \(outputURL.path)",
+                terminationStatus: 7
+            )
+        }
+
+        do {
+            try await ScreenshotCaptureSubprocess(subprocessRunner: runner).run(
+                executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                arguments: ["-i", sourceURL.path, outputURL.path],
+                sourceURL: sourceURL,
+                outputURL: outputURL
+            )
+            XCTFail("Expected screenshot capture to fail")
+        } catch let error as PreviewPlayerController.ScreenshotError {
+            let description = try XCTUnwrap(error.errorDescription)
+            XCTAssertTrue(description.contains("<redacted>"))
+            XCTAssertFalse(description.contains(sourceURL.path))
+            XCTAssertFalse(description.contains(outputURL.path))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    func testScreenshotCaptureSubprocessRejectsMissingAndEmptyOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotOutput-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let sourceURL = temporaryDirectory.appendingPathComponent("source.mov")
+        let missingOutputURL = temporaryDirectory.appendingPathComponent("missing.png")
+        let emptyOutputURL = temporaryDirectory.appendingPathComponent("empty.png")
+        let runner = SequencedRecordingSubprocessRunner { index, _, _ in
+            if index == 1 {
+                XCTAssertTrue(FileManager.default.createFile(atPath: emptyOutputURL.path, contents: Data()))
+            }
+            return successfulSubprocessResult()
+        }
+        let subprocess = ScreenshotCaptureSubprocess(subprocessRunner: runner)
+
+        for outputURL in [missingOutputURL, emptyOutputURL] {
+            do {
+                try await subprocess.run(
+                    executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                    arguments: ["-i", sourceURL.path, outputURL.path],
+                    sourceURL: sourceURL,
+                    outputURL: outputURL
+                )
+                XCTFail("Expected missing or empty output to fail")
+            } catch let error as PreviewPlayerController.ScreenshotError {
+                guard case .outputUnavailable = error else {
+                    return XCTFail("Expected outputUnavailable, got \(error)")
+                }
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        }
+    }
+
+    func testScreenshotCaptureSubprocessMapsTimeoutAndPropagatesCancellation() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let sourceURL = temporaryDirectory.appendingPathComponent("source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("output.png")
+        let executableURL = URL(fileURLWithPath: "/private/tools/ffmpeg")
+        let arguments = ["-i", sourceURL.path, outputURL.path]
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            try Data("partial image".utf8).write(to: outputURL)
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(terminationStatus: SIGKILL)
+            )
+        }
+
+        do {
+            try await ScreenshotCaptureSubprocess(subprocessRunner: timeoutRunner).run(
+                executable: executableURL,
+                arguments: arguments,
+                sourceURL: sourceURL,
+                outputURL: outputURL
+            )
+            XCTFail("Expected timeout")
+        } catch let error as PreviewPlayerController.ScreenshotError {
+            XCTAssertEqual(
+                error.errorDescription,
+                "FFmpeg failed: Screenshot capture timed out after 30 minutes."
+            )
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let blockingRunner = CountingBlockingSubprocessRunner()
+        let task = Task {
+            try await ScreenshotCaptureSubprocess(subprocessRunner: blockingRunner).run(
+                executable: executableURL,
+                arguments: arguments,
+                sourceURL: sourceURL,
+                outputURL: outputURL
+            )
+        }
+        await blockingRunner.waitUntilStarted(count: 1)
+        task.cancel()
+
+        do {
+            try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertEqual(blockingRunner.cancelledCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    func testScreenshotOutputPublisherAtomicallyPreservesExistingDestination() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotPublish-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let stagedURL = temporaryDirectory.appendingPathComponent(".staged.png")
+        let preferredURL = temporaryDirectory.appendingPathComponent("frame.png")
+        try Data("new screenshot".utf8).write(to: stagedURL)
+        try Data("existing screenshot".utf8).write(to: preferredURL)
+
+        let publishedURL = try ScreenshotOutputPublisher.publish(
+            stagedURL: stagedURL,
+            preferredURL: preferredURL
+        )
+
+        XCTAssertEqual(publishedURL.lastPathComponent, "frame_1.png")
+        XCTAssertEqual(try Data(contentsOf: preferredURL), Data("existing screenshot".utf8))
+        XCTAssertEqual(try Data(contentsOf: publishedURL), Data("new screenshot".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedURL.path))
+    }
+
+    @MainActor
+    func testPreviewControllerTeardownCancelsActiveScreenshotCapture() async throws {
+        let blockingRunner = CountingBlockingSubprocessRunner()
+        let sourceURL = URL(fileURLWithPath: "/private/media/source.mov")
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotTeardown-\(UUID().uuidString).png")
+        let item = VideoItem(
+            url: sourceURL,
+            name: sourceURL.lastPathComponent,
+            size: 0,
+            duration: "00:00:01",
+            status: .waiting,
+            progress: 0,
+            eta: nil,
+            outputURL: nil
+        )
+        let controller = PreviewPlayerController(
+            videoItem: item,
+            screenshotCaptureSubprocess: ScreenshotCaptureSubprocess(
+                subprocessRunner: blockingRunner
+            )
+        )
+        let captureTask = Task { @MainActor in
+            try await controller.runFFmpegCapture(
+                executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                arguments: ["-i", sourceURL.path, outputURL.path],
+                outputURL: outputURL
+            )
+        }
+        await blockingRunner.waitUntilStarted(count: 1)
+
+        controller.teardown()
+
+        do {
+            try await captureTask.value
+            XCTFail("Expected teardown to cancel screenshot capture")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertEqual(blockingRunner.cancelledCount, 1)
+        XCTAssertNil(controller.screenshotCaptureTask)
+        XCTAssertNil(controller.screenshotCaptureOperationID)
+    }
+
+    @MainActor
+    func testPreviewControllerTeardownRejectsLateScreenshotSuccess() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ScreenshotLateSuccess-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let sourceURL = temporaryDirectory.appendingPathComponent("source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("staged.png")
+        let item = VideoItem(
+            url: sourceURL,
+            name: sourceURL.lastPathComponent,
+            size: 0,
+            duration: "00:00:01",
+            status: .waiting,
+            progress: 0,
+            eta: nil,
+            outputURL: nil
+        )
+        let runner = ControllableBMXSubprocessRunner()
+        let controller = PreviewPlayerController(
+            videoItem: item,
+            screenshotCaptureSubprocess: ScreenshotCaptureSubprocess(subprocessRunner: runner)
+        )
+        let captureTask = Task { @MainActor in
+            try await controller.runFFmpegCapture(
+                executable: URL(fileURLWithPath: "/private/tools/ffmpeg"),
+                arguments: ["-i", sourceURL.path, "-o", outputURL.path],
+                outputURL: outputURL
+            )
+        }
+        await runner.waitUntilStarted(count: 1)
+
+        controller.teardown()
+        runner.releaseFirst()
+
+        do {
+            try await captureTask.value
+            XCTFail("Expected stale success to be treated as cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertNil(controller.screenshotCaptureTask)
+        XCTAssertNil(controller.screenshotCaptureOperationID)
     }
 
     func testMergePreparationUsesBoundedRunnerAndRequiresNonemptyOutput() async throws {

@@ -248,7 +248,7 @@ enum BinaryPathResolver {
         return await BinaryVersionProbe().firstLine(
             at: path,
             arguments: ["--version"],
-            outputStream: .standardError
+            outputStream: .standardOutput
         )
     }
 

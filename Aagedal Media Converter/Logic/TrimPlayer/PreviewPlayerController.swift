@@ -103,6 +103,9 @@ final class PreviewPlayerController: ObservableObject {
     // MARK: - State
 
     var videoItem: VideoItem
+    let screenshotCaptureSubprocess: ScreenshotCaptureSubprocess
+    var screenshotCaptureTask: Task<Void, Error>?
+    var screenshotCaptureOperationID: UUID?
     var preparationTask: Task<Void, Never>?
     var previewAssetTask: Task<Void, Never>?
     private var previewAssetURL: URL?  // Track URL being processed to avoid redundant cancellation
@@ -160,8 +163,12 @@ final class PreviewPlayerController: ObservableObject {
         return 0
     }
 
-    init(videoItem: VideoItem) {
+    init(
+        videoItem: VideoItem,
+        screenshotCaptureSubprocess: ScreenshotCaptureSubprocess = ScreenshotCaptureSubprocess()
+    ) {
         self.videoItem = videoItem
+        self.screenshotCaptureSubprocess = screenshotCaptureSubprocess
         setupAudioMonitoring()
     }
     
@@ -1256,6 +1263,9 @@ final class PreviewPlayerController: ObservableObject {
     }
 
     func teardown(resetAudioSelection: Bool = true) {
+        screenshotCaptureOperationID = nil
+        screenshotCaptureTask?.cancel()
+        screenshotCaptureTask = nil
         preparationTask?.cancel()
         preparationTask = nil
         previewAssetTask?.cancel()

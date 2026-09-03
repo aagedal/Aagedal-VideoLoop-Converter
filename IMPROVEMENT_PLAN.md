@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 177 tests pass. The
+- The unit-test baseline is green: 184 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,15 +23,15 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 177 unit tests. The UI test target now has deterministic smoke
+- There are only 184 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 27 direct `Process` construction sites outside the
-  shared runner and UI-test fixtures. Twenty-three are active launches; four are
+- External tools still have 26 direct `Process` construction sites outside the
+  shared runner and UI-test fixtures. Twenty-two are active launches; four are
   configuration-only shims that already hand execution to the shared runner. The
   remaining launch paths do not yet share one cancellation, timeout, pipe-draining,
   and error-reporting layer.
@@ -312,8 +312,8 @@ Target: after the correctness net; approximately 1–2 weeks.
 ### 2.1 Introduce one subprocess runner
 
 Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
-analytics, package-version probes, merge preparation, and the ordinary FFmpeg
-conversion path migrated 2026-09-01–02.
+analytics, package-version probes, merge preparation, screenshot capture, and the
+ordinary FFmpeg conversion path migrated 2026-09-01–03.
 
 Provide an injectable runner that owns:
 
@@ -517,13 +517,26 @@ have a five-second deadline, concurrent bounded capture, executable-path redacti
 structured exit checking, selected-stream truncation rejection, and parent-task
 cancellation. Focused fake-runner tests cover stdout/stderr parsing, request policy,
 nonzero, truncated, and empty results, timeout mapping, and cancellation.
+Tesseract's selected version stream now matches the current CLI's stdout behavior.
+
+Interactive screenshot capture now uses the shared runner instead of a detached
+task that waited indefinitely before draining FFmpeg's error pipe. Captures have a
+thirty-minute deadline, discard stdout, retain bounded stderr, redact executable and
+media paths, propagate cancellation, reject missing or empty output, and remove
+partial files after every failed exit. Each attempt writes a UUID-owned staging file
+and uses an exclusive atomic rename to publish a collision-free destination without
+replacing an earlier screenshot. The controller owns and identifies the active
+capture so preview teardown stops it and rejects a late success. The two player UIs
+no longer publish the same success state and overlay twice or log expected teardown
+cancellation as an error. Focused fake-runner tests cover request policy, redacted
+nonzero diagnostics, timeout and parent cancellation, late success, atomic
+publication, and missing or empty output cleanup.
 
 Remaining package extraction/warm-up, native-waveform streaming encoder, AV2 pipe,
-DCP/IMF wrapper, ConversionManager subtitle embedding, screenshot capture, and
-specialty helper call sites are still open. The refreshed audit counts 23 direct
-production launches plus four configuration-only `Process` shims. Screenshot capture
-can migrate independently; the synchronous Whisper capability/version cache needs an
-async state redesign.
+DCP/IMF wrapper, ConversionManager subtitle embedding, and specialty helper call
+sites are still open. The refreshed audit counts 22 direct production launches plus
+four configuration-only `Process` shims. The synchronous Whisper capability/version
+cache needs an async state redesign.
 DCP/IMF post-processing and subtitle embedding need explicit task ownership as part of
 their migration; native-waveform streaming and AV2 pipelines should wait for
 incremental stdin and coordinated multi-process support.
