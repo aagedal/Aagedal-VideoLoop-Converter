@@ -942,6 +942,349 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(blockingRunner.cancelledCount, 1)
     }
 
+    func testYTDLPWarmUpUsesOwnedBoundedRunnerWithDiscardedOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("YTDLPWarmUp-\(UUID().uuidString)", isDirectory: true)
+        let ytdlpURL = temporaryDirectory.appendingPathComponent("private yt-dlp")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        try Data([0xCF, 0xFA, 0xED, 0xFE]).write(to: ytdlpURL)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult(standardOutput: "2026.09.03\n")
+        }
+
+        let result = try await YTDLPWarmUpRunner(subprocessRunner: runner).run(at: ytdlpURL.path)
+
+        XCTAssertTrue(result.succeeded)
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL, ytdlpURL)
+        XCTAssertEqual(request.arguments, ["--version"])
+        XCTAssertEqual(request.timeout, .seconds(30))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 0)
+        XCTAssertFalse(request.redactedCommandDescription.contains(ytdlpURL.path))
+    }
+
+    func testYTDLPWarmUpSupersessionAndParentCancellationReachRunner() async {
+        let runner = CountingBlockingSubprocessRunner()
+        let service = YTDLPUpdateService(subprocessRunner: runner)
+
+        let firstTask = Task {
+            try await service.runYTDLPWarmUp(at: "/private/first-yt-dlp")
+        }
+        await runner.waitUntilStarted(count: 1)
+
+        let secondTask = Task {
+            try await service.runYTDLPWarmUp(at: "/private/second-yt-dlp")
+        }
+        await runner.waitUntilStarted(count: 2)
+
+        do {
+            _ = try await firstTask.value
+            XCTFail("Expected the superseded warm-up to be cancelled")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected supersession error: \(error)")
+        }
+
+        secondTask.cancel()
+        do {
+            _ = try await secondTask.value
+            XCTFail("Expected parent cancellation to stop the current warm-up")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected parent-cancellation error: \(error)")
+        }
+
+        XCTAssertEqual(runner.cancelledCount, 2)
+    }
+
+    func testDenoArchiveExtractorUsesBoundedRunnerAndTransfersScratchOwnership() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DenoArchiveExtractorPolicy-\(UUID().uuidString)", isDirectory: true)
+        let archiveURL = temporaryDirectory.appendingPathComponent("private deno archive.zip")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        try Data("archive fixture".utf8).write(to: archiveURL)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = RecordingSubprocessRunner { request, _ in
+            let extractionDirectory = URL(fileURLWithPath: request.arguments[2], isDirectory: true)
+            try Data("deno fixture".utf8).write(
+                to: extractionDirectory.appendingPathComponent("deno")
+            )
+            return successfulSubprocessResult()
+        }
+        let extractor = DenoArchiveExtractor(subprocessRunner: runner)
+
+        let extraction = try await extractor.extract(
+            from: archiveURL,
+            temporaryDirectory: temporaryDirectory
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extraction.binaryURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: extraction.workingDirectoryURL.path))
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, "/usr/bin/ditto")
+        XCTAssertEqual(request.arguments[0...1], ["-xk", archiveURL.path])
+        XCTAssertEqual(request.arguments[2], extraction.workingDirectoryURL.path)
+        XCTAssertEqual(request.timeout, .seconds(5 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 64 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(archiveURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(extraction.workingDirectoryURL.path))
+
+        try FileManager.default.removeItem(at: extraction.workingDirectoryURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: extraction.workingDirectoryURL.path))
+    }
+
+    func testDenoArchiveExtractorFindsBinaryInOneLevelNestedDirectory() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DenoArchiveExtractorNested-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = RecordingSubprocessRunner { request, _ in
+            let extractionDirectory = URL(fileURLWithPath: request.arguments[2], isDirectory: true)
+            let nestedDirectory = extractionDirectory.appendingPathComponent("deno-release", isDirectory: true)
+            try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+            try Data("deno fixture".utf8).write(to: nestedDirectory.appendingPathComponent("deno"))
+            return successfulSubprocessResult()
+        }
+
+        let extraction = try await DenoArchiveExtractor(subprocessRunner: runner).extract(
+            from: temporaryDirectory.appendingPathComponent("archive.zip"),
+            temporaryDirectory: temporaryDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: extraction.workingDirectoryURL) }
+
+        XCTAssertEqual(extraction.binaryURL.lastPathComponent, "deno")
+        XCTAssertEqual(extraction.binaryURL.deletingLastPathComponent().lastPathComponent, "deno-release")
+    }
+
+    func testDenoArchiveExtractorMapsFailuresAndCleansScratchDirectories() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DenoArchiveExtractorFailure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let archiveURL = temporaryDirectory.appendingPathComponent("archive.zip")
+
+        let nonzeroRunner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult(terminationStatus: 9)
+        }
+        do {
+            _ = try await DenoArchiveExtractor(subprocessRunner: nonzeroRunner).extract(
+                from: archiveURL,
+                temporaryDirectory: temporaryDirectory
+            )
+            XCTFail("Expected nonzero extraction to fail")
+        } catch YTDLPUpdateError.extractionFailed {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected nonzero extraction error: \(error)")
+        }
+
+        let missingBinaryRunner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult()
+        }
+        do {
+            _ = try await DenoArchiveExtractor(subprocessRunner: missingBinaryRunner).extract(
+                from: archiveURL,
+                temporaryDirectory: temporaryDirectory
+            )
+            XCTFail("Expected a missing extracted binary to fail")
+        } catch YTDLPUpdateError.binaryNotFound {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected missing-binary error: \(error)")
+        }
+
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(terminationStatus: SIGKILL)
+            )
+        }
+        do {
+            _ = try await DenoArchiveExtractor(subprocessRunner: timeoutRunner).extract(
+                from: archiveURL,
+                temporaryDirectory: temporaryDirectory
+            )
+            XCTFail("Expected a timed-out extraction to fail")
+        } catch YTDLPUpdateError.extractionFailed {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected timeout error: \(error)")
+        }
+
+        let remainingEntries = try FileManager.default.contentsOfDirectory(
+            at: temporaryDirectory,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertTrue(remainingEntries.isEmpty, "Failed extraction left scratch artifacts: \(remainingEntries)")
+    }
+
+    func testDenoArchiveExtractionIsCancelledByServiceDownloadControlAndCleansScratch() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DenoArchiveExtractorCancellation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = CountingBlockingSubprocessRunner()
+        let service = YTDLPUpdateService(subprocessRunner: runner)
+        let task = Task {
+            try await service.extractDenoArchive(
+                from: temporaryDirectory.appendingPathComponent("archive.zip"),
+                temporaryDirectory: temporaryDirectory
+            )
+        }
+        await runner.waitUntilStarted(count: 1)
+        await service.cancelDownload(.deno)
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected extraction cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected cancellation error: \(error)")
+        }
+
+        XCTAssertEqual(runner.cancelledCount, 1)
+        let remainingEntries = try FileManager.default.contentsOfDirectory(
+            at: temporaryDirectory,
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertTrue(remainingEntries.isEmpty, "Cancelled extraction left scratch artifacts: \(remainingEntries)")
+    }
+
+    func testDenoRuntimeInstallerAtomicallyReplacesExistingRuntime() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DenoRuntimeInstallerSuccess-\(UUID().uuidString)", isDirectory: true)
+        let extractionDirectory = temporaryDirectory.appendingPathComponent("extraction", isDirectory: true)
+        let destinationURL = temporaryDirectory.appendingPathComponent("installed/deno")
+        try FileManager.default.createDirectory(at: extractionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let binaryURL = extractionDirectory.appendingPathComponent("deno")
+        try Data("new runtime".utf8).write(to: binaryURL)
+        try Data("old runtime".utf8).write(to: destinationURL)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        try DenoRuntimeInstaller().install(
+            DenoArchiveExtraction(
+                binaryURL: binaryURL,
+                workingDirectoryURL: extractionDirectory
+            ),
+            at: destinationURL
+        )
+
+        XCTAssertEqual(try Data(contentsOf: destinationURL), Data("new runtime".utf8))
+        let attributes = try FileManager.default.attributesOfItem(atPath: destinationURL.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o755)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: binaryURL.path))
+    }
+
+    func testDenoRuntimeInstallerCancellationBeforePublicationPreservesExistingRuntime() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DenoRuntimeInstallerCancellation-\(UUID().uuidString)", isDirectory: true)
+        let extractionDirectory = temporaryDirectory.appendingPathComponent("extraction", isDirectory: true)
+        let destinationURL = temporaryDirectory.appendingPathComponent("installed/deno")
+        try FileManager.default.createDirectory(at: extractionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let binaryURL = extractionDirectory.appendingPathComponent("deno")
+        try Data("new runtime".utf8).write(to: binaryURL)
+        try Data("old runtime".utf8).write(to: destinationURL)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let publicationReached = DispatchSemaphore(value: 0)
+        let releasePublication = DispatchSemaphore(value: 0)
+        let installer = DenoRuntimeInstaller {
+            publicationReached.signal()
+            releasePublication.wait()
+        }
+        let task = Task {
+            try installer.install(
+                DenoArchiveExtraction(
+                    binaryURL: binaryURL,
+                    workingDirectoryURL: extractionDirectory
+                ),
+                at: destinationURL
+            )
+        }
+
+        XCTAssertEqual(publicationReached.wait(timeout: .now() + 1), .success)
+        task.cancel()
+        releasePublication.signal()
+
+        do {
+            try await task.value
+            XCTFail("Expected publication cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected publication error: \(error)")
+        }
+
+        XCTAssertEqual(try Data(contentsOf: destinationURL), Data("old runtime".utf8))
+        let installedEntries = try FileManager.default.contentsOfDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertEqual(installedEntries.map(\.lastPathComponent), ["deno"])
+    }
+
+    func testDenoArchiveHasherCancellationStopsBetweenChunks() async throws {
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DenoArchiveHasher-\(UUID().uuidString)")
+        try Data(repeating: 0xA5, count: 2 * 1024 * 1024).write(to: temporaryURL)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+
+        let firstChunkReached = DispatchSemaphore(value: 0)
+        let releaseChunk = DispatchSemaphore(value: 0)
+        let invocationCounter = LockedInvocationCounter()
+        let hasher = DenoArchiveHasher {
+            if invocationCounter.incrementAndIsFirst() {
+                firstChunkReached.signal()
+                releaseChunk.wait()
+            }
+        }
+        let task = Task { try await hasher.hash(temporaryURL) }
+
+        XCTAssertEqual(firstChunkReached.wait(timeout: .now() + 1), .success)
+        task.cancel()
+        releaseChunk.signal()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected hashing cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Unexpected hashing error: \(error)")
+        }
+    }
+
+    func testURLSessionTaskCancellationRemembersCancellationBeforeRegistration() {
+        let cancellation = URLSessionTaskCancellation()
+        let task = URLSession.shared.dataTask(
+            with: URL(string: "https://cancellation.invalid/fixture")!
+        )
+
+        cancellation.cancel()
+        cancellation.register(task)
+
+        XCTAssertTrue(task.state == .canceling || task.state == .completed)
+    }
+
     func testPreviewAssetGeneratorUsesSharedRunnerWithBoundedRedactedPolicy() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PreviewRunnerPolicy-\(UUID().uuidString)")
@@ -7201,6 +7544,18 @@ private struct StubWhisperModelProvider: WhisperModelProviding {
 
     func isModelDownloaded(_ model: WhisperModel) -> Bool {
         true
+    }
+}
+
+private final class LockedInvocationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func incrementAndIsFirst() -> Bool {
+        lock.withLock {
+            count += 1
+            return count == 1
+        }
     }
 }
 

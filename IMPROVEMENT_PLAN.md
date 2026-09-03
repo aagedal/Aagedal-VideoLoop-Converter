@@ -1,6 +1,6 @@
 # Aagedal Media Converter Improvement Plan
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-03
 
 This is the prioritized improvement roadmap. `TODO.md` remains a small historical
 feature checklist; new improvement work should be tracked here with an owner or
@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 187 tests pass. The
+- The unit-test baseline is green: 197 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,16 +23,17 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 187 unit tests. The UI test target now has deterministic smoke
+- There are only 197 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 26 direct `Process` construction sites outside the
-  shared runner and UI-test fixtures. Twenty-two are active launches; four are
-  configuration-only shims that already hand execution to the shared runner. The
+- External tools still have 25 direct `Process` construction sites outside the
+  shared runner, DEBUG-only UI-test fixture, and UI-test target. Twenty are active
+  launches; five are configuration-only shims that already hand execution to the
+  shared runner. The
   remaining launch paths do not yet share one cancellation, timeout, pipe-draining,
   and error-reporting layer.
 - `SwiftExifMediaProbe.durationSync` still bridges async AVFoundation work through
@@ -313,7 +314,8 @@ Target: after the correctness net; approximately 1–2 weeks.
 
 Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
 analytics, package-version probes, merge preparation, screenshot capture, and the
-ordinary FFmpeg conversion path migrated 2026-09-01–03.
+ordinary FFmpeg conversion, Deno archive extraction, and yt-dlp warm-up paths
+migrated 2026-09-01–03.
 
 Provide an injectable runner that owns:
 
@@ -532,10 +534,37 @@ cancellation as an error. Focused fake-runner tests cover request policy, redact
 nonzero diagnostics, timeout and parent cancellation, late success, atomic
 publication, and missing or empty output cleanup.
 
-Remaining package extraction/warm-up, native-waveform streaming encoder, AV2 pipe,
+Deno archive extraction now uses the shared runner instead of blocking the updater
+actor in `waitUntilExit`. The `ditto` invocation has a five-minute deadline, bounded
+stderr, discarded stdout, temporary-path redaction, structured exit checking, and
+task cancellation. The updater explicitly owns both the complete update and its active
+extraction, so the existing Settings cancel action reaches release lookup, download,
+checksum verification, `ditto`, and the final publication boundary. The replacement
+binary is prepared in the destination directory and atomically renamed over the old
+runtime only after permissions and cancellation checks succeed, so a failed or
+cancelled update preserves the working installation. Archive hashing uses cancellable
+one-megabyte reads off the updater actor, and parent cancellation is bridged to the
+underlying URLSession download task. Extraction scratch is removed after every failed
+or cancelled attempt, and successful scratch ownership is returned explicitly so the
+installer removes it after moving the binary. The downloaded archive is also removed
+when extraction or installation fails instead of leaking in the temporary directory.
+Focused fake-runner tests cover request policy, direct and nested archive layouts,
+nonzero, missing-binary, timeout, service-routed cancellation, and scratch cleanup.
+Installer tests cover successful atomic replacement and deterministic cancellation
+immediately before publication.
+
+The app-downloaded yt-dlp warm-up now uses the shared runner with a 30-second
+deadline and no retained stdout or stderr. The updater owns the active warm-up,
+so repeated requests cancel superseded work; `warmUp()` also returns its parent task
+for callers that need explicit cancellation. The longer deadline preserves the
+purpose of warming the documented slow first launch instead of prematurely killing
+it at the three-second version-probe deadline. Focused fake-runner tests cover request
+policy, supersession, and parent cancellation.
+
+Remaining native-waveform streaming encoder, AV2 pipe,
 DCP/IMF wrapper, ConversionManager subtitle embedding, and specialty helper call
-sites are still open. The refreshed audit counts 22 direct production launches plus
-four configuration-only `Process` shims. The synchronous Whisper capability/version
+sites are still open. The refreshed audit counts 20 direct production launches plus
+five configuration-only `Process` shims. The synchronous Whisper capability/version
 cache needs an async state redesign.
 DCP/IMF post-processing and subtitle embedding need explicit task ownership as part of
 their migration; native-waveform streaming and AV2 pipelines should wait for

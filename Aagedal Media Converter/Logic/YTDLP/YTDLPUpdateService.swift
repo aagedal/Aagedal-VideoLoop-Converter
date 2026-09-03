@@ -75,18 +75,243 @@ struct YTDLPVersionProbe: Sendable {
     }
 }
 
+/// Runs the intentionally slow first launch of an app-downloaded yt-dlp binary
+/// behind the shared subprocess boundary.
+struct YTDLPWarmUpRunner: Sendable {
+    static let timeout: Duration = .seconds(30)
+
+    private let subprocessRunner: any SubprocessRunning
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        self.subprocessRunner = subprocessRunner
+    }
+
+    func run(at path: String) async throws -> SubprocessResult {
+        // Preserve the existing standalone/Homebrew execution resolution while
+        // the shared runner owns launch, draining, cancellation, and timeout.
+        let configuredProcess = Process()
+        HomebrewPythonExecutor.configureProcess(
+            configuredProcess,
+            scriptPath: path,
+            arguments: ["--version"]
+        )
+        guard let executableURL = configuredProcess.executableURL else {
+            throw YTDLPUpdateError.binaryNotFound
+        }
+
+        return try await subprocessRunner.run(
+            SubprocessRequest(
+                executableURL: executableURL,
+                arguments: configuredProcess.arguments ?? [],
+                environment: configuredProcess.environment,
+                timeout: Self.timeout,
+                standardOutputCaptureLimit: 0,
+                standardErrorCaptureLimit: 0,
+                sensitiveValues: [path]
+            )
+        )
+    }
+}
+
+struct DenoArchiveExtraction: Sendable {
+    let binaryURL: URL
+    let workingDirectoryURL: URL
+}
+
+/// Prepares a Deno binary in its destination directory before atomically
+/// publishing it. A failed or cancelled publication leaves the prior runtime
+/// untouched.
+struct DenoRuntimeInstaller: Sendable {
+    private let beforePublication: @Sendable () throws -> Void
+
+    init(beforePublication: @escaping @Sendable () throws -> Void = {}) {
+        self.beforePublication = beforePublication
+    }
+
+    func install(_ extraction: DenoArchiveExtraction, at destinationURL: URL) throws {
+        let fileManager = FileManager.default
+        let destinationDirectory = destinationURL.deletingLastPathComponent()
+        let stagedURL = destinationDirectory.appendingPathComponent(
+            ".\(destinationURL.lastPathComponent)-install-\(UUID().uuidString)"
+        )
+
+        try fileManager.createDirectory(
+            at: destinationDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? fileManager.removeItem(at: stagedURL) }
+
+        try fileManager.moveItem(at: extraction.binaryURL, to: stagedURL)
+        _ = removexattr(stagedURL.path, "com.apple.quarantine", 0)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: stagedURL.path
+        )
+
+        try beforePublication()
+        try Task.checkCancellation()
+
+        let renameResult = stagedURL.path.withCString { stagedPath in
+            destinationURL.path.withCString { destinationPath in
+                Darwin.rename(stagedPath, destinationPath)
+            }
+        }
+        guard renameResult == 0 else {
+            let errorCode = POSIXErrorCode(rawValue: errno) ?? .EIO
+            throw POSIXError(errorCode)
+        }
+    }
+}
+
+struct DenoArchiveHasher: Sendable {
+    private let beforeChunk: @Sendable () throws -> Void
+
+    init(beforeChunk: @escaping @Sendable () throws -> Void = {}) {
+        self.beforeChunk = beforeChunk
+    }
+
+    func hash(_ fileURL: URL) async throws -> String {
+        let beforeChunk = beforeChunk
+        let hashingTask = Task.detached {
+            let fileHandle = try FileHandle(forReadingFrom: fileURL)
+            defer { try? fileHandle.close() }
+
+            var hasher = SHA256()
+            while true {
+                try beforeChunk()
+                try Task.checkCancellation()
+                guard let chunk = try fileHandle.read(upToCount: 1024 * 1024),
+                      !chunk.isEmpty else {
+                    break
+                }
+                hasher.update(data: chunk)
+            }
+            try Task.checkCancellation()
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        }
+
+        return try await withTaskCancellationHandler {
+            try await hashingTask.value
+        } onCancel: {
+            hashingTask.cancel()
+        }
+    }
+}
+
+/// Extracts the downloaded Deno archive behind the shared subprocess boundary.
+/// The caller owns `workingDirectoryURL` after success and must remove it after
+/// moving the returned binary into its final location.
+struct DenoArchiveExtractor: Sendable {
+    static let timeout: Duration = .seconds(5 * 60)
+    static let diagnosticCaptureLimit = 64 * 1024
+
+    private let subprocessRunner: any SubprocessRunning
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        self.subprocessRunner = subprocessRunner
+    }
+
+    func extract(
+        from archiveURL: URL,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) async throws -> DenoArchiveExtraction {
+        let fileManager = FileManager.default
+        let extractionDirectory = temporaryDirectory
+            .appendingPathComponent("DenoArchiveExtraction-\(UUID().uuidString)", isDirectory: true)
+        var callerOwnsExtractionDirectory = false
+
+        try fileManager.createDirectory(
+            at: extractionDirectory,
+            withIntermediateDirectories: true
+        )
+        defer {
+            if !callerOwnsExtractionDirectory {
+                try? fileManager.removeItem(at: extractionDirectory)
+            }
+        }
+
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/ditto"),
+            arguments: ["-xk", archiveURL.path, extractionDirectory.path],
+            timeout: Self.timeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: Self.diagnosticCaptureLimit,
+            sensitiveValues: [archiveURL.path, extractionDirectory.path]
+        )
+
+        let result: SubprocessResult
+        do {
+            result = try await subprocessRunner.run(request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw YTDLPUpdateError.extractionFailed
+        }
+
+        guard result.succeeded else {
+            throw YTDLPUpdateError.extractionFailed
+        }
+        try Task.checkCancellation()
+
+        let directBinaryURL = extractionDirectory.appendingPathComponent("deno")
+        let binaryURL: URL
+        if fileManager.fileExists(atPath: directBinaryURL.path) {
+            binaryURL = directBinaryURL
+        } else {
+            let contents = try fileManager.contentsOfDirectory(
+                at: extractionDirectory,
+                includingPropertiesForKeys: nil
+            )
+            guard let nestedBinaryURL = contents
+                .map({ $0.appendingPathComponent("deno") })
+                .first(where: { fileManager.fileExists(atPath: $0.path) }) else {
+                throw YTDLPUpdateError.binaryNotFound
+            }
+            binaryURL = nestedBinaryURL
+        }
+
+        try Task.checkCancellation()
+        callerOwnsExtractionDirectory = true
+        return DenoArchiveExtraction(
+            binaryURL: binaryURL,
+            workingDirectoryURL: extractionDirectory
+        )
+    }
+}
+
 /// Manages yt-dlp binary resolution with priority: custom path > downloaded > bundled
 actor YTDLPUpdateService {
     static let shared = YTDLPUpdateService()
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "YTDLPUpdate")
     private let versionProbe: YTDLPVersionProbe
+    private let warmUpRunner: YTDLPWarmUpRunner
+    private let denoArchiveExtractor: DenoArchiveExtractor
+    private let denoRuntimeInstaller: DenoRuntimeInstaller
     private var denoInstallTask: Task<String?, Never>?
+    private var activeWarmUp: (
+        id: UUID,
+        task: Task<SubprocessResult, Error>
+    )?
+    private var activeDenoExtraction: (
+        id: UUID,
+        task: Task<DenoArchiveExtraction, Error>
+    )?
+    private var activeDenoUpdate: (
+        id: UUID,
+        task: Task<String, Error>
+    )?
     private var cachedDenoPath: String?
     private var activeDownloadTasks: [YTDLPDownloadKind: URLSessionDownloadTask] = [:]
 
-    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+    init(
+        subprocessRunner: any SubprocessRunning = SubprocessRunner(),
+        denoRuntimeInstaller: DenoRuntimeInstaller = DenoRuntimeInstaller()
+    ) {
         versionProbe = YTDLPVersionProbe(subprocessRunner: subprocessRunner)
+        warmUpRunner = YTDLPWarmUpRunner(subprocessRunner: subprocessRunner)
+        denoArchiveExtractor = DenoArchiveExtractor(subprocessRunner: subprocessRunner)
+        self.denoRuntimeInstaller = denoRuntimeInstaller
     }
 
     /// Path to bundled yt-dlp binary in app bundle
@@ -352,7 +577,7 @@ actor YTDLPUpdateService {
         let task = Task<String?, Never> { [weak self] in
             guard let self else { return nil }
             do {
-                let path = try await self.downloadDenoRuntime(progress: { _ in })
+                let path = try await self.runDenoUpdate(progress: { _ in })
                 return path
             } catch {
                 logger.error("Failed to auto-download deno: \(error.localizedDescription)")
@@ -400,14 +625,14 @@ actor YTDLPUpdateService {
 
     /// Downloads and installs the latest deno release
     func downloadDenoUpdate() async throws {
-        _ = try await downloadDenoRuntime(progress: { _ in })
+        _ = try await runDenoUpdate(progress: { _ in })
         cachedDenoPath = denoDownloadedPath.path
     }
 
     /// Downloads and installs the latest deno release
     /// - Parameter progress: Callback for download progress (0.0 to 1.0)
     func downloadDenoUpdate(progress: @escaping @Sendable (Double) -> Void) async throws {
-        _ = try await downloadDenoRuntime(progress: progress)
+        _ = try await runDenoUpdate(progress: progress)
         cachedDenoPath = denoDownloadedPath.path
     }
 
@@ -535,13 +760,14 @@ actor YTDLPUpdateService {
     /// due to extracting the embedded Python environment. Running --version once caches
     /// the extraction, making subsequent runs faster (~6 seconds improvement).
     /// Only warms up if using the app-downloaded binary (not Homebrew or custom).
-    nonisolated func warmUp() {
+    @discardableResult
+    nonisolated func warmUp() -> Task<Void, Never> {
         Task {
             await _warmUp()
         }
     }
 
-    private func _warmUp() {
+    private func _warmUp() async {
         // Only warm up if using the app-downloaded binary
         guard let selection = selectedYTDLPSource(), selection == .app else {
             return
@@ -554,17 +780,50 @@ actor YTDLPUpdateService {
 
         logger.debug("Warming up yt-dlp binary...")
 
-        let process = Process()
-        HomebrewPythonExecutor.configureProcess(process, scriptPath: downloadedPathString, arguments: ["--version"])
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
         do {
-            try process.run()
-            // Don't wait for completion - just starting the process warms up the cache
-            logger.debug("yt-dlp warm-up process started (PID: \(process.processIdentifier))")
+            let result = try await runYTDLPWarmUp(at: downloadedPathString)
+            if result.succeeded {
+                logger.debug("yt-dlp warm-up completed")
+            } else {
+                logger.warning("yt-dlp warm-up exited with status \(result.terminationStatus)")
+            }
+        } catch is CancellationError {
+            logger.debug("yt-dlp warm-up cancelled")
         } catch {
-            logger.warning("Failed to start yt-dlp warm-up: \(error.localizedDescription)")
+            logger.warning("yt-dlp warm-up failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Owns the current warm-up so repeated launches supersede earlier work and
+    /// cancellation reaches the child process managed by the shared runner.
+    func runYTDLPWarmUp(at path: String) async throws -> SubprocessResult {
+        if let previousWarmUp = activeWarmUp {
+            activeWarmUp = nil
+            previousWarmUp.task.cancel()
+        }
+
+        let warmUpID = UUID()
+        let runner = warmUpRunner
+        let warmUpTask = Task {
+            try await runner.run(at: path)
+        }
+        activeWarmUp = (warmUpID, warmUpTask)
+
+        defer {
+            if activeWarmUp?.id == warmUpID {
+                activeWarmUp = nil
+            }
+        }
+
+        return try await withTaskCancellationHandler {
+            let result = try await warmUpTask.value
+            try Task.checkCancellation()
+            guard activeWarmUp?.id == warmUpID else {
+                throw CancellationError()
+            }
+            return result
+        } onCancel: {
+            warmUpTask.cancel()
         }
     }
 
@@ -608,6 +867,43 @@ actor YTDLPUpdateService {
     }
 
     // MARK: - Deno Download
+
+    /// Owns the complete Deno update, including release lookup, checksum fetch,
+    /// extraction, and publication, so Settings cancellation reaches every phase.
+    private func runDenoUpdate(
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> String {
+        if let previousUpdate = activeDenoUpdate {
+            activeDenoUpdate = nil
+            previousUpdate.task.cancel()
+            activeDownloadTasks[.deno]?.cancel()
+            activeDenoExtraction?.task.cancel()
+            _ = try? await previousUpdate.task.value
+        }
+
+        let updateID = UUID()
+        let updateTask = Task {
+            try await self.downloadDenoRuntime(progress: progress)
+        }
+        activeDenoUpdate = (updateID, updateTask)
+
+        defer {
+            if activeDenoUpdate?.id == updateID {
+                activeDenoUpdate = nil
+            }
+        }
+
+        return try await withTaskCancellationHandler {
+            let path = try await updateTask.value
+            try Task.checkCancellation()
+            guard activeDenoUpdate?.id == updateID else {
+                throw CancellationError()
+            }
+            return path
+        } onCancel: {
+            updateTask.cancel()
+        }
+    }
 
     private func getLatestDenoRelease() async throws -> (version: String, downloadURL: URL)? {
         guard let url = URL(string: AppConstants.denoGitHubReleasesURL) else {
@@ -672,22 +968,22 @@ actor YTDLPUpdateService {
             throw error
         }
 
-        let extractedBinaryURL = try await extractDenoBinary(from: tempZipURL)
-
         let fm = FileManager.default
+        defer { try? fm.removeItem(at: tempZipURL) }
+
+        let extraction = try await extractDenoArchive(from: tempZipURL)
+        defer { try? fm.removeItem(at: extraction.workingDirectoryURL) }
+
         let destinationPath = denoDownloadedPath
-        let destinationDir = destinationPath.deletingLastPathComponent()
-
-        try fm.createDirectory(at: destinationDir, withIntermediateDirectories: true, attributes: nil)
-        if fm.fileExists(atPath: destinationPath.path) {
-            try fm.removeItem(at: destinationPath)
+        let installer = denoRuntimeInstaller
+        let installTask = Task.detached {
+            try installer.install(extraction, at: destinationPath)
         }
-        try fm.moveItem(at: extractedBinaryURL, to: destinationPath)
-
-        removeQuarantine(at: destinationPath.path)
-        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationPath.path)
-        try? fm.removeItem(at: tempZipURL)
-
+        try await withTaskCancellationHandler {
+            try await installTask.value
+        } onCancel: {
+            installTask.cancel()
+        }
         UserDefaults.standard.set(Date(), forKey: AppConstants.denoLastUpdateCheckKey)
         UserDefaults.standard.set(version, forKey: AppConstants.denoVersionKey)
 
@@ -696,39 +992,49 @@ actor YTDLPUpdateService {
         return destinationPath.path
     }
 
-    private func extractDenoBinary(from zipURL: URL) async throws -> URL {
-        let fm = FileManager.default
-        let extractDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-
-        try fm.createDirectory(at: extractDir, withIntermediateDirectories: true)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = ["-xk", zipURL.path, extractDir.path]
-
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            throw YTDLPUpdateError.extractionFailed
+    /// Runs extraction in an explicitly owned task so the Settings cancel action
+    /// can stop `ditto` after the URLSession download has already completed.
+    func extractDenoArchive(
+        from archiveURL: URL,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) async throws -> DenoArchiveExtraction {
+        if let previousExtraction = activeDenoExtraction {
+            activeDenoExtraction = nil
+            previousExtraction.task.cancel()
         }
 
-        let directPath = extractDir.appendingPathComponent("deno")
-        if fm.fileExists(atPath: directPath.path) {
-            return directPath
+        let extractionID = UUID()
+        let extractor = denoArchiveExtractor
+        let extractionTask = Task {
+            try await extractor.extract(
+                from: archiveURL,
+                temporaryDirectory: temporaryDirectory
+            )
         }
+        activeDenoExtraction = (extractionID, extractionTask)
 
-        let contents = try fm.contentsOfDirectory(at: extractDir, includingPropertiesForKeys: nil)
-        for item in contents {
-            let nestedPath = item.appendingPathComponent("deno")
-            if fm.fileExists(atPath: nestedPath.path) {
-                return nestedPath
+        defer {
+            if activeDenoExtraction?.id == extractionID {
+                activeDenoExtraction = nil
             }
         }
 
-        throw YTDLPUpdateError.binaryNotFound
+        return try await withTaskCancellationHandler {
+            let extraction = try await extractionTask.value
+            do {
+                try Task.checkCancellation()
+                guard activeDenoExtraction?.id == extractionID else {
+                    throw CancellationError()
+                }
+                return extraction
+            } catch {
+                try? FileManager.default.removeItem(at: extraction.workingDirectoryURL)
+                throw error
+            }
+        } onCancel: {
+            extractionTask.cancel()
+        }
     }
-
 
     /// Checks if an update is available
     func checkForUpdates() async -> Bool {
@@ -881,7 +1187,7 @@ actor YTDLPUpdateService {
             throw YTDLPUpdateError.checksumNotFoundForAsset
         }
 
-        let actual = try computeSHA256(of: fileURL)
+        let actual = try await computeSHA256(of: fileURL)
         guard actual.lowercased() == expected.lowercased() else {
             logger.error("SHA256 mismatch for \(expectedFilename): expected \(expected), got \(actual)")
             throw YTDLPUpdateError.checksumMismatch
@@ -889,11 +1195,10 @@ actor YTDLPUpdateService {
         logger.info("SHA256 verified for \(expectedFilename)")
     }
 
-    /// Streams `fileURL` through SHA256 via a memory-mapped Data for efficiency.
-    private func computeSHA256(of fileURL: URL) throws -> String {
-        let data = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-        let digest = SHA256.hash(data: data)
-        return digest.map { String(format: "%02x", $0) }.joined()
+    /// Hashes the archive off the updater actor and checks cancellation between
+    /// bounded reads so Settings remains responsive for large downloads.
+    private func computeSHA256(of fileURL: URL) async throws -> String {
+        try await DenoArchiveHasher().hash(fileURL)
     }
 
     /// Removes the quarantine extended attribute from a file
@@ -908,9 +1213,23 @@ actor YTDLPUpdateService {
 
     /// Cancels the active download for the given kind, if any. No-op otherwise.
     func cancelDownload(_ kind: YTDLPDownloadKind) {
+        var cancelledWork = false
         if let task = activeDownloadTasks[kind] {
             task.cancel()
             activeDownloadTasks[kind] = nil
+            cancelledWork = true
+        }
+        if kind == .deno, let extraction = activeDenoExtraction {
+            activeDenoExtraction = nil
+            extraction.task.cancel()
+            cancelledWork = true
+        }
+        if kind == .deno, let update = activeDenoUpdate {
+            activeDenoUpdate = nil
+            update.task.cancel()
+            cancelledWork = true
+        }
+        if cancelledWork {
             logger.info("Cancelled \(String(describing: kind)) download")
         }
     }
@@ -929,37 +1248,43 @@ actor YTDLPUpdateService {
 
         defer { activeDownloadTasks[kind] = nil }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let task = session.downloadTask(with: request) { tempURL, response, error in
-                // Release the session's strong reference to its delegate once the
-                // task finishes, preventing a per-download leak.
-                defer { session.finishTasksAndInvalidate() }
+        let cancellation = URLSessionTaskCancellation()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let task = session.downloadTask(with: request) { tempURL, response, error in
+                    // Release the session's strong reference to its delegate once the
+                    // task finishes, preventing a per-download leak.
+                    defer { session.finishTasksAndInvalidate() }
 
-                if let error = error {
-                    if (error as? URLError)?.code == .cancelled {
-                        continuation.resume(throwing: CancellationError())
-                    } else {
+                    if let error = error {
+                        if (error as? URLError)?.code == .cancelled {
+                            continuation.resume(throwing: CancellationError())
+                        } else {
+                            continuation.resume(throwing: error)
+                        }
+                        return
+                    }
+                    guard let tempURL = tempURL, let response = response else {
+                        continuation.resume(throwing: YTDLPUpdateError.downloadFailed)
+                        return
+                    }
+
+                    // Move to a more permanent temp location
+                    let persistentTemp = FileManager.default.temporaryDirectory
+                        .appendingPathComponent(UUID().uuidString)
+                    do {
+                        try FileManager.default.moveItem(at: tempURL, to: persistentTemp)
+                        continuation.resume(returning: (persistentTemp, response))
+                    } catch {
                         continuation.resume(throwing: error)
                     }
-                    return
                 }
-                guard let tempURL = tempURL, let response = response else {
-                    continuation.resume(throwing: YTDLPUpdateError.downloadFailed)
-                    return
-                }
-
-                // Move to a more permanent temp location
-                let persistentTemp = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString)
-                do {
-                    try FileManager.default.moveItem(at: tempURL, to: persistentTemp)
-                    continuation.resume(returning: (persistentTemp, response))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+                cancellation.register(task)
+                activeDownloadTasks[kind] = task
+                task.resume()
             }
-            activeDownloadTasks[kind] = task
-            task.resume()
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
@@ -995,6 +1320,30 @@ actor YTDLPUpdateService {
 }
 
 // MARK: - Download Progress Delegate
+
+final class URLSessionTaskCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionTask?
+    private var isCancelled = false
+
+    func register(_ task: URLSessionTask) {
+        let shouldCancel = lock.withLock { () -> Bool in
+            self.task = task
+            return isCancelled
+        }
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    func cancel() {
+        let task = lock.withLock { () -> URLSessionTask? in
+            isCancelled = true
+            return self.task
+        }
+        task?.cancel()
+    }
+}
 
 private final class YTDLPDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let progressHandler: @Sendable (Double) -> Void
