@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 171 tests pass. The
+- The unit-test baseline is green: 174 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,15 +23,15 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 168 unit tests. The UI test target now has deterministic smoke
+- There are only 174 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 30 direct `Process` construction sites outside the
-  shared runner and UI-test fixtures. Twenty-six are active launches; four are
+- External tools still have 29 direct `Process` construction sites outside the
+  shared runner and UI-test fixtures. Twenty-five are active launches; four are
   configuration-only shims that already hand execution to the shared runner. The
   remaining launch paths do not yet share one cancellation, timeout, pipe-draining,
   and error-reporting layer.
@@ -312,8 +312,8 @@ Target: after the correctness net; approximately 1–2 weeks.
 ### 2.1 Introduce one subprocess runner
 
 Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
-analytics, package-version probes, and the ordinary FFmpeg conversion path migrated
-2026-09-01–02.
+analytics, package-version probes, merge preparation, and the ordinary FFmpeg
+conversion path migrated 2026-09-01–02.
 
 Provide an injectable runner that owns:
 
@@ -500,13 +500,24 @@ exit, launch failure, timeout, truncation, and parent-task cancellation. The exi
 Homebrew/Python resolver remains a configuration-only shim until it exposes runner
 request components directly.
 
+Merge trim and conformance preparation now uses the shared runner instead of an
+untracked continuation around `Process`. Each one-shot FFmpeg run has a twelve-hour
+safety deadline, concurrent pipe draining with bounded stderr, private-path redaction,
+process-tree cancellation, and nonempty-output validation. Batch cancellation stops
+the active preparation task, while cancelling any constituent row invalidates the stale
+merge snapshot and lets the remaining rows continue individually; operation and batch
+identities prevent an older completion from clearing or publishing over a replacement.
+Failed, timed-out, and cancelled runs remove partial prepared clips. Fake-runner tests
+cover request policy, redaction, missing and empty output validation, failure and timeout
+cleanup, and parent-task cancellation.
+
 Remaining package extraction/warm-up, native-waveform streaming encoder, AV2 pipe,
 DCP/IMF wrapper, ConversionManager subtitle embedding, and helper call sites are still
-open. The refreshed audit counts 26 direct production launches plus four
-configuration-only `Process` shims. One-shot merge preparation and binary-version
-helpers can migrate independently. DCP/IMF post-processing and subtitle embedding need
-explicit task ownership as part of their migration; native-waveform streaming and AV2
-pipelines should wait for incremental stdin and coordinated multi-process support.
+open. The refreshed audit counts 25 direct production launches plus four
+configuration-only `Process` shims. Binary-version helpers can migrate independently.
+DCP/IMF post-processing and subtitle embedding need explicit task ownership as part of
+their migration; native-waveform streaming and AV2 pipelines should wait for
+incremental stdin and coordinated multi-process support.
 
 ### 2.2 Remove sync-over-async waits
 

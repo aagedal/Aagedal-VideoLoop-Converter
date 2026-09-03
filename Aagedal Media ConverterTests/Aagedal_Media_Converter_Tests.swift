@@ -254,6 +254,133 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(diagnostic.contains("DEF"))
     }
 
+    func testMergePreparationUsesBoundedRunnerAndRequiresNonemptyOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MergePreparation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let sourceURL = temporaryDirectory.appendingPathComponent("private source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("private output.mov")
+        let executablePath = "/private/tools/ffmpeg"
+        let runner = RecordingSubprocessRunner { _, _ in
+            try Data("prepared media".utf8).write(to: outputURL)
+            return successfulSubprocessResult()
+        }
+        let subprocess = MergePreparationSubprocess(subprocessRunner: runner)
+
+        let succeeded = await subprocess.runFFmpeg(
+            at: executablePath,
+            arguments: ["-y", "-i", sourceURL.path, "-c", "copy", outputURL.path],
+            outputURL: outputURL,
+            context: "trim private source.mov"
+        )
+
+        XCTAssertTrue(succeeded)
+        XCTAssertEqual(try Data(contentsOf: outputURL), Data("prepared media".utf8))
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, executablePath)
+        XCTAssertEqual(request.timeout, .seconds(12 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains(executablePath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(sourceURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(outputURL.path))
+    }
+
+    func testMergePreparationRemovesPartialOutputAfterFailureAndTimeout() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MergePreparationFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let outputURL = temporaryDirectory.appendingPathComponent("partial.mov")
+        let arguments = ["-i", "/private/media/source.mov", outputURL.path]
+
+        let failureRunner = RecordingSubprocessRunner { _, _ in
+            try Data("partial".utf8).write(to: outputURL)
+            return successfulSubprocessResult(
+                standardError: "failed /private/media/source.mov at https://example.com/private",
+                terminationStatus: 7
+            )
+        }
+        let failureSucceeded = await MergePreparationSubprocess(subprocessRunner: failureRunner).runFFmpeg(
+            at: "/private/tools/ffmpeg",
+            arguments: arguments,
+            outputURL: outputURL,
+            context: "conform private source.mov"
+        )
+        XCTAssertFalse(failureSucceeded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            try Data("partial".utf8).write(to: outputURL)
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(terminationStatus: SIGKILL)
+            )
+        }
+        let timeoutSucceeded = await MergePreparationSubprocess(subprocessRunner: timeoutRunner).runFFmpeg(
+            at: "/private/tools/ffmpeg",
+            arguments: arguments,
+            outputURL: outputURL,
+            context: "conform private source.mov"
+        )
+        XCTAssertFalse(timeoutSucceeded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let missingOutputRunner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult()
+        }
+        let missingOutputSucceeded = await MergePreparationSubprocess(
+            subprocessRunner: missingOutputRunner
+        ).runFFmpeg(
+            at: "/private/tools/ffmpeg",
+            arguments: arguments,
+            outputURL: outputURL,
+            context: "trim private source.mov"
+        )
+        XCTAssertFalse(missingOutputSucceeded)
+
+        let emptyOutputRunner = RecordingSubprocessRunner { _, _ in
+            try Data().write(to: outputURL)
+            return successfulSubprocessResult()
+        }
+        let emptyOutputSucceeded = await MergePreparationSubprocess(
+            subprocessRunner: emptyOutputRunner
+        ).runFFmpeg(
+            at: "/private/tools/ffmpeg",
+            arguments: arguments,
+            outputURL: outputURL,
+            context: "trim private source.mov"
+        )
+        XCTAssertFalse(emptyOutputSucceeded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    func testMergePreparationCancellationReachesSharedRunnerAndRemovesPartialOutput() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MergePreparationCancellation-\(UUID().uuidString).mov")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        try Data("partial".utf8).write(to: outputURL)
+        let runner = CountingBlockingSubprocessRunner()
+        let subprocess = MergePreparationSubprocess(subprocessRunner: runner)
+        let task = Task {
+            await subprocess.runFFmpeg(
+                at: "/private/tools/ffmpeg",
+                arguments: ["-i", "/private/media/source.mov", outputURL.path],
+                outputURL: outputURL,
+                context: "trim private source.mov"
+            )
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        task.cancel()
+
+        let succeeded = await task.value
+        XCTAssertFalse(succeeded)
+        XCTAssertEqual(runner.cancelledCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
     func testSynchronousDurationBridgeReturnsLoadedDuration() {
         let duration = SwiftExifMediaProbe.waitForAsyncDuration(timeout: 1) {
             2.5

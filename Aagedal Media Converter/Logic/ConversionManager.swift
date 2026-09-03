@@ -45,9 +45,78 @@ enum SubtitleEmbeddingCommit {
     }
 }
 
+struct MergePreparationSubprocess: Sendable {
+    private let subprocessRunner: any SubprocessRunning
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        self.subprocessRunner = subprocessRunner
+    }
+
+    func runFFmpeg(
+        at executablePath: String,
+        arguments: [String],
+        outputURL: URL,
+        context: String
+    ) async -> Bool {
+        let privatePaths = Set(
+            arguments.filter { $0.hasPrefix("/") }
+        ).union([executablePath, outputURL.path])
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: executablePath),
+            arguments: arguments,
+            timeout: .seconds(12 * 60 * 60),
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: 256 * 1024,
+            sensitiveValues: privatePaths
+        )
+        let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "MergeCompatibility")
+
+        do {
+            let result = try await subprocessRunner.run(request)
+            guard result.succeeded else {
+                try? FileManager.default.removeItem(at: outputURL)
+                let diagnostic = request.redactedDiagnostic(result.standardErrorText)
+                logger.error("FFmpeg \(context, privacy: .private) failed with code \(result.terminationStatus). \(diagnostic, privacy: .public)")
+                return false
+            }
+
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: outputURL.path),
+                  let size = attributes[.size] as? NSNumber,
+                  size.int64Value > 0 else {
+                try? FileManager.default.removeItem(at: outputURL)
+                logger.error("FFmpeg \(context, privacy: .private) completed without a nonempty output")
+                return false
+            }
+            return true
+        } catch is CancellationError {
+            try? FileManager.default.removeItem(at: outputURL)
+            return false
+        } catch let error as SubprocessRunnerError {
+            try? FileManager.default.removeItem(at: outputURL)
+            switch error {
+            case .timedOut:
+                logger.error("FFmpeg \(context, privacy: .private) timed out after 12 hours")
+            case .failedToStart(_, let underlying):
+                let diagnostic = request.redactedDiagnostic(underlying)
+                logger.error("Failed to launch FFmpeg \(context, privacy: .private): \(diagnostic, privacy: .public)")
+            }
+            return false
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            let diagnostic = request.redactedDiagnostic(error.localizedDescription)
+            logger.error("FFmpeg \(context, privacy: .private) failed: \(diagnostic, privacy: .public)")
+            return false
+        }
+    }
+}
+
 actor ConversionManager: Sendable {
     @MainActor static let shared = ConversionManager()
-    private init() {}
+    private let mergePreparationSubprocess: MergePreparationSubprocess
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        self.mergePreparationSubprocess = MergePreparationSubprocess(subprocessRunner: subprocessRunner)
+    }
 
     enum ConversionStatus {
         case waiting
@@ -183,6 +252,9 @@ actor ConversionManager: Sendable {
         var needsConformance: Bool { needsVideoReencode || needsAudioReencode }
     }
     private var mergePlan: MergePlan?
+    private var mergePreparationTask: (id: UUID, itemID: UUID, task: Task<Bool, Never>)?
+    private var mergePreparationScope: (batchID: UUID, itemIDs: Set<UUID>)?
+    private var invalidatedMergePreparationBatchIDs: Set<UUID> = []
     private var lastMergeMetadata: [UUID: VideoMetadata] = [:]
     private let mergeLogger = Logger(subsystem: "com.aagedal.MediaConverter", category: "MergeCompatibility")
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ConversionManager")
@@ -232,9 +304,12 @@ actor ConversionManager: Sendable {
         from items: [VideoItem],
         preset: ExportPreset,
         outputFolder: String,
-        groupName: String? = nil
+        groupName: String? = nil,
+        batchID: UUID
     ) async -> MergePlan? {
-        guard case .compatible = await evaluateMergeCompatibility(for: items, preset: preset) else {
+        guard isMergePreparationActive(batchID),
+              case .compatible = await evaluateMergeCompatibility(for: items, preset: preset),
+              isMergePreparationActive(batchID) else {
             return nil
         }
 
@@ -248,7 +323,8 @@ actor ConversionManager: Sendable {
 
         guard let (segments, temporaryFiles, totalDuration) = await prepareMergeSegments(
             from: orderedWaitingItems,
-            durationLookup: durationLookup
+            durationLookup: durationLookup,
+            batchID: batchID
         ) else {
             return nil
         }
@@ -380,13 +456,18 @@ actor ConversionManager: Sendable {
 
     private func prepareMergeSegments(
         from items: [VideoItem],
-        durationLookup: [UUID: Double]
+        durationLookup: [UUID: Double],
+        batchID: UUID
     ) async -> ([MergeSegment], [URL], Double?)? {
         var segments: [MergeSegment] = []
         var temporaryFiles: [URL] = []
         var totalDuration: Double = 0
 
         for item in items {
+            guard isMergePreparationActive(batchID) else {
+                cleanupTemporaryFiles(temporaryFiles)
+                return nil
+            }
             let baseDuration = durationLookup[item.id]
             let hasTrim = hasActiveTrim(item)
             let segmentDuration = resolveSegmentDuration(for: item, baseDuration: baseDuration, hasTrim: hasTrim)
@@ -395,7 +476,7 @@ actor ConversionManager: Sendable {
             }
 
             if hasTrim {
-                guard let trimmedURL = await prepareTrimmedClip(for: item) else {
+                guard let trimmedURL = await prepareTrimmedClip(for: item, batchID: batchID) else {
                     cleanupTemporaryFiles(temporaryFiles)
                     return nil
                 }
@@ -468,7 +549,7 @@ actor ConversionManager: Sendable {
         return false
     }
 
-    private func prepareTrimmedClip(for item: VideoItem) async -> URL? {
+    private func prepareTrimmedClip(for item: VideoItem, batchID: UUID) async -> URL? {
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             mergeLogger.error("FFmpeg binary not found while preparing trimmed clip for \(item.name, privacy: .public)")
             return nil
@@ -501,45 +582,75 @@ actor ConversionManager: Sendable {
 
         arguments.append(contentsOf: ["-c", "copy", "-avoid_negative_ts", "make_zero", tempURL.path])
 
-        let success = await runFFmpeg(at: ffmpegPath, arguments: arguments, context: "trim \(item.name)")
-        if success {
-            return tempURL
-        } else {
-            do {
-                try FileManager.default.removeItem(at: tempURL)
-            } catch {
-                mergeLogger.warning("Failed to remove temporary trim file \(tempURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            }
-            return nil
+        let success = await runMergePreparationFFmpeg(
+            at: ffmpegPath,
+            arguments: arguments,
+            outputURL: tempURL,
+            itemID: item.id,
+            batchID: batchID,
+            context: "trim \(item.name)"
+        )
+        return success ? tempURL : nil
+    }
+
+    private func runMergePreparationFFmpeg(
+        at executablePath: String,
+        arguments: [String],
+        outputURL: URL,
+        itemID: UUID,
+        batchID: UUID,
+        context: String
+    ) async -> Bool {
+        guard isMergePreparationActive(batchID) else { return false }
+        let operationID = UUID()
+        let task = Task {
+            await mergePreparationSubprocess.runFFmpeg(
+                at: executablePath,
+                arguments: arguments,
+                outputURL: outputURL,
+                context: context
+            )
+        }
+        mergePreparationTask = (operationID, itemID, task)
+        let succeeded = await task.value
+        if mergePreparationTask?.id == operationID {
+            mergePreparationTask = nil
+        }
+        guard isMergePreparationActive(batchID) else {
+            try? FileManager.default.removeItem(at: outputURL)
+            return false
+        }
+        return succeeded
+    }
+
+    private func cancelMergePreparation() {
+        mergePreparationTask?.task.cancel()
+        mergePreparationTask = nil
+    }
+
+    private func cancelMergePreparation(for itemID: UUID) {
+        if let scope = mergePreparationScope, scope.itemIDs.contains(itemID) {
+            invalidatedMergePreparationBatchIDs.insert(scope.batchID)
+            cancelMergePreparation()
+        } else if mergePreparationTask?.itemID == itemID {
+            cancelMergePreparation()
         }
     }
 
-    private func runFFmpeg(at executablePath: String, arguments: [String], context: String) async -> Bool {
-        let logger = mergeLogger
-        return await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: executablePath)
-            process.arguments = arguments
-            process.standardOutput = Pipe()
-            let errorPipe = Pipe()
-            process.standardError = errorPipe
+    private func isMergePreparationActive(_ batchID: UUID) -> Bool {
+        isBatchActive(batchID) && !invalidatedMergePreparationBatchIDs.contains(batchID)
+    }
 
-            process.terminationHandler = { process in
-                let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                if process.terminationStatus != 0 {
-                    let stderr = String(data: data, encoding: .utf8) ?? "(unable to decode ffmpeg stderr)"
-                    logger.error("FFmpeg \(context, privacy: .public) failed with code \(process.terminationStatus). \(stderr, privacy: .public)")
-                }
-                continuation.resume(returning: process.terminationStatus == 0)
-            }
+    private func beginMergePreparation(batchID: UUID, items: [VideoItem]) {
+        invalidatedMergePreparationBatchIDs.remove(batchID)
+        mergePreparationScope = (batchID, Set(items.filter { $0.status == .waiting }.map(\.id)))
+    }
 
-            do {
-                try process.run()
-            } catch {
-                logger.error("Failed to launch FFmpeg \(context, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                continuation.resume(returning: false)
-            }
+    private func finishMergePreparation(batchID: UUID) {
+        if mergePreparationScope?.batchID == batchID {
+            mergePreparationScope = nil
         }
+        invalidatedMergePreparationBatchIDs.remove(batchID)
     }
 
     private func cleanupTemporaryFiles(_ urls: [URL]) {
@@ -704,7 +815,8 @@ actor ConversionManager: Sendable {
     /// Re-encodes a single clip to match the conformance target format.
     private func prepareConformedClip(
         for item: VideoItem,
-        target: ConformanceTarget
+        target: ConformanceTarget,
+        batchID: UUID
     ) async -> URL? {
         guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
             mergeLogger.error("FFmpeg binary not found while preparing conformed clip for \(item.name, privacy: .public)")
@@ -723,7 +835,14 @@ actor ConversionManager: Sendable {
         )
 
         mergeLogger.info("Conforming \(item.name, privacy: .public) to \(target.formatSummary, privacy: .public)")
-        let success = await runFFmpeg(at: ffmpegPath, arguments: arguments, context: "conform \(item.name)")
+        let success = await runMergePreparationFFmpeg(
+            at: ffmpegPath,
+            arguments: arguments,
+            outputURL: tempURL,
+            itemID: item.id,
+            batchID: batchID,
+            context: "conform \(item.name)"
+        )
         if success {
             return tempURL
         } else {
@@ -738,6 +857,7 @@ actor ConversionManager: Sendable {
         durationLookup: [UUID: Double],
         target: ConformanceTarget,
         metadata: [UUID: VideoMetadata],
+        batchID: UUID,
         statusUpdate: @MainActor @Sendable (String) -> Void
     ) async -> ([MergeSegment], [URL], Double?)? {
         var segments: [MergeSegment] = []
@@ -745,7 +865,10 @@ actor ConversionManager: Sendable {
         var totalDuration: Double = 0
 
         for (index, item) in items.enumerated() {
-            if Task.isCancelled { return nil }
+            guard !Task.isCancelled, isMergePreparationActive(batchID) else {
+                cleanupTemporaryFiles(temporaryFiles)
+                return nil
+            }
 
             let segmentDuration = durationLookup[item.id] ?? item.durationSeconds
             totalDuration += segmentDuration
@@ -762,7 +885,11 @@ actor ConversionManager: Sendable {
             if needsConformance {
                 // Re-encode to match reference (trim applied in same pass)
                 await statusUpdate("Conforming clip \(index + 1) of \(items.count): \(item.name)")
-                guard let conformedURL = await prepareConformedClip(for: item, target: target) else {
+                guard let conformedURL = await prepareConformedClip(
+                    for: item,
+                    target: target,
+                    batchID: batchID
+                ) else {
                     cleanupTemporaryFiles(temporaryFiles)
                     return nil
                 }
@@ -774,7 +901,7 @@ actor ConversionManager: Sendable {
                 temporaryFiles.append(conformedURL)
             } else if hasActiveTrim(item) {
                 // Already matches but needs trim — stream copy trim
-                guard let trimmedURL = await prepareTrimmedClip(for: item) else {
+                guard let trimmedURL = await prepareTrimmedClip(for: item, batchID: batchID) else {
                     cleanupTemporaryFiles(temporaryFiles)
                     return nil
                 }
@@ -804,8 +931,10 @@ actor ConversionManager: Sendable {
         referenceItemID: UUID,
         outputFolder: String,
         groupName: String? = nil,
+        batchID: UUID,
         statusUpdate: @MainActor @Sendable (String) -> Void
     ) async -> MergePlan? {
+        guard isMergePreparationActive(batchID) else { return nil }
         let waitingItems = items.filter { $0.status == .waiting }
         guard waitingItems.count >= 2 else { return nil }
 
@@ -850,6 +979,7 @@ actor ConversionManager: Sendable {
             durationLookup: durationLookup,
             target: target,
             metadata: metadata,
+            batchID: batchID,
             statusUpdate: statusUpdate
         ) else {
             return nil
@@ -1534,6 +1664,9 @@ actor ConversionManager: Sendable {
         let batchID = UUID()
         activeBatchID = batchID
         self.isConverting = true
+        self.currentDroppedFiles = items
+        self.currentOutputFolder = outputFolder
+        self.currentPreset = preset
 
         // Apply group-level settings to individual items
         if transcriptionEnabled || uploadEnabled || analyticsEnabled {
@@ -1560,26 +1693,49 @@ actor ConversionManager: Sendable {
            let meta = conformanceMetadata,
            items.wrappedValue.filter({ $0.status == .waiting }).count >= 2 {
             // Two-pass conformance merge: re-encode mismatched clips, then stream-copy concat
-            self.mergePlan = await buildConformanceMergePlan(
+            beginMergePreparation(batchID: batchID, items: items.wrappedValue)
+            let preparedPlan = await buildConformanceMergePlan(
                 from: items.wrappedValue,
                 metadata: meta,
                 referenceItemID: refID,
                 outputFolder: outputFolder,
                 groupName: groupName,
+                batchID: batchID,
                 statusUpdate: { message in
                     // Could update UI status here in future
                     self.mergeLogger.info("\(message, privacy: .public)")
                 }
             )
+            let preparationIsActive = isMergePreparationActive(batchID)
+            finishMergePreparation(batchID: batchID)
+            if preparationIsActive {
+                self.mergePlan = preparedPlan
+            } else {
+                if let preparedPlan { cleanupMergeArtifacts(for: preparedPlan) }
+                guard isBatchActive(batchID) else { return }
+                self.mergePlan = nil
+            }
         } else if concatEnabled && items.wrappedValue.filter({ $0.status == .waiting }).count >= 2 {
-            self.mergePlan = await buildMergePlan(from: items.wrappedValue, preset: preset, outputFolder: outputFolder, groupName: groupName)
+            beginMergePreparation(batchID: batchID, items: items.wrappedValue)
+            let preparedPlan = await buildMergePlan(
+                from: items.wrappedValue,
+                preset: preset,
+                outputFolder: outputFolder,
+                groupName: groupName,
+                batchID: batchID
+            )
+            let preparationIsActive = isMergePreparationActive(batchID)
+            finishMergePreparation(batchID: batchID)
+            if preparationIsActive {
+                self.mergePlan = preparedPlan
+            } else {
+                if let preparedPlan { cleanupMergeArtifacts(for: preparedPlan) }
+                guard isBatchActive(batchID) else { return }
+                self.mergePlan = nil
+            }
         } else {
             self.mergePlan = nil
         }
-
-        self.currentDroppedFiles = items
-        self.currentOutputFolder = outputFolder
-        self.currentPreset = preset
 
         startProgressTimer(droppedFiles: items)
         guard isBatchActive(batchID) else { return }
@@ -1615,7 +1771,22 @@ actor ConversionManager: Sendable {
         self.currentOutputFolder = outputFolder
         self.currentPreset = preset
         if mergeClipsEnabled {
-            self.mergePlan = await buildMergePlan(from: droppedFiles.wrappedValue, preset: preset, outputFolder: outputFolder)
+            beginMergePreparation(batchID: batchID, items: droppedFiles.wrappedValue)
+            let preparedPlan = await buildMergePlan(
+                from: droppedFiles.wrappedValue,
+                preset: preset,
+                outputFolder: outputFolder,
+                batchID: batchID
+            )
+            let preparationIsActive = isMergePreparationActive(batchID)
+            finishMergePreparation(batchID: batchID)
+            if preparationIsActive {
+                self.mergePlan = preparedPlan
+            } else {
+                if let preparedPlan { cleanupMergeArtifacts(for: preparedPlan) }
+                guard isBatchActive(batchID) else { return }
+                self.mergePlan = nil
+            }
         } else {
             self.mergePlan = nil
         }
@@ -2069,6 +2240,7 @@ actor ConversionManager: Sendable {
         let cancelledBatchID = activeBatchID
         self.isConverting = false
         self.activeBatchID = nil
+        cancelMergePreparation()
         await ffmpegConverter.cancelConversion()
         currentProcess = nil
 
@@ -2101,6 +2273,11 @@ actor ConversionManager: Sendable {
 
     /// Cancels a single video item without aborting the entire queue
     func cancelItem(with id: UUID) async {
+        cancelMergePreparation(for: id)
+        if let plan = mergePlan, !plan.hasExecuted, plan.itemIDs.contains(id) {
+            cleanupMergeArtifacts(for: plan)
+            mergePlan = nil
+        }
         guard let droppedFiles = currentDroppedFiles else { return }
         
         // If the item is currently converting
@@ -2135,6 +2312,7 @@ actor ConversionManager: Sendable {
         let cancelledBatchID = activeBatchID
         self.isConverting = false
         self.activeBatchID = nil
+        cancelMergePreparation()
         await ffmpegConverter.cancelConversion()
 
         // Clean up merge temp files if a merge was in progress
