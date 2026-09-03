@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 184 tests pass. The
+- The unit-test baseline is green: 187 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 184 unit tests. The UI test target now has deterministic smoke
+- There are only 187 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -561,6 +561,16 @@ shared result is lock-protected so a late completion cannot race the caller afte
 deadline. Deterministic tests cover successful delivery and a stalled async probe
 returning promptly; migrating image-sequence detection async end-to-end and the wider
 wait/cancellation audit remain open.
+
+Virtual-display configuration now has a real ten-second deadline around the blocking
+WindowServer `applySettings` call. The former task-group race still implicitly joined
+the non-cooperative blocking child after its timeout won, so a stalled WindowServer
+could keep creation suspended indefinitely. An exactly-once, lock-protected
+continuation now returns on operation completion, timeout, or parent cancellation
+without waiting for the losing blocking call; the background closure retains its
+private display objects until any late completion. Deterministic tests cover immediate
+success, prompt timeout, and a late result being ignored without double-resuming the
+caller.
 
 ### 2.3 Standardize user-visible errors
 

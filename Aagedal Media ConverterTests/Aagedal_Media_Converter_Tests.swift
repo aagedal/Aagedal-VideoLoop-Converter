@@ -791,6 +791,62 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testBlockingOperationDeadlineReturnsImmediateOperationResult() async {
+        let result = await BlockingOperationDeadline.run(
+            timeout: .seconds(1),
+            timeoutResult: false
+        ) {
+            true
+        }
+
+        XCTAssertTrue(result)
+    }
+
+    func testBlockingOperationDeadlineReturnsPromptlyWhenOperationStalls() async {
+        let releaseOperation = DispatchSemaphore(value: 0)
+        defer { releaseOperation.signal() }
+        let start = ContinuousClock.now
+
+        let result = await BlockingOperationDeadline.run(
+            timeout: .milliseconds(50),
+            timeoutResult: false
+        ) {
+            releaseOperation.wait()
+            return true
+        }
+
+        XCTAssertFalse(result)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testBlockingOperationDeadlineIgnoresCompletionAfterTimeout() async {
+        let operationStarted = DispatchSemaphore(value: 0)
+        let releaseOperation = DispatchSemaphore(value: 0)
+        let operationFinished = DispatchSemaphore(value: 0)
+        defer { releaseOperation.signal() }
+
+        let task = Task {
+            await BlockingOperationDeadline.run(
+                timeout: .milliseconds(50),
+                timeoutResult: false
+            ) {
+                operationStarted.signal()
+                releaseOperation.wait()
+                operationFinished.signal()
+                return true
+            }
+        }
+
+        XCTAssertEqual(operationStarted.wait(timeout: .now() + 1), .success)
+        let result = await task.value
+        XCTAssertFalse(result)
+
+        releaseOperation.signal()
+        XCTAssertEqual(operationFinished.wait(timeout: .now() + 1), .success)
+        try? await Task.sleep(for: .milliseconds(20))
+        XCTAssertFalse(result)
+    }
+
     func testYTDLPVersionProbeUsesBoundedRunnerAndParsesToolVersions() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("YTDLPVersionProbe-\(UUID().uuidString)")
