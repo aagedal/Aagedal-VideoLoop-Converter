@@ -1,6 +1,6 @@
 # Aagedal Media Converter Improvement Plan
 
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-04
 
 This is the prioritized improvement roadmap. `TODO.md` remains a small historical
 feature checklist; new improvement work should be tracked here with an owner or
@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 213 tests pass. The
+- The unit-test baseline is green: 217 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,15 +23,15 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 213 unit tests. The UI test target now has deterministic smoke
+- There are 217 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 15 direct `Process` construction sites outside the
-  shared runner, DEBUG-only UI-test fixture, and UI-test target. Ten are active
+- External tools still have 14 direct `Process` construction sites outside the
+  shared runner, DEBUG-only UI-test fixture, and UI-test target. Nine are active
   launches; five are configuration-only shims that already hand execution to the
   shared runner. The remaining launch paths do not yet share one cancellation,
   timeout, pipe-draining, and error-reporting layer.
@@ -608,8 +608,18 @@ poller remains active only for the lifetime of its runner task. Focused fake-run
 tests cover request policy, combined stdout/stderr diagnostics, nonzero exits,
 timeouts, cancellation propagation, redaction, missing and empty output, and cleanup.
 
+AVC-Intra audio-only preprocessing now uses the shared runner instead of blocking
+the converter actor in `waitUntilExit` while leaving its stdout and stderr pipes
+undrained. The pre-pass has a twelve-hour safety deadline, bounded diagnostics,
+private-path redaction, process-tree cancellation, nonempty-output validation, and
+partial-output cleanup. Conversion- and task-level ownership stops a cancelled or
+superseded pre-pass and rejects late output; cancellation is distinct from an ordinary
+preprocessing failure so it cannot fall back into a new main conversion. Focused
+fake-runner tests cover request policy, success, redacted nonzero failure, timeout,
+missing and empty output, cancellation propagation, and cleanup.
+
 Remaining native-waveform streaming encoder, AV2 pipe, and specialty helper call
-sites are still open. The refreshed audit counts 10 direct production launches plus
+sites are still open. The refreshed audit counts nine direct production launches plus
 five configuration-only `Process` shims.
 native-waveform streaming and AV2 pipelines should wait for
 incremental stdin and coordinated multi-process support.
@@ -644,6 +654,13 @@ without waiting for the losing blocking call; the background closure retains its
 private display objects until any late completion. Deterministic tests cover immediate
 success, prompt timeout, and a late result being ignored without double-resuming the
 caller.
+
+The AVC-Intra audio-only pre-pass no longer blocks the converter actor with an
+unbounded `waitUntilExit`; its subprocess migration, deadline, concurrent pipe
+draining, and tracked cancellation are described in 2.1. The remaining production
+`waitUntilExit` is the optional image-sequence WAV sidecar extraction. The other two
+synchronous bridges are bounded compatibility shims: the five-second media-duration
+probe above and a two-second app-termination wait for preview cleanup.
 
 ### 2.3 Standardize user-visible errors
 

@@ -115,6 +115,8 @@ actor FFMPEGConverter {
     private var currentPackageAudioTaskID: UUID?
     private var currentPackageWrapperTask: Task<PackageWrapperResult, Never>?
     private var currentPackageWrapperTaskID: UUID?
+    private var currentAVCIntraPreprocessingTask: Task<AVCIntraAudioPreprocessingResult, Never>?
+    private var currentAVCIntraPreprocessingTaskID: UUID?
     private var currentProgressGate: ConversionProgressGate?
     private var activeConversionID: UUID?
     private var postProcessingConversionID: UUID?
@@ -137,10 +139,18 @@ actor FFMPEGConverter {
     static let packageAudioDiagnosticCaptureLimit = 256 * 1024
     static let packageWrapperTimeout: Duration = .seconds(12 * 60 * 60)
     static let packageWrapperDiagnosticCaptureLimit = 256 * 1024
+    static let avcIntraAudioPreprocessingTimeout: Duration = .seconds(12 * 60 * 60)
+    static let avcIntraAudioPreprocessingDiagnosticCaptureLimit = 256 * 1024
 
     enum PackageWrapperResult: Sendable {
         case success(diagnostic: String)
         case failed(status: Int32?, reason: String, diagnostic: String)
+        case cancelled
+    }
+
+    enum AVCIntraAudioPreprocessingResult: Sendable {
+        case success(URL)
+        case failed(reason: String)
         case cancelled
     }
 
@@ -421,6 +431,9 @@ actor FFMPEGConverter {
         currentPackageWrapperTask?.cancel()
         currentPackageWrapperTask = nil
         currentPackageWrapperTaskID = nil
+        currentAVCIntraPreprocessingTask?.cancel()
+        currentAVCIntraPreprocessingTask = nil
+        currentAVCIntraPreprocessingTaskID = nil
         let supersededBMXOperationID = activeBMXOperationID
         activeConversionID = nil
         postProcessingConversionID = nil
@@ -612,19 +625,25 @@ actor FFMPEGConverter {
         if needsAudioPreProcessing(preset: preset, waveformRequest: request.waveformRequest, synthesizedVideoRequest: request.synthesizedVideoRequest) {
             Self.logger.info("Audio-only file with AVC-Intra preset detected, running audio pre-processing pass")
 
-            if let preProcessedURL = await preProcessAudioForAVCIntra(
+            let preprocessingResult = await preProcessAudioForAVCIntra(
                 inputURL: inputURL,
                 ffmpegPath: ffmpegPath,
                 trimStart: request.trimStart,
-                trimEnd: request.trimEnd
-            ) {
+                trimEnd: request.trimEnd,
+                conversionID: conversionID
+            )
+            switch preprocessingResult {
+            case .success(let preProcessedURL):
                 tempAudioURL = preProcessedURL
                 effectiveInputURL = preProcessedURL
                 // Use the pre-processed file as input
                 effectiveCustomInputArguments = ["-i", preProcessedURL.path]
                 Self.logger.info("Audio pre-processing complete: \(preProcessedURL.lastPathComponent)")
-            } else {
-                Self.logger.error("Audio pre-processing failed, falling back to standard conversion")
+            case .failed(let reason):
+                Self.logger.error("Audio pre-processing failed: \(reason, privacy: .public); falling back to standard conversion")
+            case .cancelled:
+                finish(false, "Conversion cancelled")
+                return
             }
         }
 
@@ -3502,6 +3521,9 @@ actor FFMPEGConverter {
         currentPackageWrapperTask?.cancel()
         currentPackageWrapperTask = nil
         currentPackageWrapperTaskID = nil
+        currentAVCIntraPreprocessingTask?.cancel()
+        currentAVCIntraPreprocessingTask = nil
+        currentAVCIntraPreprocessingTaskID = nil
         if let bmxOperationID {
             await BMXService.shared.cancel(operationID: bmxOperationID)
             _ = await BMXService.shared.finishCancellationTracking(operationID: bmxOperationID)
@@ -3529,6 +3551,8 @@ actor FFMPEGConverter {
         currentWaveformAnalysisID = nil
         currentWaveformFrameWriterTask?.cancel()
         currentWaveformFrameWriterTask = nil
+        currentAVCIntraPreprocessingTask = nil
+        currentAVCIntraPreprocessingTaskID = nil
         currentProcess = nil
         auxProcess = nil
         return true
@@ -3554,6 +3578,8 @@ actor FFMPEGConverter {
         currentWaveformAnalysisID = nil
         currentWaveformFrameWriterTask?.cancel()
         currentWaveformFrameWriterTask = nil
+        currentAVCIntraPreprocessingTask = nil
+        currentAVCIntraPreprocessingTaskID = nil
         currentProcess = nil
         auxProcess = nil
         return true
@@ -3777,6 +3803,74 @@ actor FFMPEGConverter {
 
     // MARK: - Audio Pre-Processing for AVC-Intra
 
+    static func runAVCIntraAudioPreprocessing(
+        executablePath: String,
+        arguments: [String],
+        outputURL: URL,
+        subprocessRunner: any SubprocessRunning = SubprocessRunner()
+    ) async -> AVCIntraAudioPreprocessingResult {
+        let sensitiveValues = Set(
+            arguments.filter { $0.hasPrefix("/") } + [executablePath, outputURL.path]
+        )
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: executablePath),
+            arguments: arguments,
+            timeout: avcIntraAudioPreprocessingTimeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: avcIntraAudioPreprocessingDiagnosticCaptureLimit,
+            sensitiveValues: sensitiveValues
+        )
+
+        func cleanupPartialOutput() {
+            guard FileManager.default.fileExists(atPath: outputURL.path) else { return }
+            cleanupTempFile(at: outputURL, label: "partial AVC-Intra pre-processed audio")
+        }
+
+        func diagnostic(for result: SubprocessResult) -> String {
+            request.redactedDiagnostic(result.standardErrorText)
+        }
+
+        func failureReason(_ base: String, diagnostic: String = "") -> String {
+            let trimmed = diagnostic.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? base : "\(base): \(trimmed)"
+        }
+
+        do {
+            let result = try await subprocessRunner.run(request)
+            let output = diagnostic(for: result)
+            guard result.succeeded else {
+                cleanupPartialOutput()
+                return .failed(
+                    reason: failureReason(
+                        "FFmpeg audio pre-processing exited with status \(result.terminationStatus)",
+                        diagnostic: output
+                    )
+                )
+            }
+            if let validationError = validateOutputFile(at: outputURL) {
+                cleanupPartialOutput()
+                return .failed(reason: request.redactedDiagnostic(validationError))
+            }
+            return .success(outputURL)
+        } catch is CancellationError {
+            cleanupPartialOutput()
+            return .cancelled
+        } catch SubprocessRunnerError.timedOut(_, let result) {
+            let output = diagnostic(for: result)
+            cleanupPartialOutput()
+            return .failed(
+                reason: failureReason(
+                    "FFmpeg audio pre-processing timed out after 12 hours",
+                    diagnostic: output
+                )
+            )
+        } catch {
+            cleanupPartialOutput()
+            let output = request.redactedDiagnostic(error.localizedDescription)
+            return .failed(reason: failureReason("Failed to start FFmpeg audio pre-processing", diagnostic: output))
+        }
+    }
+
     /// Checks if audio pre-processing is needed for AVC-Intra with audio-only files.
     /// This is required because the waveform/synthesized video pipeline's filter_complex
     /// conflicts with AVC-Intra's mono channel splitting filter_complex.
@@ -3797,8 +3891,9 @@ actor FFMPEGConverter {
         inputURL: URL,
         ffmpegPath: String,
         trimStart: Double?,
-        trimEnd: Double?
-    ) async -> URL? {
+        trimEnd: Double?,
+        conversionID: UUID
+    ) async -> AVCIntraAudioPreprocessingResult {
         // Get target channel count from settings
         let audioChannelsRaw = UserDefaults.standard.string(forKey: AppConstants.avcIntraAudioChannelsKey)
             ?? AppConstants.defaultAVCIntraAudioChannels
@@ -3811,10 +3906,11 @@ actor FFMPEGConverter {
 
         // Get audio stream info
         let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL) ?? []
+        guard activeConversionID == conversionID else { return .cancelled }
         let decodableStreams = audioStreams.filter { $0.isDecodable }
 
         // Build FFmpeg command for audio pre-processing
-        var args: [String] = ["-y"]
+        var args: [String] = ["-y", "-nostdin"]
 
         // Add trim if specified
         if let start = trimStart, start > 0 {
@@ -3941,45 +4037,37 @@ actor FFMPEGConverter {
         args.append(contentsOf: ["-c:a", "pcm_s24le"])
         args.append(tempURL.path)
 
-        Self.logger.debug("Audio pre-processing command: ffmpeg \(args.joined(separator: " "))")
-
-        // Run the pre-processing
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = args
-
-        let errorPipe = Pipe()
-        let stdoutPipe = Pipe()
-        process.standardError = errorPipe
-        process.standardOutput = stdoutPipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-
-            try? stdoutPipe.fileHandleForReading.close()
-            if process.terminationStatus == 0 {
-                try? errorPipe.fileHandleForReading.close()
-                Self.logger.info("Audio pre-processing succeeded: \(targetChannelCount) mono channels created")
-                return tempURL
-            } else {
-                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                try? errorPipe.fileHandleForReading.close()
-                let errorString = String(data: errorData, encoding: .utf8) ?? "(unknown error)"
-                Self.logger.error("Audio pre-processing failed with code \(process.terminationStatus): \(errorString)")
-                if FileManager.default.fileExists(atPath: tempURL.path) {
-                    Self.cleanupTempFile(at: tempURL, label: "AVC-Intra pre-processed audio (failed)")
-                }
-                return nil
-            }
-        } catch {
-            try? stdoutPipe.fileHandleForReading.close()
-            try? errorPipe.fileHandleForReading.close()
-            Self.logger.error("Failed to run audio pre-processing: \(error.localizedDescription)")
-            if FileManager.default.fileExists(atPath: tempURL.path) {
-                Self.cleanupTempFile(at: tempURL, label: "AVC-Intra pre-processed audio (failed)")
-            }
-            return nil
+        let taskID = UUID()
+        let runner = subprocessRunner
+        let task = Task {
+            await Self.runAVCIntraAudioPreprocessing(
+                executablePath: ffmpegPath,
+                arguments: args,
+                outputURL: tempURL,
+                subprocessRunner: runner
+            )
         }
+        currentAVCIntraPreprocessingTask?.cancel()
+        currentAVCIntraPreprocessingTask = task
+        currentAVCIntraPreprocessingTaskID = taskID
+
+        let result = await task.value
+        if currentAVCIntraPreprocessingTaskID == taskID {
+            currentAVCIntraPreprocessingTask = nil
+            currentAVCIntraPreprocessingTaskID = nil
+        }
+
+        guard activeConversionID == conversionID else {
+            if case .success = result,
+               FileManager.default.fileExists(atPath: tempURL.path) {
+                Self.cleanupTempFile(at: tempURL, label: "cancelled AVC-Intra audio pre-processing")
+            }
+            return .cancelled
+        }
+
+        if case .success = result {
+            Self.logger.info("Audio pre-processing succeeded: \(targetChannelCount) mono channels created")
+        }
+        return result
     }
 }

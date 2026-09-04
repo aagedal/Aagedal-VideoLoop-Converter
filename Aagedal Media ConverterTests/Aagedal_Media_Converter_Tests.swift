@@ -6301,6 +6301,181 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testAVCIntraAudioPreprocessingUsesBoundedRedactedRunnerAndValidatesOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("private AVC-Intra preprocessing \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private source.wav")
+        let outputURL = temporaryDirectory.appendingPathComponent("private channels.mka")
+        let executablePath = "/private/tools/ffmpeg"
+        let arguments = ["-y", "-nostdin", "-i", inputURL.path, "-c:a", "pcm_s24le", outputURL.path]
+        let runner = RecordingSubprocessRunner { _, _ in
+            try Data("preprocessed audio".utf8).write(to: outputURL)
+            return successfulSubprocessResult()
+        }
+
+        let result = await FFMPEGConverter.runAVCIntraAudioPreprocessing(
+            executablePath: executablePath,
+            arguments: arguments,
+            outputURL: outputURL,
+            subprocessRunner: runner
+        )
+
+        guard case .success(let producedURL) = result else {
+            return XCTFail("Expected fake preprocessing output to be accepted")
+        }
+        XCTAssertEqual(producedURL, outputURL)
+        XCTAssertEqual(try Data(contentsOf: producedURL), Data("preprocessed audio".utf8))
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, executablePath)
+        XCTAssertEqual(request.arguments, arguments)
+        XCTAssertEqual(request.timeout, FFMPEGConverter.avcIntraAudioPreprocessingTimeout)
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(
+            request.standardErrorCaptureLimit,
+            FFMPEGConverter.avcIntraAudioPreprocessingDiagnosticCaptureLimit
+        )
+        XCTAssertFalse(request.redactedCommandDescription.contains(executablePath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(outputURL.path))
+    }
+
+    func testAVCIntraAudioPreprocessingRedactsFailureAndRemovesPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("failed AVC-Intra preprocessing \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private source.wav")
+        let outputURL = temporaryDirectory.appendingPathComponent("partial.mka")
+        let runner = RecordingSubprocessRunner { _, _ in
+            try Data("partial".utf8).write(to: outputURL)
+            return successfulSubprocessResult(
+                standardError: "cannot read \(inputURL.path) or write \(outputURL.path)",
+                terminationStatus: 7
+            )
+        }
+
+        let result = await FFMPEGConverter.runAVCIntraAudioPreprocessing(
+            executablePath: "/private/tools/ffmpeg",
+            arguments: ["-i", inputURL.path, outputURL.path],
+            outputURL: outputURL,
+            subprocessRunner: runner
+        )
+
+        guard case .failed(let reason) = result else {
+            return XCTFail("Expected nonzero FFmpeg exit to fail")
+        }
+        XCTAssertTrue(reason.contains("status 7"))
+        XCTAssertTrue(reason.contains("<redacted>"))
+        XCTAssertFalse(reason.contains(inputURL.path))
+        XCTAssertFalse(reason.contains(outputURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    func testAVCIntraAudioPreprocessingMapsTimeoutAndInvalidOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AVC-Intra preprocessing failures \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let outputURL = temporaryDirectory.appendingPathComponent("channels.mka")
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            try Data("partial".utf8).write(to: outputURL)
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(
+                    standardError: "stalled at \(outputURL.path)",
+                    terminationStatus: SIGKILL
+                )
+            )
+        }
+        let timeoutResult = await FFMPEGConverter.runAVCIntraAudioPreprocessing(
+            executablePath: "/private/tools/ffmpeg",
+            arguments: [outputURL.path],
+            outputURL: outputURL,
+            subprocessRunner: timeoutRunner
+        )
+        guard case .failed(let timeoutReason) = timeoutResult else {
+            return XCTFail("Expected timeout to fail")
+        }
+        XCTAssertTrue(timeoutReason.contains("timed out after 12 hours"))
+        XCTAssertTrue(timeoutReason.contains("<redacted>"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let missingOutputResult = await FFMPEGConverter.runAVCIntraAudioPreprocessing(
+            executablePath: "/private/tools/ffmpeg",
+            arguments: [outputURL.path],
+            outputURL: outputURL,
+            subprocessRunner: RecordingSubprocessRunner { _, _ in successfulSubprocessResult() }
+        )
+        guard case .failed(let missingReason) = missingOutputResult else {
+            return XCTFail("Expected missing output to fail validation")
+        }
+        XCTAssertEqual(missingReason, "Output file was not created")
+
+        try Data().write(to: outputURL)
+        let emptyOutputResult = await FFMPEGConverter.runAVCIntraAudioPreprocessing(
+            executablePath: "/private/tools/ffmpeg",
+            arguments: [outputURL.path],
+            outputURL: outputURL,
+            subprocessRunner: RecordingSubprocessRunner { _, _ in successfulSubprocessResult() }
+        )
+        guard case .failed(let emptyReason) = emptyOutputResult else {
+            return XCTFail("Expected empty output to fail validation")
+        }
+        XCTAssertEqual(emptyReason, "Output file is empty (0 bytes)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let launchFailureResult = await FFMPEGConverter.runAVCIntraAudioPreprocessing(
+            executablePath: "/private/tools/ffmpeg",
+            arguments: [outputURL.path],
+            outputURL: outputURL,
+            subprocessRunner: RecordingSubprocessRunner { request, _ in
+                throw SubprocessRunnerError.failedToStart(
+                    command: request.redactedCommandDescription,
+                    underlying: "cannot launch for \(outputURL.path)"
+                )
+            }
+        )
+        guard case .failed(let launchReason) = launchFailureResult else {
+            return XCTFail("Expected launch failure to fail preprocessing")
+        }
+        XCTAssertTrue(launchReason.contains("Failed to start"))
+        XCTAssertTrue(launchReason.contains("<redacted>"))
+        XCTAssertFalse(launchReason.contains(outputURL.path))
+    }
+
+    func testAVCIntraAudioPreprocessingCancellationCancelsRunnerAndRemovesPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cancelled AVC-Intra preprocessing \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let outputURL = temporaryDirectory.appendingPathComponent("partial.mka")
+        try Data("partial".utf8).write(to: outputURL)
+        let runner = CountingBlockingSubprocessRunner()
+        let task = Task {
+            await FFMPEGConverter.runAVCIntraAudioPreprocessing(
+                executablePath: "/private/tools/ffmpeg",
+                arguments: [outputURL.path],
+                outputURL: outputURL,
+                subprocessRunner: runner
+            )
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        task.cancel()
+        guard case .cancelled = await task.value else {
+            return XCTFail("Expected preprocessing cancellation")
+        }
+        XCTAssertEqual(runner.cancelledCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
     func testPackageAudioExtractionUsesBoundedRunnerAndValidatesOutput() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("private package audio \(UUID().uuidString)", isDirectory: true)
