@@ -34,6 +34,7 @@ actor AnalyticsService {
     private static let metricTimeout: Duration = .seconds(12 * 60 * 60)
     private static let frameExtractionTimeout: Duration = .seconds(10 * 60)
     private static let frameComparisonTimeout: Duration = .seconds(2 * 60)
+    private static let mediaInfoTimeout: Duration = .seconds(15)
     private static let diagnosticCaptureLimit = 256 * 1024
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "AnalyticsService")
@@ -41,6 +42,7 @@ actor AnalyticsService {
     private let ffmpegPathProvider: @Sendable () -> String?
     private let ssimulacra2PathProvider: @Sendable () -> String?
     private let mediaInfoProvider: any AnalyticsMediaInfoProviding
+    private let mediaInfoTimeout: Duration
     private let ssimulacra2MaxFramesOverride: Int?
     private var activeAnalysisID: UUID?
     private var currentMetricTask: Task<MetricResult, Error>?
@@ -50,12 +52,14 @@ actor AnalyticsService {
         ffmpegPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ffmpegPath },
         ssimulacra2PathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ssimulacra2Path },
         mediaInfoProvider: any AnalyticsMediaInfoProviding = DefaultAnalyticsMediaInfoProvider(),
+        mediaInfoTimeout: Duration = AnalyticsService.mediaInfoTimeout,
         ssimulacra2MaxFramesOverride: Int? = nil
     ) {
         self.subprocessRunner = subprocessRunner
         self.ffmpegPathProvider = ffmpegPathProvider
         self.ssimulacra2PathProvider = ssimulacra2PathProvider
         self.mediaInfoProvider = mediaInfoProvider
+        self.mediaInfoTimeout = mediaInfoTimeout
         self.ssimulacra2MaxFramesOverride = ssimulacra2MaxFramesOverride
     }
 
@@ -515,7 +519,24 @@ actor AnalyticsService {
 
     /// Gets video duration in seconds via SwiftMediaMetadata (AVFoundation fallback).
     private func getVideoDuration(for file: URL) async throws -> Double {
-        guard let duration = await mediaInfoProvider.duration(for: file), duration > 0 else {
+        let provider = mediaInfoProvider
+        let duration: Double?
+        do {
+            duration = try await NonJoiningTaskDeadline.run(timeout: mediaInfoTimeout) {
+                await provider.duration(for: file)
+            }
+        } catch is CancellationError {
+            throw AnalyticsError.cancelled
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            throw AnalyticsError.metricFailed(
+                .ssimulacra2,
+                "Media duration discovery exceeded the 15-second limit"
+            )
+        } catch {
+            throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video duration")
+        }
+
+        guard let duration, duration > 0 else {
             throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video duration")
         }
         return duration
@@ -523,7 +544,24 @@ actor AnalyticsService {
 
     /// Gets video resolution (width x height) via SwiftMediaMetadata.
     private func getVideoResolution(for file: URL) async throws -> (width: Int, height: Int) {
-        guard let resolution = await mediaInfoProvider.resolution(for: file) else {
+        let provider = mediaInfoProvider
+        let resolution: (width: Int, height: Int)?
+        do {
+            resolution = try await NonJoiningTaskDeadline.run(timeout: mediaInfoTimeout) {
+                await provider.resolution(for: file)
+            }
+        } catch is CancellationError {
+            throw AnalyticsError.cancelled
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            throw AnalyticsError.metricFailed(
+                .ssimulacra2,
+                "Media resolution discovery exceeded the 15-second limit"
+            )
+        } catch {
+            throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video resolution")
+        }
+
+        guard let resolution else {
             throw AnalyticsError.metricFailed(.ssimulacra2, "Could not determine video resolution")
         }
         return resolution

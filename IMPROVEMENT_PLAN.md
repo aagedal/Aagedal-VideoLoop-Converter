@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 249 tests pass. The
+- The unit-test baseline is green: 256 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 249 unit tests. The UI test target now has deterministic smoke
+- There are 256 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -653,8 +653,8 @@ incremental stdin and coordinated multi-process support.
 
 ### 2.2 Remove sync-over-async waits
 
-Status: in progress; image-sequence duration probing migrated async end-to-end
-2026-09-04.
+Status: in progress; image-sequence duration probing migrated async end-to-end,
+and preview/analytics media preflight bounded 2026-09-04.
 
 - Make image-sequence duration probing async end-to-end, or give the compatibility
   bridge a bounded timeout while callers are migrated.
@@ -732,8 +732,22 @@ terminal failure as ongoing metadata gathering.
 
 Preview asset generation now reuses one shared bounded metadata result for cached per-stream waveform
 discovery and new waveform rendering. A stalled parse can no longer pin the preview workflow at either
-read, and cancelling preview generation propagates instead of being erased by `try?`. The refreshed
-audit now finds ten remaining direct, unbounded consumers outside guarded entry points.
+read, and cancelling preview generation propagates instead of being erased by `try?`. That audit also
+identified direct, unbounded consumers in player audio discovery and conversion command builders;
+the subsequent slices below migrated those paths.
+
+Preview media preflight now resolves duration, video topology, rich metadata, and HDR classification
+through one bounded result shared by full asset and row-thumbnail generation. Unsupported and
+audio-only inputs use a separately bounded essential-info fallback, while a timed-out rich read is not
+immediately re-entered through the same parser. Parent cancellation remains distinct from unavailable
+duration, and audio thumbnails reuse the resolved duration instead of starting another probe. Focused
+tests cover rich-result reuse, the essential fallback, prompt non-joining timeout, and prompt parent
+cancellation.
+
+SSIMULACRA2 media preflight now applies a non-joining fifteen-second deadline to both duration and
+resolution discovery before launching frame tools. A stalled default or injected provider returns an
+actionable metric failure without being joined, while cancellation remains a distinct prompt outcome.
+Focused tests stall each provider independently and verify that no subprocess is launched afterward.
 
 Player audio ordering, AVPlayer track-option refresh, and on-demand channel-waveform discovery now
 use the same bounded probe. Refresh attempts are explicitly owned and superseded work cannot publish

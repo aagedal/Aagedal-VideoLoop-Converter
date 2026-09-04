@@ -92,12 +92,21 @@ enum PreviewAssetError: Error, LocalizedError {
     }
 }
 
+struct PreviewMediaFacts: Sendable {
+    let metadata: VideoMetadata?
+    let duration: Double
+    let hasVideoStream: Bool
+}
+
 actor PreviewAssetGenerator {
     static let shared = PreviewAssetGenerator()
 
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "PreviewAssets")
     private let fileManager = FileManager.default
     private let subprocessRunner: any SubprocessRunning
+    private let metadataTimeout: Duration
+    private let metadataProbe: @Sendable (URL) async throws -> VideoMetadata
+    private let essentialInfoProbe: @Sendable (URL) async throws -> EssentialVideoInfo
     private let thumbnailCount = 6
     private let waveformSize = "1000x90"
     private let rowThumbnailSize = "640:-1"  // 640px width for row thumbnail
@@ -131,8 +140,67 @@ actor PreviewAssetGenerator {
     /// Survives across trim view open/close cycles since PreviewAssetGenerator is a singleton actor
     private var channelWaveformCache: [URL: [Int: SendableChannelWaveform]] = [:]
 
-    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+    init(
+        subprocessRunner: any SubprocessRunning = SubprocessRunner(),
+        metadataTimeout: Duration = BoundedVideoMetadataProbe.defaultTimeout,
+        metadataProbe: @escaping @Sendable (URL) async throws -> VideoMetadata = {
+            try await VideoMetadataService.shared.metadata(for: $0)
+        },
+        essentialInfoProbe: @escaping @Sendable (URL) async throws -> EssentialVideoInfo = {
+            try await VideoMetadataService.shared.fetchEssentialInfo(for: $0)
+        }
+    ) {
         self.subprocessRunner = subprocessRunner
+        self.metadataTimeout = metadataTimeout
+        self.metadataProbe = metadataProbe
+        self.essentialInfoProbe = essentialInfoProbe
+    }
+
+    /// Resolves the media facts needed by both preview entry points without allowing a
+    /// non-cooperative parser to pin the preview actor. Video containers normally resolve
+    /// everything in one rich metadata read; unsupported/audio-only inputs use the bounded
+    /// essential-info fallback instead.
+    func resolveMediaFacts(for url: URL) async throws -> PreviewMediaFacts {
+        var resolvedMetadata: VideoMetadata?
+        do {
+            let metadata = try await BoundedVideoMetadataProbe.metadata(
+                for: url,
+                timeout: metadataTimeout,
+                probe: metadataProbe
+            )
+            resolvedMetadata = metadata
+            if let duration = metadata.duration, duration > 0 {
+                return PreviewMediaFacts(
+                    metadata: metadata,
+                    duration: duration,
+                    hasVideoStream: !metadata.videoStreams.isEmpty
+                )
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            // Do not immediately re-enter the same potentially stalled parser through the
+            // fallback. The caller can fail or fall back after this one deadline window.
+            throw NonJoiningTaskDeadlineError.timedOut
+        } catch {
+            // Unsupported containers and ordinary read failures may still have useful
+            // duration/topology information through the essential-info path.
+        }
+
+        let info = try await BoundedVideoMetadataProbe.essentialInfo(
+            for: url,
+            timeout: metadataTimeout,
+            probe: essentialInfoProbe
+        )
+        guard info.duration > 0 else {
+            throw PreviewAssetError.durationUnavailable
+        }
+        return PreviewMediaFacts(
+            metadata: resolvedMetadata,
+            duration: info.duration,
+            hasVideoStream: resolvedMetadata.map { !$0.videoStreams.isEmpty }
+                ?? info.hasVideoStream
+        )
     }
 
     /// Terminates all running FFmpeg/FFprobe processes
@@ -534,16 +602,18 @@ actor PreviewAssetGenerator {
         let waveformURL = assetDirectory.appendingPathComponent(waveformFilename, isDirectory: false)
         let legacyWaveformURL = assetDirectory.appendingPathComponent(legacyWaveformFilename, isDirectory: false)
 
-        let hasVideoStream = await hasVideoStream(for: url)
-        let metadata: VideoMetadata?
+        let mediaFacts: PreviewMediaFacts
         do {
-            metadata = try await BoundedVideoMetadataProbe.metadata(for: url)
+            mediaFacts = try await resolveMediaFacts(for: url)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            logger.warning("Metadata unavailable while preparing preview assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            metadata = nil
+            logger.warning("Media information unavailable while preparing preview assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            throw PreviewAssetError.durationUnavailable
         }
+        let metadata = mediaFacts.metadata
+        let hasVideoStream = mediaFacts.hasVideoStream
+        let duration = mediaFacts.duration
 
         let rowThumbnailMissing = !fileManager.fileExists(atPath: rowThumbnailURL.path)
         let missingThumbnailIndices: [Int] = hasVideoStream ? expectedThumbnailURLs.enumerated().compactMap { index, url in
@@ -606,12 +676,9 @@ actor PreviewAssetGenerator {
 
         logger.info("Row thumbnail missing: \(rowThumbnailMissing), filmstrip thumbnails missing: \(missingThumbnailIndices.count), waveform missing: \(waveformMissing)")
 
-        let duration = await determineDuration(for: url) ?? 0
-        if duration <= 0 {
-            throw PreviewAssetError.durationUnavailable
-        }
-
-        let hdrType: HDRType = hasVideoStream ? (await detectHDRRequirement(for: url)) : .none
+        let hdrType = hasVideoStream
+            ? detectHDRRequirement(from: metadata?.primaryVideoStream)
+            : .none
 
         if rowThumbnailMissing {
             if hasVideoStream {
@@ -626,6 +693,7 @@ actor PreviewAssetGenerator {
                 try await generateAudioRowThumbnail(
                     url: url,
                     ffmpegPath: ffmpegPath,
+                    duration: duration,
                     destination: rowThumbnailURL
                 )
             }
@@ -837,7 +905,16 @@ actor PreviewAssetGenerator {
             return try await generateAV2RowThumbnail(url: url, destination: rowThumbnailURL)
         }
 
-        let hasVideoStream = await hasVideoStream(for: url)
+        let mediaFacts: PreviewMediaFacts
+        do {
+            mediaFacts = try await resolveMediaFacts(for: url)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            logger.warning("Media information unavailable while generating a row thumbnail for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            throw PreviewAssetError.durationUnavailable
+        }
+        let hasVideoStream = mediaFacts.hasVideoStream
 
         if hasVideoStream {
             // Try AVFoundation first (in-process, fast for Apple-native formats)
@@ -853,11 +930,8 @@ actor PreviewAssetGenerator {
                 throw PreviewAssetError.ffmpegBinaryMissing
             }
 
-            guard let duration = await determineDuration(for: url) else {
-                throw PreviewAssetError.durationUnavailable
-            }
-
-            let hdrType = await detectHDRRequirement(for: url)
+            let duration = mediaFacts.duration
+            let hdrType = detectHDRRequirement(from: mediaFacts.metadata?.primaryVideoStream)
 
             try await generateRowThumbnail(
                 url: url,
@@ -875,6 +949,7 @@ actor PreviewAssetGenerator {
             try await generateAudioRowThumbnail(
                 url: url,
                 ffmpegPath: ffmpegPath,
+                duration: mediaFacts.duration,
                 destination: rowThumbnailURL
             )
         }
@@ -1022,6 +1097,7 @@ actor PreviewAssetGenerator {
     private func generateAudioRowThumbnail(
         url: URL,
         ffmpegPath: String,
+        duration: Double,
         destination: URL
     ) async throws {
         let prefs = AudioWaveformPreferences.loadConfig()
@@ -1031,10 +1107,6 @@ actor PreviewAssetGenerator {
 
         // Try native rendering first (fast)
         do {
-            guard let duration = await determineDuration(for: url), duration > 0 else {
-                throw PreviewAssetError.durationUnavailable
-            }
-
             let image = try await NativeWaveformRenderer.generateWaveform(
                 url: url,
                 ffmpegPath: ffmpegPath,
@@ -1115,13 +1187,6 @@ actor PreviewAssetGenerator {
         let fingerprintSource = "\(url.path)::\(size)::\(modification)"
         let digest = SHA256.hash(data: Data(fingerprintSource.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
-    }
-
-    private func determineDuration(for url: URL) async -> Double? {
-        if let cachedDuration = await VideoMetadataService.shared.cachedDuration(for: url), cachedDuration > 0 {
-            return cachedDuration
-        }
-        return await SwiftExifMediaProbe.duration(for: url)
     }
 
     private func generateThumbnails(
@@ -1586,20 +1651,18 @@ actor PreviewAssetGenerator {
         case hdr10Bit       // 10-bit+ HDR content (previously tonemapped; now handled without zscale)
     }
     
-    /// Detects HDR processing requirement (ProRes RAW, 10-bit+ without color metadata).
-    /// Reads the first video stream via SwiftExif and inspects codec + pixel format + colour info.
-    private func detectHDRRequirement(for url: URL) async -> HDRType {
-        guard SwiftExifMediaProbe.canReadVideo(url),
-              let meta = try? await SwiftExifMediaProbe.readVideo(url),
-              let stream = meta.videoStreams.first(where: { $0.isAttachedPic != true }) else {
+    /// Detects HDR processing requirement (ProRes RAW or content with explicit HDR colour metadata)
+    /// from the already-bounded preview metadata result.
+    private func detectHDRRequirement(from stream: VideoMetadata.VideoStream?) -> HDRType {
+        guard let stream else {
             return .none
         }
 
-        let codec = (stream.codec ?? stream.codecName ?? "").lowercased()
+        let codec = (stream.codec ?? stream.codecLongName ?? "").lowercased()
         let pixFmt = (stream.pixelFormat ?? "").lowercased()
-        let primaries = SwiftExifMediaProbe.primariesString(from: stream.colorInfo?.primaries) ?? ""
-        let matrix = SwiftExifMediaProbe.matrixString(from: stream.colorInfo?.matrix) ?? ""
-        let transfer = SwiftExifMediaProbe.transferString(from: stream.colorInfo?.transfer) ?? ""
+        let primaries = stream.colorPrimaries?.lowercased() ?? ""
+        let matrix = stream.colorSpace?.lowercased() ?? ""
+        let transfer = stream.colorTransfer?.lowercased() ?? ""
 
         if codec.contains("prores") {
             if pixFmt.contains("rgb") || pixFmt.contains("bayer") {
@@ -1753,14 +1816,6 @@ actor PreviewAssetGenerator {
 
     private func startAccessingSecurityScope(for url: URL) -> SecurityScopedAccess {
         return SecurityScopedBookmarkManager.shared.startAccessing(url: url)
-    }
-
-    private func hasVideoStream(for url: URL) async -> Bool {
-        // Use VideoMetadataService's fast hasVideoStream check which uses -read_intervals
-        // This is fast even for very large files (50+ GB) and results are cached
-        let hasVideo = await VideoMetadataService.shared.hasVideoStream(for: url)
-        logger.debug("hasVideoStream for \(url.lastPathComponent, privacy: .public): \(hasVideo)")
-        return hasVideo
     }
 
     private func makeAudioWaveformRequest(for url: URL) -> WaveformVideoRequest {

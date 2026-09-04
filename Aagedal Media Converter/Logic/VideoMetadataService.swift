@@ -27,6 +27,21 @@ enum BoundedVideoMetadataProbe {
         return metadata
     }
 
+    static func essentialInfo(
+        for url: URL,
+        timeout: Duration = defaultTimeout,
+        probe: @escaping @Sendable (URL) async throws -> EssentialVideoInfo = {
+            try await VideoMetadataService.shared.fetchEssentialInfo(for: $0)
+        }
+    ) async throws -> EssentialVideoInfo {
+        try Task.checkCancellation()
+        let info = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+            try await probe(url)
+        }
+        try Task.checkCancellation()
+        return info
+    }
+
     /// Probes independent files concurrently so a large batch is bounded by one probe
     /// deadline instead of accumulating that deadline once per file. Individual failures
     /// remain absent from the result, while parent cancellation is preserved.

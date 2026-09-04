@@ -2059,6 +2059,164 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertTrue(task.state == .canceling || task.state == .completed)
     }
 
+    func testPreviewMediaFactsReuseSuccessfulRichMetadataWithoutFallback() async throws {
+        let expectedMetadata = videoMetadata(timecode: nil, frameRate: 25)
+        let generator = PreviewAssetGenerator(
+            metadataProbe: { _ in expectedMetadata },
+            essentialInfoProbe: { _ in
+                XCTFail("Rich metadata should satisfy the preview preflight")
+                return EssentialVideoInfo(
+                    duration: 1,
+                    hasVideoStream: false,
+                    videoStreamCount: 0,
+                    hasAudioStream: true,
+                    primaryCodec: nil,
+                    width: nil,
+                    height: nil
+                )
+            }
+        )
+
+        let facts = try await generator.resolveMediaFacts(
+            for: URL(fileURLWithPath: "/private/preview.mov")
+        )
+
+        XCTAssertEqual(facts.metadata, expectedMetadata)
+        XCTAssertEqual(facts.duration, 60)
+        XCTAssertTrue(facts.hasVideoStream)
+    }
+
+    func testPreviewMediaFactsUseBoundedEssentialFallbackForUnsupportedMetadata() async throws {
+        let expectedInfo = EssentialVideoInfo(
+            duration: 12.5,
+            hasVideoStream: false,
+            videoStreamCount: 0,
+            hasAudioStream: true,
+            primaryCodec: nil,
+            width: nil,
+            height: nil
+        )
+        let generator = PreviewAssetGenerator(
+            metadataProbe: { _ in throw VideoMetadataError.unsupportedContainer },
+            essentialInfoProbe: { _ in expectedInfo }
+        )
+
+        let facts = try await generator.resolveMediaFacts(
+            for: URL(fileURLWithPath: "/private/preview.wav")
+        )
+
+        XCTAssertNil(facts.metadata)
+        XCTAssertEqual(facts.duration, expectedInfo.duration)
+        XCTAssertFalse(facts.hasVideoStream)
+    }
+
+    func testPreviewMediaFactsPreserveRichMetadataWhenEssentialFallbackSuppliesDuration() async throws {
+        let expectedMetadata = videoMetadata(timecode: nil, frameRate: 25, duration: nil)
+        let expectedInfo = EssentialVideoInfo(
+            duration: 8.25,
+            hasVideoStream: false,
+            videoStreamCount: 0,
+            hasAudioStream: false,
+            primaryCodec: nil,
+            width: nil,
+            height: nil
+        )
+        let generator = PreviewAssetGenerator(
+            metadataProbe: { _ in expectedMetadata },
+            essentialInfoProbe: { _ in expectedInfo }
+        )
+
+        let facts = try await generator.resolveMediaFacts(
+            for: URL(fileURLWithPath: "/private/preview-missing-duration.mov")
+        )
+
+        XCTAssertEqual(facts.metadata, expectedMetadata)
+        XCTAssertEqual(facts.duration, expectedInfo.duration)
+        XCTAssertTrue(facts.hasVideoStream)
+    }
+
+    func testPreviewMediaFactsDoNotReenterOrJoinTimedOutMetadataProbe() async {
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let generator = PreviewAssetGenerator(
+            metadataTimeout: .milliseconds(50),
+            metadataProbe: { _ in
+                try await withCheckedThrowingContinuation { continuation in
+                    probeStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseProbe.wait()
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            },
+            essentialInfoProbe: { _ in
+                XCTFail("A timed-out rich probe must not immediately re-enter the parser")
+                return EssentialVideoInfo(
+                    duration: 1,
+                    hasVideoStream: true,
+                    videoStreamCount: 1,
+                    hasAudioStream: false,
+                    primaryCodec: "h264",
+                    width: 640,
+                    height: 360
+                )
+            }
+        )
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await generator.resolveMediaFacts(
+                for: URL(fileURLWithPath: "/private/stalled-preview.mov")
+            )
+            XCTFail("Expected the preview metadata deadline to expire")
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            // Expected.
+        } catch {
+            XCTFail("Expected a deadline error, got \(error)")
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testPreviewMediaFactsCancellationReturnsPromptly() async {
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let generator = PreviewAssetGenerator(
+            metadataTimeout: .seconds(10),
+            metadataProbe: { _ in
+                try await withCheckedThrowingContinuation { continuation in
+                    probeStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseProbe.wait()
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            }
+        )
+        let task = Task {
+            try await generator.resolveMediaFacts(
+                for: URL(fileURLWithPath: "/private/cancelled-preview.mov")
+            )
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        let start = ContinuousClock.now
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected preview media discovery cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
     func testPreviewAssetGeneratorUsesSharedRunnerWithBoundedRedactedPolicy() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PreviewRunnerPolicy-\(UUID().uuidString)")
@@ -2754,6 +2912,110 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(requests[2].timeout, .seconds(2 * 60))
         XCTAssertEqual(requests[2].standardOutputCaptureLimit, 4 * 1024)
         XCTAssertFalse(requests[2].redactedCommandDescription.contains(ssimulacra2Path))
+    }
+
+    func testAnalyticsMediaInfoDiscoveryDoesNotJoinTimedOutProvider() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let durationStarted = DispatchSemaphore(value: 0)
+        let releaseDuration = DispatchSemaphore(value: 0)
+        defer { releaseDuration.signal() }
+        let runner = RecordingSubprocessRunner { _, _ in
+            XCTFail("Media-info timeout should stop analytics before launching a subprocess")
+            return successfulSubprocessResult()
+        }
+        let provider = ClosureAnalyticsMediaInfoProvider(
+            duration: { _ in
+                await withCheckedContinuation { continuation in
+                    durationStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseDuration.wait()
+                        continuation.resume(returning: 1)
+                    }
+                }
+            },
+            resolution: { _ in (width: 640, height: 360) }
+        )
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" },
+            ssimulacra2PathProvider: { "/private/tools/ssimulacra2_rs" },
+            mediaInfoProvider: provider,
+            mediaInfoTimeout: .milliseconds(50),
+            ssimulacra2MaxFramesOverride: 1
+        )
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await service.runAnalytics(
+                sourceFile: fixture.source,
+                encodedFile: fixture.encoded,
+                enabledMetrics: [.ssimulacra2],
+                vmafModel: .vmaf_v0_6_1
+            ) { _, _ in }
+            XCTFail("Expected media duration discovery to time out")
+        } catch let AnalyticsError.metricFailed(metric, reason) {
+            XCTAssertEqual(metric, .ssimulacra2)
+            XCTAssertEqual(reason, "Media duration discovery exceeded the 15-second limit")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(durationStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        XCTAssertNil(runner.lastRequest)
+    }
+
+    func testAnalyticsResolutionDiscoveryDoesNotJoinTimedOutProvider() async throws {
+        let fixture = try makeAnalyticsFixtureFiles()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let resolutionStarted = DispatchSemaphore(value: 0)
+        let releaseResolution = DispatchSemaphore(value: 0)
+        defer { releaseResolution.signal() }
+        let runner = RecordingSubprocessRunner { _, _ in
+            XCTFail("Media-info timeout should stop analytics before launching a subprocess")
+            return successfulSubprocessResult()
+        }
+        let provider = ClosureAnalyticsMediaInfoProvider(
+            duration: { _ in 1 },
+            resolution: { _ in
+                await withCheckedContinuation { continuation in
+                    resolutionStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseResolution.wait()
+                        continuation.resume(returning: (width: 640, height: 360))
+                    }
+                }
+            }
+        )
+        let service = AnalyticsService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" },
+            ssimulacra2PathProvider: { "/private/tools/ssimulacra2_rs" },
+            mediaInfoProvider: provider,
+            mediaInfoTimeout: .milliseconds(50),
+            ssimulacra2MaxFramesOverride: 1
+        )
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await service.runAnalytics(
+                sourceFile: fixture.source,
+                encodedFile: fixture.encoded,
+                enabledMetrics: [.ssimulacra2],
+                vmafModel: .vmaf_v0_6_1
+            ) { _, _ in }
+            XCTFail("Expected media resolution discovery to time out")
+        } catch let AnalyticsError.metricFailed(metric, reason) {
+            XCTAssertEqual(metric, .ssimulacra2)
+            XCTAssertEqual(reason, "Media resolution discovery exceeded the 15-second limit")
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        XCTAssertEqual(resolutionStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        XCTAssertNil(runner.lastRequest)
     }
 
     func testAnalyticsServiceRedactsFailedFFmpegDiagnostics() async throws {
@@ -9161,9 +9423,13 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
-    private func videoMetadata(timecode: String?, frameRate: Double) -> VideoMetadata {
+    private func videoMetadata(
+        timecode: String?,
+        frameRate: Double,
+        duration: Double? = 60
+    ) -> VideoMetadata {
         VideoMetadata(
-            duration: 60,
+            duration: duration,
             formatName: "mov",
             containerLongName: "QuickTime / MOV",
             sizeBytes: nil,
@@ -9638,6 +9904,27 @@ private struct StubAnalyticsMediaInfoProvider: AnalyticsMediaInfoProviding {
 
     func resolution(for file: URL) async -> (width: Int, height: Int)? {
         resolution
+    }
+}
+
+private struct ClosureAnalyticsMediaInfoProvider: AnalyticsMediaInfoProviding {
+    let durationHandler: @Sendable (URL) async -> Double?
+    let resolutionHandler: @Sendable (URL) async -> (width: Int, height: Int)?
+
+    init(
+        duration: @escaping @Sendable (URL) async -> Double?,
+        resolution: @escaping @Sendable (URL) async -> (width: Int, height: Int)?
+    ) {
+        self.durationHandler = duration
+        self.resolutionHandler = resolution
+    }
+
+    func duration(for file: URL) async -> Double? {
+        await durationHandler(file)
+    }
+
+    func resolution(for file: URL) async -> (width: Int, height: Int)? {
+        await resolutionHandler(file)
     }
 }
 
