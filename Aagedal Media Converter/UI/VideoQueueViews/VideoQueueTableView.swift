@@ -1303,16 +1303,28 @@ struct VideoQueueTableView: NSViewRepresentable {
         func handleCellAction(_ action: CellAction, itemID: UUID, displayRows: [FlatQueueRow], row: Int) {
             switch action {
             case .delete:
-                if let idx = droppedFilesIndex[itemID] {
-                    parent.onDelete(IndexSet(integer: idx))
-                } else if let gID = groupID(for: itemID),
-                          let gIdx = encodingGroupsIndex[gID],
-                          let iIdx = parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
-                    parent.encodingGroups[gIdx].items.remove(at: iIdx)
+                Task { @MainActor in
+                    await ConversionManager.shared.cancelSubtitleEmbedding(
+                        itemID: itemID,
+                        operationID: nil
+                    )
+                    if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        parent.onDelete(IndexSet(integer: idx))
+                    } else if let gIdx = parent.encodingGroups.firstIndex(where: {
+                        $0.items.contains(where: { $0.id == itemID })
+                    }), let iIdx = parent.encodingGroups[gIdx].items.firstIndex(where: { $0.id == itemID }) {
+                        parent.encodingGroups[gIdx].items.remove(at: iIdx)
+                    }
                 }
             case .reset(let optionKeyPressed):
-                if let idx = droppedFilesIndex[itemID] {
-                    parent.onReset(idx, optionKeyPressed)
+                Task { @MainActor in
+                    await ConversionManager.shared.cancelSubtitleEmbedding(
+                        itemID: itemID,
+                        operationID: nil
+                    )
+                    if let idx = parent.droppedFiles.firstIndex(where: { $0.id == itemID }) {
+                        parent.onReset(idx, optionKeyPressed)
+                    }
                 }
             case .cancel:
                 Task { await ConversionManager.shared.cancelItem(with: itemID) }
@@ -1335,6 +1347,12 @@ struct VideoQueueTableView: NSViewRepresentable {
                     droppedFiles: &parent.droppedFiles,
                     encodingGroups: &parent.encodingGroups
                 ) {
+                    Task {
+                        await ConversionManager.shared.cancelSubtitleEmbedding(
+                            itemID: itemID,
+                            operationID: target.operationID
+                        )
+                    }
                     switch target.method {
                     case .ocr:
                         if let operationID = target.operationID {

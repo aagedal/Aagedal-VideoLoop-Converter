@@ -2186,7 +2186,20 @@ struct ContentView: View {
     private func clearAllFiles() {
         guard !isConverting else { return }
 
-        for item in droppedFiles {
+        Task { @MainActor in
+            // Invalidate manager-owned mux attempts before removing their rows so a
+            // completed-but-not-yet-published subtitle embed cannot replace a file late.
+            await ConversionManager.shared.cancelAllSubtitleEmbeddings()
+            guard !isConverting else { return }
+            clearAllFilesAfterEmbeddingCancellation()
+        }
+    }
+
+    @MainActor
+    private func clearAllFilesAfterEmbeddingCancellation() {
+        let allItems = droppedFiles + encodingGroups.flatMap(\.items)
+
+        for item in allItems {
             if item.isDownloading {
                 DownloadManager.shared.cancelDownload(itemID: item.id)
             } else if let _ = item.scheduledDownloadTime {

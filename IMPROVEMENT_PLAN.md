@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 197 tests pass. The
+- The unit-test baseline is green: 202 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,19 +23,18 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are only 197 unit tests. The UI test target now has deterministic smoke
+- There are 202 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 25 direct `Process` construction sites outside the
-  shared runner, DEBUG-only UI-test fixture, and UI-test target. Twenty are active
+- External tools still have 23 direct `Process` construction sites outside the
+  shared runner, DEBUG-only UI-test fixture, and UI-test target. Eighteen are active
   launches; five are configuration-only shims that already hand execution to the
-  shared runner. The
-  remaining launch paths do not yet share one cancellation, timeout, pipe-draining,
-  and error-reporting layer.
+  shared runner. The remaining launch paths do not yet share one cancellation,
+  timeout, pipe-draining, and error-reporting layer.
 - `SwiftExifMediaProbe.durationSync` still bridges async AVFoundation work through
   a synchronous compatibility wait, now bounded to five seconds while callers are
   migrated.
@@ -561,13 +560,24 @@ purpose of warming the documented slow first launch instead of prematurely killi
 it at the three-second version-probe deadline. Focused fake-runner tests cover request
 policy, supersession, and parent cancellation.
 
+ConversionManager subtitle embedding now uses the shared runner for both generated
+and manually attached subtitle files. Muxing has a twelve-hour safety deadline,
+bounded stderr, private-path redaction, process-tree cancellation, and nonempty
+staged-output validation. Per-item attempt ownership lets row, item, and batch
+cancellation stop embedding after transcription hands off to FFmpeg, while attempt
+identities prevent a cancelled or superseded mux from publishing late. Both paths
+now atomically replace the original only after a successful final ownership check,
+removing the manual attach path's remove-then-move data-loss window. Focused
+fake-runner tests cover request policy, redacted nonzero cleanup, atomic publication,
+targeted cancellation, and late superseded success.
+
 Remaining native-waveform streaming encoder, AV2 pipe,
-DCP/IMF wrapper, ConversionManager subtitle embedding, and specialty helper call
-sites are still open. The refreshed audit counts 20 direct production launches plus
+DCP/IMF wrapper, and specialty helper call sites are still open. The refreshed audit
+counts 18 direct production launches plus
 five configuration-only `Process` shims. The synchronous Whisper capability/version
 cache needs an async state redesign.
-DCP/IMF post-processing and subtitle embedding need explicit task ownership as part of
-their migration; native-waveform streaming and AV2 pipelines should wait for
+DCP/IMF post-processing needs explicit task ownership as part of its migration;
+native-waveform streaming and AV2 pipelines should wait for
 incremental stdin and coordinated multi-process support.
 
 ### 2.2 Remove sync-over-async waits

@@ -4006,6 +4006,204 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: videoURL, encoding: .utf8), "original")
     }
 
+    func testSubtitleEmbeddingSubprocessUsesBoundedRedactedRequestAndValidatesOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SubtitleEmbeddingPolicy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoURL = temporaryDirectory.appendingPathComponent("private video.mov")
+        let srtURL = temporaryDirectory.appendingPathComponent("private video.eng.srt")
+        let stagedURL = temporaryDirectory.appendingPathComponent("private staged.mov")
+        try Data("original".utf8).write(to: videoURL)
+        try Data("subtitle".utf8).write(to: srtURL)
+        let runner = RecordingSubprocessRunner { request, _ in
+            try Data("embedded".utf8).write(to: stagedURL)
+            return successfulSubprocessResult()
+        }
+
+        try await SubtitleEmbeddingSubprocess(subprocessRunner: runner).run(
+            ffmpegPath: "/private/tools/ffmpeg",
+            srtURL: srtURL,
+            videoURL: videoURL,
+            stagedURL: stagedURL,
+            subtitleCodec: "mov_text",
+            languageCode: "eng"
+        )
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, "/private/tools/ffmpeg")
+        XCTAssertEqual(request.arguments, [
+            "-y", "-i", videoURL.path, "-i", srtURL.path,
+            "-map", "0", "-map", "1:s", "-c", "copy",
+            "-c:s", "mov_text", "-metadata:s:s:0", "language=eng",
+            stagedURL.path,
+        ])
+        XCTAssertEqual(request.timeout, .seconds(12 * 60 * 60))
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(request.standardErrorCaptureLimit, 256 * 1024)
+        XCTAssertFalse(request.redactedCommandDescription.contains("private video"))
+        XCTAssertFalse(request.redactedCommandDescription.contains("/private/tools/ffmpeg"))
+        XCTAssertEqual(try String(contentsOf: stagedURL, encoding: .utf8), "embedded")
+    }
+
+    func testSubtitleEmbeddingSubprocessCleansPartialOutputAndRedactsFailure() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SubtitleEmbeddingFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoURL = temporaryDirectory.appendingPathComponent("private video.mov")
+        let srtURL = temporaryDirectory.appendingPathComponent("private subtitle.srt")
+        let stagedURL = temporaryDirectory.appendingPathComponent("private staged.mov")
+        try Data("original".utf8).write(to: videoURL)
+        try Data("subtitle".utf8).write(to: srtURL)
+        let runner = RecordingSubprocessRunner { _, _ in
+            try Data("partial".utf8).write(to: stagedURL)
+            return successfulSubprocessResult(
+                standardError: "failed for \(videoURL.path) and \(srtURL.path)",
+                terminationStatus: 9
+            )
+        }
+
+        do {
+            try await SubtitleEmbeddingSubprocess(subprocessRunner: runner).run(
+                ffmpegPath: "/private/tools/ffmpeg",
+                srtURL: srtURL,
+                videoURL: videoURL,
+                stagedURL: stagedURL,
+                subtitleCodec: "mov_text",
+                languageCode: nil
+            )
+            XCTFail("Expected subtitle embedding to fail")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("exit code 9"))
+            XCTAssertFalse(error.localizedDescription.contains(videoURL.path))
+            XCTAssertFalse(error.localizedDescription.contains(srtURL.path))
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedURL.path))
+        XCTAssertEqual(try String(contentsOf: videoURL, encoding: .utf8), "original")
+    }
+
+    func testAttachedSubtitleEmbeddingPublishesAtomically() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AttachedSubtitleEmbedding-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoURL = temporaryDirectory.appendingPathComponent("video.mkv")
+        let srtURL = temporaryDirectory.appendingPathComponent("video.nor.srt")
+        try Data("original".utf8).write(to: videoURL)
+        try Data("subtitle".utf8).write(to: srtURL)
+        let runner = RecordingSubprocessRunner { request, _ in
+            try Data("embedded".utf8).write(to: URL(fileURLWithPath: request.arguments.last!))
+            return successfulSubprocessResult()
+        }
+        let manager = ConversionManager(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+
+        await manager.embedSubtitlesForAttachedFile(
+            srtURL: srtURL,
+            videoURL: videoURL,
+            itemID: UUID()
+        )
+
+        XCTAssertEqual(try String(contentsOf: videoURL, encoding: .utf8), "embedded")
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertTrue(request.arguments.contains("srt"))
+        XCTAssertTrue(request.arguments.contains("language=nor"))
+    }
+
+    func testAttachedSubtitleEmbeddingCancellationStopsRunnerAndPreservesOriginal() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AttachedSubtitleCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoURL = temporaryDirectory.appendingPathComponent("video.mov")
+        let srtURL = temporaryDirectory.appendingPathComponent("video.srt")
+        try Data("original".utf8).write(to: videoURL)
+        try Data("subtitle".utf8).write(to: srtURL)
+        let runner = CountingBlockingSubprocessRunner()
+        let manager = ConversionManager(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let itemID = UUID()
+        let embeddingTask = Task {
+            await manager.embedSubtitlesForAttachedFile(
+                srtURL: srtURL,
+                videoURL: videoURL,
+                itemID: itemID
+            )
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        await manager.cancelSubtitleEmbedding(itemID: itemID, operationID: nil)
+        await embeddingTask.value
+
+        XCTAssertEqual(runner.cancelledCount, 1)
+        XCTAssertEqual(try String(contentsOf: videoURL, encoding: .utf8), "original")
+        let leftovers = try FileManager.default.contentsOfDirectory(
+            at: temporaryDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix(".subtitle-embed-") }
+        XCTAssertTrue(leftovers.isEmpty)
+    }
+
+    func testSupersededAttachedSubtitleEmbeddingCannotPublishLateSuccess() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AttachedSubtitleSupersession-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let videoURL = temporaryDirectory.appendingPathComponent("video.mov")
+        let firstSRT = temporaryDirectory.appendingPathComponent("first.srt")
+        let secondSRT = temporaryDirectory.appendingPathComponent("second.srt")
+        try Data("original".utf8).write(to: videoURL)
+        try Data("first".utf8).write(to: firstSRT)
+        try Data("second".utf8).write(to: secondSRT)
+        let runner = SupersedingSubtitleSubprocessRunner()
+        let manager = ConversionManager(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let itemID = UUID()
+
+        let firstTask = Task {
+            await manager.embedSubtitlesForAttachedFile(
+                srtURL: firstSRT,
+                videoURL: videoURL,
+                itemID: itemID
+            )
+        }
+        await runner.waitUntilStarted(count: 1)
+
+        let secondTask = Task {
+            await manager.embedSubtitlesForAttachedFile(
+                srtURL: secondSRT,
+                videoURL: videoURL,
+                itemID: itemID
+            )
+        }
+        await runner.waitUntilStarted(count: 2)
+        await secondTask.value
+        XCTAssertEqual(try String(contentsOf: videoURL, encoding: .utf8), "embedded-2")
+
+        await runner.releaseFirst()
+        await firstTask.value
+
+        XCTAssertEqual(try String(contentsOf: videoURL, encoding: .utf8), "embedded-2")
+        let leftovers = try FileManager.default.contentsOfDirectory(
+            at: temporaryDirectory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix(".subtitle-embed-") }
+        XCTAssertTrue(leftovers.isEmpty)
+    }
+
     func testRcloneEnvironmentDropsInheritedRemoteConfiguration() {
         let environment = RcloneService.sanitizedEnvironment(
             base: [
@@ -7619,6 +7817,53 @@ private final class SequencedRecordingSubprocessRunner: SubprocessRunning, @unch
             return index
         }
         return try await operation(index, request, outputHandler)
+    }
+}
+
+private actor SupersedingSubtitleSubprocessRunner: SubprocessRunning {
+    private var startedCount = 0
+    private var firstReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var firstReleaseRequested = false
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        startedCount += 1
+        let invocation = startedCount
+        if invocation == 1 {
+            await withCheckedContinuation { continuation in
+                if firstReleaseRequested {
+                    firstReleaseRequested = false
+                    continuation.resume()
+                } else {
+                    firstReleaseContinuation = continuation
+                }
+            }
+        }
+
+        guard let outputPath = request.arguments.last else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        try Data("embedded-\(invocation)".utf8).write(
+            to: URL(fileURLWithPath: outputPath)
+        )
+        return successfulSubprocessResult()
+    }
+
+    func waitUntilStarted(count: Int) async {
+        while startedCount < count {
+            await Task.yield()
+        }
+    }
+
+    func releaseFirst() {
+        if let continuation = firstReleaseContinuation {
+            firstReleaseContinuation = nil
+            continuation.resume()
+        } else {
+            firstReleaseRequested = true
+        }
     }
 }
 

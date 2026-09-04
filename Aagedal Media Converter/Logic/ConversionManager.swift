@@ -45,6 +45,121 @@ enum SubtitleEmbeddingCommit {
     }
 }
 
+enum SubtitleEmbeddingSubprocessError: LocalizedError {
+    case failed(status: Int32, diagnostic: String)
+    case missingOutput
+    case timedOut
+    case failedToStart(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .failed(let status, let diagnostic):
+            let detail = diagnostic.isEmpty ? "" : ": \(diagnostic)"
+            return "Subtitle embedding failed with exit code \(status)\(detail)"
+        case .missingOutput:
+            return "Subtitle embedding completed without producing a valid output file."
+        case .timedOut:
+            return "Subtitle embedding timed out after 12 hours."
+        case .failedToStart(let diagnostic):
+            return "Unable to start subtitle embedding: \(diagnostic)"
+        }
+    }
+}
+
+/// One-shot FFmpeg subtitle mux behind the shared cancellable subprocess boundary.
+/// The caller owns publication of the staged output after this returns successfully.
+struct SubtitleEmbeddingSubprocess: Sendable {
+    static let timeout: Duration = .seconds(12 * 60 * 60)
+    static let diagnosticCaptureLimit = 256 * 1024
+
+    private let subprocessRunner: any SubprocessRunning
+
+    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+        self.subprocessRunner = subprocessRunner
+    }
+
+    func run(
+        ffmpegPath: String,
+        srtURL: URL,
+        videoURL: URL,
+        stagedURL: URL,
+        subtitleCodec: String,
+        languageCode: String?
+    ) async throws {
+        var arguments = [
+            "-y",
+            "-i", videoURL.path,
+            "-i", srtURL.path,
+            "-map", "0",
+            "-map", "1:s",
+            "-c", "copy",
+            "-c:s", subtitleCodec,
+        ]
+        if let languageCode {
+            arguments.append(contentsOf: ["-metadata:s:s:0", "language=\(languageCode)"])
+        }
+        arguments.append(stagedURL.path)
+
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: ffmpegPath),
+            arguments: arguments,
+            timeout: Self.timeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: Self.diagnosticCaptureLimit,
+            sensitiveValues: [ffmpegPath, srtURL.path, videoURL.path, stagedURL.path]
+        )
+
+        do {
+            let result = try await subprocessRunner.run(request)
+            try Task.checkCancellation()
+            guard result.succeeded else {
+                throw SubtitleEmbeddingSubprocessError.failed(
+                    status: result.terminationStatus,
+                    diagnostic: request.redactedDiagnostic(result.standardErrorText)
+                )
+            }
+        } catch is CancellationError {
+            try? FileManager.default.removeItem(at: stagedURL)
+            throw CancellationError()
+        } catch let error as SubprocessRunnerError {
+            try? FileManager.default.removeItem(at: stagedURL)
+            switch error {
+            case .timedOut:
+                throw SubtitleEmbeddingSubprocessError.timedOut
+            case .failedToStart(_, let underlying):
+                throw SubtitleEmbeddingSubprocessError.failedToStart(
+                    request.redactedDiagnostic(underlying)
+                )
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: stagedURL)
+            throw error
+        }
+
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: stagedURL.path),
+              let size = attributes[.size] as? NSNumber,
+              size.int64Value > 0 else {
+            try? FileManager.default.removeItem(at: stagedURL)
+            throw SubtitleEmbeddingSubprocessError.missingOutput
+        }
+    }
+}
+
+private final class SubtitleEmbeddingOwnership: @unchecked Sendable {
+    private let current = OSAllocatedUnfairLock(initialState: true)
+
+    func whileCurrent<T>(_ operation: () throws -> T) rethrows -> T? {
+        try current.withLockUnchecked { isCurrent in
+            guard isCurrent else { return nil }
+            return try operation()
+        }
+    }
+
+    func invalidate() {
+        current.withLock { $0 = false }
+    }
+}
+
 struct MergePreparationSubprocess: Sendable {
     private let subprocessRunner: any SubprocessRunning
 
@@ -113,9 +228,16 @@ struct MergePreparationSubprocess: Sendable {
 actor ConversionManager: Sendable {
     @MainActor static let shared = ConversionManager()
     private let mergePreparationSubprocess: MergePreparationSubprocess
+    private let subtitleEmbeddingSubprocess: SubtitleEmbeddingSubprocess
+    private let ffmpegPathProvider: @Sendable () -> String?
 
-    init(subprocessRunner: any SubprocessRunning = SubprocessRunner()) {
+    init(
+        subprocessRunner: any SubprocessRunning = SubprocessRunner(),
+        ffmpegPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ffmpegPath }
+    ) {
         self.mergePreparationSubprocess = MergePreparationSubprocess(subprocessRunner: subprocessRunner)
+        self.subtitleEmbeddingSubprocess = SubtitleEmbeddingSubprocess(subprocessRunner: subprocessRunner)
+        self.ffmpegPathProvider = ffmpegPathProvider
     }
 
     enum ConversionStatus {
@@ -140,6 +262,13 @@ actor ConversionManager: Sendable {
         batchID: UUID,
         continuation: CheckedContinuation<Void, Never>
     )?
+    private struct SubtitleEmbeddingAttempt {
+        let id: UUID
+        let operationID: UUID?
+        let ownership: SubtitleEmbeddingOwnership
+        let task: Task<Void, Error>
+    }
+    private var subtitleEmbeddingAttempts: [UUID: SubtitleEmbeddingAttempt] = [:]
 
     // Progress tracking with Swift Concurrency
     private var progressContinuation: AsyncStream<Double>.Continuation?
@@ -2241,6 +2370,7 @@ actor ConversionManager: Sendable {
         self.isConverting = false
         self.activeBatchID = nil
         cancelMergePreparation()
+        cancelAllSubtitleEmbeddings()
         await ffmpegConverter.cancelConversion()
         currentProcess = nil
 
@@ -2274,6 +2404,7 @@ actor ConversionManager: Sendable {
     /// Cancels a single video item without aborting the entire queue
     func cancelItem(with id: UUID) async {
         cancelMergePreparation(for: id)
+        cancelSubtitleEmbedding(itemID: id, operationID: nil)
         if let plan = mergePlan, !plan.hasExecuted, plan.itemIDs.contains(id) {
             cleanupMergeArtifacts(for: plan)
             mergePlan = nil
@@ -2313,6 +2444,7 @@ actor ConversionManager: Sendable {
         self.isConverting = false
         self.activeBatchID = nil
         cancelMergePreparation()
+        cancelAllSubtitleEmbeddings()
         await ffmpegConverter.cancelConversion()
 
         // Clean up merge temp files if a merge was in progress
@@ -2793,7 +2925,13 @@ actor ConversionManager: Sendable {
         operationID: UUID?,
         droppedFiles: Binding<[VideoItem]>
     ) async {
-        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+        guard let ffmpegPath = ffmpegPathProvider() else {
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   operationID == nil || droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed("FFmpeg is unavailable")
+                }
+            }
             logger.error("FFmpeg binary not found for subtitle embedding")
             return
         }
@@ -2808,53 +2946,30 @@ actor ConversionManager: Sendable {
         }
         guard beganCurrentAttempt else { return }
 
-        let ext = videoURL.pathExtension.lowercased()
-        let tempURL = videoURL.deletingLastPathComponent()
-            .appendingPathComponent(UUID().uuidString + "." + ext)
-
-        // Choose subtitle codec based on container
-        let subtitleCodec: String
-        switch ext {
-        case "mkv", "mka":
-            subtitleCodec = "srt"
-        default:
-            // MP4, MOV, and others that support mov_text
-            subtitleCodec = "mov_text"
-        }
-
-        var arguments = [
-            "-y",
-            "-i", videoURL.path,
-            "-i", srtURL.path,
-            "-map", "0",          // all streams from the video
-            "-map", "1:s",        // subtitle stream from the SRT
-            "-c", "copy",         // copy all existing streams
-            "-c:s", subtitleCodec // encode the subtitle track
-        ]
-
-        // Tag the subtitle stream with a language if we can infer it from the SRT filename
-        // (e.g. "output.eng.srt") — otherwise leave unset
-        let srtStem = srtURL.deletingPathExtension().pathExtension
-        if !srtStem.isEmpty && srtStem.count <= 3 {
-            arguments.append(contentsOf: ["-metadata:s:s:0", "language=\(srtStem)"])
-        }
-
-        arguments.append(tempURL.path)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let attempt = startSubtitleEmbedding(
+            ffmpegPath: ffmpegPath,
+            srtURL: srtURL,
+            videoURL: videoURL,
+            itemID: itemID,
+            operationID: operationID
+        )
+        defer { finishSubtitleEmbedding(itemID: itemID, attemptID: attempt.id) }
 
         do {
-            try process.run()
-            process.waitUntilExit()
+            try await withTaskCancellationHandler {
+                try await attempt.task.value
+            } onCancel: {
+                attempt.task.cancel()
+            }
+            guard subtitleEmbeddingAttempts[itemID]?.id == attempt.id else {
+                try? FileManager.default.removeItem(at: attempt.stagedURL)
+                return
+            }
 
-            if process.terminationStatus == 0 {
-                let didPublish = try await MainActor.run { () throws -> Bool in
+            let didPublish = try await MainActor.run { () throws -> Bool in
+                try attempt.ownership.whileCurrent {
                     try SubtitleEmbeddingCommit.publishIfCurrent(
-                        temporaryURL: tempURL,
+                        temporaryURL: attempt.stagedURL,
                         destinationURL: videoURL,
                         isCurrent: {
                             guard let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) else {
@@ -2869,33 +2984,32 @@ actor ConversionManager: Sendable {
                             }
                         }
                     )
-                }
-                guard didPublish else {
-                    try? FileManager.default.removeItem(at: tempURL)
-                    return
-                }
-
-                logger.info("Subtitles embedded into \(videoURL.lastPathComponent, privacy: .public)")
-            } else {
-                // Clean up temp file on failure
-                try? FileManager.default.removeItem(at: tempURL)
-                logger.error("Subtitle embedding failed with exit code \(process.terminationStatus)")
-
-                await MainActor.run {
-                    if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
-                       operationID == nil || droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
-                        droppedFiles.wrappedValue[idx].subtitleStatus = .failed("Subtitle embedding failed")
-                    }
+                } ?? false
+            }
+            guard didPublish else {
+                try? FileManager.default.removeItem(at: attempt.stagedURL)
+                return
+            }
+            logger.info("Subtitles embedded into \(videoURL.lastPathComponent, privacy: .public)")
+        } catch is CancellationError {
+            try? FileManager.default.removeItem(at: attempt.stagedURL)
+            guard subtitleEmbeddingAttempts[itemID]?.id == attempt.id else { return }
+            await MainActor.run {
+                if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
+                   operationID == nil || droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .notQueued
                 }
             }
         } catch {
-            try? FileManager.default.removeItem(at: tempURL)
-            logger.error("Subtitle embedding error: \(error.localizedDescription, privacy: .public)")
+            try? FileManager.default.removeItem(at: attempt.stagedURL)
+            guard subtitleEmbeddingAttempts[itemID]?.id == attempt.id else { return }
+            let message = subtitleEmbeddingErrorMessage(error)
+            logger.error("Subtitle embedding error: \(message, privacy: .public)")
 
             await MainActor.run {
                 if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }),
                    operationID == nil || droppedFiles.wrappedValue[idx].subtitleOperationID == operationID {
-                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed(error.localizedDescription)
+                    droppedFiles.wrappedValue[idx].subtitleStatus = .failed(message)
                 }
             }
         }
@@ -2908,63 +3022,114 @@ actor ConversionManager: Sendable {
         videoURL: URL,
         itemID: UUID
     ) async {
-        guard let ffmpegPath = BinaryPathResolver.ffmpegPath else {
+        guard let ffmpegPath = ffmpegPathProvider() else {
             logger.error("FFmpeg binary not found for subtitle embedding")
             return
         }
 
-        let ext = videoURL.pathExtension.lowercased()
-        let tempURL = videoURL.deletingLastPathComponent()
-            .appendingPathComponent(UUID().uuidString + "." + ext)
-
-        let subtitleCodec: String
-        switch ext {
-        case "mkv", "mka":
-            subtitleCodec = "srt"
-        default:
-            subtitleCodec = "mov_text"
-        }
-
-        var arguments = [
-            "-y",
-            "-i", videoURL.path,
-            "-i", srtURL.path,
-            "-map", "0",
-            "-map", "1:s",
-            "-c", "copy",
-            "-c:s", subtitleCodec
-        ]
-
-        let srtStem = srtURL.deletingPathExtension().pathExtension
-        if !srtStem.isEmpty && srtStem.count <= 3 {
-            arguments.append(contentsOf: ["-metadata:s:s:0", "language=\(srtStem)"])
-        }
-
-        arguments.append(tempURL.path)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let attempt = startSubtitleEmbedding(
+            ffmpegPath: ffmpegPath,
+            srtURL: srtURL,
+            videoURL: videoURL,
+            itemID: itemID,
+            operationID: nil
+        )
+        defer { finishSubtitleEmbedding(itemID: itemID, attemptID: attempt.id) }
 
         do {
-            try process.run()
-            process.waitUntilExit()
-
-            if process.terminationStatus == 0 {
-                let fm = FileManager.default
-                try fm.removeItem(at: videoURL)
-                try fm.moveItem(at: tempURL, to: videoURL)
-                logger.info("Subtitles embedded (attached) into \(videoURL.lastPathComponent, privacy: .public)")
-            } else {
-                try? FileManager.default.removeItem(at: tempURL)
-                logger.error("Subtitle embedding (attached) failed with exit code \(process.terminationStatus)")
+            try await withTaskCancellationHandler {
+                try await attempt.task.value
+            } onCancel: {
+                attempt.task.cancel()
             }
+            guard subtitleEmbeddingAttempts[itemID]?.id == attempt.id else {
+                try? FileManager.default.removeItem(at: attempt.stagedURL)
+                return
+            }
+
+            let didPublish = try attempt.ownership.whileCurrent {
+                _ = try FileManager.default.replaceItemAt(videoURL, withItemAt: attempt.stagedURL)
+            } != nil
+            guard didPublish else {
+                try? FileManager.default.removeItem(at: attempt.stagedURL)
+                return
+            }
+            logger.info("Subtitles embedded (attached) into \(videoURL.lastPathComponent, privacy: .public)")
         } catch {
-            try? FileManager.default.removeItem(at: tempURL)
-            logger.error("Subtitle embedding (attached) error: \(error.localizedDescription, privacy: .public)")
+            try? FileManager.default.removeItem(at: attempt.stagedURL)
+            if error is CancellationError { return }
+            let message = subtitleEmbeddingErrorMessage(error)
+            logger.error("Subtitle embedding (attached) error: \(message, privacy: .public)")
         }
+    }
+
+    func cancelSubtitleEmbedding(itemID: UUID, operationID: UUID?) {
+        guard let attempt = subtitleEmbeddingAttempts[itemID],
+              operationID == nil || attempt.operationID == operationID else { return }
+        attempt.ownership.invalidate()
+        subtitleEmbeddingAttempts.removeValue(forKey: itemID)
+        attempt.task.cancel()
+    }
+
+    private func startSubtitleEmbedding(
+        ffmpegPath: String,
+        srtURL: URL,
+        videoURL: URL,
+        itemID: UUID,
+        operationID: UUID?
+    ) -> (id: UUID, stagedURL: URL, ownership: SubtitleEmbeddingOwnership, task: Task<Void, Error>) {
+        if let previousAttempt = subtitleEmbeddingAttempts[itemID] {
+            previousAttempt.ownership.invalidate()
+            previousAttempt.task.cancel()
+        }
+
+        let attemptID = UUID()
+        let ownership = SubtitleEmbeddingOwnership()
+        let ext = videoURL.pathExtension.lowercased()
+        let stagedURL = videoURL.deletingLastPathComponent()
+            .appendingPathComponent(".subtitle-embed-\(attemptID.uuidString).\(ext)")
+        let subtitleCodec = ext == "mkv" || ext == "mka" ? "srt" : "mov_text"
+        let srtStem = srtURL.deletingPathExtension().pathExtension
+        let languageCode = !srtStem.isEmpty && srtStem.count <= 3 ? srtStem : nil
+        let subprocess = subtitleEmbeddingSubprocess
+        let task = Task {
+            try await subprocess.run(
+                ffmpegPath: ffmpegPath,
+                srtURL: srtURL,
+                videoURL: videoURL,
+                stagedURL: stagedURL,
+                subtitleCodec: subtitleCodec,
+                languageCode: languageCode
+            )
+        }
+        subtitleEmbeddingAttempts[itemID] = SubtitleEmbeddingAttempt(
+            id: attemptID,
+            operationID: operationID,
+            ownership: ownership,
+            task: task
+        )
+        return (attemptID, stagedURL, ownership, task)
+    }
+
+    private func finishSubtitleEmbedding(itemID: UUID, attemptID: UUID) {
+        guard subtitleEmbeddingAttempts[itemID]?.id == attemptID else { return }
+        subtitleEmbeddingAttempts.removeValue(forKey: itemID)
+    }
+
+    func cancelAllSubtitleEmbeddings() {
+        let attempts = Array(subtitleEmbeddingAttempts.values)
+        subtitleEmbeddingAttempts.removeAll()
+        for attempt in attempts {
+            attempt.ownership.invalidate()
+            attempt.task.cancel()
+        }
+    }
+
+    private func subtitleEmbeddingErrorMessage(_ error: Error) -> String {
+        if let subprocessError = error as? SubtitleEmbeddingSubprocessError {
+            return subprocessError.localizedDescription
+        }
+        return "Subtitle embedding could not replace the output file."
     }
 
     // MARK: - Quality Analytics
