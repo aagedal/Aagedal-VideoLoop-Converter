@@ -7260,6 +7260,240 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
     }
 
+    func testAV2SourceDecodeUsesBoundedRedactedPipelineAndReassemblesProgress() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2DecodePipelinePolicy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private source.ivf")
+        try makeTestIVFData().write(to: inputURL)
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("private output")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        defer { FileSafetyUtils.unregisterCreatedFile(outputURL) }
+        let ffmpegPath = "/private/tools/ffmpeg"
+        let avmdecPath = "/private/tools/avmdec"
+        let decodedY4M = Data("YUV4MPEG2 W2 H2 F24:1 Ip A1:1 C420\nFRAME\nfixture".utf8)
+        let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let runner = SequencedRecordingSubprocessRunner { _, request, outputHandler in
+            if request.executableURL.path == avmdecPath {
+                outputHandler?(SubprocessOutputChunk(stream: .standardOutput, data: decodedY4M))
+                return successfulSubprocessResult()
+            }
+
+            XCTAssertEqual(request.standardInput, decodedY4M)
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("frame= 12 fps=24 time=00:00:0".utf8)
+            ))
+            outputHandler?(SubprocessOutputChunk(
+                stream: .standardError,
+                data: Data("0.50 speed=1.0x\r".utf8)
+            ))
+            try Data("encoded fixture".utf8).write(
+                to: URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            )
+            return successfulSubprocessResult()
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { ffmpegPath },
+            avmdecPathProvider: { avmdecPath }
+        )
+
+        let result = await runConversion(
+            ConversionRequest(
+                inputURL: inputURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                sourceMetadata: videoMetadata(timecode: nil, frameRate: 24, duration: 1),
+                expectedDuration: 1,
+                videoFrameRate: 24
+            ),
+            using: converter,
+            progressUpdate: { progress, _ in
+                progressValues.withLock { $0.append(progress) }
+            }
+        )
+
+        XCTAssertTrue(result.success, result.errorReason ?? "AV2 source decode failed")
+        XCTAssertTrue(progressValues.withLock { values in
+            values.contains { abs($0 - 0.5) < 0.001 }
+        })
+        let requests = runner.requests
+        XCTAssertEqual(requests.count, 2)
+        let decoderRequest = try XCTUnwrap(requests.first { $0.executableURL.path == avmdecPath })
+        XCTAssertEqual(decoderRequest.arguments, [inputURL.path, "-o", "-"])
+        XCTAssertEqual(decoderRequest.timeout, FFMPEGConverter.av2PipelineTimeout)
+        XCTAssertEqual(decoderRequest.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(
+            decoderRequest.standardErrorCaptureLimit,
+            FFMPEGConverter.av2PipelineDiagnosticCaptureLimit
+        )
+        XCTAssertFalse(decoderRequest.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(decoderRequest.redactedCommandDescription.contains(avmdecPath))
+
+        let ffmpegRequest = try XCTUnwrap(requests.first { $0.executableURL.path == ffmpegPath })
+        XCTAssertEqual(ffmpegRequest.timeout, .seconds(7 * 24 * 60 * 60))
+        XCTAssertEqual(ffmpegRequest.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(ffmpegRequest.standardErrorCaptureLimit, 512 * 1024)
+        XCTAssertTrue(ffmpegRequest.arguments.containsAdjacent("-i", "pipe:0"))
+        XCTAssertFalse(ffmpegRequest.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(ffmpegRequest.redactedCommandDescription.contains(outputURL.path))
+    }
+
+    func testAV2SourceDecoderFailureWinsAndCleansPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2DecodePipelineFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("secret source.ivf")
+        try makeTestIVFData().write(to: inputURL)
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        let ffmpegPath = "/private/tools/ffmpeg"
+        let avmdecPath = "/private/tools/avmdec"
+        let runner = SequencedRecordingSubprocessRunner { _, request, _ in
+            if request.executableURL.path == avmdecPath {
+                return successfulSubprocessResult(
+                    standardError: "Could not decode \(inputURL.path)",
+                    terminationStatus: 7
+                )
+            }
+            try Data("partial output".utf8).write(
+                to: URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            )
+            return successfulSubprocessResult()
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { ffmpegPath },
+            avmdecPathProvider: { avmdecPath }
+        )
+
+        let result = await runConversion(
+            ConversionRequest(
+                inputURL: inputURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                sourceMetadata: videoMetadata(timecode: nil, frameRate: 24, duration: 1),
+                expectedDuration: 1,
+                videoFrameRate: 24
+            ),
+            using: converter
+        )
+
+        XCTAssertFalse(result.success)
+        let reason = try XCTUnwrap(result.errorReason)
+        XCTAssertTrue(reason.contains("AV2 decoder failed"), reason)
+        XCTAssertTrue(reason.contains("<redacted>"), reason)
+        XCTAssertFalse(reason.contains(inputURL.path), reason)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testAV2SourceDecoderLaunchFailureIsRedactedAndCleansPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2DecodePipelineLaunchFailure-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("secret source.ivf")
+        try makeTestIVFData().write(to: inputURL)
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        let ffmpegPath = "/private/tools/ffmpeg"
+        let avmdecPath = "/private/tools/missing-avmdec"
+        let runner = SequencedRecordingSubprocessRunner { _, request, _ in
+            if request.executableURL.path == avmdecPath {
+                throw SubprocessRunnerError.failedToStart(
+                    command: request.redactedCommandDescription,
+                    underlying: "Could not launch \(avmdecPath) for \(inputURL.path)"
+                )
+            }
+            try Data("partial output".utf8).write(
+                to: URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            )
+            return successfulSubprocessResult()
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { ffmpegPath },
+            avmdecPathProvider: { avmdecPath }
+        )
+
+        let result = await runConversion(
+            ConversionRequest(
+                inputURL: inputURL,
+                outputURL: outputBaseURL,
+                preset: .h264,
+                includeDateTag: false,
+                sourceMetadata: videoMetadata(timecode: nil, frameRate: 24, duration: 1),
+                expectedDuration: 1,
+                videoFrameRate: 24
+            ),
+            using: converter
+        )
+
+        XCTAssertFalse(result.success)
+        let reason = try XCTUnwrap(result.errorReason)
+        XCTAssertTrue(reason.contains("Failed to start AV2 decoder"), reason)
+        XCTAssertTrue(reason.contains("<redacted>"), reason)
+        XCTAssertFalse(reason.contains(avmdecPath), reason)
+        XCTAssertFalse(reason.contains(inputURL.path), reason)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testAV2SourceDecodeCancellationStopsBothPipelineStages() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2DecodePipelineCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("source.ivf")
+        try makeTestIVFData().write(to: inputURL)
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        let runner = TwoStageBlockingPipelineRunner()
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" },
+            avmdecPathProvider: { "/private/tools/avmdec" }
+        )
+        let request = ConversionRequest(
+            inputURL: inputURL,
+            outputURL: outputBaseURL,
+            preset: .h264,
+            includeDateTag: false,
+            sourceMetadata: videoMetadata(timecode: nil, frameRate: 24, duration: 1),
+            expectedDuration: 1,
+            videoFrameRate: 24
+        )
+
+        let resultTask = Task { await conversionResult(converter: converter, request: request) }
+        await runner.waitUntilBothStagesStarted()
+        await converter.cancelConversion()
+        let result = await resultTask.value
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "Conversion cancelled")
+        let cancellationDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < cancellationDeadline {
+            if await runner.cancelledStageCount >= 2 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let cancelledProducerCount = await runner.cancelledProducerCount
+        let cancelledConsumerCount = await runner.cancelledConsumerCount
+        XCTAssertEqual(cancelledProducerCount, 1)
+        XCTAssertEqual(cancelledConsumerCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
     func testCoreConverterCancellationCancelsSharedRunner() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("FFmpegRunnerCancellation-\(UUID().uuidString)")

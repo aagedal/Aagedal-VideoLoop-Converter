@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 299 tests pass. The
+- The unit-test baseline is green: 303 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,17 +23,17 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 299 unit tests. The UI test target now has deterministic smoke
+- There are 303 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have seven direct `Process` construction sites outside the
-  shared runner, DEBUG-only UI-test fixture, and UI-test target. Two are active
-  AV2 decode launches; five are configuration-only shims that already hand execution to
-  the shared runner. The remaining launch paths do not yet share one cancellation,
+- External tools have five direct `Process` construction sites outside the shared
+  runner, DEBUG-only UI-test fixture, and UI-test target. All five are
+  configuration-only shims that hand execution to the shared runner; there are no
+  remaining direct production launch paths outside that shared cancellation,
   timeout, pipe-draining, and error-reporting layer.
 - Image-sequence import now probes associated-audio duration asynchronously end to
   end behind a non-joining five-second deadline. The former semaphore compatibility
@@ -324,6 +324,7 @@ migrated 2026-09-01–04. Image-sequence WAV sidecar extraction and AV2 one-shot
 helper launches migrated 2026-09-04.
 Native-waveform streaming encoding migrated 2026-09-04.
 Chunked AV2 worker pipelines migrated 2026-09-04.
+AV2 source decoder pipelines migrated 2026-09-04.
 
 Provide an injectable runner that owns:
 
@@ -677,9 +678,19 @@ their scratch directory are removed before returning. Focused fake-runner tests 
 request policy, redaction, aggregated split progress, upstream-error precedence, scratch cleanup,
 and cancellation of every producer and consumer stage.
 
-Two direct production launches plus five configuration-only `Process` shims remain. The active
-launches are the AV2 decoder-to-ffmpeg pair; the next migration should move that decode pipeline
-onto the coordinated runner.
+AV2 source decoding now runs avmdec-to-FFmpeg through the coordinated runner instead of
+two directly managed `Process` instances. Both stages have seven-day safety deadlines,
+bounded diagnostics, private-path redaction, process-tree cancellation, and split-record-safe
+FFmpeg progress parsing. Decoder launch, timeout, and nonzero failures remain distinct from
+downstream FFmpeg failures; decoder failures take precedence when the downstream tool only
+fails because its Y4M input ended early. Partial outputs are removed through the shared
+conversion completion gate, and cancellation stops both pipeline stages. Focused fake-runner
+tests cover request policy, streamed input, redaction, split progress, failure precedence,
+cleanup, and two-stage cancellation.
+
+Five configuration-only `Process` shims remain. They do not launch processes themselves and
+already hand their resolved executable, arguments, and environment to the shared runner.
+Robust process-group isolation still remains open, so this item stays in progress.
 
 ### 2.2 Remove sync-over-async waits
 
@@ -855,7 +866,7 @@ cancel an in-flight transfer or report its terminal failure, while duplicate cal
 explicit in-progress error. Focused tests cover deadline policy, cache layout and progress,
 metadata and parent cancellation, concurrent-model isolation, duplicate callers, atomic
 replacement of incomplete caches, late retry results and failures, truncated non-LFS files,
-checksum failure, unsafe remote paths, and staging cleanup. All 299 unit tests pass;
+checksum failure, unsafe remote paths, and staging cleanup. All 303 unit tests pass;
 the wider audit of remaining unbounded framework callbacks continues.
 
 ### 2.3 Standardize user-visible errors

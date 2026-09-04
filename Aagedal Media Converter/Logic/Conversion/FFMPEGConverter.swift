@@ -12,19 +12,8 @@ import CoreGraphics
 import os
 import OSLog
 
-private actor StderrCollector {
-    private var buffer = Data()
-    func append(_ data: Data) {
-        buffer.append(data)
-    }
-
-    func snapshot() -> Data {
-        buffer
-    }
-}
-
 /// Serializes the several asynchronous exit paths a conversion can have. In particular,
-/// a failed auxiliary process can terminate FFmpeg and race its termination handler.
+/// cancellation and subprocess completion may race while post-processing is handed off.
 private final class ConversionCompletionGate: @unchecked Sendable {
     private let lock = NSLock()
     private var didComplete = false
@@ -106,7 +95,6 @@ private final class ConversionOutputReservations: @unchecked Sendable {
 }
 
 actor FFMPEGConverter {
-    private var currentProcess: Process?
     private var currentSubprocessTask: Task<Void, Never>?
     private var currentWaveformAnalysisTask: Task<FrequencyBandData, Error>?
     private var currentWaveformAnalysisID: UUID?
@@ -125,12 +113,9 @@ actor FFMPEGConverter {
     private var activeConversionID: UUID?
     private var postProcessingConversionID: UUID?
     private var activeBMXOperationID: UUID?
-    /// Secondary process for multi-process pipelines (e.g. the AV2 ffmpeg→avmenc pipe).
-    /// Tracked separately so `cancelConversion()` can terminate both halves.
-    private var auxProcess: Process?
-
     private let subprocessRunner: any SubprocessRunning
     private let ffmpegPathProvider: @Sendable () -> String?
+    private let avmdecPathProvider: @Sendable () -> String?
 
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGConverter")
     private static let outputReservations = ConversionOutputReservations()
@@ -170,10 +155,12 @@ actor FFMPEGConverter {
 
     init(
         subprocessRunner: any SubprocessRunning = SubprocessRunner(),
-        ffmpegPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ffmpegPath }
+        ffmpegPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ffmpegPath },
+        avmdecPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.avmdecPath }
     ) {
         self.subprocessRunner = subprocessRunner
         self.ffmpegPathProvider = ffmpegPathProvider
+        self.avmdecPathProvider = avmdecPathProvider
     }
 
     // MARK: - Temp File Cleanup
@@ -467,8 +454,6 @@ actor FFMPEGConverter {
             await BMXService.shared.cancel(operationID: supersededBMXOperationID)
             _ = await BMXService.shared.finishCancellationTracking(operationID: supersededBMXOperationID)
         }
-        currentProcess?.terminate()
-        auxProcess?.terminate()
         let conversionID = UUID()
         activeConversionID = conversionID
 
@@ -828,8 +813,7 @@ actor FFMPEGConverter {
         // avmdec reads both raw `.ivf` bitstreams and AV2-in-Matroska (`.mkv`/`.webm`) directly.
         // For Matroska sources the original file is added as a second FFmpeg input so its
         // (FFmpeg-readable) audio track can be mapped in. Skipped for merges / AVC-Intra / waveform.
-        var av2DecodeBridge: Pipe? = nil
-        var av2DecodeProcess: Process? = nil
+        var av2DecodeRequest: SubprocessRequest? = nil
         var av2MatroskaAudioFromInput1 = false
         let av2SourceExt = inputURL.pathExtension.lowercased()
         let av2IsIVF = (av2SourceExt == "ivf") && (IVFHeaderParser.parse(url: inputURL)?.isAV2 ?? false)
@@ -839,7 +823,7 @@ actor FFMPEGConverter {
            request.customInputArguments == nil,
            request.waveformRequest == nil,
            request.synthesizedVideoRequest == nil,
-           let avmdecPath = BinaryPathResolver.avmdecPath {
+           let avmdecPath = avmdecPathProvider() {
             // avmdec writes self-describing Y4M to stdout, so FFmpeg auto-detects the exact
             // chroma subsampling and bit depth (4:2:0/4:2:2/4:4:4, 8/10/12-bit) with no
             // assumptions — native depth is preserved (a 10-bit source stays 10-bit).
@@ -854,15 +838,14 @@ actor FFMPEGConverter {
             } else {
                 effectiveCustomInputArguments = ["-f", "yuv4mpegpipe", "-i", "pipe:0"]
             }
-            let bridge = Pipe()
-            let decoder = Process()
-            decoder.executableURL = URL(fileURLWithPath: avmdecPath)
-            decoder.arguments = [inputURL.path, "-o", "-"]
-            decoder.standardOutput = bridge
-            decoder.standardError = FileHandle.nullDevice
-            decoder.standardInput = FileHandle.nullDevice
-            av2DecodeBridge = bridge
-            av2DecodeProcess = decoder
+            av2DecodeRequest = SubprocessRequest(
+                executableURL: URL(fileURLWithPath: avmdecPath),
+                arguments: [inputURL.path, "-o", "-"],
+                timeout: Self.av2PipelineTimeout,
+                standardOutputCaptureLimit: 0,
+                standardErrorCaptureLimit: Self.av2PipelineDiagnosticCaptureLimit,
+                sensitiveValues: [inputURL.path, avmdecPath]
+            )
             Self.logger.info("AV2 decode front-end: avmdec → ffmpeg for \(inputURL.lastPathComponent, privacy: .public)\(av2IsMatroska ? " (Matroska + audio)" : "")")
         }
 
@@ -930,7 +913,6 @@ actor FFMPEGConverter {
                 effectiveDurationBox.value = expectedDuration
             }
         }
-        let stderrCollector = StderrCollector()
         let frameStallTracker = FrameStallTracker()
         let progressThrottler = ProgressThrottler()
         let frameRate = request.videoFrameRate ?? 24.0  // Default to 24fps if not provided
@@ -1755,59 +1737,76 @@ actor FFMPEGConverter {
             return
         }
 
-        if let decoder = av2DecodeProcess, let bridge = av2DecodeBridge {
-            // The AV2 decoder front-end still requires a live Process-to-Process pipe. Keep this
-            // compatibility path until SubprocessRunner supports streaming standard input.
-            let process = Process()
-            await setCurrentProcess(process)
-            process.executableURL = URL(fileURLWithPath: ffmpegPath)
-            process.arguments = finalArguments
-            process.standardInput = bridge
-            process.standardOutput = FileHandle.nullDevice
-
-            let errorPipe = Pipe()
-            process.standardError = errorPipe
-            errorPipe.fileHandleForReading.readabilityHandler = { fileHandle in
-                let data = fileHandle.availableData
-                guard !data.isEmpty else { return }
-                progressStreamParser.consume(data)
-                Task { await stderrCollector.append(data) }
-            }
-            process.terminationHandler = { _ in
-                errorPipe.fileHandleForReading.readabilityHandler = nil
-                progressStreamParser.finish()
-                Task {
-                    let stderr = await stderrCollector.snapshot()
-                    handleFFmpegTermination(process.terminationStatus, stderr, nil)
-                }
-            }
-
-            do {
-                try process.run()
-                await setAuxProcess(decoder)
+        if let decoderRequest = av2DecodeRequest {
+            let runner = subprocessRunner
+            currentSubprocessTask = Task {
                 do {
-                    try decoder.run()
-                    try? bridge.fileHandleForWriting.close()
-                    try? bridge.fileHandleForReading.close()
-                } catch {
-                    Self.logger.error("Failed to run avmdec: \(error.localizedDescription, privacy: .public)")
-                    process.terminate()
-                    await setAuxProcess(nil)
-                    handleFFmpegTermination(
-                        -SIGTERM,
-                        Data(),
-                        "Failed to start AV2 decoder (avmdec): \(error.localizedDescription)"
+                    let pipelineResult = try await runner.runPipeline(
+                        producer: decoderRequest,
+                        consumer: subprocessRequest,
+                        consumerOutputHandler: { chunk in
+                            guard case .standardError = chunk.stream else { return }
+                            progressStreamParser.consume(chunk.data)
+                        }
                     )
+                    progressStreamParser.finish()
+
+                    let ffmpegResult = pipelineResult.consumer
+                    var forcedErrorReason: String?
+                    switch pipelineResult.producer {
+                    case .completed(let decoderResult):
+                        if !decoderResult.succeeded {
+                            let diagnostic = decoderRequest.redactedDiagnostic(
+                                decoderResult.standardErrorText,
+                                limit: 64 * 1024
+                            )
+                            forcedErrorReason = Self.av2DecoderErrorReason(
+                                diagnostic: diagnostic,
+                                exitCode: decoderResult.terminationStatus
+                            )
+                        }
+                    case .failed(.cancelled):
+                        forcedErrorReason = "Conversion cancelled"
+                    case .failed(.timedOut):
+                        forcedErrorReason = "AV2 decoding timed out after 7 days"
+                    case .failed(.failedToStart(let reason)):
+                        forcedErrorReason = "Failed to start AV2 decoder (avmdec): \(reason)"
+                    case .failed(.connectionClosed(let reason)):
+                        if ffmpegResult.succeeded {
+                            forcedErrorReason = "AV2 decode pipeline closed before all frames were delivered: \(reason)"
+                        }
+                    case .failed(.failed(let reason)):
+                        forcedErrorReason = "AV2 decoding failed: \(reason)"
+                    case .unfinished:
+                        if ffmpegResult.succeeded {
+                            forcedErrorReason = "AV2 decoder did not finish"
+                        }
+                    }
+                    handleFFmpegTermination(
+                        ffmpegResult.terminationStatus,
+                        ffmpegResult.standardError,
+                        forcedErrorReason
+                    )
+                } catch is CancellationError {
+                    progressStreamParser.finish()
+                    handleFFmpegTermination(-SIGTERM, Data(), "Conversion cancelled")
+                } catch SubprocessRunnerError.timedOut(_, let result) {
+                    progressStreamParser.finish()
+                    handleFFmpegTermination(
+                        result.terminationStatus,
+                        result.standardError,
+                        "FFmpeg conversion timed out after 7 days"
+                    )
+                } catch {
+                    progressStreamParser.finish()
+                    let message = subprocessRequest.redactedDiagnostic(error.localizedDescription)
+                    Self.logger.error("Failed to run AV2 decode pipeline: \(message, privacy: .public)")
+                    handleFFmpegTermination(-1, Data(), "Failed to start FFmpeg: \(message)")
                 }
-            } catch {
-                Self.logger.error("Failed to run process: \(error.localizedDescription, privacy: .public)")
-                await finishTrackedConversion(conversionID)
-                finish(false, "Failed to start FFmpeg: \(error.localizedDescription)")
             }
             return
         }
 
-        await setCurrentProcess(nil)
         let runner = subprocessRunner
         currentSubprocessTask = Task {
             do {
@@ -1849,6 +1848,18 @@ actor FFMPEGConverter {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .last(where: { !$0.isEmpty }) ?? trimmed
         return truncateForDisplay("\(base): \(lastLine)")
+    }
+
+    /// Extracts a concise reason from avmdec stderr. The decoder's actionable message is
+    /// generally its last non-empty line, but some launch failures have no captured output.
+    private static func av2DecoderErrorReason(diagnostic: String, exitCode: Int32) -> String {
+        let lastLine = diagnostic.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last(where: { !$0.isEmpty })
+        if let lastLine {
+            return truncateForDisplay("AV2 decoder failed: \(lastLine)")
+        }
+        return "AV2 decoder failed (exit \(exitCode))"
     }
 
     /// Extracts a concise reason from avmenc stderr. The encoder's actionable message
@@ -4042,14 +4053,6 @@ actor FFMPEGConverter {
             await BMXService.shared.cancel(operationID: bmxOperationID)
             _ = await BMXService.shared.finishCancellationTracking(operationID: bmxOperationID)
         }
-        currentProcess?.terminate()
-        auxProcess?.terminate()
-        await setCurrentProcess(nil)
-        await setAuxProcess(nil)
-    }
-
-    private func setCurrentProcess(_ process: Process?) async {
-        self.currentProcess = process
     }
 
     @discardableResult
@@ -4066,8 +4069,6 @@ actor FFMPEGConverter {
         currentAV2HelperTask = nil
         currentAV2HelperTaskID = nil
         currentAV2PipelineTasks.removeAll()
-        currentProcess = nil
-        auxProcess = nil
         return true
     }
 
@@ -4094,8 +4095,6 @@ actor FFMPEGConverter {
         currentAV2HelperTask = nil
         currentAV2HelperTaskID = nil
         currentAV2PipelineTasks.removeAll()
-        currentProcess = nil
-        auxProcess = nil
         return true
     }
 
@@ -4130,12 +4129,6 @@ actor FFMPEGConverter {
         postProcessingConversionID == conversionID
     }
 
-    private func clearCurrentProcess(if process: Process) async {
-        if currentProcess === process {
-            currentProcess = nil
-        }
-    }
-
     private func clearWaveformAnalysis(if analysisID: UUID) {
         guard currentWaveformAnalysisID == analysisID else { return }
         currentWaveformAnalysisTask = nil
@@ -4144,10 +4137,6 @@ actor FFMPEGConverter {
 
     private func isActiveConversion(_ conversionID: UUID) -> Bool {
         activeConversionID == conversionID
-    }
-
-    private func setAuxProcess(_ process: Process?) async {
-        self.auxProcess = process
     }
 
     private final class DurationBox: Sendable {
