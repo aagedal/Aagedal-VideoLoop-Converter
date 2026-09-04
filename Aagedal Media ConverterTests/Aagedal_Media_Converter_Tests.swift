@@ -1174,6 +1174,126 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testWhisperModelDownloadUsesExplicitNetworkDeadlines() {
+        let configuration = URLSessionWhisperModelDownloadOperation.makeConfiguration()
+
+        XCTAssertEqual(configuration.timeoutIntervalForRequest, 60)
+        XCTAssertEqual(
+            configuration.timeoutIntervalForResource,
+            URLSessionWhisperModelDownloadOperation.resourceTimeout
+        )
+        XCTAssertEqual(URLSessionWhisperModelDownloadOperation.resourceTimeout, 12 * 60 * 60)
+    }
+
+    func testWhisperModelDownloadPublishesOwnedTemporaryFileAndProgress() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whisper-manager-success-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let downloadedFile = root.appendingPathComponent("download.bin")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("model-data".utf8).write(to: downloadedFile)
+
+        let operation = ControlledWhisperModelDownloadOperation()
+        let recorder = WhisperProgressRecorder()
+        let manager = WhisperModelManager(
+            modelsDirectory: root.appendingPathComponent("models", isDirectory: true),
+            operationFactory: { _, _ in operation }
+        )
+
+        let task = Task {
+            try await manager.downloadModel(.base) { value in
+                recorder.record(value)
+            }
+        }
+        await operation.waitUntilStarted()
+        operation.emitProgress(0.35)
+        await recorder.waitUntilContains(0.35)
+        operation.succeed(with: downloadedFile)
+        try await task.value
+
+        let installedURL = manager.modelPath(for: .base)
+        XCTAssertEqual(try Data(contentsOf: installedURL), Data("model-data".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadedFile.path))
+        XCTAssertEqual(recorder.values.last, 1)
+        XCTAssertTrue(recorder.values.contains(0.35))
+        let status = await manager.getModelStatus(.base)
+        XCTAssertEqual(status, .downloaded)
+    }
+
+    func testWhisperModelDownloadParentCancellationStopsOperationPromptly() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whisper-manager-parent-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let operation = ControlledWhisperModelDownloadOperation()
+        let manager = WhisperModelManager(
+            modelsDirectory: root,
+            operationFactory: { _, _ in operation }
+        )
+        let task = Task {
+            try await manager.downloadModel(.base) { _ in }
+        }
+        await operation.waitUntilStarted()
+
+        let start = ContinuousClock.now
+        task.cancel()
+        do {
+            try await task.value
+            XCTFail("Expected the model download to be cancelled")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        XCTAssertEqual(operation.cancellationCount, 1)
+        let status = await manager.getModelStatus(.base)
+        XCTAssertEqual(status, .notDownloaded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manager.modelPath(for: .base).path))
+    }
+
+    func testWhisperModelDownloadLateCancelledAttemptCannotReplaceRetry() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("whisper-manager-retry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let firstFile = root.appendingPathComponent("first.bin")
+        let secondFile = root.appendingPathComponent("second.bin")
+        try Data("first".utf8).write(to: firstFile)
+        try Data("second".utf8).write(to: secondFile)
+
+        let firstOperation = ControlledWhisperModelDownloadOperation(honorsCancellation: false)
+        let secondOperation = ControlledWhisperModelDownloadOperation()
+        let operations = WhisperModelDownloadOperationQueue([firstOperation, secondOperation])
+        let manager = WhisperModelManager(
+            modelsDirectory: root.appendingPathComponent("models", isDirectory: true),
+            operationFactory: { _, _ in operations.next() }
+        )
+
+        let firstTask = Task { try await manager.downloadModel(.base) { _ in } }
+        await firstOperation.waitUntilStarted()
+        await manager.cancelDownload(for: .base)
+
+        let retryTask = Task { try await manager.downloadModel(.base) { _ in } }
+        await secondOperation.waitUntilStarted()
+        secondOperation.succeed(with: secondFile)
+        try await retryTask.value
+
+        firstOperation.succeed(with: firstFile)
+        do {
+            try await firstTask.value
+            XCTFail("Expected the cancelled attempt to reject its late result")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+
+        XCTAssertEqual(try Data(contentsOf: manager.modelPath(for: .base)), Data("second".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: firstFile.path))
+        XCTAssertEqual(firstOperation.cancellationCount, 1)
+    }
+
     func testCaptureWriterFinalizationReturnsAfterImmediateCallback() async throws {
         try await CaptureWriterFinalization.wait(timeout: .seconds(1)) { completion in
             completion()
@@ -10971,6 +11091,132 @@ private final class RcloneCallbackRecorder: @unchecked Sendable {
         lock.withLock {
             recordedValues.append(value)
             recordedSpeeds.append(speed)
+        }
+    }
+}
+
+private final class ControlledWhisperModelDownloadOperation: WhisperModelDownloadOperation,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let honorsCancellation: Bool
+    private var result: Result<URL, Error>?
+    private var continuation: CheckedContinuation<URL, Error>?
+    private var progressHandler: (@Sendable (Double) -> Void)?
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var recordedCancellationCount = 0
+
+    init(honorsCancellation: Bool = true) {
+        self.honorsCancellation = honorsCancellation
+    }
+
+    var cancellationCount: Int {
+        lock.withLock { recordedCancellationCount }
+    }
+
+    func run(progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let state = lock.withLock { () -> (
+                Result<URL, Error>?,
+                [CheckedContinuation<Void, Never>]
+            ) in
+                let currentResult = result
+                if currentResult == nil {
+                    self.continuation = continuation
+                    progressHandler = progress
+                }
+                started = true
+                let waiters = startWaiters
+                startWaiters.removeAll()
+                return (currentResult, waiters)
+            }
+            for waiter in state.1 {
+                waiter.resume()
+            }
+            if let result = state.0 {
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    func cancel() {
+        let shouldResolve = lock.withLock { () -> Bool in
+            recordedCancellationCount += 1
+            return honorsCancellation
+        }
+        if shouldResolve {
+            resolve(.failure(CancellationError()))
+        }
+    }
+
+    func emitProgress(_ value: Double) {
+        let handler = lock.withLock { result == nil ? progressHandler : nil }
+        handler?(value)
+    }
+
+    func succeed(with url: URL) {
+        resolve(.success(url))
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !started else { return true }
+                startWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func resolve(_ newResult: Result<URL, Error>) {
+        let pending = lock.withLock { () -> CheckedContinuation<URL, Error>? in
+            guard result == nil else { return nil }
+            result = newResult
+            let pending = continuation
+            continuation = nil
+            progressHandler = nil
+            return pending
+        }
+        pending?.resume(with: newResult)
+    }
+}
+
+private final class WhisperModelDownloadOperationQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private var operations: [any WhisperModelDownloadOperation]
+
+    init(_ operations: [any WhisperModelDownloadOperation]) {
+        self.operations = operations
+    }
+
+    func next() -> any WhisperModelDownloadOperation {
+        lock.withLock {
+            precondition(!operations.isEmpty, "No configured Whisper download operation remains")
+            return operations.removeFirst()
+        }
+    }
+}
+
+private final class WhisperProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedValues: [Double] = []
+
+    var values: [Double] {
+        lock.withLock { recordedValues }
+    }
+
+    func record(_ value: Double) {
+        lock.withLock { recordedValues.append(value) }
+    }
+
+    func waitUntilContains(_ expectedValue: Double) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while !values.contains(expectedValue), ContinuousClock.now < deadline {
+            await Task.yield()
         }
     }
 }

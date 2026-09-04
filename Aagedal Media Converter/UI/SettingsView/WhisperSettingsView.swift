@@ -394,6 +394,11 @@ struct WhisperSettingsView: View {
                         selectedModel = model.rawValue
                     }
                 }
+            } catch is CancellationError {
+                await MainActor.run {
+                    modelDownloading.remove(model)
+                    modelDownloadProgress.removeValue(forKey: model)
+                }
             } catch {
                 await MainActor.run {
                     modelDownloading.remove(model)

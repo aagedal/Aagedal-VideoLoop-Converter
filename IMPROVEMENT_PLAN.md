@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 262 tests pass. The
+- The unit-test baseline is green: 266 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 262 unit tests. The UI test target now has deterministic smoke
+- There are 266 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -654,8 +654,8 @@ incremental stdin and coordinated multi-process support.
 ### 2.2 Remove sync-over-async waits
 
 Status: in progress; image-sequence duration probing migrated async end-to-end,
-preview/analytics media preflight bounded, and Apple Vision per-frame OCR bounded
-2026-09-04.
+preview/analytics media preflight bounded, Apple Vision per-frame OCR bounded, and
+Whisper model downloads made cancellation-safe 2026-09-04.
 
 - Make image-sequence duration probing async end-to-end, or give the compatibility
   bridge a bounded timeout while callers are migrated.
@@ -800,6 +800,16 @@ error and parent-task cancellation returns promptly. A retained finalization box
 writer alive until any late callback actually arrives, so returning early cannot release live
 AVFoundation state. Deterministic tests cover immediate completion, timeout, late completion,
 and parent cancellation.
+
+Whisper model downloads now run through an injectable, exactly-once URLSession operation with
+an explicit twelve-hour resource deadline. Parent-task and Settings cancellation terminate the
+underlying transfer promptly, while per-model attempt identities fence late progress and prevent
+a cancelled download from publishing over or clearing its retry. Downloaded files remain staged
+outside the models directory until the final ownership check, and cancellation is no longer
+reported as a user-visible download failure. Focused tests cover deadline configuration, staged
+publication and progress, prompt parent cancellation, and a non-cooperative late result racing a
+successful retry. All 266 unit tests pass, and the cancellation/late-result slice also passes
+under Thread Sanitizer. Parakeet model metadata and file downloads remain the next analogous audit.
 
 ### 2.3 Standardize user-visible errors
 
