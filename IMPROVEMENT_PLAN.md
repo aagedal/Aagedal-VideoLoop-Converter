@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 234 tests pass. The
+- The unit-test baseline is green: 238 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 234 unit tests. The UI test target now has deterministic smoke
+- There are 238 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -705,6 +705,21 @@ The essential-info fallback has its own bound, and an exhausted fallback no long
 the same stalled single-flight read through separate duration and stream probes.
 Deterministic tests cover immediate success, timeout with late completion, prompt parent
 cancellation, a bounded fallback, and the player metadata entry point.
+
+Queue-row thumbnail loading now has its own non-joining fifteen-second deadline alongside
+the metadata probe. A stalled SwiftMediaMetadata or AVFoundation thumbnail read can finish
+safely behind the generator's retained security scope, but it can no longer hold the
+parallel `loadDetails` tuple and pin an import after metadata has already resolved. Focused
+tests cover prompt timeout and parent cancellation while a non-cooperative thumbnail probe
+finishes late.
+
+Normal application termination now uses AppKit's asynchronous terminate-later handshake
+instead of blocking the main thread on a semaphore to reach the preview actor. Repeated quit
+requests share one cleanup attempt, preview subprocess cancellation remains bounded by a
+non-joining two-second deadline, and AppKit receives exactly one completion reply even if
+cleanup stalls. Focused tests cover coalescing and the stalled-cleanup deadline. There are
+now no production semaphore, `DispatchGroup.wait`, or `waitUntilExit` calls; the wider audit
+of unbounded framework callbacks and metadata consumers remains open.
 
 ### 2.3 Standardize user-visible errors
 

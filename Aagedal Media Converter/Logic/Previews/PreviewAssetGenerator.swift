@@ -147,18 +147,6 @@ actor PreviewAssetGenerator {
         }
     }
 
-    /// Synchronous version for use in applicationWillTerminate
-    /// Uses a semaphore to wait for the actor-isolated method to complete
-    nonisolated func terminateAllProcessesSync() {
-        let semaphore = DispatchSemaphore(value: 0)
-        Task {
-            await self.terminateAllProcesses()
-            semaphore.signal()
-        }
-        // Wait up to 2 seconds for processes to be terminated
-        _ = semaphore.wait(timeout: .now() + 2.0)
-    }
-
     /// Cancels asset generation for a specific URL
     /// Active subprocesses for the URL are cancelled through the shared runner so their
     /// descendants cannot outlive the preview request.

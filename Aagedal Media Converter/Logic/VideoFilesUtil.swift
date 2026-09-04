@@ -302,7 +302,10 @@ struct VideoFileUtils: Sendable {
         // service's `inFlightRawVideo` map dedups concurrent SwiftExif reads internally, so
         // even when several files import together we don't pay for redundant parses.
         async let metadataResult = fetchVideoMetadataWithFallback(for: url)
-        async let thumbResult = getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generateRowThumbnailIfMissing)
+        async let thumbResult = fetchRowThumbnail(
+            for: url,
+            generateIfMissing: generateRowThumbnailIfMissing
+        )
 
         let (outcome, thumb) = await (metadataResult, thumbResult)
 
@@ -641,6 +644,29 @@ struct VideoFileUtils: Sendable {
             return nil
         } catch {
             logger.debug("Error loading thumbnail for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Keeps a stalled metadata or AVFoundation thumbnail read from holding the entire import.
+    /// The underlying generator retains its security scope until a late operation actually exits;
+    /// this caller only stops waiting for a result that is no longer useful to the queue row.
+    static func fetchRowThumbnail(
+        for url: URL,
+        generateIfMissing: Bool = true,
+        timeout: Duration = .seconds(15),
+        thumbnailProbe: @escaping @Sendable (URL, Bool) async -> Data? = { url, generate in
+            await getCachedThumbnail(url: url, generateRowThumbnailIfMissing: generate)
+        }
+    ) async -> Data? {
+        do {
+            return try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try Task.checkCancellation()
+                let data = await thumbnailProbe(url, generateIfMissing)
+                try Task.checkCancellation()
+                return data
+            }
+        } catch {
             return nil
         }
     }

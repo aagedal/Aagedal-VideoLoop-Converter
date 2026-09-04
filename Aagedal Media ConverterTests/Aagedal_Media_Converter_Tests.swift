@@ -1236,6 +1236,58 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testRowThumbnailFetchDoesNotJoinTimedOutProbe() async {
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let start = ContinuousClock.now
+
+        let thumbnail = await VideoFileUtils.fetchRowThumbnail(
+            for: URL(fileURLWithPath: "/private/stalled-thumbnail.mov"),
+            timeout: .milliseconds(50)
+        ) { _, _ in
+            await withCheckedContinuation { continuation in
+                probeStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(returning: Data([0x01]))
+                }
+            }
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertNil(thumbnail)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testRowThumbnailFetchParentCancellationReturnsPromptly() async {
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let task = Task {
+            await VideoFileUtils.fetchRowThumbnail(
+                for: URL(fileURLWithPath: "/private/cancelled-thumbnail.mov"),
+                timeout: .seconds(10)
+            ) { _, _ in
+                await withCheckedContinuation { continuation in
+                    probeStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseProbe.wait()
+                        continuation.resume(returning: Data([0x01]))
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        let start = ContinuousClock.now
+        task.cancel()
+
+        let thumbnail = await task.value
+        XCTAssertNil(thumbnail)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
     func testYTDLPVersionProbeUsesBoundedRunnerAndParsesToolVersions() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("YTDLPVersionProbe-\(UUID().uuidString)")
@@ -1825,6 +1877,53 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             }
         }
         XCTAssertEqual(runner.cancelledCount, 2)
+    }
+
+    @MainActor
+    func testApplicationTerminationGateCoalescesRepeatedQuitRequests() async {
+        let cleanup = DeferredTerminationCleanup()
+        let reply = expectation(description: "AppKit termination reply")
+        let replyCount = OSAllocatedUnfairLock(initialState: 0)
+        let gate = ApplicationTerminationGate(timeout: .seconds(1)) {
+            await cleanup.run()
+        }
+
+        let firstReply = gate.requestTermination {
+            replyCount.withLock { $0 += 1 }
+            reply.fulfill()
+        }
+        let repeatedReply = gate.requestTermination {
+            XCTFail("A repeated quit request must not install a second reply")
+        }
+
+        XCTAssertEqual(firstReply, .terminateLater)
+        XCTAssertEqual(repeatedReply, .terminateLater)
+        await cleanup.waitUntilStarted()
+        XCTAssertEqual(cleanup.startedCount, 1)
+
+        cleanup.release()
+        await fulfillment(of: [reply], timeout: 1)
+        XCTAssertEqual(replyCount.withLock { $0 }, 1)
+    }
+
+    @MainActor
+    func testApplicationTerminationGateRepliesWithoutJoiningStalledCleanup() async {
+        let cleanup = DeferredTerminationCleanup()
+        let reply = expectation(description: "Bounded AppKit termination reply")
+        let gate = ApplicationTerminationGate(timeout: .milliseconds(20)) {
+            await cleanup.run()
+        }
+        let start = ContinuousClock.now
+
+        XCTAssertEqual(
+            gate.requestTermination { reply.fulfill() },
+            .terminateLater
+        )
+        await cleanup.waitUntilStarted()
+        await fulfillment(of: [reply], timeout: 1)
+
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        cleanup.release()
     }
 
     func testBMXRewrapUsesSharedRunnerWithBoundedPolicyAndSplitProgress() async throws {
@@ -10113,5 +10212,52 @@ private final class SecurityScopeRecorder: @unchecked Sendable {
 
     func stop(_ url: URL) {
         lock.withLock { stops.append(url) }
+    }
+}
+
+private final class DeferredTerminationCleanup: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didStart = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    var startedCount: Int {
+        lock.withLock { didStart ? 1 : 0 }
+    }
+
+    func run() async {
+        await withCheckedContinuation { continuation in
+            let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                releaseContinuation = continuation
+                didStart = true
+                let waiters = startWaiters
+                startWaiters.removeAll()
+                return waiters
+            }
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !didStart else { return true }
+                startWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            defer { releaseContinuation = nil }
+            return releaseContinuation
+        }
+        continuation?.resume()
     }
 }

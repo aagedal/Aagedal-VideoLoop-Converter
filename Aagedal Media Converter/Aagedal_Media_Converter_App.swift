@@ -211,14 +211,63 @@ private extension Aagedal_Media_Converter_App {
     }
 }
 
+@MainActor
+final class ApplicationTerminationGate {
+    private let cleanup: @Sendable () async -> Void
+    private let timeout: Duration
+    private var pendingTask: Task<Void, Never>?
+
+    init(
+        timeout: Duration,
+        cleanup: @escaping @Sendable () async -> Void
+    ) {
+        self.timeout = timeout
+        self.cleanup = cleanup
+    }
+
+    /// Starts cleanup once and tells AppKit to keep the process alive until `reply` runs.
+    /// The non-joining deadline prevents a blocked actor or library call from pinning quit.
+    func requestTermination(
+        reply: @escaping @MainActor @Sendable () -> Void
+    ) -> NSApplication.TerminateReply {
+        guard pendingTask == nil else { return .terminateLater }
+
+        let cleanup = cleanup
+        let timeout = timeout
+        pendingTask = Task {
+            do {
+                try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                    await cleanup()
+                }
+            } catch {
+                // Quitting must proceed if cleanup reaches its deadline. The losing task is
+                // cancelled without being joined, matching the previous bounded behavior.
+            }
+            reply()
+        }
+        return .terminateLater
+    }
+}
+
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var isFirstActivation = true
+    private lazy var terminationGate = ApplicationTerminationGate(
+        timeout: .seconds(2),
+        cleanup: Self.terminatePreviewProcesses
+    )
+
+    private nonisolated static func terminatePreviewProcesses() async {
+        await PreviewAssetGenerator.shared.terminateAllProcesses()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        terminationGate.requestTermination {
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Terminate any running FFmpeg/FFprobe processes spawned by preview asset generation
-        // This prevents orphaned processes when the app closes
-        PreviewAssetGenerator.shared.terminateAllProcessesSync()
-
         // Tear down any virtual displays so none linger after the app quits.
         MainActor.assumeIsolated {
             VirtualDisplayManager.shared.destroyAll()
@@ -304,4 +353,3 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return nil
     }
 }
-
