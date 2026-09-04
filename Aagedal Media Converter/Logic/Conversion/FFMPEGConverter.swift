@@ -129,11 +129,6 @@ actor FFMPEGConverter {
     /// Tracked separately so `cancelConversion()` can terminate both halves.
     private var auxProcess: Process?
 
-    /// Live ffmpeg/avmenc processes for the parallel chunked AV2 encode (one ffmpeg + one avmenc
-    /// per chunk). Tracked as a set so `cancelConversion()` and the inter-worker abort path can
-    /// terminate every worker. Each worker removes its own pair once it exits.
-    private var av2Workers: Set<Process> = []
-
     private let subprocessRunner: any SubprocessRunning
     private let ffmpegPathProvider: @Sendable () -> String?
 
@@ -474,8 +469,6 @@ actor FFMPEGConverter {
         }
         currentProcess?.terminate()
         auxProcess?.terminate()
-        for worker in av2Workers where worker.isRunning { worker.terminate() }
-        av2Workers.removeAll()
         let conversionID = UUID()
         activeConversionID = conversionID
 
@@ -2245,6 +2238,7 @@ actor FFMPEGConverter {
         progressUpdate(0.0, "Encoding AV2 — \(chunkCount) chunks — frame 0/\(totalFrames)")
 
         var outcomes: [AV2SegmentOutcome] = []
+        var firstFailure: AV2SegmentOutcome?
         await withTaskGroup(of: AV2SegmentOutcome.self) { group in
             for seg in plan.segments {
                 group.addTask {
@@ -2253,13 +2247,19 @@ actor FFMPEGConverter {
             }
             for await outcome in group {
                 outcomes.append(outcome)
-                // First failure: kill the remaining workers so we don't burn cores on a doomed encode.
-                if !outcome.success { self.terminateAV2Workers() }
+                // Preserve the root failure and cancel the remaining coordinated pipelines so we
+                // don't burn cores on a doomed encode. Later sibling-cancellation outcomes must not
+                // replace the actionable error from the worker that failed first.
+                if !outcome.success, firstFailure == nil {
+                    firstFailure = outcome
+                    group.cancelAll()
+                    self.cancelAV2PipelineTasks()
+                }
             }
         }
 
         // All workers have exited (the task group is the 2N-of-2N termination barrier).
-        if let failed = outcomes.first(where: { !$0.success }) {
+        if let failed = firstFailure ?? outcomes.first(where: { !$0.success }) {
             Self.cleanupDirectory(plan.segmentDirectory)
             Self.logger.error("AV2 chunked failed at chunk \(failed.index): \(failed.errorReason ?? "unknown", privacy: .public)")
             return AV2EncodeResult(success: false, errorReason: failed.errorReason ?? "AV2 chunked encode failed", keyframeIndices: [])
@@ -2286,118 +2286,147 @@ actor FFMPEGConverter {
         }
     }
 
-    /// Encodes a single chunk via an ffmpeg│avmenc pipe (mirrors `runAV2Conversion` for one range).
-    /// Registers both processes in `av2Workers` so they can be cancelled, counts `POC:` frames into
-    /// `onFrames`, and resolves only once both processes have exited (the per-chunk 2-of-2 barrier).
+    /// Encodes one chunk through the shared coordinated ffmpeg→avmenc pipeline. The runner drains
+    /// and bounds both tools' output, terminates their process trees on cancellation or timeout, and
+    /// returns only after the consumer plus the producer's terminal state have been collected.
     private func encodeAV2Segment(
         _ seg: AV2CommandBuilder.AV2SegmentCommand,
         ffmpegPath: String,
         avmencPath: String,
         onFrames: @escaping @Sendable (Int) -> Void
     ) async -> AV2SegmentOutcome {
-        let ffmpeg = Process()
-        ffmpeg.executableURL = URL(fileURLWithPath: ffmpegPath)
-        ffmpeg.arguments = seg.ffmpegArguments
+        let privatePaths = Set(
+            (seg.ffmpegArguments + seg.avmencArguments)
+                .filter { $0.hasPrefix("/") }
+                + [seg.outputURL.path, ffmpegPath, avmencPath]
+        )
+        let ffmpegRequest = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: ffmpegPath),
+            arguments: seg.ffmpegArguments,
+            timeout: Self.av2PipelineTimeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: Self.av2PipelineDiagnosticCaptureLimit,
+            sensitiveValues: privatePaths
+        )
+        let avmencRequest = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: avmencPath),
+            arguments: seg.avmencArguments,
+            timeout: Self.av2PipelineTimeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: Self.av2PipelineDiagnosticCaptureLimit,
+            sensitiveValues: privatePaths
+        )
+        Self.logger.info("AV2 chunk \(seg.index) ffmpeg: \(ffmpegRequest.redactedCommandDescription, privacy: .public)")
+        Self.logger.info("AV2 chunk \(seg.index) avmenc: \(avmencRequest.redactedCommandDescription, privacy: .public)")
 
-        let avmenc = Process()
-        avmenc.executableURL = URL(fileURLWithPath: avmencPath)
-        avmenc.arguments = seg.avmencArguments
-
-        let bridgePipe = Pipe()
-        ffmpeg.standardOutput = bridgePipe
-        avmenc.standardInput = bridgePipe
-
-        let ffmpegErrPipe = Pipe()
-        let avmencErrPipe = Pipe()
-        let avmencOutPipe = Pipe()
-        ffmpeg.standardError = ffmpegErrPipe
-        ffmpeg.standardInput = FileHandle.nullDevice
-        avmenc.standardError = avmencErrPipe
-        avmenc.standardOutput = avmencOutPipe
-
-        let avmencStderr = StderrCollector()
-
-        avmencOutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            let newOnes = text.components(separatedBy: "POC:").count - 1
-            if newOnes > 0 { onFrames(newOnes) }
-        }
-        ffmpegErrPipe.fileHandleForReading.readabilityHandler = { handle in
-            _ = handle.availableData // drain so ffmpeg never blocks on a full stderr buffer
-        }
-        avmencErrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if !data.isEmpty { Task { await avmencStderr.append(data) } }
-        }
-
-        av2Workers.insert(ffmpeg)
-        av2Workers.insert(avmenc)
-
-        let exitState = OSAllocatedUnfairLock<(ffmpeg: Int32?, avmenc: Int32?, resumed: Bool)>(initialState: (nil, nil, false))
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            @Sendable func resumeIfBothFinished() {
-                let shouldResume = exitState.withLock { state -> Bool in
-                    guard state.ffmpeg != nil, state.avmenc != nil, !state.resumed else { return false }
-                    state.resumed = true
-                    return true
+        let progressParser = AV2POCStreamParser(onFrames: onFrames)
+        let pipelineID = UUID()
+        let runner = subprocessRunner
+        let pipelineTask = Task {
+            try await runner.runPipeline(
+                producer: ffmpegRequest,
+                consumer: avmencRequest,
+                consumerOutputHandler: { chunk in
+                    guard case .standardOutput = chunk.stream else { return }
+                    progressParser.consume(chunk.data)
                 }
-                if shouldResume { continuation.resume() }
+            )
+        }
+        currentAV2PipelineTasks[pipelineID] = pipelineTask
+
+        let pipelineResult: SubprocessPipelineResult
+        do {
+            pipelineResult = try await pipelineTask.value
+        } catch is CancellationError {
+            currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+            Self.cleanupAV2SegmentIfPresent(seg.outputURL, label: "cancelled AV2 chunk")
+            return AV2SegmentOutcome(index: seg.index, success: false, errorReason: "Conversion cancelled")
+        } catch SubprocessRunnerError.timedOut {
+            currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+            Self.cleanupAV2SegmentIfPresent(seg.outputURL, label: "timed-out AV2 chunk")
+            return AV2SegmentOutcome(index: seg.index, success: false, errorReason: "AV2 chunk \(seg.index) timed out after 7 days")
+        } catch SubprocessRunnerError.failedToStart(_, let underlying) {
+            currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+            Self.cleanupAV2SegmentIfPresent(seg.outputURL, label: "failed AV2 chunk")
+            let diagnostic = avmencRequest.redactedDiagnostic(underlying)
+            return AV2SegmentOutcome(index: seg.index, success: false, errorReason: "Failed to start AV2 encoder: \(diagnostic)")
+        } catch {
+            currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+            Self.cleanupAV2SegmentIfPresent(seg.outputURL, label: "failed AV2 chunk")
+            let diagnostic = avmencRequest.redactedDiagnostic(error.localizedDescription)
+            return AV2SegmentOutcome(index: seg.index, success: false, errorReason: "Failed to run AV2 chunk \(seg.index): \(diagnostic)")
+        }
+        currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+
+        let avmencResult = pipelineResult.consumer
+        let ffmpegResult: SubprocessResult?
+        var failureReason: String?
+        switch pipelineResult.producer {
+        case .completed(let result):
+            ffmpegResult = result
+        case .failed(.cancelled):
+            ffmpegResult = nil
+            failureReason = "Conversion cancelled"
+        case .failed(.timedOut):
+            ffmpegResult = nil
+            failureReason = "FFmpeg input preparation for AV2 chunk \(seg.index) timed out after 7 days"
+        case .failed(.failedToStart(let reason)):
+            ffmpegResult = nil
+            failureReason = "Failed to start FFmpeg: \(reason)"
+        case .failed(.connectionClosed(let reason)):
+            ffmpegResult = nil
+            if avmencResult.succeeded {
+                failureReason = "AV2 chunk \(seg.index) closed before all frames were delivered: \(reason)"
             }
-            ffmpeg.terminationHandler = { process in
-                exitState.withLock { $0.ffmpeg = process.terminationStatus }
-                resumeIfBothFinished()
-            }
-            avmenc.terminationHandler = { process in
-                exitState.withLock { $0.avmenc = process.terminationStatus }
-                resumeIfBothFinished()
-            }
-            do {
-                try avmenc.run()
-                try ffmpeg.run()
-                try? bridgePipe.fileHandleForWriting.close()
-                try? bridgePipe.fileHandleForReading.close()
-            } catch {
-                if avmenc.isRunning { avmenc.terminate() }
-                if ffmpeg.isRunning { ffmpeg.terminate() }
-                exitState.withLock { state in
-                    if state.ffmpeg == nil { state.ffmpeg = -1 }
-                    if state.avmenc == nil { state.avmenc = -1 }
-                }
-                resumeIfBothFinished()
+        case .failed(.failed(let reason)):
+            ffmpegResult = nil
+            failureReason = "FFmpeg input preparation for AV2 chunk \(seg.index) failed: \(reason)"
+        case .unfinished:
+            ffmpegResult = nil
+            if avmencResult.succeeded {
+                failureReason = "FFmpeg input preparation for AV2 chunk \(seg.index) did not finish"
             }
         }
 
-        ffmpegErrPipe.fileHandleForReading.readabilityHandler = nil
-        avmencErrPipe.fileHandleForReading.readabilityHandler = nil
-        avmencOutPipe.fileHandleForReading.readabilityHandler = nil
-        av2Workers.remove(ffmpeg)
-        av2Workers.remove(avmenc)
-
-        let (ffmpegStatus, avmencStatus) = exitState.withLock { ($0.ffmpeg ?? -1, $0.avmenc ?? -1) }
-        if ffmpegStatus == 0, avmencStatus == 0, Self.fileHasContent(at: seg.outputURL) {
+        let ffmpegStatus = ffmpegResult?.terminationStatus ?? -1
+        let avmencStatus = avmencResult.terminationStatus
+        let success = ffmpegResult?.succeeded == true
+            && avmencResult.succeeded
+            && failureReason == nil
+            && Self.fileHasContent(at: seg.outputURL)
+        if success {
             return AV2SegmentOutcome(index: seg.index, success: true, errorReason: nil)
         }
 
-        let reason: String
-        if avmencStatus != 0 {
-            let stderrString = String(data: await avmencStderr.snapshot(), encoding: .utf8) ?? ""
-            reason = Self.extractAvmencErrorReason(from: stderrString, exitCode: avmencStatus)
-        } else {
-            reason = "AV2 chunk \(seg.index) failed (ffmpeg=\(ffmpegStatus), avmenc=\(avmencStatus))"
+        if failureReason == nil, avmencStatus != 0, ffmpegResult?.succeeded != false {
+            let diagnostic = avmencRequest.redactedDiagnostic(avmencResult.standardErrorText)
+            failureReason = Self.extractAvmencErrorReason(from: diagnostic, exitCode: avmencStatus)
+        } else if failureReason == nil, let ffmpegResult, !ffmpegResult.succeeded {
+            let diagnostic = ffmpegRequest.redactedDiagnostic(ffmpegResult.standardErrorText)
+            failureReason = Self.extractErrorReason(from: diagnostic, exitCode: ffmpegStatus)
+        } else if failureReason == nil {
+            failureReason = Self.fileHasContent(at: seg.outputURL)
+                ? "AV2 chunk \(seg.index) failed (ffmpeg=\(ffmpegStatus), avmenc=\(avmencStatus))"
+                : "AV2 chunk \(seg.index) did not produce an output file"
         }
-        return AV2SegmentOutcome(index: seg.index, success: false, errorReason: reason)
+        Self.cleanupAV2SegmentIfPresent(seg.outputURL, label: "partial AV2 chunk")
+        return AV2SegmentOutcome(index: seg.index, success: false, errorReason: failureReason)
     }
 
-    /// Terminates every still-running chunked AV2 worker (used to abort siblings after one fails).
-    /// Workers remove themselves from `av2Workers` as they exit, so this does not clear the set.
-    private func terminateAV2Workers() {
-        for worker in av2Workers where worker.isRunning { worker.terminate() }
+    private func cancelAV2PipelineTasks() {
+        for task in currentAV2PipelineTasks.values {
+            task.cancel()
+        }
     }
 
     private static func fileHasContent(at url: URL) -> Bool {
         guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
         return size > 0
+    }
+
+    private static func cleanupAV2SegmentIfPresent(_ url: URL, label: String) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        cleanupTempFile(at: url, label: label)
     }
 
     private static func cleanupDirectory(_ url: URL) {
@@ -4015,8 +4044,6 @@ actor FFMPEGConverter {
         }
         currentProcess?.terminate()
         auxProcess?.terminate()
-        for worker in av2Workers where worker.isRunning { worker.terminate() }
-        av2Workers.removeAll()
         await setCurrentProcess(nil)
         await setAuxProcess(nil)
     }
