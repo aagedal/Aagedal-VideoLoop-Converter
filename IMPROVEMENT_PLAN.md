@@ -30,11 +30,10 @@ issue link when it starts.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools have five direct `Process` construction sites outside the shared
-  runner, DEBUG-only UI-test fixture, and UI-test target. All five are
-  configuration-only shims that hand execution to the shared runner; there are no
-  remaining direct production launch paths outside that shared cancellation,
-  timeout, pipe-draining, and error-reporting layer.
+- External tools now construct `Process` only inside the shared runner in production.
+  The remaining app-side construction is a DEBUG-only UI-test fixture generator.
+  All production launch paths share the same cancellation, timeout, pipe-draining,
+  and error-reporting layer.
 - Image-sequence import now probes associated-audio duration asynchronously end to
   end behind a non-joining five-second deadline. The former semaphore compatibility
   bridge has been removed, and cancellation is checked before a derived frame rate is
@@ -361,8 +360,8 @@ user-cancel, live-stop, and stall outcomes, cancel the full subprocess tree, and
 one concurrent or late download from cancelling or clearing another. Fake-runner tests
 cover split output, successful result validation, redacted failures, explicit and parent-task
 cancellation, and live-stop behavior; the runner also verifies that every captured byte reaches its
-incremental handler, including final-drain bytes. Robust process-group isolation and the
-remaining call sites are still open, so this item remains in progress.
+incremental handler, including final-drain bytes. Robust process-group isolation is still
+open, so this item remains in progress.
 
 The rclone upload, connection-test, and password-obscuring paths now use the shared
 runner with six-hour, one-minute, and five-second deadlines respectively, bounded
@@ -507,9 +506,7 @@ instead of a polling loop with manual TERM/KILL handling. Both probes have a
 three-second deadline, bounded stdout and stderr, executable-path redaction,
 process-tree cancellation, structured exit checking, and truncated-output rejection.
 Focused fake-runner tests cover request construction, tool-specific parsing, nonzero
-exit, launch failure, timeout, truncation, and parent-task cancellation. The existing
-Homebrew/Python resolver remains a configuration-only shim until it exposes runner
-request components directly.
+exit, launch failure, timeout, truncation, and parent-task cancellation.
 
 Merge trim and conformance preparation now uses the shared runner instead of an
 untracked continuation around `Process`. Each one-shot FFmpeg run has a twelve-hour
@@ -688,9 +685,10 @@ conversion completion gate, and cancellation stops both pipeline stages. Focused
 tests cover request policy, streamed input, redaction, split progress, failure precedence,
 cleanup, and two-stage cancellation.
 
-Five configuration-only `Process` shims remain. They do not launch processes themselves and
-already hand their resolved executable, arguments, and environment to the shared runner.
-Robust process-group isolation still remains open, so this item stays in progress.
+The Homebrew/Python resolver now returns immutable executable, argument, and environment
+configurations directly to yt-dlp, its updater, and Parakeet. The five configuration-only
+`Process` shims have been removed, leaving the shared runner as the sole production owner of
+`Process`. Robust process-group isolation still remains open, so this item stays in progress.
 
 ### 2.2 Remove sync-over-async waits
 

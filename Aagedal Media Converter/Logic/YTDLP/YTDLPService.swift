@@ -226,23 +226,15 @@ actor YTDLPService {
     }
 
     private func runProbe(ytdlpPath: String, arguments: [String]) async throws -> ProbeResult {
-        // Keep the Homebrew/Python resolution in its existing compatibility helper while
-        // moving process ownership, draining, deadlines, and cancellation into the runner.
-        let configuredProcess = Process()
-        HomebrewPythonExecutor.configureProcess(
-            configuredProcess,
+        let configuration = HomebrewPythonExecutor.ytDLPExecutionConfiguration(
             scriptPath: ytdlpPath,
             arguments: arguments
         )
 
-        guard let executableURL = configuredProcess.executableURL else {
-            throw YTDLPError.binaryNotFound
-        }
-
         let request = SubprocessRequest(
-            executableURL: executableURL,
-            arguments: configuredProcess.arguments ?? [],
-            environment: configuredProcess.environment,
+            executableURL: configuration.executableURL,
+            arguments: configuration.arguments,
+            environment: configuration.environment,
             timeout: Self.probeTimeout,
             standardOutputCaptureLimit: Self.probeOutputLimit,
             standardErrorCaptureLimit: SubprocessRequest.defaultCaptureLimit,
@@ -515,21 +507,14 @@ actor YTDLPService {
             url
         ])
 
-        // Keep Homebrew/Python resolution in its compatibility helper while the shared
-        // runner owns process launch, pipe draining, cancellation, and descendant cleanup.
-        let configuredProcess = Process()
-        HomebrewPythonExecutor.configureProcess(
-            configuredProcess,
+        let configuration = HomebrewPythonExecutor.ytDLPExecutionConfiguration(
             scriptPath: ytdlpPath,
             arguments: args
         )
-        guard let executableURL = configuredProcess.executableURL else {
-            throw YTDLPError.binaryNotFound
-        }
         let request = SubprocessRequest(
-            executableURL: executableURL,
-            arguments: configuredProcess.arguments ?? [],
-            environment: configuredProcess.environment,
+            executableURL: configuration.executableURL,
+            arguments: configuration.arguments,
+            environment: configuration.environment,
             currentDirectoryURL: outputFolder,
             sensitiveArgumentNames: ["--cookies", "--cookies-from-browser"]
         )

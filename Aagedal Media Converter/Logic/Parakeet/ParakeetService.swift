@@ -345,22 +345,17 @@ struct ParakeetCLITranscriber: Sendable {
             arguments += ["--overlap-duration", "\(overlapDuration)"]
         }
 
-        let configuredProcess = Process()
         let extraPathEntries = ffmpegPath.map { [($0 as NSString).deletingLastPathComponent] } ?? []
-        HomebrewPythonExecutor.configurePythonToolProcess(
-            configuredProcess,
+        let configuration = HomebrewPythonExecutor.pythonToolExecutionConfiguration(
             scriptPath: parakeetPath,
             arguments: arguments,
             extraPathEntries: extraPathEntries
         )
-        guard let executableURL = configuredProcess.executableURL else {
-            throw ParakeetServiceError.binaryNotFound
-        }
 
         let request = SubprocessRequest(
-            executableURL: executableURL,
-            arguments: configuredProcess.arguments ?? [],
-            environment: configuredProcess.environment,
+            executableURL: configuration.executableURL,
+            arguments: configuration.arguments,
+            environment: configuration.environment,
             timeout: Self.timeout,
             standardOutputCaptureLimit: Self.diagnosticCaptureLimit,
             standardErrorCaptureLimit: Self.diagnosticCaptureLimit,

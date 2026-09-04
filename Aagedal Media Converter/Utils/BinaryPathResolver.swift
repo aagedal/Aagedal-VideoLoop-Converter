@@ -506,14 +506,21 @@ enum HomebrewPythonExecutor {
         return magic == machO64 || magic == machO32 || magic == fatBinary
     }
 
-    /// Configures a Process to execute yt-dlp
-    /// Handles both standalone binaries (yt-dlp_macos) and Python scripts (Homebrew)
-    static func configureProcess(_ process: Process, scriptPath: String, arguments: [String]) {
+    struct ToolExecutionConfiguration: Sendable {
+        let executableURL: URL
+        let arguments: [String]
+        let environment: [String: String]
+    }
+
+    /// Resolves how to execute yt-dlp without constructing or owning a process.
+    /// Handles both standalone binaries (yt-dlp_macos) and Python scripts (Homebrew).
+    static func ytDLPExecutionConfiguration(
+        scriptPath: String,
+        arguments: [String]
+    ) -> ToolExecutionConfiguration {
         // Check if it's a standalone binary (like yt-dlp_macos from GitHub)
         if isStandaloneBinary(at: scriptPath) {
             logger.debug("Using standalone binary: \(scriptPath, privacy: .public)")
-            process.executableURL = URL(fileURLWithPath: scriptPath)
-            process.arguments = arguments
 
             // Add bundled ffmpeg to PATH so yt-dlp can find it for post-processing
             var env = ProcessInfo.processInfo.environment
@@ -529,8 +536,11 @@ enum HomebrewPythonExecutor {
             env["PATH"] = mergedPath(from: pathEntries)
             // Enable unbuffered output for PyInstaller-frozen binaries (like yt-dlp_macos)
             env["PYTHONUNBUFFERED"] = "1"
-            process.environment = env
-            return
+            return ToolExecutionConfiguration(
+                executableURL: URL(fileURLWithPath: scriptPath),
+                arguments: arguments,
+                environment: env
+            )
         }
 
         // It's a Python script - try Homebrew detection with PYTHONPATH
@@ -551,9 +561,6 @@ enum HomebrewPythonExecutor {
                 ?? info.mainPythonPath
 
             logger.debug("Using \(pythonPath, privacy: .public) with PYTHONPATH: \(info.sitePackages, privacy: .public)")
-            process.executableURL = URL(fileURLWithPath: pythonPath)
-            // Use -u for unbuffered stdout/stderr to ensure real-time progress output
-            process.arguments = ["-u", "-m", "yt_dlp"] + arguments
             var env = ProcessInfo.processInfo.environment
             env["PYTHONPATH"] = info.sitePackages
             // Also set PYTHONUNBUFFERED for extra safety
@@ -562,12 +569,15 @@ enum HomebrewPythonExecutor {
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
-            process.environment = env
+            return ToolExecutionConfiguration(
+                executableURL: URL(fileURLWithPath: pythonPath),
+                // Use -u for unbuffered stdout/stderr to ensure real-time progress output.
+                arguments: ["-u", "-m", "yt_dlp"] + arguments,
+                environment: env
+            )
         } else {
             // Last resort - try executing directly (may work for scripts with valid shebangs)
             logger.warning("Executing directly as last resort: \(scriptPath, privacy: .public)")
-            process.executableURL = URL(fileURLWithPath: scriptPath)
-            process.arguments = arguments
             var env = ProcessInfo.processInfo.environment
             var pathEntries = commonPathEntries
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
@@ -575,7 +585,11 @@ enum HomebrewPythonExecutor {
             env["PATH"] = mergedPath(from: pathEntries)
             // Enable unbuffered output for Python scripts
             env["PYTHONUNBUFFERED"] = "1"
-            process.environment = env
+            return ToolExecutionConfiguration(
+                executableURL: URL(fileURLWithPath: scriptPath),
+                arguments: arguments,
+                environment: env
+            )
         }
     }
 
@@ -601,32 +615,31 @@ enum HomebrewPythonExecutor {
         return nil
     }
 
-    /// Configures a Process to execute a generic Python CLI tool installed via pip/uv/Homebrew.
+    /// Resolves how to execute a generic Python CLI tool installed via pip/uv/Homebrew.
     /// Unlike the yt-dlp-specific variant, this runs the script file directly rather than using -m module.
     /// - Parameters:
-    ///   - process: The Process to configure
     ///   - scriptPath: Path to the Python script/binary
     ///   - arguments: Arguments to pass to the script
     ///   - extraPathEntries: Additional PATH entries (e.g. bundled ffmpeg directory)
-    static func configurePythonToolProcess(
-        _ process: Process,
+    static func pythonToolExecutionConfiguration(
         scriptPath: String,
         arguments: [String],
         extraPathEntries: [String] = []
-    ) {
+    ) -> ToolExecutionConfiguration {
         // Check if it's a standalone binary (e.g. PyInstaller-frozen)
         if isStandaloneBinary(at: scriptPath) {
             logger.debug("Using standalone binary: \(scriptPath, privacy: .public)")
-            process.executableURL = URL(fileURLWithPath: scriptPath)
-            process.arguments = arguments
             var env = ProcessInfo.processInfo.environment
             var pathEntries = extraPathEntries + commonPathEntries
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
             env["PYTHONUNBUFFERED"] = "1"
-            process.environment = env
-            return
+            return ToolExecutionConfiguration(
+                executableURL: URL(fileURLWithPath: scriptPath),
+                arguments: arguments,
+                environment: env
+            )
         }
 
         // It's a Python script - try Homebrew detection with PYTHONPATH
@@ -640,8 +653,6 @@ enum HomebrewPythonExecutor {
                 ?? info.mainPythonPath
 
             logger.debug("Using \(pythonPath, privacy: .public) to run \(scriptPath, privacy: .public)")
-            process.executableURL = URL(fileURLWithPath: pythonPath)
-            process.arguments = ["-u", scriptPath] + arguments
             var env = ProcessInfo.processInfo.environment
             env["PYTHONPATH"] = info.sitePackages
             env["PYTHONUNBUFFERED"] = "1"
@@ -649,33 +660,41 @@ enum HomebrewPythonExecutor {
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
-            process.environment = env
+            return ToolExecutionConfiguration(
+                executableURL: URL(fileURLWithPath: pythonPath),
+                arguments: ["-u", scriptPath] + arguments,
+                environment: env
+            )
         } else if resolveShebangPython(for: scriptPath) != nil {
             // Script has a valid Python shebang (uv, pip --user, virtualenv, etc.)
             // Execute the script directly so the OS invokes the shebang interpreter,
             // preserving venv isolation (Process resolves symlinks which breaks venv detection).
             logger.debug("Executing via shebang: \(scriptPath, privacy: .public)")
-            process.executableURL = URL(fileURLWithPath: scriptPath)
-            process.arguments = arguments
             var env = ProcessInfo.processInfo.environment
             env["PYTHONUNBUFFERED"] = "1"
             var pathEntries = extraPathEntries + commonPathEntries
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
-            process.environment = env
+            return ToolExecutionConfiguration(
+                executableURL: URL(fileURLWithPath: scriptPath),
+                arguments: arguments,
+                environment: env
+            )
         } else {
             // Last resort - try executing directly
             logger.warning("Executing directly as last resort: \(scriptPath, privacy: .public)")
-            process.executableURL = URL(fileURLWithPath: scriptPath)
-            process.arguments = arguments
             var env = ProcessInfo.processInfo.environment
             var pathEntries = extraPathEntries + commonPathEntries
             let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
             pathEntries.append(contentsOf: currentPath.components(separatedBy: ":"))
             env["PATH"] = mergedPath(from: pathEntries)
             env["PYTHONUNBUFFERED"] = "1"
-            process.environment = env
+            return ToolExecutionConfiguration(
+                executableURL: URL(fileURLWithPath: scriptPath),
+                arguments: arguments,
+                environment: env
+            )
         }
     }
 }

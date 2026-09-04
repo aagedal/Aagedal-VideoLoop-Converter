@@ -40,20 +40,15 @@ struct YTDLPVersionProbe: Sendable {
     }
 
     func ytdlpVersion(at path: String) async -> String? {
-        // Preserve the existing Homebrew/Python resolution while the shared runner
-        // owns launch, draining, cancellation, and deadline enforcement.
-        let configuredProcess = Process()
-        HomebrewPythonExecutor.configureProcess(
-            configuredProcess,
+        let configuration = HomebrewPythonExecutor.ytDLPExecutionConfiguration(
             scriptPath: path,
             arguments: ["--version"]
         )
-        guard let executableURL = configuredProcess.executableURL else { return nil }
 
         let request = SubprocessRequest(
-            executableURL: executableURL,
-            arguments: configuredProcess.arguments ?? [],
-            environment: configuredProcess.environment,
+            executableURL: configuration.executableURL,
+            arguments: configuration.arguments,
+            environment: configuration.environment,
             timeout: Self.timeout,
             standardOutputCaptureLimit: Self.captureLimit,
             standardErrorCaptureLimit: Self.captureLimit,
@@ -87,23 +82,16 @@ struct YTDLPWarmUpRunner: Sendable {
     }
 
     func run(at path: String) async throws -> SubprocessResult {
-        // Preserve the existing standalone/Homebrew execution resolution while
-        // the shared runner owns launch, draining, cancellation, and timeout.
-        let configuredProcess = Process()
-        HomebrewPythonExecutor.configureProcess(
-            configuredProcess,
+        let configuration = HomebrewPythonExecutor.ytDLPExecutionConfiguration(
             scriptPath: path,
             arguments: ["--version"]
         )
-        guard let executableURL = configuredProcess.executableURL else {
-            throw YTDLPUpdateError.binaryNotFound
-        }
 
         return try await subprocessRunner.run(
             SubprocessRequest(
-                executableURL: executableURL,
-                arguments: configuredProcess.arguments ?? [],
-                environment: configuredProcess.environment,
+                executableURL: configuration.executableURL,
+                arguments: configuration.arguments,
+                environment: configuration.environment,
                 timeout: Self.timeout,
                 standardOutputCaptureLimit: 0,
                 standardErrorCaptureLimit: 0,
