@@ -6451,6 +6451,162 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(try packageAudioTemporaryFiles(in: temporaryDirectory), [])
     }
 
+    func testPackageWrapperUsesBoundedRedactedRunnerAndValidatesOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("private package wrapper \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private input.j2c")
+        let outputURL = temporaryDirectory.appendingPathComponent("private output.mxf")
+        let executablePath = "/private/tools/asdcp-wrap"
+        let arguments = ["-v", inputURL.path, outputURL.path]
+        let runner = RecordingSubprocessRunner { _, _ in
+            try Data("wrapped essence".utf8).write(to: outputURL)
+            return successfulSubprocessResult(
+                standardOutput: "wrapper stdout",
+                standardError: "wrapper stderr"
+            )
+        }
+
+        let result = await FFMPEGConverter.runPackageWrapper(
+            executablePath: executablePath,
+            arguments: arguments,
+            outputURL: outputURL,
+            subprocessRunner: runner
+        )
+
+        guard case .success(let diagnostic) = result else {
+            return XCTFail("Expected package wrapper success")
+        }
+        XCTAssertTrue(diagnostic.contains("wrapper stdout"))
+        XCTAssertTrue(diagnostic.contains("wrapper stderr"))
+        XCTAssertEqual(try Data(contentsOf: outputURL), Data("wrapped essence".utf8))
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, executablePath)
+        XCTAssertEqual(request.arguments, arguments)
+        XCTAssertEqual(request.timeout, FFMPEGConverter.packageWrapperTimeout)
+        XCTAssertEqual(
+            request.standardOutputCaptureLimit,
+            FFMPEGConverter.packageWrapperDiagnosticCaptureLimit
+        )
+        XCTAssertEqual(
+            request.standardErrorCaptureLimit,
+            FFMPEGConverter.packageWrapperDiagnosticCaptureLimit
+        )
+        XCTAssertFalse(request.redactedCommandDescription.contains(executablePath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(outputURL.path))
+    }
+
+    func testPackageWrapperMapsFailureTimeoutAndInvalidOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("package wrapper failures \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private input.wav")
+        let outputURL = temporaryDirectory.appendingPathComponent("private output.mxf")
+        let executablePath = "/private/tools/asdcp-wrap"
+        let arguments = [inputURL.path, outputURL.path]
+        let failureRunner = RecordingSubprocessRunner { _, _ in
+            try Data("partial".utf8).write(to: outputURL)
+            return successfulSubprocessResult(
+                standardError: "cannot read \(inputURL.path) or write \(outputURL.path)",
+                terminationStatus: 7
+            )
+        }
+        let failure = await FFMPEGConverter.runPackageWrapper(
+            executablePath: executablePath,
+            arguments: arguments,
+            outputURL: outputURL,
+            subprocessRunner: failureRunner
+        )
+        guard case .failed(let status, let reason, let diagnostic) = failure else {
+            return XCTFail("Expected nonzero package wrapper failure")
+        }
+        XCTAssertEqual(status, 7)
+        XCTAssertEqual(reason, "tool exited with status 7")
+        XCTAssertTrue(diagnostic.contains("<redacted>"))
+        XCTAssertFalse(diagnostic.contains(inputURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            try Data("partial".utf8).write(to: outputURL)
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(
+                    standardError: "stalled at \(outputURL.path)",
+                    terminationStatus: SIGKILL
+                )
+            )
+        }
+        let timeout = await FFMPEGConverter.runPackageWrapper(
+            executablePath: executablePath,
+            arguments: arguments,
+            outputURL: outputURL,
+            subprocessRunner: timeoutRunner
+        )
+        guard case .failed(_, let timeoutReason, let timeoutDiagnostic) = timeout else {
+            return XCTFail("Expected package wrapper timeout")
+        }
+        XCTAssertEqual(timeoutReason, "tool timed out after 12 hours")
+        XCTAssertTrue(timeoutDiagnostic.contains("<redacted>"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let missingOutput = await FFMPEGConverter.runPackageWrapper(
+            executablePath: executablePath,
+            arguments: arguments,
+            outputURL: outputURL,
+            subprocessRunner: RecordingSubprocessRunner { _, _ in successfulSubprocessResult() }
+        )
+        guard case .failed(_, let missingReason, _) = missingOutput else {
+            return XCTFail("Expected missing package wrapper output to fail")
+        }
+        XCTAssertEqual(missingReason, "Output file was not created")
+
+        try Data().write(to: outputURL)
+        let emptyOutput = await FFMPEGConverter.runPackageWrapper(
+            executablePath: executablePath,
+            arguments: arguments,
+            outputURL: outputURL,
+            subprocessRunner: RecordingSubprocessRunner { _, _ in successfulSubprocessResult() }
+        )
+        guard case .failed(_, let emptyReason, _) = emptyOutput else {
+            return XCTFail("Expected empty package wrapper output to fail")
+        }
+        XCTAssertEqual(emptyReason, "Output file is empty (0 bytes)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    func testPackageWrapperCancellationCancelsRunnerAndRemovesPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cancelled package wrapper \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let outputURL = temporaryDirectory.appendingPathComponent("partial.mxf")
+        try Data("partial".utf8).write(to: outputURL)
+        let runner = CountingBlockingSubprocessRunner()
+        let task = Task {
+            await FFMPEGConverter.runPackageWrapper(
+                executablePath: "/private/tools/raw2bmx",
+                arguments: ["-o", outputURL.path],
+                outputURL: outputURL,
+                subprocessRunner: runner
+            )
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        task.cancel()
+        guard case .cancelled = await task.value else {
+            return XCTFail("Expected package wrapper cancellation")
+        }
+        XCTAssertEqual(runner.cancelledCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
     func testDCPManifestAssemblyMovesDummyEssencesAndBuildsConsistentAssets() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AagedalMediaConverterDCPManifestTests-\(UUID().uuidString)", isDirectory: true)

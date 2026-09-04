@@ -113,6 +113,8 @@ actor FFMPEGConverter {
     private var currentWaveformFrameWriterTask: Task<Void, Never>?
     private var currentPackageAudioTask: Task<AudioExtractionResult, Never>?
     private var currentPackageAudioTaskID: UUID?
+    private var currentPackageWrapperTask: Task<PackageWrapperResult, Never>?
+    private var currentPackageWrapperTaskID: UUID?
     private var currentProgressGate: ConversionProgressGate?
     private var activeConversionID: UUID?
     private var postProcessingConversionID: UUID?
@@ -133,6 +135,14 @@ actor FFMPEGConverter {
     private static let outputReservations = ConversionOutputReservations()
     static let packageAudioExtractionTimeout: Duration = .seconds(12 * 60 * 60)
     static let packageAudioDiagnosticCaptureLimit = 256 * 1024
+    static let packageWrapperTimeout: Duration = .seconds(12 * 60 * 60)
+    static let packageWrapperDiagnosticCaptureLimit = 256 * 1024
+
+    enum PackageWrapperResult: Sendable {
+        case success(diagnostic: String)
+        case failed(status: Int32?, reason: String, diagnostic: String)
+        case cancelled
+    }
 
     init(
         subprocessRunner: any SubprocessRunning = SubprocessRunner(),
@@ -251,6 +261,113 @@ actor FFMPEGConverter {
         return nil
     }
 
+    static func runPackageWrapper(
+        executablePath: String,
+        arguments: [String],
+        outputURL: URL,
+        subprocessRunner: any SubprocessRunning = SubprocessRunner()
+    ) async -> PackageWrapperResult {
+        let sensitiveValues = Set(
+            arguments.filter { $0.hasPrefix("/") } + [executablePath, outputURL.path]
+        )
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: executablePath),
+            arguments: arguments,
+            timeout: packageWrapperTimeout,
+            standardOutputCaptureLimit: packageWrapperDiagnosticCaptureLimit,
+            standardErrorCaptureLimit: packageWrapperDiagnosticCaptureLimit,
+            sensitiveValues: sensitiveValues
+        )
+
+        func cleanupPartialOutput() {
+            guard FileManager.default.fileExists(atPath: outputURL.path) else { return }
+            cleanupTempFile(at: outputURL, label: "partial package wrapper output")
+        }
+
+        func diagnostic(for result: SubprocessResult) -> String {
+            request.redactedDiagnostic(
+                [result.standardOutputText, result.standardErrorText]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n")
+            )
+        }
+
+        do {
+            let result = try await subprocessRunner.run(request)
+            let output = diagnostic(for: result)
+            guard result.succeeded else {
+                cleanupPartialOutput()
+                return .failed(
+                    status: result.terminationStatus,
+                    reason: "tool exited with status \(result.terminationStatus)",
+                    diagnostic: output
+                )
+            }
+            if let validationError = validateOutputFile(at: outputURL) {
+                cleanupPartialOutput()
+                return .failed(
+                    status: result.terminationStatus,
+                    reason: request.redactedDiagnostic(validationError),
+                    diagnostic: output
+                )
+            }
+            return .success(diagnostic: output)
+        } catch is CancellationError {
+            cleanupPartialOutput()
+            return .cancelled
+        } catch SubprocessRunnerError.timedOut(_, let result) {
+            let output = diagnostic(for: result)
+            cleanupPartialOutput()
+            return .failed(
+                status: result.terminationStatus,
+                reason: "tool timed out after 12 hours",
+                diagnostic: output
+            )
+        } catch {
+            let output = request.redactedDiagnostic(error.localizedDescription)
+            cleanupPartialOutput()
+            return .failed(status: nil, reason: "failed to start tool", diagnostic: output)
+        }
+    }
+
+    private func runTrackedPackageWrapper(
+        conversionID: UUID,
+        executablePath: String,
+        arguments: [String],
+        outputURL: URL
+    ) async -> PackageWrapperResult {
+        guard postProcessingConversionID == conversionID else { return .cancelled }
+
+        let taskID = UUID()
+        let runner = subprocessRunner
+        let task = Task {
+            await Self.runPackageWrapper(
+                executablePath: executablePath,
+                arguments: arguments,
+                outputURL: outputURL,
+                subprocessRunner: runner
+            )
+        }
+        currentPackageWrapperTask?.cancel()
+        currentPackageWrapperTask = task
+        currentPackageWrapperTaskID = taskID
+
+        let result = await task.value
+        if currentPackageWrapperTaskID == taskID {
+            currentPackageWrapperTask = nil
+            currentPackageWrapperTaskID = nil
+        }
+
+        guard postProcessingConversionID == conversionID else {
+            if case .success = result,
+               FileManager.default.fileExists(atPath: outputURL.path) {
+                Self.cleanupTempFile(at: outputURL, label: "cancelled package wrapper output")
+            }
+            return .cancelled
+        }
+        return result
+    }
+
     /// Removes an incomplete ordinary-file output and revokes its app-created trust record.
     /// A failed encode must not leave a stale registration that could authorize deleting an
     /// unrelated file created at the same path later.
@@ -298,6 +415,12 @@ actor FFMPEGConverter {
         currentWaveformAnalysisID = nil
         currentWaveformFrameWriterTask?.cancel()
         currentWaveformFrameWriterTask = nil
+        currentPackageAudioTask?.cancel()
+        currentPackageAudioTask = nil
+        currentPackageAudioTaskID = nil
+        currentPackageWrapperTask?.cancel()
+        currentPackageWrapperTask = nil
+        currentPackageWrapperTaskID = nil
         let supersededBMXOperationID = activeBMXOperationID
         activeConversionID = nil
         postProcessingConversionID = nil
@@ -952,57 +1075,30 @@ actor FFMPEGConverter {
                                 tmpVideoMXF.path
                             ]
 
-                            Self.logger.info("Running asdcp-wrap for DCP video: \(videoWrapArgs.joined(separator: " "))")
-                            let videoWrapProcess = Process()
-                            videoWrapProcess.executableURL = URL(fileURLWithPath: asdcpWrapPath)
-                            videoWrapProcess.arguments = videoWrapArgs
-                            videoWrapProcess.standardInput = FileHandle.nullDevice
-
-                            // Capture stderr for debugging. Drain in real time — `-v` makes asdcp-wrap
-                            // emit per-frame stderr that fills the pipe (16–64 KB) and deadlocks
-                            // long encodes if no reader is consuming it.
-                            let stderrPipe = Pipe()
-                            videoWrapProcess.standardOutput = stderrPipe  // asdcp-wrap prints info to stdout
-                            videoWrapProcess.standardError = stderrPipe
-
-                            let stderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
-                            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                                let chunk = handle.availableData
-                                guard !chunk.isEmpty else { return }
-                                stderrBuffer.withLock { $0.append(chunk) }
-                            }
-
-                            do {
-                                try videoWrapProcess.run()
-                                videoWrapProcess.waitUntilExit()
-
-                                stderrPipe.fileHandleForReading.readabilityHandler = nil
-                                let trailing = stderrPipe.fileHandleForReading.availableData
-                                if !trailing.isEmpty { stderrBuffer.withLock { $0.append(trailing) } }
-                                try? stderrPipe.fileHandleForReading.close()
-                                let stderrData = stderrBuffer.withLock { $0 }
-                                let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
-                                if !stderrStr.isEmpty {
-                                    Self.logger.info("asdcp-wrap video output: \(stderrStr.prefix(500))")
+                            Self.logger.info("Running asdcp-wrap for DCP video")
+                            let wrapResult = await self?.runTrackedPackageWrapper(
+                                conversionID: conversionID,
+                                executablePath: asdcpWrapPath,
+                                arguments: videoWrapArgs,
+                                outputURL: tmpVideoMXF
+                            ) ?? .cancelled
+                            switch wrapResult {
+                            case .success(let diagnostic):
+                                if !diagnostic.isEmpty {
+                                    Self.logger.info("asdcp-wrap video output: \(diagnostic.prefix(500), privacy: .public)")
                                 }
-
-                                if videoWrapProcess.terminationStatus == 0 {
-                                    videoMXFURL = tmpVideoMXF
-                                    Self.logger.info("Video MXF created with asdcp-wrap")
-                                } else {
-                                    Self.logger.error("asdcp-wrap failed for video MXF (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
-                                    errorReason = Self.dcpIMFErrorReason(
-                                        base: String(localized: "DCP video wrap failed (asdcp-wrap exit \(Int(videoWrapProcess.terminationStatus)))", comment: "Shown when the asdcp-wrap tool exits with a non-zero status while wrapping the DCP video essence."),
-                                        stderr: stderrStr
-                                    )
-                                    success = false
-                                    Self.cleanupTempFile(at: tmpVideoMXF, label: "failed DCP video MXF")
-                                }
-                            } catch {
-                                stderrPipe.fileHandleForReading.readabilityHandler = nil
-                                try? stderrPipe.fileHandleForReading.close()
-                                Self.logger.error("Failed to run asdcp-wrap for video: \(error.localizedDescription)")
-                                errorReason = String(localized: "DCP video wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for DCP video throws an exception.")
+                                videoMXFURL = tmpVideoMXF
+                                Self.logger.info("Video MXF created with asdcp-wrap")
+                            case .failed(let status, let reason, let diagnostic):
+                                let statusText = status.map(String.init) ?? "launch"
+                                Self.logger.error("asdcp-wrap failed for video MXF (\(statusText, privacy: .public)): \(diagnostic.prefix(300), privacy: .public)")
+                                errorReason = Self.dcpIMFErrorReason(
+                                    base: String(localized: "DCP video wrap failed: \(reason)", comment: "Shown when asdcp-wrap cannot create the DCP video essence."),
+                                    stderr: diagnostic
+                                )
+                                success = false
+                            case .cancelled:
+                                errorReason = "Conversion cancelled"
                                 success = false
                             }
 
@@ -1060,56 +1156,29 @@ actor FFMPEGConverter {
                         ]
 
                         Self.logger.info("Running asdcp-wrap for DCP audio")
-                        let audioWrapProcess = Process()
-                        audioWrapProcess.executableURL = URL(fileURLWithPath: asdcpPath)
-                        audioWrapProcess.arguments = audioWrapArgs
-                        audioWrapProcess.standardInput = FileHandle.nullDevice
-
-                        let audioStderrPipe = Pipe()
-                        audioWrapProcess.standardOutput = audioStderrPipe
-                        audioWrapProcess.standardError = audioStderrPipe
-
-                        // Same drain-in-real-time pattern as the video wrap to avoid pipe-buffer deadlock.
-                        let audioStderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
-                        audioStderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                            let chunk = handle.availableData
-                            guard !chunk.isEmpty else { return }
-                            audioStderrBuffer.withLock { $0.append(chunk) }
-                        }
-
-                        do {
-                            try audioWrapProcess.run()
-                            audioWrapProcess.waitUntilExit()
-
-                            audioStderrPipe.fileHandleForReading.readabilityHandler = nil
-                            let trailing = audioStderrPipe.fileHandleForReading.availableData
-                            if !trailing.isEmpty { audioStderrBuffer.withLock { $0.append(trailing) } }
-                            try? audioStderrPipe.fileHandleForReading.close()
-                            let audioStderrData = audioStderrBuffer.withLock { $0 }
-                            let audioStderrStr = String(data: audioStderrData, encoding: .utf8) ?? ""
-                            if !audioStderrStr.isEmpty {
-                                Self.logger.info("asdcp-wrap audio output: \(audioStderrStr.prefix(500))")
+                        let wrapResult = await self?.runTrackedPackageWrapper(
+                            conversionID: conversionID,
+                            executablePath: asdcpPath,
+                            arguments: audioWrapArgs,
+                            outputURL: audioMXFURL
+                        ) ?? .cancelled
+                        switch wrapResult {
+                        case .success(let diagnostic):
+                            if !diagnostic.isEmpty {
+                                Self.logger.info("asdcp-wrap audio output: \(diagnostic.prefix(500), privacy: .public)")
                             }
-
-                            if audioWrapProcess.terminationStatus == 0 {
-                                finalAudioMXF = audioMXFURL
-                                Self.logger.info("Audio MXF created with asdcp-wrap")
-                            } else {
-                                Self.logger.error("asdcp-wrap failed for audio (status \(audioWrapProcess.terminationStatus)): \(audioStderrStr.prefix(300))")
-                                errorReason = Self.dcpIMFErrorReason(
-                                    base: String(localized: "DCP audio wrap failed (asdcp-wrap exit \(Int(audioWrapProcess.terminationStatus)))", comment: "Shown when asdcp-wrap exits with a non-zero status while wrapping the DCP audio essence; the resulting package would be missing audio."),
-                                    stderr: audioStderrStr
-                                )
-                                success = false
-                                Self.cleanupTempFile(at: audioMXFURL, label: "failed DCP audio MXF")
-                            }
-                        } catch {
-                            audioStderrPipe.fileHandleForReading.readabilityHandler = nil
-                            try? audioStderrPipe.fileHandleForReading.close()
-                            Self.logger.error("Failed to run asdcp-wrap for audio: \(error.localizedDescription)")
-                            errorReason = String(localized: "DCP audio wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for DCP audio throws an exception.")
+                            finalAudioMXF = audioMXFURL
+                            Self.logger.info("Audio MXF created with asdcp-wrap")
+                        case .failed(_, let reason, let diagnostic):
+                            Self.logger.error("asdcp-wrap failed for DCP audio: \(diagnostic.prefix(300), privacy: .public)")
+                            errorReason = Self.dcpIMFErrorReason(
+                                base: String(localized: "DCP audio wrap failed: \(reason)", comment: "Shown when asdcp-wrap cannot create the DCP audio essence."),
+                                stderr: diagnostic
+                            )
                             success = false
-                            Self.cleanupTempFile(at: audioMXFURL, label: "failed DCP audio MXF")
+                        case .cancelled:
+                            errorReason = "Conversion cancelled"
+                            success = false
                         }
 
                         // Clean up WAV
@@ -1278,79 +1347,50 @@ actor FFMPEGConverter {
                                     "--coding-eq", bmxFlags.codingEquations,
                                     "--j2c_cdci", j2cPattern
                                 ])
-                                let videoWrapProcess = Process()
-                                videoWrapProcess.executableURL = URL(fileURLWithPath: raw2bmxPath)
-                                videoWrapProcess.arguments = videoWrapArgs
-                                videoWrapProcess.standardInput = FileHandle.nullDevice
-                                let stderrPipe = Pipe()
-                                videoWrapProcess.standardOutput = stderrPipe
-                                videoWrapProcess.standardError = stderrPipe
                                 progressUpdate(0.80, "Wrapping J2C → MXF")
-                                print("[IMF] launching raw2bmx: \(videoWrapArgs.joined(separator: " "))")
-                                // Drain the merged stdout/stderr pipe in real time. Same pipe-deadlock
-                                // hazard as asdcp-wrap (commit 631dc39): without an active reader the
-                                // OS pipe buffer fills, the child blocks on write(), and progress stalls.
-                                let stderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
-                                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                                    let chunk = handle.availableData
-                                    guard !chunk.isEmpty else { return }
-                                    stderrBuffer.withLock { $0.append(chunk) }
-                                }
-                                do {
-                                    try videoWrapProcess.run()
-                                    // Poll the output MXF size and estimate progress as
-                                    // bytes-written / expected-essence-size. The MXF holds the J2C
-                                    // codestreams plus a small index/header overhead, so total J2C
-                                    // bytes is a tight lower-bound estimate.
-                                    let pollerTask = Task.detached { [tmpVideoMXF, expectedMXFBytes] in
-                                        let pollFM = FileManager.default
-                                        while !Task.isCancelled {
-                                            try? await Task.sleep(nanoseconds: 1_000_000_000)
-                                            if Task.isCancelled { break }
-                                            let attrs = try? pollFM.attributesOfItem(atPath: tmpVideoMXF.path)
-                                            let bytes = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
-                                            let formatted = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-                                            let frac: Double
-                                            if expectedMXFBytes > 0 {
-                                                frac = min(0.99, Double(bytes) / Double(expectedMXFBytes))
-                                            } else {
-                                                frac = 0.0
-                                            }
-                                            let overall = 0.80 + frac * 0.06   // 0.80 → 0.86
-                                            let pct = Int(frac * 100)
-                                            progressUpdate(overall, "Wrapping J2C → MXF (\(formatted), \(pct)%)")
-                                        }
-                                    }
-                                    videoWrapProcess.waitUntilExit()
-                                    pollerTask.cancel()
-                                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                                    // Drain anything still in the pipe after the process ended.
-                                    let trailing = stderrPipe.fileHandleForReading.availableData
-                                    if !trailing.isEmpty {
-                                        stderrBuffer.withLock { $0.append(trailing) }
-                                    }
-                                    try? stderrPipe.fileHandleForReading.close()
-                                    let stderrData = stderrBuffer.withLock { $0 }
-                                    let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
-                                    print("[IMF] raw2bmx exited with status \(videoWrapProcess.terminationStatus)")
-                                    if videoWrapProcess.terminationStatus == 0 {
-                                        imfVideoMXF = tmpVideoMXF
-                                        Self.logger.info("IMF video essence created (App #2e)")
-                                    } else {
-                                        Self.logger.error("raw2bmx failed for IMF video (status \(videoWrapProcess.terminationStatus)): \(stderrStr.prefix(300))")
-                                        errorReason = Self.dcpIMFErrorReason(
-                                            base: String(localized: "IMF video wrap failed (raw2bmx exit \(Int(videoWrapProcess.terminationStatus)))", comment: "Shown when raw2bmx exits with a non-zero status while wrapping the IMF App 2e video essence."),
-                                            stderr: stderrStr
+                                Self.logger.info("Launching raw2bmx for IMF video")
+                                // Poll the output MXF size while the runner owns process execution.
+                                let pollerTask = Task.detached { [tmpVideoMXF, expectedMXFBytes] in
+                                    let pollFM = FileManager.default
+                                    while !Task.isCancelled {
+                                        try? await Task.sleep(for: .seconds(1))
+                                        guard !Task.isCancelled else { break }
+                                        let attrs = try? pollFM.attributesOfItem(atPath: tmpVideoMXF.path)
+                                        let bytes = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+                                        let formatted = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+                                        let fraction = expectedMXFBytes > 0
+                                            ? min(0.99, Double(bytes) / Double(expectedMXFBytes))
+                                            : 0
+                                        progressUpdate(
+                                            0.80 + fraction * 0.06,
+                                            "Wrapping J2C → MXF (\(formatted), \(Int(fraction * 100))%)"
                                         )
-                                        success = false
-                                        Self.cleanupTempFile(at: tmpVideoMXF, label: "failed IMF video MXF")
                                     }
-                                } catch {
-                                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                                    try? stderrPipe.fileHandleForReading.close()
-                                    Self.logger.error("Failed to run raw2bmx for IMF video: \(error.localizedDescription)")
-                                    print("[IMF] raw2bmx launch threw: \(error.localizedDescription)")
-                                    errorReason = String(localized: "IMF video wrap failed: \(error.localizedDescription)", comment: "Shown when launching the raw2bmx process for IMF video throws an exception.")
+                                }
+                                let wrapResult = await self?.runTrackedPackageWrapper(
+                                    conversionID: conversionID,
+                                    executablePath: raw2bmxPath,
+                                    arguments: videoWrapArgs,
+                                    outputURL: tmpVideoMXF
+                                ) ?? .cancelled
+                                pollerTask.cancel()
+                                await pollerTask.value
+                                switch wrapResult {
+                                case .success(let diagnostic):
+                                    if !diagnostic.isEmpty {
+                                        Self.logger.info("raw2bmx output: \(diagnostic.prefix(500), privacy: .public)")
+                                    }
+                                    imfVideoMXF = tmpVideoMXF
+                                    Self.logger.info("IMF video essence created (App #2e)")
+                                case .failed(_, let reason, let diagnostic):
+                                    Self.logger.error("raw2bmx failed for IMF video: \(diagnostic.prefix(300), privacy: .public)")
+                                    errorReason = Self.dcpIMFErrorReason(
+                                        base: String(localized: "IMF video wrap failed: \(reason)", comment: "Shown when raw2bmx cannot create the IMF App 2e video essence."),
+                                        stderr: diagnostic
+                                    )
+                                    success = false
+                                case .cancelled:
+                                    errorReason = "Conversion cancelled"
                                     success = false
                                 }
                                 Self.cleanupTempFile(at: j2cDir, label: "IMF J2C frames")
@@ -1465,7 +1505,8 @@ actor FFMPEGConverter {
                             )
                             let wavURL: URL
                             if pictureFrameCount > 0,
-                               let padded = await Self.padWAVToFrameCount(
+                               let padded = await self?.padWAVToFrameCount(
+                                   conversionID: conversionID,
                                    inputWAV: originalWavURL,
                                    frameCount: pictureFrameCount,
                                    editRateNumerator: frameRate.editRateNumerator,
@@ -1491,56 +1532,30 @@ actor FFMPEGConverter {
                                     wavURL.path,
                                     tmpAudioMXF.path
                                 ]
-                                print("[IMF] launching asdcp-wrap (audio): \(audioWrapArgs.joined(separator: " "))")
-
-                                let audioWrapProcess = Process()
-                                audioWrapProcess.executableURL = URL(fileURLWithPath: asdcpPath)
-                                audioWrapProcess.arguments = audioWrapArgs
-                                audioWrapProcess.standardInput = FileHandle.nullDevice
-
-                                let audioStderrPipe = Pipe()
-                                audioWrapProcess.standardOutput = audioStderrPipe
-                                audioWrapProcess.standardError = audioStderrPipe
-
-                                let audioStderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
-                                audioStderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                                    let chunk = handle.availableData
-                                    guard !chunk.isEmpty else { return }
-                                    audioStderrBuffer.withLock { $0.append(chunk) }
-                                }
-
-                                do {
-                                    try audioWrapProcess.run()
-                                    audioWrapProcess.waitUntilExit()
-
-                                    audioStderrPipe.fileHandleForReading.readabilityHandler = nil
-                                    let trailing = audioStderrPipe.fileHandleForReading.availableData
-                                    if !trailing.isEmpty { audioStderrBuffer.withLock { $0.append(trailing) } }
-                                    try? audioStderrPipe.fileHandleForReading.close()
-                                    let audioStderrData = audioStderrBuffer.withLock { $0 }
-                                    let audioStderrStr = String(data: audioStderrData, encoding: .utf8) ?? ""
-
-                                    if audioWrapProcess.terminationStatus == 0 {
-                                        imfAudioMXF = tmpAudioMXF
-                                        Self.logger.info("IMF audio essence created (asdcp-wrap)")
-                                        progressUpdate(0.94, "Wrapping audio essence")
-                                    } else {
-                                        Self.logger.error("asdcp-wrap failed for IMF audio (status \(audioWrapProcess.terminationStatus)): \(audioStderrStr.prefix(300))")
-                                        print("[IMF] asdcp-wrap (audio) exited \(audioWrapProcess.terminationStatus)")
-                                        print("[IMF] stderr:\n\(audioStderrStr.isEmpty ? "(empty)" : audioStderrStr)")
-                                        errorReason = Self.dcpIMFErrorReason(
-                                            base: String(localized: "IMF audio wrap failed (asdcp-wrap exit \(Int(audioWrapProcess.terminationStatus)))", comment: "Shown when asdcp-wrap exits with a non-zero status while wrapping the IMF audio essence; the resulting package would be missing audio."),
-                                            stderr: audioStderrStr
-                                        )
-                                        success = false
-                                        Self.cleanupTempFile(at: tmpAudioMXF, label: "failed IMF audio MXF")
+                                Self.logger.info("Launching asdcp-wrap for IMF audio")
+                                let wrapResult = await self?.runTrackedPackageWrapper(
+                                    conversionID: conversionID,
+                                    executablePath: asdcpPath,
+                                    arguments: audioWrapArgs,
+                                    outputURL: tmpAudioMXF
+                                ) ?? .cancelled
+                                switch wrapResult {
+                                case .success(let diagnostic):
+                                    if !diagnostic.isEmpty {
+                                        Self.logger.info("asdcp-wrap IMF audio output: \(diagnostic.prefix(500), privacy: .public)")
                                     }
-                                } catch {
-                                    audioStderrPipe.fileHandleForReading.readabilityHandler = nil
-                                    try? audioStderrPipe.fileHandleForReading.close()
-                                    Self.logger.error("Failed to run asdcp-wrap for IMF audio: \(error.localizedDescription)")
-                                    print("[IMF] asdcp-wrap (audio) launch threw: \(error.localizedDescription)")
-                                    errorReason = String(localized: "IMF audio wrap failed: \(error.localizedDescription)", comment: "Shown when launching the asdcp-wrap process for IMF audio throws an exception.")
+                                    imfAudioMXF = tmpAudioMXF
+                                    Self.logger.info("IMF audio essence created (asdcp-wrap)")
+                                    progressUpdate(0.94, "Wrapping audio essence")
+                                case .failed(_, let reason, let diagnostic):
+                                    Self.logger.error("asdcp-wrap failed for IMF audio: \(diagnostic.prefix(300), privacy: .public)")
+                                    errorReason = Self.dcpIMFErrorReason(
+                                        base: String(localized: "IMF audio wrap failed: \(reason)", comment: "Shown when asdcp-wrap cannot create the IMF audio essence."),
+                                        stderr: diagnostic
+                                    )
+                                    success = false
+                                case .cancelled:
+                                    errorReason = "Conversion cancelled"
                                     success = false
                                 }
                             } else {
@@ -3484,6 +3499,9 @@ actor FFMPEGConverter {
         currentPackageAudioTask?.cancel()
         currentPackageAudioTask = nil
         currentPackageAudioTaskID = nil
+        currentPackageWrapperTask?.cancel()
+        currentPackageWrapperTask = nil
+        currentPackageWrapperTaskID = nil
         if let bmxOperationID {
             await BMXService.shared.cancel(operationID: bmxOperationID)
             _ = await BMXService.shared.finishCancellationTracking(operationID: bmxOperationID)
@@ -3715,7 +3733,8 @@ actor FFMPEGConverter {
     /// For non-integer rates (29.97, 59.94) the per-frame sample count is not
     /// integer, so we use a ceiling on `frameCount × 48000 × den / num` — a
     /// slight overshoot is fine, asdcp-wrap takes only what it needs.
-    private static func padWAVToFrameCount(
+    private func padWAVToFrameCount(
+        conversionID: UUID,
         inputWAV: URL,
         frameCount: Int,
         editRateNumerator: Int,
@@ -3735,41 +3754,25 @@ actor FFMPEGConverter {
             "-ar", "48000",
             outputWAV.path
         ]
-        print("[IMF] padding WAV to \(totalSamples) samples (\(frameCount) frames × \(editRateNumerator)/\(editRateDenominator))")
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = args
-        process.standardInput = FileHandle.nullDevice
-        let stderrPipe = Pipe()
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderrPipe
-        // Drain stderr to avoid pipe-buffer deadlock on long runs.
-        let stderrBuffer = OSAllocatedUnfairLock<Data>(initialState: Data())
-        stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            guard !chunk.isEmpty else { return }
-            stderrBuffer.withLock { $0.append(chunk) }
-        }
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            try? stderrPipe.fileHandleForReading.close()
-            print("[IMF] WAV pad ffmpeg launch threw: \(error.localizedDescription)")
+        Self.logger.info("Padding IMF WAV to \(totalSamples) samples")
+        let result = await runTrackedPackageWrapper(
+            conversionID: conversionID,
+            executablePath: ffmpegPath,
+            arguments: args,
+            outputURL: outputWAV
+        )
+        switch result {
+        case .success(let diagnostic):
+            if !diagnostic.isEmpty {
+                Self.logger.info("IMF WAV padding output: \(diagnostic.prefix(500), privacy: .public)")
+            }
+            return outputWAV
+        case .failed(_, let reason, let diagnostic):
+            Self.logger.error("IMF WAV padding failed (\(reason, privacy: .public)): \(diagnostic.prefix(300), privacy: .public)")
+            return nil
+        case .cancelled:
             return nil
         }
-        stderrPipe.fileHandleForReading.readabilityHandler = nil
-        try? stderrPipe.fileHandleForReading.close()
-        guard process.terminationStatus == 0 else {
-            let stderrData = stderrBuffer.withLock { $0 }
-            let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
-            print("[IMF] WAV pad ffmpeg exited \(process.terminationStatus): \(stderrStr.prefix(400))")
-            try? FileManager.default.removeItem(at: outputWAV)
-            return nil
-        }
-        return outputWAV
     }
 
     // MARK: - Audio Pre-Processing for AVC-Intra
