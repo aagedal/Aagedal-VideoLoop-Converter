@@ -1101,6 +1101,141 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(result)
     }
 
+    func testNonJoiningTaskDeadlineReturnsImmediateOperationResult() async throws {
+        let result = try await NonJoiningTaskDeadline.run(timeout: .seconds(1)) {
+            42
+        }
+
+        XCTAssertEqual(result, 42)
+    }
+
+    func testNonJoiningTaskDeadlineReturnsPromptlyAndIgnoresLateCompletion() async {
+        let operationStarted = DispatchSemaphore(value: 0)
+        let releaseOperation = DispatchSemaphore(value: 0)
+        let operationFinished = DispatchSemaphore(value: 0)
+        defer { releaseOperation.signal() }
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await NonJoiningTaskDeadline.run(timeout: .milliseconds(50)) {
+                await withCheckedContinuation { continuation in
+                    operationStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseOperation.wait()
+                        operationFinished.signal()
+                        continuation.resume(returning: 42)
+                    }
+                }
+            }
+            XCTFail("Expected the deadline to expire")
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            // Expected.
+        } catch {
+            XCTFail("Expected a deadline error, got \(error)")
+        }
+
+        XCTAssertEqual(operationStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+
+        releaseOperation.signal()
+        XCTAssertEqual(operationFinished.wait(timeout: .now() + 1), .success)
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    func testNonJoiningTaskDeadlineParentCancellationReturnsPromptly() async {
+        let operationStarted = DispatchSemaphore(value: 0)
+        let releaseOperation = DispatchSemaphore(value: 0)
+        defer { releaseOperation.signal() }
+
+        let task = Task {
+            try await NonJoiningTaskDeadline.run(timeout: .seconds(10)) {
+                await withCheckedContinuation { continuation in
+                    operationStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseOperation.wait()
+                        continuation.resume(returning: 42)
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(operationStarted.wait(timeout: .now() + 1), .success)
+        let start = ContinuousClock.now
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testVideoMetadataFallbackDoesNotJoinTimedOutFullProbe() async {
+        let releaseFullProbe = DispatchSemaphore(value: 0)
+        defer { releaseFullProbe.signal() }
+        let expectedInfo = EssentialVideoInfo(
+            duration: 12.5,
+            hasVideoStream: true,
+            videoStreamCount: 1,
+            hasAudioStream: true,
+            primaryCodec: "h264",
+            width: 1920,
+            height: 1080
+        )
+        let start = ContinuousClock.now
+
+        let outcome = await VideoFileUtils.fetchVideoMetadataWithFallback(
+            for: URL(fileURLWithPath: "/private/stalled.mov"),
+            timeout: .milliseconds(50),
+            metadataProbe: { _ in
+                try await withCheckedThrowingContinuation { continuation in
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseFullProbe.wait()
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            },
+            essentialInfoProbe: { _ in expectedInfo }
+        )
+
+        guard case .essentialOnly(let info) = outcome else {
+            return XCTFail("Expected the bounded essential-info fallback")
+        }
+        XCTAssertEqual(info.duration, expectedInfo.duration)
+        XCTAssertEqual(info.hasVideoStream, expectedInfo.hasVideoStream)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testPlayerMetadataFetchDoesNotJoinTimedOutProbe() async throws {
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("StalledPlayerMetadata-\(UUID().uuidString).mov")
+        try Data([0x00]).write(to: temporaryURL)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let start = ContinuousClock.now
+
+        let metadata = await VideoFileUtils.fetchMetadata(
+            for: temporaryURL,
+            timeout: .milliseconds(50)
+        ) { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        }
+
+        XCTAssertNil(metadata)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
     func testYTDLPVersionProbeUsesBoundedRunnerAndParsesToolVersions() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("YTDLPVersionProbe-\(UUID().uuidString)")

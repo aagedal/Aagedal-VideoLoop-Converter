@@ -11,6 +11,114 @@ import AVFoundation
 import Cocoa
 import OSLog
 
+enum NonJoiningTaskDeadlineError: Error {
+    case timedOut
+}
+
+/// Races an asynchronous operation against a deadline without implicitly joining the
+/// losing operation. This is intentionally not implemented with a task group: a task
+/// group cannot return until every child exits, even when a cancelled child is blocked
+/// in synchronous library code that does not observe cancellation.
+enum NonJoiningTaskDeadline {
+    static func run<Output: Sendable>(
+        timeout: Duration,
+        operation: @escaping @Sendable () async throws -> Output
+    ) async throws -> Output {
+        let resolution = NonJoiningTaskResolution<Output>()
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                resolution.install(continuation)
+
+                guard !Task.isCancelled else {
+                    resolution.resolve(.failure(CancellationError()))
+                    return
+                }
+
+                let operationTask = Task.detached(priority: .userInitiated) {
+                    do {
+                        resolution.resolve(.success(try await operation()))
+                    } catch {
+                        resolution.resolve(.failure(error))
+                    }
+                }
+                let timeoutTask = Task.detached {
+                    do {
+                        try await Task.sleep(for: timeout)
+                    } catch {
+                        return
+                    }
+                    resolution.resolve(.failure(NonJoiningTaskDeadlineError.timedOut))
+                }
+                resolution.install(operationTask: operationTask, timeoutTask: timeoutTask)
+            }
+        } onCancel: {
+            resolution.resolve(.failure(CancellationError()))
+        }
+    }
+}
+
+private final class NonJoiningTaskResolution<Output: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Output, Error>?
+    private var outcome: Result<Output, Error>?
+    private var isResolved = false
+    private var operationTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
+
+    func install(_ continuation: CheckedContinuation<Output, Error>) {
+        let resolvedOutcome = lock.withLock { () -> Result<Output, Error>? in
+            if isResolved {
+                return outcome
+            }
+            self.continuation = continuation
+            return nil
+        }
+
+        if let resolvedOutcome {
+            continuation.resume(with: resolvedOutcome)
+        }
+    }
+
+    func install(operationTask: Task<Void, Never>, timeoutTask: Task<Void, Never>) {
+        let shouldCancel = lock.withLock { () -> Bool in
+            if isResolved {
+                return true
+            }
+            self.operationTask = operationTask
+            self.timeoutTask = timeoutTask
+            return false
+        }
+
+        if shouldCancel {
+            operationTask.cancel()
+            timeoutTask.cancel()
+        }
+    }
+
+    func resolve(_ outcome: Result<Output, Error>) {
+        let pending = lock.withLock { () -> (
+            CheckedContinuation<Output, Error>?,
+            Task<Void, Never>?,
+            Task<Void, Never>?
+        )? in
+            guard !isResolved else { return nil }
+            isResolved = true
+            self.outcome = outcome
+            let pending = (continuation, operationTask, timeoutTask)
+            continuation = nil
+            operationTask = nil
+            timeoutTask = nil
+            return pending
+        }
+
+        guard let pending else { return }
+        pending.1?.cancel()
+        pending.2?.cancel()
+        pending.0?.resume(with: outcome)
+    }
+}
+
 struct VideoFileUtils: Sendable {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "VideoFileUtils")
 
@@ -210,11 +318,12 @@ struct VideoFileUtils: Sendable {
             metadata = nil
             durationSec = info.duration
             hasVideoStream = info.hasVideoStream
-        case .failed:
-            // Both probes failed — preserve the legacy defensive fallback so the row still appears.
+        case .failed, .cancelled:
+            // The essential probe already covers the lightweight duration/stream fallback.
+            // Do not re-enter the same potentially stalled single-flight metadata read.
             metadata = nil
-            durationSec = (await SwiftExifMediaProbe.duration(for: url)) ?? 0
-            hasVideoStream = await VideoMetadataService.shared.hasVideoStream(for: url)
+            durationSec = 0
+            hasVideoStream = false
         }
 
         return VideoItemDetails(
@@ -228,35 +337,44 @@ struct VideoFileUtils: Sendable {
         )
     }
 
-    private enum MetadataProbeOutcome {
+    enum MetadataProbeOutcome {
         case full(VideoMetadata)
         case essentialOnly(EssentialVideoInfo)
         case failed
+        case cancelled
     }
 
     /// Tries the full metadata read first (gives the row resolution + FPS in the same hop as
     /// duration). Falls back to `fetchEssentialInfo` for audio containers, read failures, and
     /// timeouts so the row still gets a duration.
-    private static func fetchVideoMetadataWithFallback(for url: URL) async -> MetadataProbeOutcome {
-        struct MetadataTimeout: Error {}
+    static func fetchVideoMetadataWithFallback(
+        for url: URL,
+        timeout: Duration = .seconds(15),
+        metadataProbe: @escaping @Sendable (URL) async throws -> VideoMetadata = {
+            try await VideoMetadataService.shared.metadata(for: $0)
+        },
+        essentialInfoProbe: @escaping @Sendable (URL) async throws -> EssentialVideoInfo = {
+            try await VideoMetadataService.shared.fetchEssentialInfo(for: $0)
+        }
+    ) async -> MetadataProbeOutcome {
         do {
-            let metadata = try await withThrowingTaskGroup(of: VideoMetadata.self) { group in
-                group.addTask { try await VideoMetadataService.shared.metadata(for: url) }
-                group.addTask {
-                    try await Task.sleep(nanoseconds: 15_000_000_000)
-                    throw MetadataTimeout()
-                }
-                let result = try await group.next()
-                group.cancelAll()
-                guard let result else { throw MetadataTimeout() }
-                return result
+            let metadata = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try await metadataProbe(url)
             }
             return .full(metadata)
+        } catch is CancellationError {
+            return .cancelled
         } catch {
-            if let info = try? await VideoMetadataService.shared.fetchEssentialInfo(for: url) {
+            do {
+                let info = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                    try await essentialInfoProbe(url)
+                }
                 return .essentialOnly(info)
+            } catch is CancellationError {
+                return .cancelled
+            } catch {
+                return .failed
             }
-            return .failed
         }
     }
 
@@ -328,7 +446,13 @@ struct VideoFileUtils: Sendable {
     
     /// Fetches metadata for a video item in the background
     /// This allows the UI to be responsive while heavy operations complete
-    static func fetchMetadata(for url: URL) async -> VideoMetadata? {
+    static func fetchMetadata(
+        for url: URL,
+        timeout: Duration = .seconds(15),
+        metadataProbe: @escaping @Sendable (URL) async throws -> VideoMetadata = {
+            try await VideoMetadataService.shared.metadata(for: $0)
+        }
+    ) async -> VideoMetadata? {
         let fileName = url.lastPathComponent
 
         // Skip if file doesn't exist (e.g., scheduled downloads)
@@ -336,28 +460,16 @@ struct VideoFileUtils: Sendable {
             return nil
         }
 
-        struct MetadataTimeout: Error {}
-
         // Fetch metadata with timeout (VideoMetadataService also enforces an internal timeout)
         let metadata: VideoMetadata?
         do {
-            metadata = try await withThrowingTaskGroup(of: VideoMetadata?.self) { group in
-                group.addTask {
-                    let result = try await VideoMetadataService.shared.metadata(for: url)
-                    return result
-                }
-                
-                group.addTask {
-                    try await Task.sleep(nanoseconds: 15_000_000_000)
-                    throw MetadataTimeout()
-                }
-                
-                let result = try await group.next()
-                group.cancelAll()
-                return result ?? nil
+            metadata = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try await metadataProbe(url)
             }
-        } catch is MetadataTimeout {
+        } catch NonJoiningTaskDeadlineError.timedOut {
             logger.warning("Metadata fetch timed out for \(fileName, privacy: .public)")
+            metadata = nil
+        } catch is CancellationError {
             metadata = nil
         } catch {
             logger.warning("Failed to fetch metadata for \(fileName, privacy: .public): \(error.localizedDescription, privacy: .public)")

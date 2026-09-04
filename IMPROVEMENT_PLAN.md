@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 229 tests pass. The
+- The unit-test baseline is green: 234 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 229 unit tests. The UI test target now has deterministic smoke
+- There are 234 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -678,8 +678,8 @@ sequence identity after each suspension so overlapping selections cannot append 
 fence directory enumeration, each sequence, and the result of an associated-audio probe
 so a cancelled import cannot publish a stale derived frame rate. Focused tests cover
 asynchronous associated-audio frame-rate derivation and prompt fallback when a probe does
-not cooperate with cancellation. The wider wait/cancellation audit and Thread Sanitizer
-smoke run remain open.
+not cooperate with cancellation. The wider wait/cancellation audit remains open; the
+non-joining deadline tests described below pass under Thread Sanitizer.
 
 Virtual-display configuration now has a real ten-second deadline around the blocking
 WindowServer `applySettings` call. The former task-group race still implicitly joined
@@ -696,6 +696,15 @@ block the converter actor with `waitUntilExit`; their subprocess migrations, dea
 concurrent pipe draining, and tracked cancellation are described in 2.1. There are no
 remaining production `waitUntilExit` calls. The remaining synchronous compatibility
 wait is the two-second app-termination wait for preview cleanup.
+
+Video import and player metadata loading now use a non-joining asynchronous deadline
+instead of task-group timeout races that implicitly waited for a cancelled child. A
+stalled synchronous SwiftMediaMetadata read can finish safely in the background, but
+each probe returns after its fifteen-second deadline or immediately on parent cancellation.
+The essential-info fallback has its own bound, and an exhausted fallback no longer re-enters
+the same stalled single-flight read through separate duration and stream probes.
+Deterministic tests cover immediate success, timeout with late completion, prompt parent
+cancellation, a bounded fallback, and the player metadata entry point.
 
 ### 2.3 Standardize user-visible errors
 
