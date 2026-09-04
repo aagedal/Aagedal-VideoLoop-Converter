@@ -110,7 +110,6 @@ actor FFMPEGConverter {
     private var currentSubprocessTask: Task<Void, Never>?
     private var currentWaveformAnalysisTask: Task<FrequencyBandData, Error>?
     private var currentWaveformAnalysisID: UUID?
-    private var currentWaveformFrameWriterTask: Task<Void, Never>?
     private var currentImageSequenceAudioTask: Task<ImageSequenceAudioStagingResult, Never>?
     private var currentImageSequenceAudioTaskID: UUID?
     private var currentPackageAudioTask: Task<AudioExtractionResult, Never>?
@@ -150,6 +149,8 @@ actor FFMPEGConverter {
     static let av2ProbeHelperTimeout: Duration = .seconds(5 * 60)
     static let av2AudioHelperTimeout: Duration = .seconds(12 * 60 * 60)
     static let av2HelperDiagnosticCaptureLimit = 256 * 1024
+    static let nativeWaveformEncodingTimeout: Duration = .seconds(7 * 24 * 60 * 60)
+    static let nativeWaveformDiagnosticCaptureLimit = 256 * 1024
 
     enum PackageWrapperResult: Sendable {
         case success(diagnostic: String)
@@ -188,6 +189,11 @@ actor FFMPEGConverter {
         } catch {
             logger.warning("Failed to clean up temp file (\(label, privacy: .public)): \(url.lastPathComponent, privacy: .public) — \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private static func cleanupWaveformTemporaryMXFIfPresent(_ url: URL?) {
+        guard let url, FileManager.default.fileExists(atPath: url.path) else { return }
+        cleanupTempFile(at: url, label: "waveform BMX rewrap temp MXF")
     }
 
     // MARK: - AVC-Intra MCA Labels
@@ -438,8 +444,6 @@ actor FFMPEGConverter {
         currentWaveformAnalysisTask?.cancel()
         currentWaveformAnalysisTask = nil
         currentWaveformAnalysisID = nil
-        currentWaveformFrameWriterTask?.cancel()
-        currentWaveformFrameWriterTask = nil
         currentImageSequenceAudioTask?.cancel()
         currentImageSequenceAudioTask = nil
         currentImageSequenceAudioTaskID = nil
@@ -3163,18 +3167,7 @@ actor FFMPEGConverter {
             return
         }
 
-        // Phase 3: Start FFmpeg with stdin pipe for video frames
-        let process = Process()
-        currentProcess = process
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = command.arguments
-
-        let stdinPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardInput = stdinPipe
-        process.standardError = errorPipe
-        process.standardOutput = FileHandle.nullDevice
-
+        // Phase 3: Stream rendered video frames into FFmpeg through the shared runner.
         let privateCommandValues = Set(
             command.arguments.filter { $0.hasPrefix("/") } + [
                 ffmpegPath,
@@ -3183,111 +3176,22 @@ actor FFMPEGConverter {
                 outputFileURL.path,
             ]
         )
-        let logSafeRequest = SubprocessRequest(
+        let subprocessRequest = SubprocessRequest(
             executableURL: URL(fileURLWithPath: ffmpegPath),
             arguments: command.arguments,
+            timeout: Self.nativeWaveformEncodingTimeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: Self.nativeWaveformDiagnosticCaptureLimit,
             sensitiveValues: privateCommandValues
         )
-        Self.logger.info("FFmpeg native waveform command: \(logSafeRequest.redactedCommandDescription, privacy: .public)")
+        Self.logger.info("FFmpeg native waveform command: \(subprocessRequest.redactedCommandDescription, privacy: .public)")
 
-        let stderrCollector = StderrCollector()
         let capturedNeedsBMXRewrap = needsBMXRewrap
         let capturedTempMXFURL = tempMXFURL
         let capturedFinalOutputURL = outputFileURL
         let capturedInputBaseName = inputURL.deletingPathExtension().lastPathComponent
         let capturedInputURL = inputURL
         let capturedAudioRoutingConfig = audioRoutingConfig
-
-        // Monitor stderr for encoding progress (secondary to our frame-based progress)
-        errorPipe.fileHandleForReading.readabilityHandler = { fileHandle in
-            let data = fileHandle.availableData
-            if !data.isEmpty {
-                Task { await stderrCollector.append(data) }
-            }
-        }
-
-        process.terminationHandler = { [weak self] _ in
-            errorPipe.fileHandleForReading.readabilityHandler = nil
-
-            Task { [weak self] in
-                await self?.clearCurrentProcess(if: process)
-                let isActive = await self?.isActiveConversion(conversionID) ?? false
-                var success = process.terminationStatus == 0 && isActive
-                Self.logger.info("Native waveform FFmpeg terminated with status: \(process.terminationStatus)")
-
-                var errorReason: String? = isActive ? nil : "Conversion cancelled"
-                if !success && isActive {
-                    let collectedStderr = await stderrCollector.snapshot()
-                    let stderrString = logSafeRequest.redactedDiagnostic(
-                        String(decoding: collectedStderr, as: UTF8.self),
-                        limit: 64 * 1024
-                    )
-                    Self.logger.error("FFmpeg native waveform stderr:\n\(stderrString, privacy: .public)\n-- end --")
-                    errorReason = Self.extractErrorReason(from: stderrString, exitCode: process.terminationStatus)
-                }
-
-                // BMX rewrap for AVC-Intra if needed
-                if success && capturedNeedsBMXRewrap, let tempMXF = capturedTempMXFURL {
-                    Self.logger.info("Running bmxtranswrap for native waveform output")
-                    gatedProgressUpdate(0.95, "Rewrapping to OP1a...")
-
-                    let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(
-                        inputURL: capturedInputURL,
-                        audioRoutingConfig: capturedAudioRoutingConfig
-                    )
-                    if await self?.activateBMXOperationIfActiveConversion(conversionID) == true {
-                        let bmxResult = await BMXService.shared.rewrapToOP1a(
-                            inputURL: tempMXF,
-                            outputURL: capturedFinalOutputURL,
-                            clipName: capturedInputBaseName,
-                            mcaLabelsFile: mcaLabelsFile,
-                            operationID: conversionID,
-                            progress: { bmxProgress in
-                                let overallProgress = 0.95 + (bmxProgress * 0.05)
-                                Task { @MainActor in
-                                    gatedProgressUpdate(overallProgress, "Rewrapping to OP1a...")
-                                }
-                            }
-                        )
-                        let lateCancellation = await BMXService.shared.finishCancellationTracking(
-                            operationID: conversionID
-                        )
-                        await self?.clearActiveBMXOperation(if: conversionID)
-                        let stillOwnsConversion = await self?.isActiveConversion(conversionID) ?? false
-                        if bmxResult.cancelled || lateCancellation || !stillOwnsConversion {
-                            success = false
-                            errorReason = "Conversion cancelled"
-                        } else if !bmxResult.success {
-                            Self.logger.error("bmxtranswrap failed for native waveform")
-                            do {
-                                try FileManager.default.copyItem(at: tempMXF, to: capturedFinalOutputURL)
-                            } catch {
-                                success = false
-                            }
-                        }
-                    } else {
-                        success = false
-                        errorReason = "Conversion cancelled"
-                    }
-                    if let mcaLabelsFile {
-                        Self.cleanupTempFile(at: mcaLabelsFile, label: "MCA labels")
-                    }
-                    Self.cleanupTempFile(at: tempMXF, label: "waveform BMX rewrap temp MXF")
-                }
-
-                await complete(success, errorReason)
-            }
-        }
-
-        do {
-            try process.run()
-        } catch {
-            let safeError = logSafeRequest.redactedDiagnostic(error.localizedDescription, limit: 1_000)
-            Self.logger.error("Failed to start native waveform FFmpeg: \(safeError, privacy: .public)")
-            await clearCurrentProcess(if: process)
-            await complete(false, "Failed to start FFmpeg: \(safeError)")
-            return
-        }
 
         // Pre-load and scale background image (if set) once before render loop
         if let imageURL = waveformBackgroundImageURL {
@@ -3301,31 +3205,145 @@ actor FFMPEGConverter {
             nil
         }
 
-        // Phase 4: Write rendered frames to the pipe on a background task
-        let frameWriterTask = Task.detached { [frequencyData, waveformRequest, backgroundCGImage] in
-            await WaveformFramePipeWriter.writeFrames(
-                to: stdinPipe,
-                frequencyData: frequencyData,
-                style: waveformRequest.swiftStyle,
-                width: waveformRequest.width,
-                height: waveformRequest.height,
-                foregroundHex: waveformRequest.foregroundHex,
-                backgroundHex: waveformRequest.backgroundHex,
-                foregroundGradientEnabled: waveformRequest.foregroundGradientEnabled,
-                foregroundGradientEndHex: waveformRequest.foregroundGradientEndHex,
-                backgroundGradientEnabled: waveformRequest.backgroundGradientEnabled,
-                backgroundGradientEndHex: waveformRequest.backgroundGradientEndHex,
-                backgroundImage: backgroundCGImage,
-                waveformOpacity: waveformRequest.waveformOpacity,
-                progressUpdate: { renderProgress in
-                    // Map render progress to 10%–95% of overall progress
-                    let overall = 0.10 + renderProgress * 0.85
-                    gatedProgressUpdate(overall, "Rendering waveform…")
+        currentSubprocessTask?.cancel()
+        currentSubprocessTask = Task { [weak self] in
+            defer {
+                Self.cleanupWaveformTemporaryMXFIfPresent(capturedTempMXFURL)
+            }
+            let result: SubprocessResult
+            do {
+                result = try await runner.runWithStreamingStandardInput(
+                    subprocessRequest,
+                    inputProducer: { standardInput in
+                        await WaveformFramePipeWriter.writeFrames(
+                            to: standardInput,
+                            frequencyData: frequencyData,
+                            style: waveformRequest.swiftStyle,
+                            width: waveformRequest.width,
+                            height: waveformRequest.height,
+                            foregroundHex: waveformRequest.foregroundHex,
+                            backgroundHex: waveformRequest.backgroundHex,
+                            foregroundGradientEnabled: waveformRequest.foregroundGradientEnabled,
+                            foregroundGradientEndHex: waveformRequest.foregroundGradientEndHex,
+                            backgroundGradientEnabled: waveformRequest.backgroundGradientEnabled,
+                            backgroundGradientEndHex: waveformRequest.backgroundGradientEndHex,
+                            backgroundImage: backgroundCGImage,
+                            waveformOpacity: waveformRequest.waveformOpacity,
+                            progressUpdate: { renderProgress in
+                                let overall = 0.10 + renderProgress * 0.85
+                                gatedProgressUpdate(overall, "Rendering waveform…")
+                            }
+                        )
+                    },
+                    outputHandler: nil
+                )
+            } catch is CancellationError {
+                Self.cleanupWaveformTemporaryMXFIfPresent(capturedTempMXFURL)
+                await complete(false, "Conversion cancelled")
+                return
+            } catch SubprocessRunnerError.timedOut(_, let timedOutResult) {
+                let diagnostic = subprocessRequest.redactedDiagnostic(
+                    timedOutResult.standardErrorText,
+                    limit: 64 * 1024
+                )
+                if !diagnostic.isEmpty {
+                    Self.logger.error("Native waveform FFmpeg timed out:\n\(diagnostic, privacy: .public)")
                 }
-            )
+                Self.cleanupWaveformTemporaryMXFIfPresent(capturedTempMXFURL)
+                await complete(false, "Native waveform encoding timed out")
+                return
+            } catch {
+                let safeError = subprocessRequest.redactedDiagnostic(
+                    error.localizedDescription,
+                    limit: 1_000
+                )
+                Self.logger.error("Failed to run native waveform FFmpeg: \(safeError, privacy: .public)")
+                Self.cleanupWaveformTemporaryMXFIfPresent(capturedTempMXFURL)
+                await complete(false, "Failed to start FFmpeg: \(safeError)")
+                return
+            }
+
+            let isActive = await self?.isActiveConversion(conversionID) ?? false
+            var success = result.succeeded && isActive
+            var errorReason: String? = isActive ? nil : "Conversion cancelled"
+            Self.logger.info("Native waveform FFmpeg terminated with status: \(result.terminationStatus)")
+
+            if !success && isActive {
+                let stderrString = subprocessRequest.redactedDiagnostic(
+                    result.standardErrorText,
+                    limit: 64 * 1024
+                )
+                Self.logger.error("FFmpeg native waveform stderr:\n\(stderrString, privacy: .public)\n-- end --")
+                errorReason = Self.extractErrorReason(
+                    from: stderrString,
+                    exitCode: result.terminationStatus
+                )
+            }
+
+            if success {
+                let fileToValidate = capturedNeedsBMXRewrap
+                    ? (capturedTempMXFURL ?? capturedFinalOutputURL)
+                    : capturedFinalOutputURL
+                if let validationError = Self.validateOutputFile(at: fileToValidate) {
+                    success = false
+                    errorReason = validationError
+                }
+            }
+
+            if success && capturedNeedsBMXRewrap, let tempMXF = capturedTempMXFURL {
+                Self.logger.info("Running bmxtranswrap for native waveform output")
+                gatedProgressUpdate(0.95, "Rewrapping to OP1a...")
+
+                let mcaLabelsFile = await Self.prepareAVCIntraMCALabelsFile(
+                    inputURL: capturedInputURL,
+                    audioRoutingConfig: capturedAudioRoutingConfig
+                )
+                if await self?.activateBMXOperationIfActiveConversion(conversionID) == true {
+                    let bmxResult = await BMXService.shared.rewrapToOP1a(
+                        inputURL: tempMXF,
+                        outputURL: capturedFinalOutputURL,
+                        clipName: capturedInputBaseName,
+                        mcaLabelsFile: mcaLabelsFile,
+                        operationID: conversionID,
+                        progress: { bmxProgress in
+                            let overallProgress = 0.95 + (bmxProgress * 0.05)
+                            Task { @MainActor in
+                                gatedProgressUpdate(overallProgress, "Rewrapping to OP1a...")
+                            }
+                        }
+                    )
+                    let lateCancellation = await BMXService.shared.finishCancellationTracking(
+                        operationID: conversionID
+                    )
+                    await self?.clearActiveBMXOperation(if: conversionID)
+                    let stillOwnsConversion = await self?.isActiveConversion(conversionID) ?? false
+                    if bmxResult.cancelled || lateCancellation || !stillOwnsConversion {
+                        success = false
+                        errorReason = "Conversion cancelled"
+                    } else if !bmxResult.success {
+                        Self.logger.error("bmxtranswrap failed for native waveform")
+                        do {
+                            try FileManager.default.copyItem(
+                                at: tempMXF,
+                                to: capturedFinalOutputURL
+                            )
+                        } catch {
+                            success = false
+                        }
+                    }
+                } else {
+                    success = false
+                    errorReason = "Conversion cancelled"
+                }
+                if let mcaLabelsFile {
+                    Self.cleanupTempFile(at: mcaLabelsFile, label: "MCA labels")
+                }
+                Self.cleanupTempFile(at: tempMXF, label: "waveform BMX rewrap temp MXF")
+            }
+
+            Self.cleanupWaveformTemporaryMXFIfPresent(capturedTempMXFURL)
+            await complete(success, errorReason)
         }
-        currentWaveformFrameWriterTask?.cancel()
-        currentWaveformFrameWriterTask = frameWriterTask
     }
 
     // MARK: - Audio Extraction for Image Sequence Export
@@ -3953,8 +3971,6 @@ actor FFMPEGConverter {
         currentWaveformAnalysisTask?.cancel()
         currentWaveformAnalysisTask = nil
         currentWaveformAnalysisID = nil
-        currentWaveformFrameWriterTask?.cancel()
-        currentWaveformFrameWriterTask = nil
         currentImageSequenceAudioTask?.cancel()
         currentImageSequenceAudioTask = nil
         currentImageSequenceAudioTaskID = nil
@@ -3995,8 +4011,6 @@ actor FFMPEGConverter {
         currentSubprocessTask = nil
         currentWaveformAnalysisTask = nil
         currentWaveformAnalysisID = nil
-        currentWaveformFrameWriterTask?.cancel()
-        currentWaveformFrameWriterTask = nil
         currentAVCIntraPreprocessingTask = nil
         currentAVCIntraPreprocessingTaskID = nil
         currentAV2HelperTask = nil
@@ -4024,8 +4038,6 @@ actor FFMPEGConverter {
         currentSubprocessTask = nil
         currentWaveformAnalysisTask = nil
         currentWaveformAnalysisID = nil
-        currentWaveformFrameWriterTask?.cancel()
-        currentWaveformFrameWriterTask = nil
         currentAVCIntraPreprocessingTask = nil
         currentAVCIntraPreprocessingTaskID = nil
         currentAV2HelperTask = nil

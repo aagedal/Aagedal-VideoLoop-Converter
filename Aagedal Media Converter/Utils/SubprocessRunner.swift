@@ -15,6 +15,32 @@ struct SubprocessOutputChunk: Sendable {
     let data: Data
 }
 
+/// Backpressured access to a running subprocess's standard input. `write` blocks when the child
+/// consumes input more slowly than the producer, so callers can stream large media without first
+/// buffering it in memory. `finish` is idempotent and sends EOF to the child.
+final class SubprocessStandardInputWriter: @unchecked Sendable {
+    private let writeOperation: @Sendable (Data) throws -> Void
+    private let finishOperation: @Sendable () -> Void
+
+    init(
+        write: @escaping @Sendable (Data) throws -> Void,
+        finish: @escaping @Sendable () -> Void
+    ) {
+        writeOperation = write
+        finishOperation = finish
+    }
+
+    func write(_ data: Data) throws {
+        try writeOperation(data)
+    }
+
+    func finish() {
+        finishOperation()
+    }
+}
+
+typealias SubprocessStandardInputProducer = @Sendable (SubprocessStandardInputWriter) async -> Void
+
 enum SubprocessTermination: Sendable, Equatable {
     case exited
     case uncaughtSignal
@@ -188,6 +214,23 @@ struct SubprocessRequest: Sendable {
         }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
+
+    fileprivate func replacingStandardInput(with data: Data) -> SubprocessRequest {
+        SubprocessRequest(
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            currentDirectoryURL: currentDirectoryURL,
+            standardInput: data,
+            timeout: timeout,
+            terminationGracePeriod: terminationGracePeriod,
+            standardOutputCaptureLimit: standardOutputCaptureLimit,
+            standardErrorCaptureLimit: standardErrorCaptureLimit,
+            sensitiveArgumentNames: sensitiveArgumentNames,
+            sensitiveValues: sensitiveValues,
+            redactURLs: redactURLs
+        )
+    }
 }
 
 enum SubprocessRunnerError: Error, LocalizedError {
@@ -209,11 +252,37 @@ protocol SubprocessRunning: Sendable {
         _ request: SubprocessRequest,
         outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
     ) async throws -> SubprocessResult
+
+    func runWithStreamingStandardInput(
+        _ request: SubprocessRequest,
+        inputProducer: @escaping SubprocessStandardInputProducer,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult
 }
 
 extension SubprocessRunning {
     func run(_ request: SubprocessRequest) async throws -> SubprocessResult {
         try await run(request, outputHandler: nil)
+    }
+
+    /// Test doubles and simple runners can use this buffered fallback. The production runner
+    /// overrides it so large inputs are written directly to the live child's pipe.
+    func runWithStreamingStandardInput(
+        _ request: SubprocessRequest,
+        inputProducer: @escaping SubprocessStandardInputProducer,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        let collector = BufferedStandardInputCollector()
+        let writer = SubprocessStandardInputWriter(
+            write: collector.append,
+            finish: {}
+        )
+        await inputProducer(writer)
+        try Task.checkCancellation()
+        return try await run(
+            request.replacingStandardInput(with: collector.snapshot()),
+            outputHandler: outputHandler
+        )
     }
 }
 
@@ -225,10 +294,36 @@ final class SubprocessRunner: SubprocessRunning, @unchecked Sendable {
         _ request: SubprocessRequest,
         outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)? = nil
     ) async throws -> SubprocessResult {
+        try await run(
+            request,
+            streamingInputProducer: nil,
+            outputHandler: outputHandler
+        )
+    }
+
+    func runWithStreamingStandardInput(
+        _ request: SubprocessRequest,
+        inputProducer: @escaping SubprocessStandardInputProducer,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)? = nil
+    ) async throws -> SubprocessResult {
+        precondition(request.standardInput == nil, "Use either buffered or streaming standard input, not both")
+        return try await run(
+            request,
+            streamingInputProducer: inputProducer,
+            outputHandler: outputHandler
+        )
+    }
+
+    private func run(
+        _ request: SubprocessRequest,
+        streamingInputProducer: SubprocessStandardInputProducer?,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
         try Task.checkCancellation()
 
         let execution = SubprocessExecution(
             request: request,
+            hasStreamingStandardInput: streamingInputProducer != nil,
             outputHandler: outputHandler
         )
 
@@ -246,6 +341,10 @@ final class SubprocessRunner: SubprocessRunning, @unchecked Sendable {
                 execution.terminate(cause: .cancelled)
             }
 
+            if let streamingInputProducer {
+                execution.startStreamingStandardInput(streamingInputProducer)
+            }
+
             let timeoutTask = request.timeout.map { timeout in
                 Task {
                     do {
@@ -258,6 +357,7 @@ final class SubprocessRunner: SubprocessRunning, @unchecked Sendable {
             }
 
             await execution.waitForExit()
+            await execution.stopStreamingStandardInput()
             await execution.waitForTerminationCleanup()
             timeoutTask?.cancel()
 
@@ -307,14 +407,17 @@ private final class SubprocessExecution: @unchecked Sendable {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var stdoutReadsFinished = false
     private var stderrReadsFinished = false
+    private var streamingInputTask: Task<Void, Never>?
+    private var streamingInputWriter: SubprocessStandardInputWriter?
 
     init(
         request: SubprocessRequest,
+        hasStreamingStandardInput: Bool,
         outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
     ) {
         self.request = request
         self.outputHandler = outputHandler
-        stdinPipe = request.standardInput == nil ? nil : Pipe()
+        stdinPipe = request.standardInput == nil && !hasStreamingStandardInput ? nil : Pipe()
         stdoutCollector = BoundedDataCollector(limit: request.standardOutputCaptureLimit)
         stderrCollector = BoundedDataCollector(limit: request.standardErrorCaptureLimit)
     }
@@ -360,6 +463,12 @@ private final class SubprocessExecution: @unchecked Sendable {
         // copies ensures the readers observe EOF as soon as the child exits.
         try? stdoutPipe.fileHandleForWriting.close()
         try? stderrPipe.fileHandleForWriting.close()
+        // Likewise, the parent must not retain a reader for the child's stdin pipe. Otherwise a
+        // producer blocked in write may never observe EPIPE after the child exits or is killed.
+        if let stdinPipe {
+            try? stdinPipe.fileHandleForReading.close()
+            _ = fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        }
 
         let shouldTerminate = lock.withLock { () -> Bool in
             hasStarted = true
@@ -380,6 +489,45 @@ private final class SubprocessExecution: @unchecked Sendable {
         }
     }
 
+    func startStreamingStandardInput(_ producer: @escaping SubprocessStandardInputProducer) {
+        guard request.standardInput == nil, let stdinPipe else { return }
+        let finishGate = StandardInputFinishGate()
+        let writer = SubprocessStandardInputWriter(
+            write: { data in
+                try stdinPipe.fileHandleForWriting.write(contentsOf: data)
+            },
+            finish: {
+                if finishGate.claim() {
+                    try? stdinPipe.fileHandleForWriting.close()
+                }
+            }
+        )
+        let task = Task.detached(priority: .utility) {
+            await producer(writer)
+            writer.finish()
+        }
+        let shouldCancel = lock.withLock { () -> Bool in
+            streamingInputWriter = writer
+            streamingInputTask = task
+            return cause != nil || hasExited
+        }
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    func stopStreamingStandardInput() async {
+        let task = lock.withLock { streamingInputTask }
+        task?.cancel()
+        // Do not join an arbitrary producer here. Closing or killing the child removes the final
+        // read end, so a blocked write returns EPIPE; cooperative producers also see cancellation.
+        // A producer that ignores both cannot hold subprocess completion or its timeout hostage.
+        lock.withLock {
+            streamingInputTask = nil
+            streamingInputWriter = nil
+        }
+    }
+
     func waitForExit() async {
         await withCheckedContinuation { continuation in
             let resumeImmediately = lock.withLock { () -> Bool in
@@ -396,22 +544,24 @@ private final class SubprocessExecution: @unchecked Sendable {
     }
 
     func terminate(cause newCause: SubprocessTerminationCause) {
-        let shouldTerminate = lock.withLock { () -> Bool in
-            guard !hasExited else { return false }
+        let (shouldTerminate, inputTask) = lock.withLock { () -> (Bool, Task<Void, Never>?) in
+            guard !hasExited else { return (false, streamingInputTask) }
             if hasStarted, !process.isRunning {
-                return false
+                return (false, streamingInputTask)
             }
             if cause == nil {
                 cause = newCause
             }
             if !hasStarted {
                 pendingTermination = true
-                return false
+                return (false, streamingInputTask)
             }
-            guard !terminationStarted else { return false }
+            guard !terminationStarted else { return (false, streamingInputTask) }
             terminationStarted = true
-            return true
+            return (true, streamingInputTask)
         }
+
+        inputTask?.cancel()
 
         if shouldTerminate {
             terminateProcessTree()
@@ -615,6 +765,34 @@ private final class BoundedDataCollector: @unchecked Sendable {
 
     func snapshot() -> (data: Data, discardedByteCount: Int) {
         lock.withLock { (data, discardedByteCount) }
+    }
+}
+
+private final class BufferedStandardInputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ newData: Data) {
+        lock.withLock {
+            data.append(newData)
+        }
+    }
+
+    func snapshot() -> Data {
+        lock.withLock { data }
+    }
+}
+
+private final class StandardInputFinishGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isFinished = false
+
+    func claim() -> Bool {
+        lock.withLock {
+            guard !isFinished else { return false }
+            isFinished = true
+            return true
+        }
     }
 }
 

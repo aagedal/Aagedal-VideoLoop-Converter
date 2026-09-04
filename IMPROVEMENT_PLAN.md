@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 279 tests pass. The
+- The unit-test baseline is green: 286 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 279 unit tests. The UI test target now has deterministic smoke
+- There are 286 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -322,6 +322,7 @@ analytics, package-version probes, merge preparation, screenshot capture, and th
 ordinary FFmpeg conversion, Deno archive extraction, and yt-dlp warm-up paths
 migrated 2026-09-01–04. Image-sequence WAV sidecar extraction and AV2 one-shot
 helper launches migrated 2026-09-04.
+Native-waveform streaming encoding migrated 2026-09-04.
 
 Provide an injectable runner that owns:
 
@@ -646,10 +647,18 @@ direct and probe-time cancellation, concat-path redaction, and isolated replacem
 cancellation; the generated AAC/Opus routing fixture remains green through the real
 bundled FFmpeg.
 
-Remaining native-waveform streaming encoder and AV2 pipe call sites are still open. The
-refreshed audit counts seven direct production launches plus five configuration-only
-`Process` shims. Native-waveform streaming and AV2 pipelines should wait for
-incremental stdin and coordinated multi-process support.
+The shared runner now accepts a backpressured standard-input producer, closes parent pipe ends
+correctly, suppresses SIGPIPE per descriptor, cancels the producer with its process, and never
+joins an uncooperative producer after child exit. Native-waveform frames stream through that API
+instead of a directly managed `Process`; the encode has a seven-day safety deadline, bounded and
+redacted diagnostics, process-tree cancellation, nonempty-output validation, and failed temporary
+MXF cleanup. Focused tests cover live streaming, backpressure timeout and cancellation,
+non-joining producer cleanup, request policy, output bytes, encoder-stage cancellation, timeout
+mapping, and partial-output cleanup.
+
+Remaining AV2 pipe call sites are still open. The refreshed audit counts six direct production
+launches plus five configuration-only `Process` shims. Coordinated multi-process support is the
+next runner primitive needed to migrate the AV2 decoder and encoder pipelines.
 
 ### 2.2 Remove sync-over-async waits
 
@@ -825,7 +834,7 @@ cancel an in-flight transfer or report its terminal failure, while duplicate cal
 explicit in-progress error. Focused tests cover deadline policy, cache layout and progress,
 metadata and parent cancellation, concurrent-model isolation, duplicate callers, atomic
 replacement of incomplete caches, late retry results and failures, truncated non-LFS files,
-checksum failure, unsafe remote paths, and staging cleanup. All 279 unit tests pass;
+checksum failure, unsafe remote paths, and staging cleanup. All 286 unit tests pass;
 the wider audit of remaining unbounded framework callbacks continues.
 
 ### 2.3 Standardize user-visible errors

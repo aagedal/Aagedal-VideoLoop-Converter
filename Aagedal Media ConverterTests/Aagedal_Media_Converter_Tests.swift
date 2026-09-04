@@ -56,6 +56,121 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(result.standardOutput, input)
     }
 
+    func testSubprocessRunnerStreamsStandardInputWithoutPrebuffering() async throws {
+        let firstChunkWasRead = AsyncTestGate()
+        let recorder = SubprocessChunkRecorder()
+        let result = try await SubprocessRunner().runWithStreamingStandardInput(
+            SubprocessRequest(executableURL: URL(fileURLWithPath: "/bin/cat")),
+            inputProducer: { standardInput in
+                try? standardInput.write(Data("first\n".utf8))
+                await firstChunkWasRead.wait()
+                try? standardInput.write(Data("second\n".utf8))
+                standardInput.finish()
+            },
+            outputHandler: { chunk in
+                recorder.append(chunk)
+                if recorder.standardOutput.starts(with: Data("first\n".utf8)) {
+                    firstChunkWasRead.open()
+                }
+            }
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(result.standardOutputText, "first\nsecond\n")
+    }
+
+    func testSubprocessRunnerDoesNotJoinUncooperativeStreamingProducerAfterChildExit() async throws {
+        let releaseProducer = AsyncTestGate()
+        defer { releaseProducer.open() }
+        let start = ContinuousClock.now
+
+        let result = try await SubprocessRunner().runWithStreamingStandardInput(
+            SubprocessRequest(executableURL: URL(fileURLWithPath: "/usr/bin/true")),
+            inputProducer: { _ in
+                await releaseProducer.wait()
+            },
+            outputHandler: nil
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testSubprocessRunnerStreamingInputTimeoutUnblocksBackpressuredProducer() async throws {
+        let producerFinished = expectation(description: "Streaming producer stopped")
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 30"],
+            timeout: .milliseconds(200),
+            terminationGracePeriod: .milliseconds(100)
+        )
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await SubprocessRunner().runWithStreamingStandardInput(
+                request,
+                inputProducer: { standardInput in
+                    defer { producerFinished.fulfill() }
+                    let chunk = Data(repeating: 0xA5, count: 1024 * 1024)
+                    while !Task.isCancelled {
+                        do {
+                            try standardInput.write(chunk)
+                        } catch {
+                            break
+                        }
+                    }
+                },
+                outputHandler: nil
+            )
+            XCTFail("Expected the subprocess to time out")
+        } catch SubprocessRunnerError.timedOut {
+            // Expected.
+        }
+
+        await fulfillment(of: [producerFinished], timeout: 2)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(2))
+    }
+
+    func testSubprocessRunnerCancellationStopsBackpressuredStreamingProducer() async throws {
+        let producerStarted = expectation(description: "Streaming producer started")
+        let producerFinished = expectation(description: "Streaming producer stopped")
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 30"],
+            terminationGracePeriod: .milliseconds(100)
+        )
+        let task = Task {
+            try await SubprocessRunner().runWithStreamingStandardInput(
+                request,
+                inputProducer: { standardInput in
+                    producerStarted.fulfill()
+                    defer { producerFinished.fulfill() }
+                    let chunk = Data(repeating: 0x5A, count: 1024 * 1024)
+                    while !Task.isCancelled {
+                        do {
+                            try standardInput.write(chunk)
+                        } catch {
+                            break
+                        }
+                    }
+                },
+                outputHandler: nil
+            )
+        }
+        await fulfillment(of: [producerStarted], timeout: 2)
+
+        let cancelStart = ContinuousClock.now
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        await fulfillment(of: [producerFinished], timeout: 2)
+        XCTAssertLessThan(cancelStart.duration(to: .now), .seconds(2))
+    }
+
     func testSubprocessRunnerDeliversEveryCapturedByteToIncrementalHandler() async throws {
         let recorder = SubprocessChunkRecorder()
         let result = try await SubprocessRunner().run(
@@ -6809,6 +6924,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
 
         let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let halfProgressReported = expectation(description: "FFmpeg half progress reported")
         let runner = RecordingSubprocessRunner { request, outputHandler in
             outputHandler?(SubprocessOutputChunk(
                 stream: .standardError,
@@ -6851,11 +6967,14 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             using: converter,
             progressUpdate: { progress, _ in
                 progressValues.withLock { $0.append(progress) }
+                if abs(progress - 0.5) < 0.001 {
+                    halfProgressReported.fulfill()
+                }
             }
         )
 
         XCTAssertTrue(result.success, result.errorReason ?? "Conversion failed without a reason")
-        try await Task.sleep(for: .milliseconds(50))
+        await fulfillment(of: [halfProgressReported], timeout: 1.0)
         XCTAssertTrue(progressValues.withLock { values in
             values.contains { abs($0 - 0.5) < 0.001 }
         })
@@ -7060,6 +7179,180 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(result.1, "Conversion cancelled")
         XCTAssertEqual(runner.cancelledCount, 1)
         let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testNativeWaveformEncoderUsesBoundedStreamingRunnerPolicy() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WaveformStreamingRunner-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = SequencedRecordingSubprocessRunner { index, request, _ in
+            guard let outputPath = request.arguments.last else {
+                return successfulSubprocessResult(
+                    standardError: "missing output path",
+                    terminationStatus: 2
+                )
+            }
+            let outputURL = URL(fileURLWithPath: outputPath)
+            if index == 0 {
+                try Data(count: MemoryLayout<Float>.size).write(to: outputURL)
+            } else {
+                try Data("encoded".utf8).write(to: outputURL)
+            }
+            return successfulSubprocessResult()
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("private output")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        defer { FileSafetyUtils.unregisterCreatedFile(outputURL) }
+        let waveformRequest = WaveformVideoRequest(
+            width: 2,
+            height: 2,
+            backgroundHex: "000000",
+            foregroundHex: "FFFFFF",
+            normalizeAudio: false,
+            style: .linear,
+            frameRate: 1,
+            renderingEngine: .swift,
+            swiftStyle: .capsules,
+            bandCount: 1,
+            frequencyDistribution: .linear,
+            foregroundGradientEnabled: false,
+            foregroundGradientEndHex: "FFFFFF",
+            backgroundGradientEnabled: false,
+            backgroundGradientEndHex: "000000",
+            waveformOpacity: 1
+        )
+        let inputURL = temporaryDirectory.appendingPathComponent("private input.wav")
+        let request = ConversionRequest(
+            inputURL: inputURL,
+            outputURL: outputBaseURL,
+            preset: .h264,
+            includeDateTag: false,
+            expectedDuration: 1,
+            waveformRequest: waveformRequest
+        )
+
+        let result = await withCheckedContinuation { continuation in
+            Task {
+                await converter.convert(
+                    request: request,
+                    progressUpdate: { _, _ in },
+                    completion: { success, errorReason in
+                        continuation.resume(returning: (success, errorReason))
+                    }
+                )
+            }
+        }
+
+        XCTAssertTrue(result.0, result.1 ?? "Native waveform conversion failed")
+        let requests = runner.requests
+        XCTAssertEqual(requests.count, 2)
+        let encodeRequest = try XCTUnwrap(requests.last)
+        XCTAssertEqual(encodeRequest.executableURL.path, "/private/tools/ffmpeg")
+        XCTAssertEqual(encodeRequest.timeout, FFMPEGConverter.nativeWaveformEncodingTimeout)
+        XCTAssertEqual(encodeRequest.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(
+            encodeRequest.standardErrorCaptureLimit,
+            FFMPEGConverter.nativeWaveformDiagnosticCaptureLimit
+        )
+        XCTAssertEqual(encodeRequest.standardInput?.count, 2 * 2 * 4)
+        XCTAssertTrue(encodeRequest.sensitiveValues.contains("/private/tools/ffmpeg"))
+        XCTAssertTrue(encodeRequest.sensitiveValues.contains(inputURL.path))
+        XCTAssertTrue(encodeRequest.sensitiveValues.contains(outputURL.path))
+        XCTAssertFalse(encodeRequest.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(encodeRequest.redactedCommandDescription.contains(outputURL.path))
+    }
+
+    func testNativeWaveformEncoderMapsTimeoutAndCleansPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WaveformStreamingTimeout-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = SequencedRecordingSubprocessRunner { index, request, _ in
+            let outputURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            if index == 0 {
+                try Data(count: MemoryLayout<Float>.size).write(to: outputURL)
+                return successfulSubprocessResult()
+            }
+            try Data("partial".utf8).write(to: outputURL)
+            throw SubprocessRunnerError.timedOut(
+                command: "<redacted>",
+                result: successfulSubprocessResult(
+                    standardError: "stalled at \(outputURL.path)",
+                    terminationStatus: SIGKILL
+                )
+            )
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("private output")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        let request = makeNativeWaveformConversionRequest(
+            inputURL: temporaryDirectory.appendingPathComponent("private input.wav"),
+            outputBaseURL: outputBaseURL
+        )
+
+        let result = await conversionResult(converter: converter, request: request)
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "Native waveform encoding timed out")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testNativeWaveformEncoderCancellationReachesStreamingRunner() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WaveformStreamingCancellation-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let encodeStarted = AsyncTestGate()
+        let cancellationCount = LockedInvocationCounter()
+        let runner = SequencedRecordingSubprocessRunner { index, request, _ in
+            let outputURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            if index == 0 {
+                try Data(count: MemoryLayout<Float>.size).write(to: outputURL)
+                return successfulSubprocessResult()
+            }
+            encodeStarted.open()
+            return try await withTaskCancellationHandler {
+                try await Task.sleep(for: .seconds(30))
+                return successfulSubprocessResult()
+            } onCancel: {
+                _ = cancellationCount.incrementAndIsFirst()
+            }
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        let request = makeNativeWaveformConversionRequest(
+            inputURL: temporaryDirectory.appendingPathComponent("input.wav"),
+            outputBaseURL: outputBaseURL
+        )
+        let resultTask = Task {
+            await conversionResult(converter: converter, request: request)
+        }
+
+        await encodeStarted.wait()
+        await converter.cancelConversion()
+        let result = await resultTask.value
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "Conversion cancelled")
+        XCTAssertEqual(cancellationCount.value, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
         XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
     }
@@ -10728,6 +11021,54 @@ private func successfulSubprocessResult(
     )
 }
 
+private func makeNativeWaveformConversionRequest(
+    inputURL: URL,
+    outputBaseURL: URL
+) -> ConversionRequest {
+    ConversionRequest(
+        inputURL: inputURL,
+        outputURL: outputBaseURL,
+        preset: .h264,
+        includeDateTag: false,
+        expectedDuration: 1,
+        waveformRequest: WaveformVideoRequest(
+            width: 2,
+            height: 2,
+            backgroundHex: "000000",
+            foregroundHex: "FFFFFF",
+            normalizeAudio: false,
+            style: .linear,
+            frameRate: 1,
+            renderingEngine: .swift,
+            swiftStyle: .capsules,
+            bandCount: 1,
+            frequencyDistribution: .linear,
+            foregroundGradientEnabled: false,
+            foregroundGradientEndHex: "FFFFFF",
+            backgroundGradientEnabled: false,
+            backgroundGradientEndHex: "000000",
+            waveformOpacity: 1
+        )
+    )
+}
+
+private func conversionResult(
+    converter: FFMPEGConverter,
+    request: ConversionRequest
+) async -> (success: Bool, errorReason: String?) {
+    await withCheckedContinuation { continuation in
+        Task {
+            await converter.convert(
+                request: request,
+                progressUpdate: { _, _ in },
+                completion: { success, errorReason in
+                    continuation.resume(returning: (success, errorReason))
+                }
+            )
+        }
+    }
+}
+
 private func packageAudioTemporaryFiles(in directory: URL) throws -> [URL] {
     try FileManager.default.contentsOfDirectory(
         at: directory,
@@ -10847,6 +11188,42 @@ private final class LockedInvocationCounter: @unchecked Sendable {
         lock.withLock {
             count += 1
             return count == 1
+        }
+    }
+
+    var value: Int {
+        lock.withLock { count }
+    }
+}
+
+private final class AsyncTestGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
+    }
+
+    func open() {
+        let pending = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            guard !isOpen else { return [] }
+            isOpen = true
+            let pending = waiters
+            waiters.removeAll()
+            return pending
+        }
+        for waiter in pending {
+            waiter.resume()
         }
     }
 }
