@@ -728,9 +728,13 @@ successful shared probe, timeout with late completion, concurrent batch deadline
 merge-check cancellation. Dismissing, importing, auto-splitting, or superseding a check from the card
 dialog also cancels its owned task, rejects late publication, and releases folder access. An
 unavailable probe is reported distinctly from a confirmed video-less file and no longer presents a
-terminal failure as ongoing metadata gathering. The refreshed audit now finds twelve remaining direct,
-unbounded consumers outside guarded entry points. Preview generation, player audio discovery, and
-conversion command builders should migrate next.
+terminal failure as ongoing metadata gathering.
+
+Preview asset generation now reuses one shared bounded metadata result for cached per-stream waveform
+discovery and new waveform rendering. A stalled parse can no longer pin the preview workflow at either
+read, and cancelling preview generation propagates instead of being erased by `try?`. The refreshed
+audit now finds ten remaining direct, unbounded consumers outside guarded entry points. Player audio
+discovery and conversion command builders should migrate next.
 
 Normal application termination now uses AppKit's asynchronous terminate-later handshake
 instead of blocking the main thread on a semaphore to reach the preview actor. Repeated quit

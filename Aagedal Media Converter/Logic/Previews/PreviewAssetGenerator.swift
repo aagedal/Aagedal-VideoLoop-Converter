@@ -535,6 +535,15 @@ actor PreviewAssetGenerator {
         let legacyWaveformURL = assetDirectory.appendingPathComponent(legacyWaveformFilename, isDirectory: false)
 
         let hasVideoStream = await hasVideoStream(for: url)
+        let metadata: VideoMetadata?
+        do {
+            metadata = try await BoundedVideoMetadataProbe.metadata(for: url)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            logger.warning("Metadata unavailable while preparing preview assets for \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            metadata = nil
+        }
 
         let rowThumbnailMissing = !fileManager.fileExists(atPath: rowThumbnailURL.path)
         let missingThumbnailIndices: [Int] = hasVideoStream ? expectedThumbnailURLs.enumerated().compactMap { index, url in
@@ -542,7 +551,7 @@ actor PreviewAssetGenerator {
         } : []
         let existingWaveformURL = [waveformURL, legacyWaveformURL].first { fileManager.fileExists(atPath: $0.path) }
         var existingPerStreamWaveforms: [Int: URL] = [:]
-        if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
+        if let metadata {
             metadata.audioStreams.enumerated().forEach { index, _ in
                 let customURL = assetDirectory.appendingPathComponent(waveformFilename(for: index), isDirectory: false)
                 if fileManager.fileExists(atPath: customURL.path) {
@@ -661,9 +670,6 @@ actor PreviewAssetGenerator {
         } else if !hasVideoStream {
             logger.info("Skipping filmstrip thumbnails for \(url.lastPathComponent, privacy: .public) because no video stream was detected")
         }
-
-        // Load metadata for waveform generation
-        let metadata = try? await VideoMetadataService.shared.metadata(for: url)
 
         // Generate native waveform images (fast: single FFmpeg PCM decode + Swift render)
         var nativeWaveformImage: SendableImage?
