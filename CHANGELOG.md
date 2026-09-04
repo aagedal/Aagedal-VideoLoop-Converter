@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Conversion audio, duration, chapter, and output checks can no longer wait indefinitely for raw metadata.** The shared probe facade now applies a non-joining 15-second deadline to all four operations. Video audio-stream discovery reuses the cached single-flight metadata read, while raw duration, chapter, output-verification, and audio-only probes retain sandbox access until any late parser completion.
 - **Conversion planning no longer waits indefinitely for rich media metadata.** Crop geometry, preserved timecode, AVC-Intra duration, deinterlace decisions, AV2 planning/muxing, and audio-routing enrichment now use the shared non-joining 15-second metadata deadline. Existing request metadata is reused for deinterlace and AVC-Intra planning, and an AV2 timeout no longer immediately retries the same geometry read.
 - **Player audio controls no longer wait indefinitely for metadata.** Audio ordering, AVPlayer track-option refresh, and on-demand channel-waveform discovery use the shared non-joining metadata deadline. Superseded or torn-down refreshes are cancelled and late results cannot overwrite a newer player item.
 - **Preview generation can no longer hang on waveform metadata discovery.** Cached per-stream waveform discovery and new waveform rendering now reuse one non-joining 15-second metadata probe, and cancelling preview generation is no longer swallowed as missing optional metadata.

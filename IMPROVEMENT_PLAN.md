@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 246 tests pass. The
+- The unit-test baseline is green: 248 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 247 unit tests. The UI test target now has deterministic smoke
+- There are 248 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -745,8 +745,16 @@ muxing, and conversion audio routing now use the shared non-joining fifteen-seco
 planning reuses request metadata for deinterlace and AVC-Intra duration decisions when it is already
 available, and a failed AV2 metadata read no longer immediately starts a second geometry probe. A
 focused non-cooperative test verifies that deinterlace planning returns on deadline and applies its
-existing progressive-source fallback. Lower-level raw probes in `FFMPEGProbeService`, AV2 duration
-fallbacks, and operation-wide deduplication across AV2 segment/build/bit-depth planning remain open.
+existing progressive-source fallback.
+
+The lower-level `FFMPEGProbeService` facade now gives audio-stream discovery, duration fallback,
+chapter loading, and post-export stream verification the same non-joining fifteen-second deadline.
+Video-container audio reads reuse the shared metadata cache and single-flight probe instead of
+starting a second raw parse. Raw duration, chapter, output-verification, and audio-only reads retain their
+security-scoped access until a late non-cooperative parser actually finishes, even after the caller
+has returned. A deterministic test stalls all four facade operations concurrently and verifies that
+none is joined after its deadline. Operation-wide deduplication across AV2
+segment/build/bit-depth planning remains open.
 
 Normal application termination now uses AppKit's asynchronous terminate-later handshake
 instead of blocking the main thread on a semaphore to reach the preview actor. Repeated quit

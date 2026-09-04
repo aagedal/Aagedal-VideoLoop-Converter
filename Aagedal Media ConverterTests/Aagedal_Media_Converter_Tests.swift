@@ -1241,6 +1241,78 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testFFMPEGProbeFacadeDoesNotJoinTimedOutRawMetadataReads() async {
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer {
+            for _ in 0..<4 {
+                releaseProbe.signal()
+            }
+        }
+        let url = URL(fileURLWithPath: "/private/stalled.mov")
+        let start = ContinuousClock.now
+
+        async let audioStreams = FFMPEGProbeService.fetchAudioStreams(
+            for: url,
+            timeout: .milliseconds(50)
+        ) { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                probeStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        }
+        async let duration = FFMPEGProbeService.getVideoDuration(
+            for: url,
+            timeout: .milliseconds(50)
+        ) { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                probeStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        }
+        async let chapters = FFMPEGProbeService.fetchChapters(
+            for: url,
+            timeout: .milliseconds(50)
+        ) { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                probeStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        }
+        async let verification = FFMPEGProbeService.verifyOutputStreams(
+            for: url,
+            timeout: .milliseconds(50)
+        ) { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                probeStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        }
+
+        let results = await (audioStreams, duration, chapters, verification)
+
+        for _ in 0..<4 {
+            XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        }
+        XCTAssertNil(results.0)
+        XCTAssertNil(results.1)
+        XCTAssertTrue(results.2.isEmpty)
+        XCTAssertNil(results.3)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
     func testBoundedVideoMetadataBatchUsesOneConcurrentDeadlineWindow() async throws {
         let urls = (0..<10).map { URL(fileURLWithPath: "/private/stalled-\($0).mov") }
         let expected = videoMetadata(timecode: nil, frameRate: 25)
