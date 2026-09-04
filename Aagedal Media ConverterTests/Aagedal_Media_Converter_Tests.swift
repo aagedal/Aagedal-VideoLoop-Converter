@@ -6301,6 +6301,156 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testPackageAudioExtractionUsesBoundedRunnerAndValidatesOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("private package audio \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private source.wav")
+        let privateFFmpegPath = "/private/tools/ffmpeg"
+        let runner = RecordingSubprocessRunner { request, _ in
+            let outputURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            try Data("pcm fixture".utf8).write(to: outputURL)
+            return successfulSubprocessResult()
+        }
+
+        let result = await FFMPEGConverter.extractAudioAsPCMWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            ffmpegPath: privateFFmpegPath,
+            trimStart: 1.25,
+            trimEnd: 2.5,
+            subprocessRunner: runner
+        )
+
+        guard case .extracted(let outputURL) = result else {
+            return XCTFail("Expected the fake runner output to be accepted")
+        }
+        XCTAssertEqual(try Data(contentsOf: outputURL), Data("pcm fixture".utf8))
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, privateFFmpegPath)
+        XCTAssertEqual(request.timeout, FFMPEGConverter.packageAudioExtractionTimeout)
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(
+            request.standardErrorCaptureLimit,
+            FFMPEGConverter.packageAudioDiagnosticCaptureLimit
+        )
+        XCTAssertTrue(request.arguments.containsAdjacent("-ss", "1.250"))
+        XCTAssertTrue(request.arguments.containsAdjacent("-t", "1.250"))
+        XCTAssertTrue(request.arguments.containsAdjacent("-map", "0:a:0"))
+        XCTAssertTrue(request.arguments.containsAdjacent("-c:a", "pcm_s24le"))
+        XCTAssertTrue(request.arguments.containsAdjacent("-ar", "48000"))
+        XCTAssertFalse(request.redactedCommandDescription.contains(privateFFmpegPath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(outputURL.path))
+    }
+
+    func testPackageAudioExtractionRedactsFailureAndRemovesPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("private failed package audio \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private source.wav")
+        let runner = RecordingSubprocessRunner { request, _ in
+            let outputURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            try Data("partial".utf8).write(to: outputURL)
+            return successfulSubprocessResult(
+                standardError: "cannot read \(inputURL.path) or write \(outputURL.path)",
+                terminationStatus: 7
+            )
+        }
+
+        let result = await FFMPEGConverter.extractAudioAsPCMWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            ffmpegPath: "/private/tools/ffmpeg",
+            trimStart: nil,
+            trimEnd: nil,
+            subprocessRunner: runner
+        )
+
+        guard case .failed(let reason) = result else {
+            return XCTFail("Expected nonzero FFmpeg exit to fail")
+        }
+        XCTAssertTrue(reason.contains("ffmpeg exit 7"))
+        XCTAssertTrue(reason.contains("<redacted>"))
+        XCTAssertFalse(reason.contains(inputURL.path))
+        XCTAssertEqual(try packageAudioTemporaryFiles(in: temporaryDirectory), [])
+    }
+
+    func testPackageAudioExtractionMapsTimeoutCancellationAndInvalidOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("package audio failures \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let inputURL = temporaryDirectory.appendingPathComponent("source.wav")
+
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            let outputURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            try Data("partial".utf8).write(to: outputURL)
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(terminationStatus: SIGKILL)
+            )
+        }
+        let timeoutResult = await FFMPEGConverter.extractAudioAsPCMWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            ffmpegPath: "/private/tools/ffmpeg",
+            trimStart: nil,
+            trimEnd: nil,
+            subprocessRunner: timeoutRunner
+        )
+        guard case .failed(let timeoutReason) = timeoutResult else {
+            return XCTFail("Expected timeout to fail")
+        }
+        XCTAssertEqual(timeoutReason, "FFmpeg audio extraction timed out after 12 hours")
+        XCTAssertEqual(try packageAudioTemporaryFiles(in: temporaryDirectory), [])
+
+        let missingOutputRunner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult()
+        }
+        let missingOutputResult = await FFMPEGConverter.extractAudioAsPCMWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            ffmpegPath: "/private/tools/ffmpeg",
+            trimStart: nil,
+            trimEnd: nil,
+            subprocessRunner: missingOutputRunner
+        )
+        guard case .failed(let missingOutputReason) = missingOutputResult else {
+            return XCTFail("Expected a missing output to fail validation")
+        }
+        XCTAssertEqual(missingOutputReason, "Output file was not created")
+
+        let cancellationRunner = RecordingSubprocessRunner { _, _ in
+            try await Task.sleep(for: .seconds(30))
+            return successfulSubprocessResult()
+        }
+        let extractionTask = Task {
+            await FFMPEGConverter.extractAudioAsPCMWAV(
+                inputURL: inputURL,
+                outputFolder: temporaryDirectory,
+                ffmpegPath: "/private/tools/ffmpeg",
+                trimStart: nil,
+                trimEnd: nil,
+                subprocessRunner: cancellationRunner
+            )
+        }
+        while cancellationRunner.lastRequest == nil {
+            await Task.yield()
+        }
+        extractionTask.cancel()
+        guard case .failed(let cancellationReason) = await extractionTask.value else {
+            return XCTFail("Expected parent-task cancellation to fail extraction")
+        }
+        XCTAssertEqual(cancellationReason, "Conversion cancelled")
+        XCTAssertEqual(try packageAudioTemporaryFiles(in: temporaryDirectory), [])
+    }
+
     func testDCPManifestAssemblyMovesDummyEssencesAndBuildsConsistentAssets() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AagedalMediaConverterDCPManifestTests-\(UUID().uuidString)", isDirectory: true)
@@ -7858,6 +8008,13 @@ private func successfulSubprocessResult(
         discardedStandardErrorBytes: 0,
         duration: .milliseconds(10)
     )
+}
+
+private func packageAudioTemporaryFiles(in directory: URL) throws -> [URL] {
+    try FileManager.default.contentsOfDirectory(
+        at: directory,
+        includingPropertiesForKeys: nil
+    ).filter { $0.lastPathComponent.hasPrefix("audio_temp_") }
 }
 
 private struct StubAnalyticsMediaInfoProvider: AnalyticsMediaInfoProviding {

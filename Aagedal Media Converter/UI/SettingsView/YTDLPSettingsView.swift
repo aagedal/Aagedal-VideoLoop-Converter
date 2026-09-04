@@ -30,6 +30,7 @@ struct YTDLPSettingsView: View {
     @State private var ytdlpCustomPath: String = ""
     @State private var denoCustomPath: String = ""
     @State private var ffmpegCustomPath: String = ""
+    @State private var ffmpegStateRefreshTask: Task<Void, Never>?
     @State private var ytdlpStatus: YTDLPStatus = .checking
     @State private var installationStatus: YTDLPInstallationStatus = .notInstalled
     @State private var isDownloading = false
@@ -80,7 +81,10 @@ struct YTDLPSettingsView: View {
             Task { await refreshVersions() }
         }
         .onChange(of: ffmpegBinarySource) { _, _ in
-            Task { await refreshVersions() }
+            scheduleFFmpegStateRefresh()
+        }
+        .onDisappear {
+            ffmpegStateRefreshTask?.cancel()
         }
     }
 
@@ -884,7 +888,7 @@ struct YTDLPSettingsView: View {
                 Divider()
 
                 Button("Refresh Versions") {
-                    Task { await refreshVersions() }
+                    scheduleFFmpegStateRefresh()
                 }
                 .disabled(isCheckingVersions)
             }
@@ -983,7 +987,24 @@ struct YTDLPSettingsView: View {
 
     private func saveFFmpegPath() {
         BinaryPathResolver.saveCustomFFmpegPath(ffmpegCustomPath.isEmpty ? nil : ffmpegCustomPath)
-        Task { await refreshVersions() }
+        scheduleFFmpegStateRefresh(after: .milliseconds(300))
+    }
+
+    private func scheduleFFmpegStateRefresh(after delay: Duration? = nil) {
+        ffmpegStateRefreshTask?.cancel()
+        ffmpegStateRefreshTask = Task {
+            if let delay {
+                try? await Task.sleep(for: delay)
+            }
+            guard !Task.isCancelled else { return }
+            await refreshFFmpegState()
+        }
+    }
+
+    private func refreshFFmpegState() async {
+        async let versions: Void = refreshVersions()
+        async let capability = try? WhisperUpdateService.shared.refreshCapabilitySnapshot()
+        _ = await (versions, capability)
     }
 
     private func seedBinarySourcesIfNeeded() {

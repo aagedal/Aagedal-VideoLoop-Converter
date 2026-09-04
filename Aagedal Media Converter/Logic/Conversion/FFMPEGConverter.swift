@@ -111,6 +111,8 @@ actor FFMPEGConverter {
     private var currentWaveformAnalysisTask: Task<FrequencyBandData, Error>?
     private var currentWaveformAnalysisID: UUID?
     private var currentWaveformFrameWriterTask: Task<Void, Never>?
+    private var currentPackageAudioTask: Task<AudioExtractionResult, Never>?
+    private var currentPackageAudioTaskID: UUID?
     private var currentProgressGate: ConversionProgressGate?
     private var activeConversionID: UUID?
     private var postProcessingConversionID: UUID?
@@ -129,6 +131,8 @@ actor FFMPEGConverter {
 
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGConverter")
     private static let outputReservations = ConversionOutputReservations()
+    static let packageAudioExtractionTimeout: Duration = .seconds(12 * 60 * 60)
+    static let packageAudioDiagnosticCaptureLimit = 256 * 1024
 
     init(
         subprocessRunner: any SubprocessRunning = SubprocessRunner(),
@@ -1019,7 +1023,8 @@ actor FFMPEGConverter {
 
                     // Step 2: Extract audio as WAV
                     progressUpdate(0.82, "Extracting audio for DCP...")
-                    let audioExtractionResult = await Self.extractAudioAsPCMWAV(
+                    let audioExtractionResult = await self?.extractPackageAudioAsPCMWAV(
+                        conversionID: conversionID,
                         inputURL: capturedInputURL,
                         customInputArguments: capturedRequest.customInputArguments,
                         outputFolder: FileManager.default.temporaryDirectory,
@@ -1027,7 +1032,7 @@ actor FFMPEGConverter {
                         trimStart: capturedRequest.trimStart,
                         trimEnd: capturedRequest.trimEnd,
                         audioRoutingConfig: capturedRequest.audioRoutingConfig
-                    )
+                    ) ?? .failed(reason: "Conversion cancelled")
                     let audioWavURL: URL?
                     switch audioExtractionResult {
                     case .extracted(let url):
@@ -1417,7 +1422,8 @@ actor FFMPEGConverter {
                     if success {
                         progressUpdate(0.86, "Extracting audio for IMF")
                         print("[IMF] extracting audio")
-                        let audioExtractionResult = await Self.extractAudioAsPCMWAV(
+                        let audioExtractionResult = await self?.extractPackageAudioAsPCMWAV(
+                            conversionID: conversionID,
                             inputURL: capturedInputURL,
                             customInputArguments: capturedRequest.customInputArguments,
                             outputFolder: FileManager.default.temporaryDirectory,
@@ -1425,7 +1431,7 @@ actor FFMPEGConverter {
                             trimStart: capturedRequest.trimStart,
                             trimEnd: capturedRequest.trimEnd,
                             audioRoutingConfig: capturedRequest.audioRoutingConfig
-                        )
+                        ) ?? .failed(reason: "Conversion cancelled")
                         let audioWavURL: URL?
                         switch audioExtractionResult {
                         case .extracted(let url):
@@ -3237,6 +3243,54 @@ actor FFMPEGConverter {
         )
     }
 
+    private func extractPackageAudioAsPCMWAV(
+        conversionID: UUID,
+        inputURL: URL,
+        customInputArguments: [String]?,
+        outputFolder: URL,
+        ffmpegPath: String,
+        trimStart: Double?,
+        trimEnd: Double?,
+        audioRoutingConfig: AudioRoutingConfig?
+    ) async -> AudioExtractionResult {
+        guard postProcessingConversionID == conversionID else {
+            return .failed(reason: "Conversion cancelled")
+        }
+
+        let taskID = UUID()
+        let runner = subprocessRunner
+        let task = Task {
+            await Self.extractAudioAsPCMWAV(
+                inputURL: inputURL,
+                customInputArguments: customInputArguments,
+                outputFolder: outputFolder,
+                ffmpegPath: ffmpegPath,
+                trimStart: trimStart,
+                trimEnd: trimEnd,
+                audioRoutingConfig: audioRoutingConfig,
+                subprocessRunner: runner
+            )
+        }
+        currentPackageAudioTask?.cancel()
+        currentPackageAudioTask = task
+        currentPackageAudioTaskID = taskID
+
+        let result = await task.value
+        if currentPackageAudioTaskID == taskID {
+            currentPackageAudioTask = nil
+            currentPackageAudioTaskID = nil
+        }
+
+        guard postProcessingConversionID == conversionID else {
+            if case .extracted(let outputURL) = result,
+               FileManager.default.fileExists(atPath: outputURL.path) {
+                Self.cleanupTempFile(at: outputURL, label: "cancelled package audio WAV")
+            }
+            return .failed(reason: "Conversion cancelled")
+        }
+        return result
+    }
+
     static func extractAudioAsPCMWAV(
         inputURL: URL,
         customInputArguments: [String]? = nil,
@@ -3244,7 +3298,8 @@ actor FFMPEGConverter {
         ffmpegPath: String,
         trimStart: Double?,
         trimEnd: Double?,
-        audioRoutingConfig: AudioRoutingConfig? = nil
+        audioRoutingConfig: AudioRoutingConfig? = nil,
+        subprocessRunner: any SubprocessRunning = SubprocessRunner()
     ) async -> AudioExtractionResult {
         let audioInput = packageAudioInput(
             inputURL: inputURL,
@@ -3356,36 +3411,59 @@ actor FFMPEGConverter {
 
         logger.info("Extracting audio as WAV for DCP: \(audioWavURL.lastPathComponent) (streams: \(selectedStreamIndices))")
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = args
-        process.standardOutput = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
+        let sensitiveValues = Set(
+            args.filter { $0.hasPrefix("/") } + [
+                ffmpegPath,
+                inputURL.path,
+                outputFolder.path,
+                audioWavURL.path,
+            ]
+        )
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: ffmpegPath),
+            arguments: args,
+            timeout: packageAudioExtractionTimeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: packageAudioDiagnosticCaptureLimit,
+            sensitiveValues: sensitiveValues
+        )
 
-        // Capture stderr for debugging
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
+        func cleanupPartialOutput() {
+            guard FileManager.default.fileExists(atPath: audioWavURL.path) else { return }
+            Self.cleanupTempFile(at: audioWavURL, label: "partial package audio WAV")
+        }
 
         do {
-            try process.run()
-            process.waitUntilExit()
-
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            try? stderrPipe.fileHandleForReading.close()
-            let stderrStr = String(data: stderrData, encoding: .utf8) ?? ""
-
-            if process.terminationStatus == 0 {
-                logger.info("Audio WAV extraction complete: \(audioWavURL.lastPathComponent)")
-                return .extracted(audioWavURL)
-            } else {
-                logger.error("Audio WAV extraction failed (status \(process.terminationStatus)): \(stderrStr.suffix(300))")
-                Self.cleanupTempFile(at: audioWavURL, label: "failed audio WAV")
-                return .failed(reason: "ffmpeg exit \(process.terminationStatus)")
+            let result = try await subprocessRunner.run(request)
+            guard result.succeeded else {
+                let diagnostic = request.redactedDiagnostic(result.standardErrorText)
+                let reason = Self.dcpIMFErrorReason(
+                    base: "ffmpeg exit \(result.terminationStatus)",
+                    stderr: diagnostic
+                )
+                logger.error("Package audio extraction failed: \(reason, privacy: .public)")
+                cleanupPartialOutput()
+                return .failed(reason: reason)
             }
+            if let validationError = Self.validateOutputFile(at: audioWavURL) {
+                logger.error("Package audio extraction output validation failed: \(validationError, privacy: .public)")
+                cleanupPartialOutput()
+                return .failed(reason: validationError)
+            }
+
+            logger.info("Audio WAV extraction complete: \(audioWavURL.lastPathComponent)")
+            return .extracted(audioWavURL)
+        } catch is CancellationError {
+            cleanupPartialOutput()
+            return .failed(reason: "Conversion cancelled")
+        } catch SubprocessRunnerError.timedOut {
+            cleanupPartialOutput()
+            return .failed(reason: "FFmpeg audio extraction timed out after 12 hours")
         } catch {
-            try? stderrPipe.fileHandleForReading.close()
-            logger.error("Failed to start audio WAV extraction: \(error.localizedDescription)")
-            return .failed(reason: error.localizedDescription)
+            cleanupPartialOutput()
+            let diagnostic = request.redactedDiagnostic(error.localizedDescription)
+            logger.error("Failed to start package audio extraction: \(diagnostic, privacy: .public)")
+            return .failed(reason: "Failed to start FFmpeg: \(diagnostic)")
         }
     }
 
@@ -3403,6 +3481,9 @@ actor FFMPEGConverter {
         currentWaveformAnalysisID = nil
         currentWaveformFrameWriterTask?.cancel()
         currentWaveformFrameWriterTask = nil
+        currentPackageAudioTask?.cancel()
+        currentPackageAudioTask = nil
+        currentPackageAudioTaskID = nil
         if let bmxOperationID {
             await BMXService.shared.cancel(operationID: bmxOperationID)
             _ = await BMXService.shared.finishCancellationTracking(operationID: bmxOperationID)
