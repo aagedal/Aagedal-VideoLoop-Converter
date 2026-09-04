@@ -254,6 +254,168 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(diagnostic.contains("DEF"))
     }
 
+    func testWhisperCapabilityProbeUsesBoundedSharedRequestsAndCachesResult() async throws {
+        let privateFFmpegPath = "/private/tools/ffmpeg"
+        let runner = SequencedRecordingSubprocessRunner { _, request, _ in
+            try await Task.sleep(for: .milliseconds(20))
+            if request.arguments.contains("-filters") {
+                return successfulSubprocessResult(
+                    standardOutput: " ... whisper          A->A       Whisper transcription\n"
+                )
+            }
+            return successfulSubprocessResult(
+                standardOutput: "ffmpeg version 8.1.1-custom Copyright\n"
+            )
+        }
+        let service = WhisperUpdateService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { privateFFmpegPath }
+        )
+
+        async let firstValue = service.capabilitySnapshot()
+        async let secondValue = service.capabilitySnapshot()
+        let (first, second) = try await (firstValue, secondValue)
+
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(
+            first,
+            WhisperCapabilitySnapshot(isAvailable: true, ffmpegVersion: "8.1.1-custom")
+        )
+        XCTAssertEqual(
+            first.installationStatus,
+            .installed(version: "FFmpeg 8.1.1-custom (built-in)")
+        )
+
+        let requests = runner.requests
+        XCTAssertEqual(requests.count, 2, "Concurrent callers should share one probe pair")
+        XCTAssertEqual(Set(requests.map(\.arguments)), [
+            ["-hide_banner", "-filters"],
+            ["-version"]
+        ])
+        for request in requests {
+            XCTAssertEqual(request.executableURL.path, privateFFmpegPath)
+            XCTAssertEqual(request.timeout, WhisperUpdateService.probeTimeout)
+            XCTAssertEqual(
+                request.standardOutputCaptureLimit,
+                WhisperUpdateService.standardOutputCaptureLimit
+            )
+            XCTAssertEqual(
+                request.standardErrorCaptureLimit,
+                WhisperUpdateService.standardErrorCaptureLimit
+            )
+            XCTAssertFalse(request.redactedCommandDescription.contains(privateFFmpegPath))
+        }
+
+        let cached = try await service.capabilitySnapshot()
+        XCTAssertEqual(cached, first)
+        XCTAssertEqual(runner.requests.count, 2, "Cached reads must not launch another probe")
+
+        let refreshed = try await service.refreshCapabilitySnapshot()
+        XCTAssertEqual(refreshed, first)
+        XCTAssertEqual(runner.requests.count, 4, "An explicit refresh should launch one new probe pair")
+    }
+
+    func testWhisperCapabilityProbeRejectsNonzeroAndTruncatedOutput() async throws {
+        let runner = SequencedRecordingSubprocessRunner { _, request, _ in
+            if request.arguments.contains("-filters") {
+                return successfulSubprocessResult(
+                    standardOutput: "whisper",
+                    standardError: "filter probe failed",
+                    terminationStatus: 7
+                )
+            }
+            return SubprocessResult(
+                terminationStatus: 0,
+                termination: .exited,
+                standardOutput: Data("ffmpeg version incomplete\n".utf8),
+                standardError: Data(),
+                discardedStandardOutputBytes: 1,
+                discardedStandardErrorBytes: 0,
+                duration: .milliseconds(10)
+            )
+        }
+        let service = WhisperUpdateService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+
+        let snapshot = try await service.capabilitySnapshot()
+
+        XCTAssertEqual(snapshot, WhisperCapabilitySnapshot(isAvailable: false, ffmpegVersion: "unknown"))
+        XCTAssertEqual(snapshot.installationStatus, .notInstalled)
+    }
+
+    func testWhisperCapabilityProbeMapsTimeoutAndMissingBinaryToUnavailable() async throws {
+        let timeoutRunner = SequencedRecordingSubprocessRunner { _, request, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(terminationStatus: SIGKILL)
+            )
+        }
+        let timedOutService = WhisperUpdateService(
+            subprocessRunner: timeoutRunner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+
+        let timedOutSnapshot = try await timedOutService.capabilitySnapshot()
+        XCTAssertEqual(
+            timedOutSnapshot,
+            WhisperCapabilitySnapshot(isAvailable: false, ffmpegVersion: "unknown")
+        )
+        XCTAssertEqual(timeoutRunner.requests.count, 2)
+
+        let missingRunner = RecordingSubprocessRunner { _, _ in
+            XCTFail("A missing FFmpeg path must not launch a subprocess")
+            return successfulSubprocessResult()
+        }
+        let missingService = WhisperUpdateService(
+            subprocessRunner: missingRunner,
+            ffmpegPathProvider: { nil }
+        )
+
+        let missingSnapshot = try await missingService.capabilitySnapshot()
+        XCTAssertEqual(
+            missingSnapshot,
+            WhisperCapabilitySnapshot(isAvailable: false, ffmpegVersion: "unknown")
+        )
+        XCTAssertNil(missingRunner.lastRequest)
+    }
+
+    func testWhisperCapabilityWaiterCancellationDoesNotCancelSharedProbe() async throws {
+        let runner = SequencedRecordingSubprocessRunner { _, request, _ in
+            try await Task.sleep(for: .milliseconds(100))
+            if request.arguments.contains("-filters") {
+                return successfulSubprocessResult(standardOutput: "whisper\n")
+            }
+            return successfulSubprocessResult(standardOutput: "ffmpeg version 8.1.1\n")
+        }
+        let service = WhisperUpdateService(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let cancelledWaiter = Task {
+            try await service.capabilitySnapshot()
+        }
+        while runner.requests.count < 2 {
+            await Task.yield()
+        }
+
+        cancelledWaiter.cancel()
+        do {
+            _ = try await cancelledWaiter.value
+            XCTFail("Expected the individual waiter to be cancelled")
+        } catch is CancellationError {
+            // Expected. The shared probe remains useful to other callers.
+        }
+
+        let sharedSnapshot = try await service.capabilitySnapshot()
+        XCTAssertEqual(
+            sharedSnapshot,
+            WhisperCapabilitySnapshot(isAvailable: true, ffmpegVersion: "8.1.1")
+        )
+        XCTAssertEqual(runner.requests.count, 2)
+    }
+
     func testBinaryVersionProbeUsesBoundedRunnerAndExplicitOutputStream() async throws {
         let runner = SequencedRecordingSubprocessRunner { index, _, _ in
             switch index {
@@ -6101,6 +6263,42 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
 
         let duration = try XCTUnwrap(ParsingUtils.parseDuration(from: inspectMedia(at: outputURL)))
         XCTAssertEqual(duration, 0.75, accuracy: 0.02)
+    }
+
+    func testPackageAudioExtractionTreatsEmptyRoutingAsIntentionalSilence() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AagedalMediaConverterSilentPackageAudioTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let audioURL = temporaryDirectory.appendingPathComponent("source.wav")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.1",
+            "-c:a", "pcm_s16le", audioURL.path
+        ])
+
+        let routing = AudioRoutingConfig(
+            inputTracks: [audioTrack(index: 0, channels: 1)],
+            outputTracks: []
+        )
+        let result = await FFMPEGConverter.extractAudioAsPCMWAV(
+            inputURL: audioURL,
+            outputFolder: temporaryDirectory,
+            ffmpegPath: "/path/that/must/not/be/launched",
+            trimStart: nil,
+            trimEnd: nil,
+            audioRoutingConfig: routing
+        )
+
+        guard case .noAudioInSource = result else {
+            return XCTFail("Removing every routed track should produce a silent package")
+        }
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(at: temporaryDirectory, includingPropertiesForKeys: nil)
+                .filter { $0.lastPathComponent.hasPrefix("audio_temp_") },
+            []
+        )
     }
 
     func testDCPManifestAssemblyMovesDummyEssencesAndBuildsConsistentAssets() async throws {

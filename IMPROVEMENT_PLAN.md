@@ -23,15 +23,15 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 202 unit tests. The UI test target now has deterministic smoke
+- There are 207 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 23 direct `Process` construction sites outside the
-  shared runner, DEBUG-only UI-test fixture, and UI-test target. Eighteen are active
+- External tools still have 21 direct `Process` construction sites outside the
+  shared runner, DEBUG-only UI-test fixture, and UI-test target. Sixteen are active
   launches; five are configuration-only shims that already hand execution to the
   shared runner. The remaining launch paths do not yet share one cancellation,
   timeout, pipe-draining, and error-reporting layer.
@@ -218,6 +218,11 @@ downmixing, duplication, split/extract channel operations, and output channel or
 selected-audio extraction failures now stop the conversion instead of silently
 producing video-only output.
 
+DCP and IMF package audio extraction now treats an empty customized audio route as
+an intentional silent package. This prevents the post-processing path from indexing
+an empty stream selection when the user removes every audio track; generated WAV
+coverage verifies that the package stays silent without launching FFmpeg.
+
 The audit identified these remaining high-risk follow-ups:
 
 - generated waveform/synthesized-video AV2 output remains unsupported;
@@ -314,7 +319,7 @@ Target: after the correctness net; approximately 1–2 weeks.
 Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
 analytics, package-version probes, merge preparation, screenshot capture, and the
 ordinary FFmpeg conversion, Deno archive extraction, and yt-dlp warm-up paths
-migrated 2026-09-01–03.
+migrated 2026-09-01–04.
 
 Provide an injectable runner that owns:
 
@@ -571,11 +576,19 @@ removing the manual attach path's remove-then-move data-loss window. Focused
 fake-runner tests cover request policy, redacted nonzero cleanup, atomic publication,
 targeted cancellation, and late superseded success.
 
+Whisper capability and FFmpeg-version discovery now uses a single asynchronous,
+actor-cached probe instead of two lazily initialized synchronous `Process` waits on
+the UI path. The parallel filter/version requests have five-second deadlines,
+bounded output, executable-path redaction, structured exit and truncation checks,
+and injectable fakes. Concurrent settings and queue consumers share one probe pair;
+their loading and ready states update asynchronously, while cancelling one waiter
+does not cancel work still needed by another. Focused tests cover request policy,
+parsing, cache reuse, concurrent callers, nonzero and truncated output, timeouts,
+missing binaries, and waiter cancellation.
+
 Remaining native-waveform streaming encoder, AV2 pipe,
 DCP/IMF wrapper, and specialty helper call sites are still open. The refreshed audit
-counts 18 direct production launches plus
-five configuration-only `Process` shims. The synchronous Whisper capability/version
-cache needs an async state redesign.
+counts 16 direct production launches plus five configuration-only `Process` shims.
 DCP/IMF post-processing needs explicit task ownership as part of its migration;
 native-waveform streaming and AV2 pipelines should wait for
 incremental stdin and coordinated multi-process support.

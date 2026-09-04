@@ -119,6 +119,7 @@ struct VideoFileListView: View {
     /// audio (Whisper/Parakeet) or bitmap-subtitle (OCR) streams before a transcribe-only
     /// run can proceed.
     @State private var pendingTrackPicker: PendingTrackPicker?
+    @State private var whisperCapabilityState: WhisperCapabilityProbeState = .loading
 
     private struct PendingTrackPicker: Identifiable {
         let id = UUID()
@@ -220,6 +221,8 @@ struct VideoFileListView: View {
                     mergeClipsAvailable: mergeClipsAvailable,
                     showCommentField: showCommentField,
                     showDateTagButton: showDateTagButton,
+                    isTranscriptionAvailable: whisperCapabilityState.isAvailable
+                        || ParakeetService.shared.getInstallationStatus().isAvailable,
                     onTabCommentField: { forward in
                         handleTabPress(forward: forward)
                     },
@@ -326,6 +329,13 @@ struct VideoFileListView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: showGroupCreatedOverlay)
+        .task {
+            let updates = await WhisperUpdateService.shared.stateUpdates()
+            for await state in updates {
+                guard !Task.isCancelled else { return }
+                whisperCapabilityState = state
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .encodingGroupCreated)) { notification in
             guard let groupID = notification.userInfo?["groupID"] as? UUID else { return }
             lastCreatedGroupID = groupID

@@ -3321,6 +3321,13 @@ actor FFMPEGConverter {
             }
         }
 
+        // An empty customized route means the user intentionally removed every audio track.
+        // Treat that the same as a silent source instead of indexing the empty selection below.
+        guard !selectedStreamIndices.isEmpty else {
+            logger.info("Package audio: all audio tracks were removed by routing configuration")
+            return .noAudioInSource
+        }
+
         // For multiple selected streams that are all mono, amerge them.
         // Otherwise, map a single stream.
         let selectedAllMono = selectedStreamIndices.allSatisfy { idx in

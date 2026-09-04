@@ -134,6 +134,7 @@ struct VideoQueueTableView: NSViewRepresentable {
     let mergeClipsAvailable: Bool
     let showCommentField: Bool
     let showDateTagButton: Bool
+    let isTranscriptionAvailable: Bool
 
     /// Invoked when a cell raises `.tabCommentField` from its comment popover.
     /// VideoFileListView owns the focus-navigation logic (`handleTabPress`), so
@@ -420,6 +421,7 @@ struct VideoQueueTableView: NSViewRepresentable {
         var previousMergeAvailable = false
         var previousShowComment = true
         var previousShowDateTag = true
+        var previousTranscriptionAvailable = false
 
         private static let cellID = NSUserInterfaceItemIdentifier("VideoQueueCell")
         private static let appkitCellID = NSUserInterfaceItemIdentifier("VideoFileCellView")
@@ -844,6 +846,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 || parent.mergeClipsAvailable != previousMergeAvailable
                 || parent.showCommentField != previousShowComment
                 || parent.showDateTagButton != previousShowDateTag
+                || parent.isTranscriptionAvailable != previousTranscriptionAvailable
                 || parent.isCompactMode != previousCompactMode
 
             for row in start..<end {
@@ -886,6 +889,7 @@ struct VideoQueueTableView: NSViewRepresentable {
             previousMergeAvailable = parent.mergeClipsAvailable
             previousShowComment = parent.showCommentField
             previousShowDateTag = parent.showDateTagButton
+            previousTranscriptionAvailable = parent.isTranscriptionAvailable
             previousCompactMode = parent.isCompactMode
         }
 
@@ -1080,7 +1084,7 @@ struct VideoQueueTableView: NSViewRepresentable {
                 isIMFPreset: parent.preset == .imfJ2K || parent.preset == .imfProRes,
                 imfMetadataTitle: item.imfMetadata?.contentTitleText,
                 formattedOutputSize: item.formattedOutputSize,
-                isTranscriptionAvailable: WhisperUpdateService.shared.getInstallationStatus().isAvailable || ParakeetService.shared.getInstallationStatus().isAvailable,
+                isTranscriptionAvailable: parent.isTranscriptionAvailable,
                 isUploadConfigured: UploadManager.shared.isConfigured
             )
         }
