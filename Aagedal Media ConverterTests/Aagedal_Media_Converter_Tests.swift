@@ -3769,6 +3769,113 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testVisionOCREngineLoadsPixelsBeforeCallingBoundedPerformer() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VisionOCR-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let imageURL = temporaryDirectory.appendingPathComponent("frame.png")
+        let expectedData = Data("fixture pixels".utf8)
+        try expectedData.write(to: imageURL)
+        let invocation = OSAllocatedUnfairLock(
+            initialState: Optional<(data: Data, languages: [String], correction: Bool)>.none
+        )
+        let engine = VisionOCREngine(
+            usesLanguageCorrection: false,
+            perFrameTimeout: .seconds(1)
+        ) { data, languages, correction in
+            invocation.withLock { $0 = (data, languages, correction) }
+            return "recognized text"
+        }
+
+        let text = try await engine.recognize(pngURL: imageURL, language: "nor")
+
+        XCTAssertEqual(text, "recognized text")
+        let recorded = try XCTUnwrap(invocation.withLock { $0 })
+        XCTAssertEqual(recorded.data, expectedData)
+        XCTAssertEqual(recorded.languages, ["nb-NO", "nn-NO"])
+        XCTAssertFalse(recorded.correction)
+    }
+
+    func testVisionOCREngineDoesNotJoinTimedOutRecognition() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VisionOCR-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let imageURL = temporaryDirectory.appendingPathComponent("frame.png")
+        try Data("fixture pixels".utf8).write(to: imageURL)
+        let recognitionStarted = DispatchSemaphore(value: 0)
+        let releaseRecognition = DispatchSemaphore(value: 0)
+        let recognitionFinished = DispatchSemaphore(value: 0)
+        defer { releaseRecognition.signal() }
+        let engine = VisionOCREngine(perFrameTimeout: .milliseconds(50)) { _, _, _ in
+            try await withCheckedThrowingContinuation { continuation in
+                recognitionStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseRecognition.wait()
+                    recognitionFinished.signal()
+                    continuation.resume(returning: "late text")
+                }
+            }
+        }
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await engine.recognize(pngURL: imageURL, language: "eng")
+            XCTFail("Expected Vision recognition timeout")
+        } catch let error as VisionOCREngineError {
+            guard case .timedOut = error else {
+                return XCTFail("Expected timedOut, got \(error)")
+            }
+            XCTAssertEqual(
+                error.errorDescription,
+                "Apple Vision exceeded the 0.05-second per-frame limit"
+            )
+        }
+
+        XCTAssertEqual(recognitionStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        releaseRecognition.signal()
+        XCTAssertEqual(recognitionFinished.wait(timeout: .now() + 1), .success)
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    func testVisionOCREngineParentCancellationReturnsPromptly() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VisionOCR-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let imageURL = temporaryDirectory.appendingPathComponent("frame.png")
+        try Data("fixture pixels".utf8).write(to: imageURL)
+        let recognitionStarted = DispatchSemaphore(value: 0)
+        let releaseRecognition = DispatchSemaphore(value: 0)
+        defer { releaseRecognition.signal() }
+        let engine = VisionOCREngine(perFrameTimeout: .seconds(10)) { _, _, _ in
+            try await withCheckedThrowingContinuation { continuation in
+                recognitionStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseRecognition.wait()
+                    continuation.resume(returning: "late text")
+                }
+            }
+        }
+        let task = Task {
+            try await engine.recognize(pngURL: imageURL, language: "eng")
+        }
+
+        XCTAssertEqual(recognitionStarted.wait(timeout: .now() + 1), .success)
+        let start = ContinuousClock.now
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("Expected Vision recognition cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
     func testTesseractSubtitleExtractorUsesSharedRunnerWithDeadlineAndRedaction() async throws {
         let runner = RecordingSubprocessRunner { _, _ in
             SubprocessResult(

@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Apple Vision subtitle OCR can no longer hang the conversion queue on one frame.** Each blocking Vision request now has a non-joining ten-second per-frame deadline matching Tesseract, responds promptly to parent cancellation, and owns its PNG bytes so a late framework completion remains safe after temporary OCR files are removed.
 - **SSIMULACRA2 preflight can no longer wait indefinitely for media information.** Duration and resolution discovery now use the same non-joining 15-second deadline policy as other metadata consumers, return actionable timeout errors, and respond promptly to analytics cancellation before any frame tools launch.
 - **Preview media preflight no longer performs unbounded or duplicate metadata reads.** Full preview assets and on-demand row thumbnails now share one bounded result for duration, video topology, waveform metadata, and HDR classification. Audio-only inputs use a bounded essential-info fallback, timeout does not immediately re-enter the same stalled parser, and cancellation remains prompt.
 - **AV2 conversion planning now probes metadata only once per operation.** Chunk selection, single-pipeline fallback, Matroska bit-depth setup, and preserved-timecode setup reuse the same bounded result instead of repeatedly entering a parser that may have already timed out.

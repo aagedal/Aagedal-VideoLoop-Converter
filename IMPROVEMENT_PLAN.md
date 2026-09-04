@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 256 tests pass. The
+- The unit-test baseline is green: 259 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 256 unit tests. The UI test target now has deterministic smoke
+- There are 259 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -654,7 +654,8 @@ incremental stdin and coordinated multi-process support.
 ### 2.2 Remove sync-over-async waits
 
 Status: in progress; image-sequence duration probing migrated async end-to-end,
-and preview/analytics media preflight bounded 2026-09-04.
+preview/analytics media preflight bounded, and Apple Vision per-frame OCR bounded
+2026-09-04.
 
 - Make image-sequence duration probing async end-to-end, or give the compatibility
   bridge a bounded timeout while callers are migrated.
@@ -782,6 +783,15 @@ non-joining two-second deadline, and AppKit receives exactly one completion repl
 cleanup stalls. Focused tests cover coalescing and the stalled-cleanup deadline. There are
 now no production semaphore, `DispatchGroup.wait`, or `waitUntilExit` calls; the wider audit
 of unbounded framework callbacks and metadata consumers remains open.
+
+Apple Vision bitmap-subtitle recognition now gives every blocking framework request the
+same ten-second per-frame safety limit as Tesseract. The PNG is loaded into owned memory
+before the non-joining deadline starts, so a late non-cooperative Vision request remains
+safe after the OCR run removes its scratch directory. Timeout and parent cancellation return
+promptly without waiting for `VNImageRequestHandler.perform`, and late completion cannot
+replace the finished outcome or publish text into the completed request. Injectable-performer
+tests cover input and language configuration, prompt timeout, late completion, and prompt
+parent cancellation.
 
 ### 2.3 Standardize user-visible errors
 
