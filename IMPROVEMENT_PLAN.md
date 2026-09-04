@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 228 tests pass. The
+- The unit-test baseline is green: 229 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 228 unit tests. The UI test target now has deterministic smoke
+- There are 229 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -35,9 +35,10 @@ issue link when it starts.
   launches; five are configuration-only shims that already hand execution to the
   shared runner. The remaining launch paths do not yet share one cancellation,
   timeout, pipe-draining, and error-reporting layer.
-- `SwiftExifMediaProbe.durationSync` still bridges async AVFoundation work through
-  a synchronous compatibility wait, now bounded to five seconds while callers are
-  migrated.
+- Image-sequence import now probes associated-audio duration asynchronously end to
+  end behind a non-joining five-second deadline. The former semaphore compatibility
+  bridge has been removed, and cancellation is checked before a derived frame rate is
+  published.
 - The empty queue, imported queue rows, primary conversion toolbar, and Settings
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
@@ -652,7 +653,8 @@ incremental stdin and coordinated multi-process support.
 
 ### 2.2 Remove sync-over-async waits
 
-Status: in progress; image-sequence duration compatibility bridge bounded 2026-09-02.
+Status: in progress; image-sequence duration probing migrated async end-to-end
+2026-09-04.
 
 - Make image-sequence duration probing async end-to-end, or give the compatibility
   bridge a bounded timeout while callers are migrated.
@@ -664,12 +666,20 @@ Status: in progress; image-sequence duration compatibility bridge bounded 2026-0
 Acceptance: Thread Sanitizer smoke runs show no new races, and stalled media probes
 cannot indefinitely block an import.
 
-The synchronous image-sequence audio-duration compatibility bridge now limits its
-AVFoundation fallback to five seconds and cancels the detached load on timeout. Its
-shared result is lock-protected so a late completion cannot race the caller after the
-deadline. Deterministic tests cover successful delivery and a stalled async probe
-returning promptly; migrating image-sequence detection async end-to-end and the wider
-wait/cancellation audit remain open.
+Image-sequence folder and single-file detection now await the shared asynchronous
+duration probe end to end. File-picker and DEBUG fixture imports await detection while
+retaining their security-scoped access, and the semaphore-based synchronous duration
+bridge has been removed. Each audio probe has a non-joining five-second deadline and
+retains the exact selected-folder or resolved-parent sandbox scope until even a late,
+non-cooperative load returns. Single-frame imports only discover sibling audio when that
+parent scope is available; a frame-only Powerbox grant is never treated as permission for
+siblings. File-picker imports are owned by the view, cancel on teardown, and re-check
+sequence identity after each suspension so overlapping selections cannot append duplicates. Cancellation checks
+fence directory enumeration, each sequence, and the result of an associated-audio probe
+so a cancelled import cannot publish a stale derived frame rate. Focused tests cover
+asynchronous associated-audio frame-rate derivation and prompt fallback when a probe does
+not cooperate with cancellation. The wider wait/cancellation audit and Thread Sanitizer
+smoke run remain open.
 
 Virtual-display configuration now has a real ten-second deadline around the blocking
 WindowServer `applySettings` call. The former task-group race still implicitly joined
@@ -684,9 +694,8 @@ caller.
 The AVC-Intra audio-only pre-pass and image-sequence WAV sidecar extraction no longer
 block the converter actor with `waitUntilExit`; their subprocess migrations, deadlines,
 concurrent pipe draining, and tracked cancellation are described in 2.1. There are no
-remaining production `waitUntilExit` calls. The other two synchronous bridges are
-bounded compatibility shims: the five-second media-duration probe above and a two-second
-app-termination wait for preview cleanup.
+remaining production `waitUntilExit` calls. The remaining synchronous compatibility
+wait is the two-second app-termination wait for preview cleanup.
 
 ### 2.3 Standardize user-visible errors
 

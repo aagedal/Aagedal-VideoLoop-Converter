@@ -12,24 +12,6 @@ import SwiftMediaMetadata
 /// formats SwiftMediaMetadata does not parse (FLV, WAV, raw AAC).
 enum SwiftExifMediaProbe {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "SwiftExifMediaProbe")
-    private static let synchronousDurationTimeout: TimeInterval = 5
-
-    private final class SynchronousDurationBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value: Double?
-
-        func store(_ newValue: Double?) {
-            lock.lock()
-            value = newValue
-            lock.unlock()
-        }
-
-        func load() -> Double? {
-            lock.lock()
-            defer { lock.unlock() }
-            return value
-        }
-    }
 
     /// Extensions SwiftMediaMetadata can read (video containers + standalone audio).
     /// Kept in sync with `SwiftMediaMetadata.FormatDetector.detectVideoFromExtension` /
@@ -100,46 +82,6 @@ enum SwiftExifMediaProbe {
             }
         }
         return await avFoundationDuration(for: url)
-    }
-
-    /// Synchronous duration probe (SwiftMediaMetadata + AVFoundation async fallback bridged via semaphore).
-    /// Used by ImageSequenceDetector, which is called from a non-async context.
-    /// The compatibility bridge is bounded so a stalled AVFoundation load cannot
-    /// indefinitely block image-sequence import.
-    static func durationSync(for url: URL) -> Double? {
-        if canReadVideo(url), let meta = try? SwiftMediaMetadata.VideoMetadata.read(from: url),
-           let d = meta.duration, d > 0 {
-            return d
-        }
-        if canReadAudio(url), let meta = try? SwiftMediaMetadata.AudioMetadata.read(from: url),
-           let d = meta.duration, d > 0 {
-            return d
-        }
-
-        return waitForAsyncDuration(timeout: synchronousDurationTimeout) {
-            await avFoundationDuration(for: url)
-        }
-    }
-
-    /// Compatibility helper kept internal for deterministic timeout coverage while
-    /// synchronous image-sequence callers are migrated to async probing.
-    static func waitForAsyncDuration(
-        timeout: TimeInterval,
-        operation: @escaping @Sendable () async -> Double?
-    ) -> Double? {
-        let box = SynchronousDurationBox()
-        let semaphore = DispatchSemaphore(value: 0)
-        let task = Task.detached(priority: .userInitiated) {
-            box.store(await operation())
-            semaphore.signal()
-        }
-
-        let deadline = DispatchTime.now() + max(timeout, 0)
-        guard semaphore.wait(timeout: deadline) == .success else {
-            task.cancel()
-            return nil
-        }
-        return box.load()
     }
 
     private static func avFoundationDuration(for url: URL) async -> Double? {

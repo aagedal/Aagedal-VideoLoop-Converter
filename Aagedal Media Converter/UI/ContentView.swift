@@ -40,6 +40,28 @@ private final class MergeCompatibilityScheduler: ObservableObject {
     }
 }
 
+@MainActor
+final class FileImportTaskCoordinator: ObservableObject {
+    private var tasks: [UUID: Task<Void, Never>] = [:]
+
+    func start(_ operation: @escaping @MainActor () async -> Void) {
+        let id = UUID()
+        let task = Task { @MainActor [weak self] in
+            await operation()
+            self?.tasks.removeValue(forKey: id)
+        }
+        tasks[id] = task
+    }
+
+    func cancelAll() {
+        let activeTasks = Array(tasks.values)
+        tasks.removeAll()
+        for task in activeTasks {
+            task.cancel()
+        }
+    }
+}
+
 struct ContentView: View {
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ContentView")
     @Environment(\.openSettings) private var openSettings
@@ -78,6 +100,7 @@ struct ContentView: View {
     @State private var hasUserChangedPreset = false
     @State private var dockProgressUpdater = DockProgressUpdater()
     @State private var progressTask: Task<Void, Never>?
+    @StateObject private var fileImportTaskCoordinator = FileImportTaskCoordinator()
     private let presetManager = PresetManager.shared
     @AppStorage(AppConstants.videoLoopDefaultMutedKey) private var videoLoopDefaultMuted = AppConstants.defaultVideoLoopMuted
     @AppStorage(AppConstants.watchFolderModeKey) private var watchFolderModeEnabled = false
@@ -650,13 +673,18 @@ struct ContentView: View {
                     allowedContentTypes: supportedVideoTypes,
                     allowsMultipleSelection: true
                 ) { result in
-                    handleFileSelection(result: result)
+                    fileImportTaskCoordinator.start {
+                        await handleFileSelection(result: result)
+                    }
                 }
                 .task {
                     await startProgressUpdates()
 #if DEBUG
                     await importUITestFixtureIfRequested()
 #endif
+                }
+                .onDisappear {
+                    fileImportTaskCoordinator.cancelAll()
                 }
                 .onAppear {
                     setupScheduledDownloads()
@@ -1430,7 +1458,7 @@ struct ContentView: View {
     }
 
     // Handle file selection from file picker
-    private func handleFileSelection(result: Result<[URL], Error>) {
+    private func handleFileSelection(result: Result<[URL], Error>) async {
         switch result {
         case .success(let urls):
             for url in urls {
@@ -1443,10 +1471,15 @@ struct ContentView: View {
                 var isDirectory: ObjCBool = false
                 if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
                     let hasAccess = url.startAccessingSecurityScopedResource()
-                    let sequences = ImageSequenceDetector.detectSequences(inFolder: url)
+                    let sequences = await ImageSequenceDetector.detectSequences(
+                        inFolder: url,
+                        securityScopedAccessURL: url
+                    )
                     _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
                     if hasAccess { url.stopAccessingSecurityScopedResource() }
+                    guard !Task.isCancelled else { return }
                     for config in sequences {
+                        guard !containsImageSequence(config) else { continue }
                         let item = VideoFileUtils.makePlaceholderItem(
                             fromImageSequence: config,
                             outputFolder: outputFolder,
@@ -1463,9 +1496,26 @@ struct ContentView: View {
                 if AppConstants.supportedImageSequenceExtensions.contains(ext) {
                     let hasAccess = url.startAccessingSecurityScopedResource()
                     defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
-                    if let config = ImageSequenceDetector.detectSequence(fromFile: url) {
-                        let parentDir = url.deletingLastPathComponent()
+                    let parentDir = url.deletingLastPathComponent()
+                    let parentAccess = SecurityScopedBookmarkManager.shared.startAccessing(url: parentDir)
+                    defer { SecurityScopedBookmarkManager.shared.stopAccessing(parentAccess) }
+                    let parentScopedURL: URL?
+                    switch parentAccess {
+                    case .direct(let scopedURL):
+                        parentScopedURL = scopedURL
+                    case .bookmark(let bookmarkedURL):
+                        parentScopedURL = SecurityScopedBookmarkManager.shared.resolveBookmark(for: bookmarkedURL)
+                    case .none:
+                        parentScopedURL = nil
+                    }
+                    if let config = await ImageSequenceDetector.detectSequence(
+                        fromFile: url,
+                        securityScopedAccessURL: parentScopedURL,
+                        detectsAssociatedAudio: parentScopedURL != nil
+                    ) {
+                        guard !Task.isCancelled else { return }
                         _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: parentDir)
+                        guard !containsImageSequence(config) else { continue }
                         let item = VideoFileUtils.makePlaceholderItem(
                             fromImageSequence: config,
                             outputFolder: outputFolder,
@@ -1522,6 +1572,14 @@ struct ContentView: View {
         }
     }
 
+    private func containsImageSequence(_ config: ImageSequenceConfig) -> Bool {
+        droppedFiles.contains { item in
+            guard let existing = item.imageSequenceConfig else { return false }
+            return existing.pattern == config.pattern
+                && existing.directory.standardizedFileURL == config.directory.standardizedFileURL
+        }
+    }
+
 #if DEBUG
     /// Generates and imports a tiny media file when the UI test target requests it.
     /// The namespaced environment flag keeps normal Debug launches unchanged, while
@@ -1544,7 +1602,7 @@ struct ContentView: View {
             let fixtureURL = try await Self.generateUITestFixture(
                 in: URL(fileURLWithPath: directoryPath, isDirectory: true)
             )
-            handleFileSelection(result: .success([fixtureURL]))
+            await handleFileSelection(result: .success([fixtureURL]))
         } catch {
             Self.logger.error("Unable to generate UI test fixture: \(error.localizedDescription, privacy: .public)")
         }

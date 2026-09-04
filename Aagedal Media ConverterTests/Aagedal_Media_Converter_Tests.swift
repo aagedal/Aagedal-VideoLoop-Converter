@@ -934,23 +934,115 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
     }
 
-    func testSynchronousDurationBridgeReturnsLoadedDuration() {
-        let duration = SwiftExifMediaProbe.waitForAsyncDuration(timeout: 1) {
-            2.5
+    func testImageSequenceDetectionDerivesFrameRateFromAssociatedAudioAsynchronously() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AsyncImageSequence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let firstFrame = directory.appendingPathComponent("render_0001.png")
+        let secondFrame = directory.appendingPathComponent("render_0002.png")
+        let audio = directory.appendingPathComponent("render.wav")
+        try Data([0x01]).write(to: firstFrame)
+        try Data([0x02]).write(to: secondFrame)
+        try Data([0x03]).write(to: audio)
+
+        let sequences = await ImageSequenceDetector.detectSequences(inFolder: directory) { url in
+            XCTAssertEqual(url.standardizedFileURL, audio.standardizedFileURL)
+            return 0.5
         }
 
-        XCTAssertEqual(duration, 2.5)
+        let sequence = try XCTUnwrap(sequences.first)
+        XCTAssertEqual(sequences.count, 1)
+        XCTAssertEqual(sequence.associatedAudioURL?.standardizedFileURL, audio.standardizedFileURL)
+        XCTAssertEqual(sequence.frameCount, 2)
+        XCTAssertEqual(sequence.frameRate, 4, accuracy: 0.001)
+
+        let frameOnlyGrantSequences = await ImageSequenceDetector.detectSequences(
+            inFolder: directory,
+            detectsAssociatedAudio: false
+        ) { _ in
+            XCTFail("A frame-only grant must not probe sibling audio")
+            return 0.5
+        }
+        XCTAssertNil(try XCTUnwrap(frameOnlyGrantSequences.first).associatedAudioURL)
     }
 
-    func testSynchronousDurationBridgeTimesOutWithoutBlockingImportForever() {
-        let start = ContinuousClock.now
-        let duration = SwiftExifMediaProbe.waitForAsyncDuration(timeout: 0.05) {
-            try? await Task.sleep(for: .seconds(30))
-            return 12
+    func testImageSequenceDetectionDeadlineReturnsPromptlyWhenDurationProbeDoesNotCooperate() async throws {
+        let savedFrameRate = UserDefaults.standard.object(forKey: AppConstants.imageSequenceFrameRateKey)
+        UserDefaults.standard.set(24.0, forKey: AppConstants.imageSequenceFrameRateKey)
+        defer {
+            if let savedFrameRate {
+                UserDefaults.standard.set(savedFrameRate, forKey: AppConstants.imageSequenceFrameRateKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AppConstants.imageSequenceFrameRateKey)
+            }
         }
 
-        XCTAssertNil(duration)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CancelledImageSequence-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try Data([0x01]).write(to: directory.appendingPathComponent("render_0001.png"))
+        try Data([0x02]).write(to: directory.appendingPathComponent("render_0002.png"))
+        try Data([0x03]).write(to: directory.appendingPathComponent("render.wav"))
+
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let scopeRecorder = SecurityScopeRecorder()
+        let start = ContinuousClock.now
+
+        let sequences = await ImageSequenceDetector.detectSequences(
+            inFolder: directory,
+            audioDurationTimeout: .milliseconds(50),
+            securityScopedAccessURL: directory,
+            securityScope: ImageSequenceDetector.SecurityScope(
+                start: scopeRecorder.start,
+                stop: scopeRecorder.stop
+            )
+        ) { _ in
+            await withCheckedContinuation { continuation in
+                probeStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(returning: 30)
+                }
+            }
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        let sequence = try XCTUnwrap(sequences.first)
+        XCTAssertEqual(sequence.frameRate, 24, accuracy: 0.001)
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        XCTAssertEqual(scopeRecorder.startedURLs, [directory])
+        XCTAssertTrue(scopeRecorder.stoppedURLs.isEmpty)
+
+        releaseProbe.signal()
+        for _ in 0..<100 where scopeRecorder.stoppedURLs.isEmpty {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        XCTAssertEqual(scopeRecorder.stoppedURLs, [directory])
+    }
+
+    @MainActor
+    func testFileImportTaskCoordinatorCancelAllCancelsOwnedTasks() async {
+        let runner = CountingBlockingSubprocessRunner()
+        let coordinator = FileImportTaskCoordinator()
+        coordinator.start {
+            _ = try? await runner.run(
+                SubprocessRequest(executableURL: URL(fileURLWithPath: "/usr/bin/true"))
+            )
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        coordinator.cancelAll()
+        for _ in 0..<100 where runner.cancelledCount == 0 {
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+
+        XCTAssertEqual(runner.cancelledCount, 1)
     }
 
     func testBlockingOperationDeadlineReturnsImmediateOperationResult() async {
@@ -9863,5 +9955,28 @@ private final class SubprocessChunkRecorder: @unchecked Sendable {
             error.append(chunk.data)
         }
         lock.unlock()
+    }
+}
+
+private final class SecurityScopeRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var starts: [URL] = []
+    private var stops: [URL] = []
+
+    var startedURLs: [URL] {
+        lock.withLock { starts }
+    }
+
+    var stoppedURLs: [URL] {
+        lock.withLock { stops }
+    }
+
+    func start(_ url: URL) -> Bool {
+        lock.withLock { starts.append(url) }
+        return true
+    }
+
+    func stop(_ url: URL) {
+        lock.withLock { stops.append(url) }
     }
 }
