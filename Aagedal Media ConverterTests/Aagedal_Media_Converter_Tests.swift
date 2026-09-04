@@ -1174,6 +1174,75 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testCaptureWriterFinalizationReturnsAfterImmediateCallback() async throws {
+        try await CaptureWriterFinalization.wait(timeout: .seconds(1)) { completion in
+            completion()
+        }
+    }
+
+    func testCaptureWriterFinalizationDoesNotJoinMissingOrLateCallback() async {
+        let callbackRegistered = DispatchSemaphore(value: 0)
+        let lateCompletion = OSAllocatedUnfairLock<(@Sendable () -> Void)?>(initialState: nil)
+        let start = ContinuousClock.now
+
+        do {
+            try await CaptureWriterFinalization.wait(timeout: .milliseconds(50)) { completion in
+                lateCompletion.withLock { $0 = completion }
+                callbackRegistered.signal()
+            }
+            XCTFail("Expected finalization timeout")
+        } catch CaptureWriterFinalizationError.timedOut {
+            // Expected.
+        } catch {
+            XCTFail("Expected finalization timeout, got \(error)")
+        }
+
+        XCTAssertEqual(callbackRegistered.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+
+        // A late AVFoundation callback must only finish the detached losing operation;
+        // it must not resume the already-completed caller a second time.
+        let callback = lateCompletion.withLock { completion -> (@Sendable () -> Void)? in
+            let callback = completion
+            completion = nil
+            return callback
+        }
+        callback?()
+        try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    func testCaptureWriterFinalizationParentCancellationReturnsPromptly() async {
+        let callbackRegistered = DispatchSemaphore(value: 0)
+        let lateCompletion = OSAllocatedUnfairLock<(@Sendable () -> Void)?>(initialState: nil)
+        let task = Task {
+            try await CaptureWriterFinalization.wait(timeout: .seconds(10)) { completion in
+                lateCompletion.withLock { $0 = completion }
+                callbackRegistered.signal()
+            }
+        }
+
+        XCTAssertEqual(callbackRegistered.wait(timeout: .now() + 1), .success)
+        let start = ContinuousClock.now
+        task.cancel()
+
+        do {
+            try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+
+        let callback = lateCompletion.withLock { completion -> (@Sendable () -> Void)? in
+            let callback = completion
+            completion = nil
+            return callback
+        }
+        callback?()
+    }
+
     func testBoundedVideoMetadataProbeReturnsSuccessfulResult() async throws {
         let expected = videoMetadata(timecode: "01:02:03:04", frameRate: 25)
 

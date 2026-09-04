@@ -1525,6 +1525,59 @@ private protocol CaptureOutputWriter: AnyObject, Sendable {
 
 private typealias AnyCaptureOutputWriter = any CaptureOutputWriter & Sendable
 
+enum CaptureWriterFinalizationError: LocalizedError {
+    case timedOut
+
+    var errorDescription: String? {
+        switch self {
+        case .timedOut:
+            return "Timed out while finalizing the screen recording. The file may be incomplete."
+        }
+    }
+}
+
+/// Bounds AVAssetWriter's callback-based finalization without joining a callback that
+/// never arrives. The callback operation retains its writer independently so returning
+/// on timeout or cancellation cannot release framework state that may still complete late.
+enum CaptureWriterFinalization {
+    static let timeout: Duration = .seconds(60)
+
+    static func wait(
+        timeout: Duration = timeout,
+        start: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void
+    ) async throws {
+        do {
+            try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                await withCheckedContinuation { continuation in
+                    start {
+                        continuation.resume()
+                    }
+                }
+            }
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            throw CaptureWriterFinalizationError.timedOut
+        }
+    }
+}
+
+private final class CaptureAssetWriterFinalizationBox: @unchecked Sendable {
+    let writer: AVAssetWriter
+
+    init(writer: AVAssetWriter) {
+        self.writer = writer
+    }
+
+    func start(completion: @escaping @Sendable () -> Void) {
+        writer.finishWriting { [self] in
+            // Keep the writer alive until AVFoundation actually invokes its callback,
+            // even when the caller has already returned on timeout or cancellation.
+            withExtendedLifetime(self) {
+                completion()
+            }
+        }
+    }
+}
+
 private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
     private let outputURL: URL
     private let fileType: AVFileType
@@ -1723,10 +1776,9 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
             timecodeInput?.markAsFinished()
         }
 
-        await withCheckedContinuation { continuation in
-            writer.finishWriting {
-                continuation.resume()
-            }
+        let finalization = CaptureAssetWriterFinalizationBox(writer: writer)
+        try await CaptureWriterFinalization.wait {
+            finalization.start(completion: $0)
         }
 
         if videoSampleCount == 0 {

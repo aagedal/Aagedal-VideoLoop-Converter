@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 259 tests pass. The
+- The unit-test baseline is green: 262 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 259 unit tests. The UI test target now has deterministic smoke
+- There are 262 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -792,6 +792,14 @@ promptly without waiting for `VNImageRequestHandler.perform`, and late completio
 replace the finished outcome or publish text into the completed request. Injectable-performer
 tests cover input and language configuration, prompt timeout, late completion, and prompt
 parent cancellation.
+
+Screen-recording file finalization now gives `AVAssetWriter.finishWriting` a non-joining
+60-second deadline. A missing framework callback can no longer leave the capture UI permanently
+busy or hold output-folder access indefinitely; timeout is surfaced as a specific actionable
+error and parent-task cancellation returns promptly. A retained finalization box keeps the
+writer alive until any late callback actually arrives, so returning early cannot release live
+AVFoundation state. Deterministic tests cover immediate completion, timeout, late completion,
+and parent cancellation.
 
 ### 2.3 Standardize user-visible errors
 

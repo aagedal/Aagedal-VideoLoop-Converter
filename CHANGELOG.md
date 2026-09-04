@@ -15,6 +15,7 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Stopping a screen recording can no longer remain busy forever during file finalization.** AVAssetWriter finalization now has a non-joining 60-second safety deadline and responds promptly to parent cancellation. The writer remains alive for any late framework callback, while the capture UI and sandbox access can still finish teardown with a specific actionable error.
 - **Apple Vision subtitle OCR can no longer hang the conversion queue on one frame.** Each blocking Vision request now has a non-joining ten-second per-frame deadline matching Tesseract, responds promptly to parent cancellation, and owns its PNG bytes so a late framework completion remains safe after temporary OCR files are removed.
 - **SSIMULACRA2 preflight can no longer wait indefinitely for media information.** Duration and resolution discovery now use the same non-joining 15-second deadline policy as other metadata consumers, return actionable timeout errors, and respond promptly to analytics cancellation before any frame tools launch.
 - **Preview media preflight no longer performs unbounded or duplicate metadata reads.** Full preview assets and on-demand row thumbnails now share one bounded result for duration, video topology, waveform metadata, and HDR classification. Audio-only inputs use a bounded essential-info fallback, timeout does not immediately re-enter the same stalled parser, and cancellation remains prompt.
