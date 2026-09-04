@@ -1265,31 +1265,39 @@ actor FFMPEGConverter {
                             isdcfName,
                             isDirectory: true
                         )
-                        try? fm.createDirectory(at: dcpOutputDir, withIntermediateDirectories: true)
-
-                        Self.logger.info("DCP output folder: \(dcpOutputDir.lastPathComponent)")
-
-                        let dcpSuccess = await DCPService.shared.assembleDCP(
-                            videoMXFURL: videoMXF,
-                            audioMXFURL: finalAudioMXF,
-                            outputDirectoryURL: dcpOutputDir,
-                            title: dcpTitle,
-                            resolution: resolution,
-                            frameRate: frameRate,
-                            frameCount: max(frameCount, 1),
-                            itemMetadata: capturedRequest.dcpMetadata,
-                            progress: { dcpProgress in
-                                let overall = 0.91 + dcpProgress * 0.09
-                                Task { @MainActor in
-                                    progressUpdate(overall, "Generating DCP metadata...")
-                                }
-                            }
-                        )
-
-                        if !dcpSuccess {
-                            Self.logger.error("DCP assembly failed")
-                            errorReason = String(localized: "DCP assembly failed", comment: "Shown when DCPService cannot assemble the final DCP package (CPL/PKL/ASSETMAP). Detailed cause is in the app log.")
+                        do {
+                            try fm.createDirectory(at: dcpOutputDir, withIntermediateDirectories: true)
+                        } catch {
+                            Self.logger.error("Failed to create DCP output folder: \(error.localizedDescription, privacy: .public)")
+                            errorReason = String(localized: "Could not create the DCP output folder", comment: "Shown when the app cannot create the final DCP package directory.")
                             success = false
+                        }
+
+                        if success {
+                            Self.logger.info("DCP output folder: \(dcpOutputDir.lastPathComponent)")
+
+                            let dcpSuccess = await DCPService.shared.assembleDCP(
+                                videoMXFURL: videoMXF,
+                                audioMXFURL: finalAudioMXF,
+                                outputDirectoryURL: dcpOutputDir,
+                                title: dcpTitle,
+                                resolution: resolution,
+                                frameRate: frameRate,
+                                frameCount: max(frameCount, 1),
+                                itemMetadata: capturedRequest.dcpMetadata,
+                                progress: { dcpProgress in
+                                    let overall = 0.91 + dcpProgress * 0.09
+                                    Task { @MainActor in
+                                        progressUpdate(overall, "Generating DCP metadata...")
+                                    }
+                                }
+                            )
+
+                            if !dcpSuccess {
+                                Self.logger.error("DCP assembly failed")
+                                errorReason = String(localized: "DCP assembly failed", comment: "Shown when DCPService cannot assemble the final DCP package (CPL/PKL/ASSETMAP). Detailed cause is in the app log.")
+                                success = false
+                            }
                         }
 
                         // Clean up temp video MXF if DCPService moved it
@@ -1648,32 +1656,40 @@ actor FFMPEGConverter {
                             audioLanguage: audioLanguage
                         )
                         let imfOutputDir = imfFolder.appendingPathComponent(folderName, isDirectory: true)
-                        try? fm.createDirectory(at: imfOutputDir, withIntermediateDirectories: true)
-
-                        Self.logger.info("IMF output folder: \(imfOutputDir.lastPathComponent)")
-
-                        let imfSuccess = await IMFManifestWriter.shared.assembleIMP(
-                            videoMXFURL: videoMXF,
-                            audioMXFURL: imfAudioMXF,
-                            outputDirectoryURL: imfOutputDir,
-                            title: imfTitle,
-                            application: application,
-                            editRateNumerator: frameRate.editRateNumerator,
-                            editRateDenominator: frameRate.editRateDenominator,
-                            frameCount: max(frameCount, 1),
-                            itemMetadata: capturedRequest.imfMetadata,
-                            progress: { imfProgress in
-                                let overall = 0.94 + imfProgress * 0.06
-                                let pct = Int(imfProgress * 100)
-                                Task { @MainActor in
-                                    progressUpdate(overall, "Generating IMF manifests \(pct)%")
-                                }
-                            }
-                        )
-                        if !imfSuccess {
-                            Self.logger.error("IMF assembly failed")
-                            errorReason = String(localized: "IMF manifest assembly failed", comment: "Shown when IMFManifestWriter cannot assemble the IMP package (CPL/PKL/ASSETMAP). Detailed cause is in the app log.")
+                        do {
+                            try fm.createDirectory(at: imfOutputDir, withIntermediateDirectories: true)
+                        } catch {
+                            Self.logger.error("Failed to create IMF output folder: \(error.localizedDescription, privacy: .public)")
+                            errorReason = String(localized: "Could not create the IMF output folder", comment: "Shown when the app cannot create the final IMF package directory.")
                             success = false
+                        }
+
+                        if success {
+                            Self.logger.info("IMF output folder: \(imfOutputDir.lastPathComponent)")
+
+                            let imfSuccess = await IMFManifestWriter.shared.assembleIMP(
+                                videoMXFURL: videoMXF,
+                                audioMXFURL: imfAudioMXF,
+                                outputDirectoryURL: imfOutputDir,
+                                title: imfTitle,
+                                application: application,
+                                editRateNumerator: frameRate.editRateNumerator,
+                                editRateDenominator: frameRate.editRateDenominator,
+                                frameCount: max(frameCount, 1),
+                                itemMetadata: capturedRequest.imfMetadata,
+                                progress: { imfProgress in
+                                    let overall = 0.94 + imfProgress * 0.06
+                                    let pct = Int(imfProgress * 100)
+                                    Task { @MainActor in
+                                        progressUpdate(overall, "Generating IMF manifests \(pct)%")
+                                    }
+                                }
+                            )
+                            if !imfSuccess {
+                                Self.logger.error("IMF assembly failed")
+                                errorReason = String(localized: "IMF manifest assembly failed", comment: "Shown when IMFManifestWriter cannot assemble the IMP package (CPL/PKL/ASSETMAP). Detailed cause is in the app log.")
+                                success = false
+                            }
                         }
                         // IMFManifestWriter moves the essences into the package folder; clean up
                         // the temp paths only if they still exist (they shouldn't on success).

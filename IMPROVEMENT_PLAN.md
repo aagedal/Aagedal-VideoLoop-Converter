@@ -869,6 +869,8 @@ the wider audit of remaining unbounded framework callbacks continues.
 
 ### 2.3 Standardize user-visible errors
 
+Status: in progress; DCP/IMF package-directory failures made explicit 2026-09-04.
+
 - Keep `try?` for best-effort cleanup only. Log or surface failures for directory
   creation, bookmark access, file moves, settings import, and result validation.
 - Give every queue failure a concise message plus expandable technical details.
@@ -876,6 +878,12 @@ the wider audit of remaining unbounded framework callbacks continues.
 
 Acceptance: each failed long-running operation ends in success, cancellation, or a
 specific actionable error—never a silent return or permanently busy state.
+
+DCP and IMF final package-folder creation no longer discards filesystem errors and
+continues into a misleading manifest-assembly failure. The conversion now logs the
+underlying filesystem diagnostic, reports a concise package-specific queue error,
+skips manifest publication, and still cleans temporary essences. Both new messages
+are included in the Norwegian catalog.
 
 ## Priority 3 — Reduce change risk in architecture
 
