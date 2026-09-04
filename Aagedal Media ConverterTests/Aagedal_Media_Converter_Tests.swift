@@ -1174,6 +1174,135 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testBoundedVideoMetadataProbeReturnsSuccessfulResult() async throws {
+        let expected = videoMetadata(timecode: "01:02:03:04", frameRate: 25)
+
+        let actual = try await BoundedVideoMetadataProbe.metadata(
+            for: URL(fileURLWithPath: "/private/success.mov"),
+            timeout: .seconds(1)
+        ) { _ in expected }
+
+        XCTAssertEqual(actual, expected)
+    }
+
+    func testBoundedVideoMetadataProbeDoesNotJoinTimedOutRead() async {
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await BoundedVideoMetadataProbe.metadata(
+                for: URL(fileURLWithPath: "/private/stalled.mov"),
+                timeout: .milliseconds(50)
+            ) { _ in
+                try await withCheckedThrowingContinuation { continuation in
+                    probeStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseProbe.wait()
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            }
+            XCTFail("Expected metadata timeout")
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            // Expected.
+        } catch {
+            XCTFail("Expected deadline error, got \(error)")
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testBoundedVideoMetadataBatchUsesOneConcurrentDeadlineWindow() async throws {
+        let urls = (0..<10).map { URL(fileURLWithPath: "/private/stalled-\($0).mov") }
+        let expected = videoMetadata(timecode: nil, frameRate: 25)
+        let start = ContinuousClock.now
+
+        let metadata = try await BoundedVideoMetadataProbe.availableMetadata(
+            for: urls,
+            timeout: .milliseconds(100)
+        ) { _ in
+            try await Task.sleep(for: .seconds(10))
+            return expected
+        }
+
+        XCTAssertTrue(metadata.isEmpty)
+        XCTAssertLessThan(start.duration(to: .now), .milliseconds(500))
+    }
+
+    func testMergeCompatibilityMetadataProbePreservesParentCancellation() async {
+        let firstURL = URL(fileURLWithPath: "/private/merge-a.mov")
+        let secondURL = URL(fileURLWithPath: "/private/merge-b.mov")
+        let items = [firstURL, secondURL].map {
+            VideoItem(
+                url: $0,
+                name: $0.lastPathComponent,
+                size: 0,
+                duration: "--:--",
+                thumbnailData: nil,
+                status: .waiting,
+                progress: 0,
+                eta: nil,
+                outputURL: nil
+            )
+        }
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+
+        let task = Task {
+            await ConversionManager.shared.evaluateMergeCompatibility(
+                for: items,
+                preset: .streamCopy,
+                metadataTimeout: .seconds(10)
+            ) { _ in
+                try await withCheckedThrowingContinuation { continuation in
+                    probeStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseProbe.wait()
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        let start = ContinuousClock.now
+        task.cancel()
+
+        guard case .cancelled = await task.value else {
+            return XCTFail("Expected cancelled compatibility result")
+        }
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testMergeCompatibilityDistinguishesUnavailableMetadataFromMissingVideo() {
+        let firstURL = URL(fileURLWithPath: "/private/merge-a.mov")
+        let secondURL = URL(fileURLWithPath: "/private/merge-b.mov")
+        let items = [firstURL, secondURL].map {
+            VideoItem(
+                url: $0,
+                name: $0.lastPathComponent,
+                size: 0,
+                duration: "--:--",
+                thumbnailData: nil,
+                status: .waiting,
+                progress: 0,
+                eta: nil,
+                outputURL: nil
+            )
+        }
+
+        let result = ConversionManager.checkMergeCompatibility(items: items, metadata: [:])
+
+        guard case .metadataUnavailable(let unavailableItem) = result else {
+            return XCTFail("Expected unavailable metadata instead of a missing-video result")
+        }
+        XCTAssertEqual(unavailableItem.id, items[0].id)
+    }
+
     func testVideoMetadataFallbackDoesNotJoinTimedOutFullProbe() async {
         let releaseFullProbe = DispatchSemaphore(value: 0)
         defer { releaseFullProbe.signal() }

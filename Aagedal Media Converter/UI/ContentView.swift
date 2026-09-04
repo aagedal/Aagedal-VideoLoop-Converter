@@ -619,12 +619,15 @@ struct ContentView: View {
                     mergeCompatibilityResult: cardMergeCompatibilityResult,
                     isCheckingCompatibility: isCheckingCardCompatibility,
                     onImport: {
+                        cancelCardMergeCompatibilityCheck()
                         Task { await performCameraCardImport() }
                     },
                     onCancel: {
+                        cancelCardMergeCompatibilityCheck()
                         cameraCardImportState = nil
                     },
                     onAutoSplit: {
+                        cancelCardMergeCompatibilityCheck()
                         Task { await performCameraCardAutoSplit() }
                     },
                     onForceMerge: {
@@ -632,6 +635,7 @@ struct ContentView: View {
                     }
                 )
                 .onAppear { checkCardMergeCompatibility() }
+                .onDisappear { cancelCardMergeCompatibilityCheck() }
                 .onChange(of: cameraCardPresetRaw) { _, _ in checkCardMergeCompatibility() }
                 .sheet(isPresented: $showCardConformanceMergeDialog) {
                     if cameraCardImportState != nil {
@@ -998,6 +1002,7 @@ struct ContentView: View {
     @State private var cardMergeCompatibilityResult: ConversionManager.MergeCompatibilityResult?
     @State private var isCheckingCardCompatibility = false
     @State private var cardCompatibilityCheckTask: Task<Void, Never>?
+    @State private var cardCompatibilityCheckID: UUID?
     @State private var showCardConformanceMergeDialog = false
     @State private var cardConformanceItems: [VideoItem] = []
     @State private var cardConformanceMetadata: [UUID: VideoMetadata] = [:]
@@ -1121,7 +1126,7 @@ struct ContentView: View {
 
     /// Runs merge compatibility check for the card import dialog in background.
     private func checkCardMergeCompatibility() {
-        cardCompatibilityCheckTask?.cancel()
+        cancelCardMergeCompatibilityCheck()
         cardMergeCompatibilityResult = nil
 
         guard let state = cameraCardImportState, state.videoURLs.count >= 2 else {
@@ -1133,36 +1138,53 @@ struct ContentView: View {
         let urls = state.videoURLs
         let folderURL = state.folderURL
         let preset = ExportPreset(rawValue: cameraCardPresetRaw) ?? .streamCopy
+        let checkID = UUID()
+        cardCompatibilityCheckID = checkID
 
         cardCompatibilityCheckTask = Task {
             let hasAccess = folderURL.startAccessingSecurityScopedResource()
             defer { if hasAccess { folderURL.stopAccessingSecurityScopedResource() } }
 
-            var tempItems: [VideoItem] = []
+            var tempItems = urls.compactMap {
+                VideoFileUtils.makePlaceholderItem(from: $0, outputFolder: outputFolder, preset: preset)
+            }
             var metadataMap: [UUID: VideoMetadata] = [:]
 
-            for url in urls {
-                if Task.isCancelled { return }
-                if var item = VideoFileUtils.makePlaceholderItem(from: url, outputFolder: outputFolder, preset: preset) {
-                    if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
-                        item.metadata = metadata
-                        metadataMap[item.id] = metadata
+            do {
+                let metadataByURL = try await BoundedVideoMetadataProbe.availableMetadata(for: tempItems.map(\.url))
+                for index in tempItems.indices {
+                    if let metadata = metadataByURL[tempItems[index].url] {
+                        tempItems[index].metadata = metadata
+                        metadataMap[tempItems[index].id] = metadata
                     }
-                    tempItems.append(item)
                 }
+            } catch is CancellationError {
+                return
+            } catch {
+                // Per-file failures are omitted by availableMetadata; no other error is expected.
             }
 
             guard !Task.isCancelled else { return }
 
             let result = ConversionManager.checkMergeCompatibility(items: tempItems, metadata: metadataMap)
             await MainActor.run {
+                guard cardCompatibilityCheckID == checkID else { return }
                 cardMergeCompatibilityResult = result
                 isCheckingCardCompatibility = false
+                cardCompatibilityCheckTask = nil
+                cardCompatibilityCheckID = nil
                 // Store for conformance merge dialog
                 cardConformanceItems = tempItems
                 cardConformanceMetadata = metadataMap
             }
         }
+    }
+
+    private func cancelCardMergeCompatibilityCheck() {
+        cardCompatibilityCheckTask?.cancel()
+        cardCompatibilityCheckTask = nil
+        cardCompatibilityCheckID = nil
+        isCheckingCardCompatibility = false
     }
 
     @MainActor
@@ -1181,19 +1203,30 @@ struct ContentView: View {
             _ = SecurityScopedBookmarkManager.shared.saveBookmark(for: url)
         }
 
-        // Build items with metadata
-        var allItems: [VideoItem] = []
+        // Build items and gather their independent metadata probes concurrently so the
+        // operation has one 15-second probe window regardless of card size.
+        var allItems = state.videoURLs.compactMap {
+            VideoFileUtils.makePlaceholderItem(from: $0, outputFolder: outputFolder, preset: cardPreset)
+        }
+        if uploadEnabled {
+            for index in allItems.indices {
+                allItems[index].uploadEnabled = true
+            }
+        }
         var metadataMap: [UUID: VideoMetadata] = [:]
 
-        for url in state.videoURLs {
-            if var item = VideoFileUtils.makePlaceholderItem(from: url, outputFolder: outputFolder, preset: cardPreset) {
-                if uploadEnabled { item.uploadEnabled = true }
-                if let metadata = try? await VideoMetadataService.shared.metadata(for: url) {
-                    item.metadata = metadata
-                    metadataMap[item.id] = metadata
+        do {
+            let metadataByURL = try await BoundedVideoMetadataProbe.availableMetadata(for: allItems.map(\.url))
+            for index in allItems.indices {
+                if let metadata = metadataByURL[allItems[index].url] {
+                    allItems[index].metadata = metadata
+                    metadataMap[allItems[index].id] = metadata
                 }
-                allItems.append(item)
             }
+        } catch is CancellationError {
+            return
+        } catch {
+            // Per-file failures are omitted by availableMetadata; no other error is expected.
         }
 
         guard !allItems.isEmpty else { return }

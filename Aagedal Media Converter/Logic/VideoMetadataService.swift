@@ -7,6 +7,60 @@ import Foundation
 import OSLog
 import SwiftMediaMetadata
 
+/// Applies a non-joining deadline to the shared in-process media probe while preserving
+/// timeout and parent-cancellation errors for callers that need different fallback policy.
+enum BoundedVideoMetadataProbe {
+    static let defaultTimeout: Duration = .seconds(15)
+
+    static func metadata(
+        for url: URL,
+        timeout: Duration = defaultTimeout,
+        probe: @escaping @Sendable (URL) async throws -> VideoMetadata = {
+            try await VideoMetadataService.shared.metadata(for: $0)
+        }
+    ) async throws -> VideoMetadata {
+        try Task.checkCancellation()
+        let metadata = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+            try await probe(url)
+        }
+        try Task.checkCancellation()
+        return metadata
+    }
+
+    /// Probes independent files concurrently so a large batch is bounded by one probe
+    /// deadline instead of accumulating that deadline once per file. Individual failures
+    /// remain absent from the result, while parent cancellation is preserved.
+    static func availableMetadata(
+        for urls: [URL],
+        timeout: Duration = defaultTimeout,
+        probe: @escaping @Sendable (URL) async throws -> VideoMetadata = {
+            try await VideoMetadataService.shared.metadata(for: $0)
+        }
+    ) async throws -> [URL: VideoMetadata] {
+        try await withThrowingTaskGroup(of: (URL, VideoMetadata?).self) { group in
+            for url in urls {
+                group.addTask {
+                    do {
+                        return (url, try await metadata(for: url, timeout: timeout, probe: probe))
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        return (url, nil)
+                    }
+                }
+            }
+
+            var result: [URL: VideoMetadata] = [:]
+            for try await (url, metadata) in group {
+                if let metadata {
+                    result[url] = metadata
+                }
+            }
+            return result
+        }
+    }
+}
+
 struct VideoMetadata: Equatable, Sendable {
     struct Ratio: Equatable, Sendable {
         let numerator: Int

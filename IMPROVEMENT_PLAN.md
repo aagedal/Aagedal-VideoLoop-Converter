@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 240 tests pass. The
+- The unit-test baseline is green: 245 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 240 unit tests. The UI test target now has deterministic smoke
+- There are 245 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -717,11 +717,20 @@ Lazy C2PA and camera-metadata reads in the comparison window now have independen
 non-joining fifteen-second deadlines. A stalled SwiftMediaMetadata callback can finish late,
 but each task-group child still resolves, clears its loading state, and responds promptly to
 parent cancellation. Focused tests cover a non-cooperative timeout and direct cancellation.
-The refreshed audit still finds fifteen direct, unbounded
-`VideoMetadataService.metadata(for:)` consumers outside these guarded entry points. Camera-card
-merge checks, conversion merge preflight, preview generation, player audio discovery, and
-conversion command builders should move behind a shared throwing bounded probe next so timeout
-fallbacks do not accidentally swallow parent cancellation.
+
+Camera-card merge compatibility, camera-card automatic format splitting, and conversion merge
+preflight now use a shared throwing metadata probe with a non-joining fifteen-second deadline.
+Timeout remains distinct from parent cancellation: card work exits when cancelled, while merge
+preflight returns its explicit cancelled result rather than treating cancellation as unavailable
+metadata. Independent card-file probes run concurrently, so even a large card has one fifteen-second
+probe window instead of accumulating a separate deadline for every clip. Deterministic tests cover a
+successful shared probe, timeout with late completion, concurrent batch deadlines, and prompt
+merge-check cancellation. Dismissing, importing, auto-splitting, or superseding a check from the card
+dialog also cancels its owned task, rejects late publication, and releases folder access. An
+unavailable probe is reported distinctly from a confirmed video-less file and no longer presents a
+terminal failure as ongoing metadata gathering. The refreshed audit now finds twelve remaining direct,
+unbounded consumers outside guarded entry points. Preview generation, player audio discovery, and
+conversion command builders should migrate next.
 
 Normal application termination now uses AppKit's asynchronous terminate-later handshake
 instead of blocking the main thread on a semaphore to reach the preview actor. Repeated quit

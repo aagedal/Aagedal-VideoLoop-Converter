@@ -1361,7 +1361,14 @@ actor ConversionManager: Sendable {
         return isConverting
     }
 
-    func evaluateMergeCompatibility(for items: [VideoItem], preset: ExportPreset) async -> MergeCompatibilityResult {
+    func evaluateMergeCompatibility(
+        for items: [VideoItem],
+        preset: ExportPreset,
+        metadataTimeout: Duration = BoundedVideoMetadataProbe.defaultTimeout,
+        metadataProbe: @escaping @Sendable (URL) async throws -> VideoMetadata = {
+            try await VideoMetadataService.shared.metadata(for: $0)
+        }
+    ) async -> MergeCompatibilityResult {
         lastMergeMetadata = [:]
         // Filter for waiting items, excluding downloads and scheduled downloads
         let waitingItems = items.filter {
@@ -1386,8 +1393,14 @@ actor ConversionManager: Sendable {
             }
 
             do {
-                let metadata = try await VideoMetadataService.shared.metadata(for: item.url)
+                let metadata = try await BoundedVideoMetadataProbe.metadata(
+                    for: item.url,
+                    timeout: metadataTimeout,
+                    probe: metadataProbe
+                )
                 resolvedMetadata[item.id] = metadata
+            } catch is CancellationError {
+                return .cancelled
             } catch {
                 mergeLogger.debug("Merge incompatible: metadata unavailable for \(item.name, privacy: .public) – \(error.localizedDescription, privacy: .public)")
                 return .metadataUnavailable(item)
@@ -1512,7 +1525,7 @@ actor ConversionManager: Sendable {
             case .insufficientItems(let count):
                 return count == 0 ? "Add clips to enable merging." : "Need at least two queued clips to merge."
             case .metadataUnavailable(let item):
-                return "Gathering metadata for \(item.name)…"
+                return "Metadata is unavailable for \(item.name)."
             case .missingVideoTrack:
                 return "All clips must contain a video track for merging."
             case .videoCodecMismatch:
@@ -1554,9 +1567,13 @@ actor ConversionManager: Sendable {
             return .insufficientItems(waitingItems.count)
         }
 
-        guard let firstItem = waitingItems.first,
-              let referenceMetadata = metadata[firstItem.id],
-              !referenceMetadata.videoStreams.isEmpty else {
+        guard let firstItem = waitingItems.first else {
+            return .insufficientItems(0)
+        }
+        guard let referenceMetadata = metadata[firstItem.id] else {
+            return .metadataUnavailable(firstItem)
+        }
+        guard !referenceMetadata.videoStreams.isEmpty else {
             return .missingVideoTrack
         }
 
@@ -1564,7 +1581,10 @@ actor ConversionManager: Sendable {
         let referenceAudio = referenceMetadata.audioStreams.first
 
         for item in waitingItems {
-            guard let meta = metadata[item.id], !meta.videoStreams.isEmpty else {
+            guard let meta = metadata[item.id] else {
+                return .metadataUnavailable(item)
+            }
+            guard !meta.videoStreams.isEmpty else {
                 return .missingVideoTrack
             }
 
