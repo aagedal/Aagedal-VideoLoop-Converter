@@ -119,6 +119,8 @@ actor FFMPEGConverter {
     private var currentPackageWrapperTaskID: UUID?
     private var currentAVCIntraPreprocessingTask: Task<AVCIntraAudioPreprocessingResult, Never>?
     private var currentAVCIntraPreprocessingTaskID: UUID?
+    private var currentAV2HelperTask: Task<AV2HelperRunResult, Never>?
+    private var currentAV2HelperTaskID: UUID?
     private var currentProgressGate: ConversionProgressGate?
     private var activeConversionID: UUID?
     private var postProcessingConversionID: UUID?
@@ -145,6 +147,9 @@ actor FFMPEGConverter {
     static let packageWrapperDiagnosticCaptureLimit = 256 * 1024
     static let avcIntraAudioPreprocessingTimeout: Duration = .seconds(12 * 60 * 60)
     static let avcIntraAudioPreprocessingDiagnosticCaptureLimit = 256 * 1024
+    static let av2ProbeHelperTimeout: Duration = .seconds(5 * 60)
+    static let av2AudioHelperTimeout: Duration = .seconds(12 * 60 * 60)
+    static let av2HelperDiagnosticCaptureLimit = 256 * 1024
 
     enum PackageWrapperResult: Sendable {
         case success(diagnostic: String)
@@ -154,6 +159,12 @@ actor FFMPEGConverter {
 
     enum AVCIntraAudioPreprocessingResult: Sendable {
         case success(URL)
+        case failed(reason: String)
+        case cancelled
+    }
+
+    enum AV2HelperRunResult: Sendable, Equatable {
+        case success
         case failed(reason: String)
         case cancelled
     }
@@ -441,6 +452,9 @@ actor FFMPEGConverter {
         currentAVCIntraPreprocessingTask?.cancel()
         currentAVCIntraPreprocessingTask = nil
         currentAVCIntraPreprocessingTaskID = nil
+        currentAV2HelperTask?.cancel()
+        currentAV2HelperTask = nil
+        currentAV2HelperTaskID = nil
         let supersededBMXOperationID = activeBMXOperationID
         activeConversionID = nil
         postProcessingConversionID = nil
@@ -750,6 +764,7 @@ actor FFMPEGConverter {
                     visualSourceURL: request.visualSourceURL
                 ) ?? 8
                 let (ok, reason) = await muxAV2ToMatroska(
+                    conversionID: conversionID,
                     videoIvfURL: encodeURL,
                     sourceURL: inputURL,
                     customInputArguments: request.customInputArguments,
@@ -2351,6 +2366,7 @@ actor FFMPEGConverter {
     /// A source with no selected audio yields a valid video-only `.mkv`; failures while processing
     /// selected audio fail the conversion so routing choices are never silently discarded.
     private func muxAV2ToMatroska(
+        conversionID: UUID,
         videoIvfURL: URL,
         sourceURL: URL,
         customInputArguments: [String]?,
@@ -2369,6 +2385,9 @@ actor FFMPEGConverter {
         avmencPath: String,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void
     ) async -> (Bool, String?) {
+        guard activeConversionID == conversionID else {
+            return (false, "Conversion cancelled")
+        }
         guard let ivfHeader = IVFHeaderParser.parse(url: videoIvfURL), ivfHeader.isAV2 else {
             return (false, "AV2 muxing: the encoded bitstream is not a valid AV2 IVF")
         }
@@ -2386,6 +2405,9 @@ actor FFMPEGConverter {
         )
         if codecPrivate == nil {
             Self.logger.warning("AV2 muxing: failed to harvest CodecPrivate; writing track without it")
+        }
+        guard activeConversionID == conversionID else {
+            return (false, "Conversion cancelled")
         }
 
         // 2. Read the video frames, flagging known key frames (chunk boundaries) for seeking.
@@ -2411,6 +2433,7 @@ actor FFMPEGConverter {
             isMuted: isMuted
         ) {
             switch await extractAudioTracksForAV2Mux(
+                conversionID: conversionID,
                 source: audioInput,
                 audioRoutingConfig: audioRoutingConfig,
                 trimStart: trimStart,
@@ -2423,7 +2446,12 @@ actor FFMPEGConverter {
                 audioTracks = extractedTracks
             case .failed(let reason):
                 return (false, "AV2 audio routing failed: \(reason)")
+            case .cancelled:
+                return (false, "Conversion cancelled")
             }
+        }
+        guard activeConversionID == conversionID else {
+            return (false, "Conversion cancelled")
         }
 
         // 4. Resolve global/container metadata. Raw IVF cannot carry these tags;
@@ -2434,6 +2462,9 @@ actor FFMPEGConverter {
             sourceMetadata = try? await VideoMetadataService.shared.metadata(for: sourceURL)
         } else {
             sourceMetadata = knownSourceMetadata
+        }
+        guard activeConversionID == conversionID else {
+            return (false, "Conversion cancelled")
         }
         let timecode = timecodeConfig.flatMap {
             FFMPEGCommandBuilder.resolvedTimecode(
@@ -2491,11 +2522,19 @@ actor FFMPEGConverter {
         let ff = ["-y", "-nostdin", "-hide_banner", "-f", "lavfi",
                   "-i", "color=c=black:s=\(width)x\(height):r=\(fpsNum)/\(fpsDen)",
                   "-frames:v", "1", "-pix_fmt", pix, "-f", "yuv4mpegpipe", "-strict", "-1", y4m.path]
-        guard await runBinary(ffmpegPath, ff) == 0, Self.fileHasContent(at: y4m) else { return nil }
+        guard case .success = await runTrackedAV2Helper(
+            ffmpegPath,
+            ff,
+            timeout: Self.av2ProbeHelperTimeout
+        ), Self.fileHasContent(at: y4m) else { return nil }
         let av = ["--webm", "-w", "\(width)", "-h", "\(height)", "-b", "\(bitDepth)",
                   "--input-bit-depth=\(bitDepth)", "--i420", "--fps=\(fpsNum)/\(fpsDen)",
                   "--end-usage=q", "--qp=110", "--cpu-used=9", "--limit=1", "-o", webm.path, y4m.path]
-        guard await runBinary(avmencPath, av) == 0, Self.fileHasContent(at: webm) else { return nil }
+        guard case .success = await runTrackedAV2Helper(
+            avmencPath,
+            av,
+            timeout: Self.av2ProbeHelperTimeout
+        ), Self.fileHasContent(at: webm) else { return nil }
         return Self.extractMatroskaCodecPrivate(fromWebM: webm)
     }
 
@@ -2513,28 +2552,67 @@ actor FFMPEGConverter {
         return source.arguments.isEmpty ? nil : source
     }
 
+    private static func av2HelperSensitiveValues(for source: PackageAudioInput) -> Set<String> {
+        var values = Set(source.arguments.filter { $0.hasPrefix("/") })
+        if let probeURL = source.probeURL {
+            values.insert(probeURL.path)
+        }
+
+        guard source.arguments.contains("concat") else { return values }
+        for index in source.arguments.indices where source.arguments[index] == "-i" {
+            guard source.arguments.indices.contains(index + 1) else { continue }
+            let listPath = source.arguments[index + 1]
+            guard let contents = try? String(contentsOfFile: listPath, encoding: .utf8) else {
+                continue
+            }
+            for line in contents.split(whereSeparator: \.isNewline) {
+                guard line.hasPrefix("file '"), line.hasSuffix("'") else { continue }
+                let encodedPath = line.dropFirst(6).dropLast()
+                let path = encodedPath.replacingOccurrences(of: "'\\''", with: "'")
+                if path.hasPrefix("/") {
+                    values.insert(path)
+                }
+            }
+        }
+        return values
+    }
+
     enum AV2MuxAudioExtractionResult: Sendable {
         case noAudio
         case tracks([MatroskaMuxer.AudioTrack])
         case failed(String)
+        case cancelled
     }
 
     func extractAudioTracksForAV2Mux(
+        conversionID: UUID? = nil,
         source: PackageAudioInput,
         audioRoutingConfig: AudioRoutingConfig?,
         trimStart: Double?,
         trimEnd: Double?,
-        ffmpegPath: String
+        ffmpegPath: String,
+        audioStreamProvider: @escaping @Sendable (URL) async -> [FFMPEGProbeService.AudioStreamInfo]? = {
+            await FFMPEGProbeService.fetchAudioStreams(for: $0)
+        }
     ) async -> AV2MuxAudioExtractionResult {
+        func operationIsCurrent() -> Bool {
+            guard !Task.isCancelled else { return false }
+            guard let conversionID else { return true }
+            return activeConversionID == conversionID
+        }
+
+        guard operationIsCurrent() else { return .cancelled }
         let codec = AV2AudioCodec.current
         let bitrate = AudioBitrate(rawValue: UserDefaults.standard.string(forKey: AppConstants.av2AudioBitrateKey) ?? AppConstants.defaultAV2AudioBitrate)?.ffmpegValue ?? "192k"
         let defaultAudioStreamIndices: [Int]
         if audioRoutingConfig != nil {
             defaultAudioStreamIndices = []
         } else if let probeURL = source.probeURL {
-            guard let streams = await FFMPEGProbeService.fetchAudioStreams(for: probeURL) else {
+            guard let streams = await audioStreamProvider(probeURL) else {
+                guard operationIsCurrent() else { return .cancelled }
                 return .failed("Could not inspect the source audio streams")
             }
+            guard operationIsCurrent() else { return .cancelled }
             if streams.isEmpty && source.assumesSingleAudioStreamIfProbeUnavailable {
                 defaultAudioStreamIndices = [0]
             } else {
@@ -2556,6 +2634,9 @@ actor FFMPEGConverter {
             }
         }
         guard plannedTrackCount > 0 else { return .noAudio }
+        guard operationIsCurrent() else { return .cancelled }
+
+        let sourceSensitiveValues = Self.av2HelperSensitiveValues(for: source)
 
         let routedAudioURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("av2audio_routed_\(UUID().uuidString).mkv")
@@ -2572,19 +2653,35 @@ actor FFMPEGConverter {
         args += ["-vn"]
         args += routingArguments
         args += ["-c:a", codec.ffmpegEncoder, "-b:a", bitrate, "-f", "matroska", routedAudioURL.path]
-        guard await runBinary(ffmpegPath, args) == 0, Self.fileHasContent(at: routedAudioURL) else {
-            return .failed("FFmpeg could not encode the selected audio tracks")
+        switch await runTrackedAV2Helper(
+            ffmpegPath,
+            args,
+            timeout: Self.av2AudioHelperTimeout,
+            additionalSensitiveValues: sourceSensitiveValues
+        ) {
+        case .success:
+            guard Self.fileHasContent(at: routedAudioURL) else {
+                return .failed("FFmpeg did not produce the routed audio output")
+            }
+        case .failed(let reason):
+            return .failed("FFmpeg could not encode the selected audio tracks: \(reason)")
+        case .cancelled:
+            return .cancelled
         }
-        guard let routedStreams = await FFMPEGProbeService.fetchAudioStreams(for: routedAudioURL),
+        guard operationIsCurrent() else { return .cancelled }
+        guard let routedStreams = await audioStreamProvider(routedAudioURL),
               !routedStreams.isEmpty else {
+            guard operationIsCurrent() else { return .cancelled }
             return .failed("Could not inspect the routed audio output")
         }
+        guard operationIsCurrent() else { return .cancelled }
         guard routedStreams.count == plannedTrackCount else {
             return .failed("Expected \(plannedTrackCount) routed audio tracks, but FFmpeg produced \(routedStreams.count)")
         }
 
         var tracks: [MatroskaMuxer.AudioTrack] = []
         for trackIndex in routedStreams.indices {
+            guard operationIsCurrent() else { return .cancelled }
             let elementaryURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("av2audio_\(UUID().uuidString).\(codec.intermediateExtension)")
             defer { Self.cleanupTempFile(at: elementaryURL, label: "AV2 mux audio track") }
@@ -2594,9 +2691,21 @@ actor FFMPEGConverter {
             ]
             extractionArguments += codec == .opus ? ["-f", "ogg"] : ["-f", "adts"]
             extractionArguments += [elementaryURL.path]
-            guard await runBinary(ffmpegPath, extractionArguments) == 0,
+            let extractionResult = await runTrackedAV2Helper(
+                ffmpegPath,
+                extractionArguments,
+                timeout: Self.av2AudioHelperTimeout,
+                additionalSensitiveValues: sourceSensitiveValues
+            )
+            if case .cancelled = extractionResult {
+                return .cancelled
+            }
+            guard case .success = extractionResult,
                   Self.fileHasContent(at: elementaryURL),
                   let track = Self.parseAV2MuxAudioTrack(elementaryURL, codec: codec) else {
+                if case .failed(let reason) = extractionResult {
+                    return .failed("Could not packetize routed audio track \(trackIndex + 1): \(reason)")
+                }
                 return .failed("Could not packetize routed audio track \(trackIndex + 1)")
             }
             tracks.append(track)
@@ -2713,21 +2822,94 @@ actor FFMPEGConverter {
         return frameSize * max(1, frameCount)
     }
 
-    /// Runs a binary to completion (output discarded), tracked in `av2Workers` for cancellation.
-    private func runBinary(_ path: String, _ arguments: [String]) async -> Int32 {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-        av2Workers.insert(process)
-        let status: Int32 = await withCheckedContinuation { continuation in
-            process.terminationHandler = { proc in continuation.resume(returning: proc.terminationStatus) }
-            do { try process.run() } catch { continuation.resume(returning: -1) }
+    /// Runs a one-shot AV2 helper through the shared subprocess boundary. The actor-owned task
+    /// keeps row cancellation and conversion supersession connected to the runner even though
+    /// the outer conversion task itself is not cancelled by `ConversionManager`.
+    private func runTrackedAV2Helper(
+        _ path: String,
+        _ arguments: [String],
+        timeout: Duration,
+        additionalSensitiveValues: Set<String> = []
+    ) async -> AV2HelperRunResult {
+        let taskID = UUID()
+        let runner = subprocessRunner
+        let task = Task {
+            await Self.runAV2Helper(
+                executablePath: path,
+                arguments: arguments,
+                timeout: timeout,
+                additionalSensitiveValues: additionalSensitiveValues,
+                subprocessRunner: runner
+            )
         }
-        av2Workers.remove(process)
-        return status
+        currentAV2HelperTask?.cancel()
+        currentAV2HelperTask = task
+        currentAV2HelperTaskID = taskID
+
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        let resolvedResult: AV2HelperRunResult = if task.isCancelled || Task.isCancelled {
+            .cancelled
+        } else {
+            result
+        }
+        if currentAV2HelperTaskID == taskID {
+            currentAV2HelperTask = nil
+            currentAV2HelperTaskID = nil
+        }
+        return resolvedResult
+    }
+
+    static func runAV2Helper(
+        executablePath: String,
+        arguments: [String],
+        timeout: Duration,
+        additionalSensitiveValues: Set<String> = [],
+        subprocessRunner: any SubprocessRunning = SubprocessRunner()
+    ) async -> AV2HelperRunResult {
+        let privateValues = Set(
+            arguments.filter { $0.hasPrefix("/") } + [executablePath]
+        ).union(additionalSensitiveValues)
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: executablePath),
+            arguments: arguments,
+            timeout: timeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: av2HelperDiagnosticCaptureLimit,
+            sensitiveValues: privateValues
+        )
+
+        func failureReason(_ base: String, diagnostic: String = "") -> String {
+            let safeDiagnostic = request.redactedDiagnostic(diagnostic)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return safeDiagnostic.isEmpty ? base : "\(base): \(safeDiagnostic)"
+        }
+
+        do {
+            let result = try await subprocessRunner.run(request)
+            guard result.succeeded else {
+                return .failed(reason: failureReason(
+                    "tool exited with status \(result.terminationStatus)",
+                    diagnostic: result.standardErrorText
+                ))
+            }
+            return .success
+        } catch is CancellationError {
+            return .cancelled
+        } catch SubprocessRunnerError.timedOut(_, let result) {
+            return .failed(reason: failureReason(
+                "tool timed out",
+                diagnostic: result.standardErrorText
+            ))
+        } catch {
+            return .failed(reason: failureReason(
+                "failed to start tool",
+                diagnostic: error.localizedDescription
+            ))
+        }
     }
 
     /// Scans an avmenc-written WebM for the `V_AV2` track's `CodecPrivate` (`0x63A2`) payload.
@@ -3764,6 +3946,9 @@ actor FFMPEGConverter {
         currentAVCIntraPreprocessingTask?.cancel()
         currentAVCIntraPreprocessingTask = nil
         currentAVCIntraPreprocessingTaskID = nil
+        currentAV2HelperTask?.cancel()
+        currentAV2HelperTask = nil
+        currentAV2HelperTaskID = nil
         if let bmxOperationID {
             await BMXService.shared.cancel(operationID: bmxOperationID)
             _ = await BMXService.shared.finishCancellationTracking(operationID: bmxOperationID)
@@ -3793,6 +3978,8 @@ actor FFMPEGConverter {
         currentWaveformFrameWriterTask = nil
         currentAVCIntraPreprocessingTask = nil
         currentAVCIntraPreprocessingTaskID = nil
+        currentAV2HelperTask = nil
+        currentAV2HelperTaskID = nil
         currentProcess = nil
         auxProcess = nil
         return true
@@ -3820,6 +4007,8 @@ actor FFMPEGConverter {
         currentWaveformFrameWriterTask = nil
         currentAVCIntraPreprocessingTask = nil
         currentAVCIntraPreprocessingTaskID = nil
+        currentAV2HelperTask = nil
+        currentAV2HelperTaskID = nil
         currentProcess = nil
         auxProcess = nil
         return true

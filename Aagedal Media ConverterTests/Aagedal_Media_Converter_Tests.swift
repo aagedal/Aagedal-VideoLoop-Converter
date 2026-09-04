@@ -7668,6 +7668,289 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testAV2OneShotHelperUsesBoundedRedactedRunnerPolicy() async throws {
+        let executablePath = "/private/tools/ffmpeg"
+        let inputPath = "/private/media/source.mov"
+        let outputPath = "/private/media/output.mkv"
+        let runner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult()
+        }
+
+        let result = await FFMPEGConverter.runAV2Helper(
+            executablePath: executablePath,
+            arguments: ["-i", inputPath, "-y", outputPath],
+            timeout: FFMPEGConverter.av2AudioHelperTimeout,
+            subprocessRunner: runner
+        )
+
+        XCTAssertEqual(result, .success)
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, executablePath)
+        XCTAssertEqual(request.arguments, ["-i", inputPath, "-y", outputPath])
+        XCTAssertEqual(request.timeout, FFMPEGConverter.av2AudioHelperTimeout)
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(
+            request.standardErrorCaptureLimit,
+            FFMPEGConverter.av2HelperDiagnosticCaptureLimit
+        )
+        XCTAssertNil(request.standardInput)
+        XCTAssertTrue(request.sensitiveValues.contains(executablePath))
+        XCTAssertTrue(request.sensitiveValues.contains(inputPath))
+        XCTAssertTrue(request.sensitiveValues.contains(outputPath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(executablePath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(inputPath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(outputPath))
+    }
+
+    func testAV2OneShotHelperReturnsBoundedRedactedFailures() async {
+        let privatePath = "/private/media/secret.mov"
+        let nonzeroRunner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult(
+                standardError: "cannot read \(privatePath)",
+                terminationStatus: 7
+            )
+        }
+        let nonzero = await FFMPEGConverter.runAV2Helper(
+            executablePath: "/private/tools/ffmpeg",
+            arguments: ["-i", privatePath],
+            timeout: .seconds(5),
+            subprocessRunner: nonzeroRunner
+        )
+        guard case .failed(let nonzeroReason) = nonzero else {
+            return XCTFail("Expected a nonzero helper result")
+        }
+        XCTAssertTrue(nonzeroReason.contains("status 7"))
+        XCTAssertFalse(nonzeroReason.contains(privatePath))
+        XCTAssertTrue(nonzeroReason.contains("<redacted>"))
+
+        let timeoutRunner = RecordingSubprocessRunner { _, _ in
+            throw SubprocessRunnerError.timedOut(
+                command: "<redacted>",
+                result: successfulSubprocessResult(
+                    standardError: "stalled while reading \(privatePath)",
+                    terminationStatus: SIGKILL
+                )
+            )
+        }
+        let timedOut = await FFMPEGConverter.runAV2Helper(
+            executablePath: "/private/tools/ffmpeg",
+            arguments: ["-i", privatePath],
+            timeout: .seconds(5),
+            subprocessRunner: timeoutRunner
+        )
+        guard case .failed(let timeoutReason) = timedOut else {
+            return XCTFail("Expected a timed-out helper result")
+        }
+        XCTAssertTrue(timeoutReason.contains("timed out"))
+        XCTAssertFalse(timeoutReason.contains(privatePath))
+
+        let launchFailureRunner = RecordingSubprocessRunner { _, _ in
+            throw NSError(
+                domain: "AV2HelperTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "missing file at \(privatePath)"]
+            )
+        }
+        let launchFailure = await FFMPEGConverter.runAV2Helper(
+            executablePath: "/private/tools/ffmpeg",
+            arguments: ["-i", privatePath],
+            timeout: .seconds(5),
+            subprocessRunner: launchFailureRunner
+        )
+        guard case .failed(let launchReason) = launchFailure else {
+            return XCTFail("Expected a helper launch failure")
+        }
+        XCTAssertTrue(launchReason.contains("failed to start"))
+        XCTAssertFalse(launchReason.contains(privatePath))
+    }
+
+    func testAV2OneShotHelperPropagatesTaskCancellation() async {
+        let runner = CountingBlockingSubprocessRunner()
+        let task = Task {
+            await FFMPEGConverter.runAV2Helper(
+                executablePath: "/private/tools/ffmpeg",
+                arguments: ["-version"],
+                timeout: .seconds(30),
+                subprocessRunner: runner
+            )
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        task.cancel()
+
+        let result = await task.value
+        XCTAssertEqual(result, .cancelled)
+        XCTAssertEqual(runner.cancelledCount, 1)
+    }
+
+    func testAV2AudioHelperCancellationIsIsolatedAcrossReplacement() async {
+        let runner = CountingBlockingSubprocessRunner()
+        let converter = FFMPEGConverter(subprocessRunner: runner)
+        let source = FFMPEGConverter.PackageAudioInput(
+            arguments: ["-i", "/private/media/source.mov"],
+            probeURL: nil,
+            ffmpegInputIndex: 0,
+            assumesSingleAudioStreamIfProbeUnavailable: false
+        )
+        let routing = AudioRoutingConfig(
+            inputTracks: [audioTrack(index: 0, channels: 2)],
+            outputTracks: [OutputTrack(streamIndex: 0)]
+        )
+
+        let first = Task {
+            await converter.extractAudioTracksForAV2Mux(
+                source: source,
+                audioRoutingConfig: routing,
+                trimStart: nil,
+                trimEnd: nil,
+                ffmpegPath: "/private/tools/ffmpeg"
+            )
+        }
+        await runner.waitUntilStarted(count: 1)
+
+        let replacement = Task {
+            await converter.extractAudioTracksForAV2Mux(
+                source: source,
+                audioRoutingConfig: routing,
+                trimStart: nil,
+                trimEnd: nil,
+                ffmpegPath: "/private/tools/ffmpeg"
+            )
+        }
+        await runner.waitUntilStarted(count: 2)
+
+        guard case .cancelled = await first.value else {
+            return XCTFail("Superseded AV2 helper did not report cancellation")
+        }
+        await converter.cancelConversion()
+        guard case .cancelled = await replacement.value else {
+            return XCTFail("Active AV2 helper did not report cancellation")
+        }
+        XCTAssertEqual(runner.cancelledCount, 2)
+    }
+
+    func testAV2AudioMuxDoesNotLaunchHelperAfterCancellationDuringProbes() async throws {
+        let sourceURL = URL(fileURLWithPath: "/private/media/source.mov")
+        let source = FFMPEGConverter.PackageAudioInput(
+            arguments: ["-i", sourceURL.path],
+            probeURL: sourceURL,
+            ffmpegInputIndex: 0,
+            assumesSingleAudioStreamIfProbeUnavailable: false
+        )
+
+        do {
+            let provider = BlockingAudioStreamProvider()
+            let runner = RecordingSubprocessRunner { _, _ in
+                XCTFail("A helper launched after cancellation during the source probe")
+                return successfulSubprocessResult()
+            }
+            let converter = FFMPEGConverter(subprocessRunner: runner)
+            let task = Task {
+                await converter.extractAudioTracksForAV2Mux(
+                    source: source,
+                    audioRoutingConfig: nil,
+                    trimStart: nil,
+                    trimEnd: nil,
+                    ffmpegPath: "/private/tools/ffmpeg",
+                    audioStreamProvider: { await provider.fetch(for: $0) }
+                )
+            }
+
+            await provider.waitUntilStarted()
+            task.cancel()
+            await provider.resume(with: [])
+
+            guard case .cancelled = await task.value else {
+                return XCTFail("Cancellation during the source probe was ignored")
+            }
+            XCTAssertNil(runner.lastRequest)
+        }
+
+        do {
+            let provider = BlockingAudioStreamProvider()
+            let runner = SequencedRecordingSubprocessRunner { index, request, _ in
+                XCTAssertEqual(index, 0, "A packet-extraction helper launched after cancellation")
+                if let outputPath = request.arguments.last {
+                    try Data("routed audio".utf8).write(to: URL(fileURLWithPath: outputPath))
+                }
+                return successfulSubprocessResult()
+            }
+            let converter = FFMPEGConverter(subprocessRunner: runner)
+            let routing = AudioRoutingConfig(
+                inputTracks: [audioTrack(index: 0, channels: 2)],
+                outputTracks: [OutputTrack(streamIndex: 0)]
+            )
+            let task = Task {
+                await converter.extractAudioTracksForAV2Mux(
+                    source: source,
+                    audioRoutingConfig: routing,
+                    trimStart: nil,
+                    trimEnd: nil,
+                    ffmpegPath: "/private/tools/ffmpeg",
+                    audioStreamProvider: { await provider.fetch(for: $0) }
+                )
+            }
+
+            await provider.waitUntilStarted()
+            task.cancel()
+            await provider.resume(with: [
+                FFMPEGProbeService.AudioStreamInfo(
+                    index: 0,
+                    channels: 2,
+                    channelLayout: "stereo",
+                    codecName: "aac"
+                )
+            ])
+
+            guard case .cancelled = await task.value else {
+                return XCTFail("Cancellation during the routed-output probe was ignored")
+            }
+            XCTAssertEqual(runner.requests.count, 1)
+        }
+    }
+
+    func testAV2ConcatHelperRedactsIndirectSourcePaths() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2ConcatRedaction-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let indirectSourcePath = "/private/media/second secret clip.mov"
+        let concatURL = directory.appendingPathComponent("inputs.ffconcat")
+        try "file '\(indirectSourcePath)'".write(to: concatURL, atomically: true, encoding: .utf8)
+        let source = FFMPEGConverter.PackageAudioInput(
+            arguments: ["-f", "concat", "-safe", "0", "-i", concatURL.path],
+            probeURL: URL(fileURLWithPath: "/private/media/first.mov"),
+            ffmpegInputIndex: 0,
+            assumesSingleAudioStreamIfProbeUnavailable: false
+        )
+        let routing = AudioRoutingConfig(
+            inputTracks: [audioTrack(index: 0, channels: 2)],
+            outputTracks: [OutputTrack(streamIndex: 0)]
+        )
+        let runner = RecordingSubprocessRunner { _, _ in
+            successfulSubprocessResult(
+                standardError: "could not open \(indirectSourcePath)",
+                terminationStatus: 2
+            )
+        }
+
+        let result = await FFMPEGConverter(subprocessRunner: runner).extractAudioTracksForAV2Mux(
+            source: source,
+            audioRoutingConfig: routing,
+            trimStart: nil,
+            trimEnd: nil,
+            ffmpegPath: "/private/tools/ffmpeg"
+        )
+
+        guard case .failed(let reason) = result else {
+            return XCTFail("Expected the routed concat helper to fail")
+        }
+        XCTAssertFalse(reason.contains(indirectSourcePath))
+        XCTAssertTrue(reason.contains("<redacted>"))
+        XCTAssertTrue(try XCTUnwrap(runner.lastRequest).sensitiveValues.contains(indirectSourcePath))
+    }
+
     func testADTSChannelConfigurationMappingRejectsUnsupportedLayouts() {
         XCTAssertNil(FFMPEGConverter.adtsChannelCount(forConfiguration: 0))
         XCTAssertEqual(FFMPEGConverter.adtsChannelCount(forConfiguration: 1), 1)
@@ -8969,6 +9252,46 @@ private final class BlockingSubprocessRunner: SubprocessRunning, @unchecked Send
                 startWaiters.append(continuation)
                 lock.unlock()
             }
+        }
+    }
+}
+
+private actor BlockingAudioStreamProvider {
+    private var hasStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var resultContinuation: CheckedContinuation<[FFMPEGProbeService.AudioStreamInfo]?, Never>?
+    private var pendingResult: [FFMPEGProbeService.AudioStreamInfo]??
+
+    func fetch(for _: URL) async -> [FFMPEGProbeService.AudioStreamInfo]? {
+        hasStarted = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+
+        if let pendingResult {
+            self.pendingResult = nil
+            return pendingResult
+        }
+        return await withCheckedContinuation { continuation in
+            resultContinuation = continuation
+        }
+    }
+
+    func waitUntilStarted() async {
+        if hasStarted { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
+    func resume(with result: [FFMPEGProbeService.AudioStreamInfo]?) {
+        if let resultContinuation {
+            self.resultContinuation = nil
+            resultContinuation.resume(returning: result)
+        } else {
+            pendingResult = .some(result)
         }
     }
 }

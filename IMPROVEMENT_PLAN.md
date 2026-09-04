@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 222 tests pass. The
+- The unit-test baseline is green: 228 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,15 +23,15 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 222 unit tests. The UI test target now has deterministic smoke
+- There are 228 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 13 direct `Process` construction sites outside the
-  shared runner, DEBUG-only UI-test fixture, and UI-test target. Eight are active
+- External tools still have 12 direct `Process` construction sites outside the
+  shared runner, DEBUG-only UI-test fixture, and UI-test target. Seven are active
   launches; five are configuration-only shims that already hand execution to the
   shared runner. The remaining launch paths do not yet share one cancellation,
   timeout, pipe-draining, and error-reporting layer.
@@ -319,7 +319,8 @@ Target: after the correctness net; approximately 1–2 weeks.
 Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
 analytics, package-version probes, merge preparation, screenshot capture, and the
 ordinary FFmpeg conversion, Deno archive extraction, and yt-dlp warm-up paths
-migrated 2026-09-01–04. Image-sequence WAV sidecar extraction migrated 2026-09-04.
+migrated 2026-09-01–04. Image-sequence WAV sidecar extraction and AV2 one-shot
+helper launches migrated 2026-09-04.
 
 Provide an injectable runner that owns:
 
@@ -630,10 +631,23 @@ late non-cooperative cancellation, no-audio skipping, staging cleanup, and prese
 of an existing destination; a generated video-and-audio fixture verifies the trimmed WAV
 and its duration through the real bundled FFmpeg.
 
-Remaining native-waveform streaming encoder, AV2 pipe, and specialty helper call
-sites are still open. The refreshed audit counts eight direct production launches plus
-five configuration-only `Process` shims.
-native-waveform streaming and AV2 pipelines should wait for
+The one-shot helpers used by AV2 Matroska muxing now use the shared runner for
+codec-private probes, routed-audio staging, and per-track packet extraction. Probe
+invocations have five-minute deadlines; full-media audio work has twelve-hour deadlines.
+All paths discard stdout, retain bounded stderr, redact executable and private media
+paths, and terminate subprocess trees on cancellation. A conversion-owned,
+identity-checked task prevents a cancelled or superseded mux from continuing into
+another helper stage or clearing a replacement operation, including cancellation while
+an audio-stream probe is suspended. Concat-list members are added to the redaction set so
+an indirect source path echoed by FFmpeg cannot enter a queue error. Focused fake-runner
+tests cover request and capture policy, nonzero exits, launch failures, timeouts,
+direct and probe-time cancellation, concat-path redaction, and isolated replacement
+cancellation; the generated AAC/Opus routing fixture remains green through the real
+bundled FFmpeg.
+
+Remaining native-waveform streaming encoder and AV2 pipe call sites are still open. The
+refreshed audit counts seven direct production launches plus five configuration-only
+`Process` shims. Native-waveform streaming and AV2 pipelines should wait for
 incremental stdin and coordinated multi-process support.
 
 ### 2.2 Remove sync-over-async waits
