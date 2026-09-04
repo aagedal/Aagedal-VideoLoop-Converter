@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 238 tests pass. The
+- The unit-test baseline is green: 240 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 238 unit tests. The UI test target now has deterministic smoke
+- There are 240 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -712,6 +712,16 @@ safely behind the generator's retained security scope, but it can no longer hold
 parallel `loadDetails` tuple and pin an import after metadata has already resolved. Focused
 tests cover prompt timeout and parent cancellation while a non-cooperative thumbnail probe
 finishes late.
+
+Lazy C2PA and camera-metadata reads in the comparison window now have independent
+non-joining fifteen-second deadlines. A stalled SwiftMediaMetadata callback can finish late,
+but each task-group child still resolves, clears its loading state, and responds promptly to
+parent cancellation. Focused tests cover a non-cooperative timeout and direct cancellation.
+The refreshed audit still finds fifteen direct, unbounded
+`VideoMetadataService.metadata(for:)` consumers outside these guarded entry points. Camera-card
+merge checks, conversion merge preflight, preview generation, player audio discovery, and
+conversion command builders should move behind a shared throwing bounded probe next so timeout
+fallbacks do not accidentally swallow parent cancellation.
 
 Normal application termination now uses AppKit's asynchronous terminate-later handshake
 instead of blocking the main thread on a semaphore to reach the preview actor. Repeated quit

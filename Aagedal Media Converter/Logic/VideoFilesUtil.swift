@@ -483,7 +483,13 @@ struct VideoFileUtils: Sendable {
     }
     /// Fetches C2PA (Content Authenticity) metadata for a video item
     /// This is done lazily when the user opens the metadata view
-    static func fetchC2PAMetadata(for url: URL) async -> C2PAMetadata? {
+    static func fetchC2PAMetadata(
+        for url: URL,
+        timeout: Duration = .seconds(15),
+        metadataProbe: @escaping @Sendable (URL) async throws -> C2PAMetadata? = {
+            try await SwiftExifMetadataService.shared.getC2PAMetadata(for: $0)
+        }
+    ) async -> C2PAMetadata? {
         let fileName = url.lastPathComponent
 
         // Skip if file doesn't exist
@@ -495,13 +501,20 @@ struct VideoFileUtils: Sendable {
         logger.debug("[fetchC2PAMetadata] Checking C2PA for: \(fileName, privacy: .public)")
 
         do {
-            let c2paMetadata = try await SwiftExifMetadataService.shared.getC2PAMetadata(for: url)
+            let c2paMetadata = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try await metadataProbe(url)
+            }
             if c2paMetadata != nil {
                 logger.debug("[fetchC2PAMetadata] Found C2PA metadata for: \(fileName, privacy: .public)")
             } else {
                 logger.debug("[fetchC2PAMetadata] No C2PA metadata found for: \(fileName, privacy: .public)")
             }
             return c2paMetadata
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            logger.warning("[fetchC2PAMetadata] Timed out for: \(fileName, privacy: .public)")
+            return nil
+        } catch is CancellationError {
+            return nil
         } catch {
             logger.error("[fetchC2PAMetadata] Error fetching C2PA: \(error.localizedDescription, privacy: .public)")
             return nil
@@ -510,7 +523,13 @@ struct VideoFileUtils: Sendable {
 
     /// Fetches camera metadata from XML for a video item
     /// This is done lazily when the user opens the metadata view
-    static func fetchCameraMetadata(for url: URL) async -> CameraMetadata? {
+    static func fetchCameraMetadata(
+        for url: URL,
+        timeout: Duration = .seconds(15),
+        metadataProbe: @escaping @Sendable (URL) async throws -> CameraMetadata? = {
+            try await SwiftExifMetadataService.shared.getCameraMetadata(for: $0)
+        }
+    ) async -> CameraMetadata? {
         let fileName = url.lastPathComponent
 
         // Skip if file doesn't exist
@@ -522,13 +541,20 @@ struct VideoFileUtils: Sendable {
         logger.debug("[fetchCameraMetadata] Checking camera metadata for: \(fileName, privacy: .public)")
 
         do {
-            let cameraMetadata = try await SwiftExifMetadataService.shared.getCameraMetadata(for: url)
+            let cameraMetadata = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try await metadataProbe(url)
+            }
             if cameraMetadata != nil {
                 logger.debug("[fetchCameraMetadata] Found camera metadata for: \(fileName, privacy: .public)")
             } else {
                 logger.debug("[fetchCameraMetadata] No camera metadata found for: \(fileName, privacy: .public)")
             }
             return cameraMetadata
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            logger.warning("[fetchCameraMetadata] Timed out for: \(fileName, privacy: .public)")
+            return nil
+        } catch is CancellationError {
+            return nil
         } catch {
             logger.error("[fetchCameraMetadata] Error fetching camera metadata: \(error.localizedDescription, privacy: .public)")
             return nil

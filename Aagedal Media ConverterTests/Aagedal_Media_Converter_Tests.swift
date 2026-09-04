@@ -1236,6 +1236,68 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testC2PAMetadataFetchDoesNotJoinTimedOutProbe() async throws {
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("StalledC2PAMetadata-\(UUID().uuidString).mov")
+        try Data([0x00]).write(to: temporaryURL)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let start = ContinuousClock.now
+
+        let metadata = await VideoFileUtils.fetchC2PAMetadata(
+            for: temporaryURL,
+            timeout: .milliseconds(50)
+        ) { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                probeStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertNil(metadata)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testCameraMetadataFetchParentCancellationReturnsPromptly() async throws {
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CancelledCameraMetadata-\(UUID().uuidString).mov")
+        try Data([0x00]).write(to: temporaryURL)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let task = Task {
+            await VideoFileUtils.fetchCameraMetadata(
+                for: temporaryURL,
+                timeout: .seconds(10)
+            ) { _ in
+                try await withCheckedThrowingContinuation { continuation in
+                    probeStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseProbe.wait()
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        let start = ContinuousClock.now
+        task.cancel()
+
+        let metadata = await task.value
+        XCTAssertNil(metadata)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
     func testRowThumbnailFetchDoesNotJoinTimedOutProbe() async {
         let probeStarted = DispatchSemaphore(value: 0)
         let releaseProbe = DispatchSemaphore(value: 0)
