@@ -2459,7 +2459,7 @@ actor FFMPEGConverter {
         // ordinary FFmpeg-backed exports.
         let sourceMetadata: VideoMetadata?
         if case .preserveSource? = timecodeConfig?.mode, knownSourceMetadata == nil {
-            sourceMetadata = try? await VideoMetadataService.shared.metadata(for: sourceURL)
+            sourceMetadata = try? await BoundedVideoMetadataProbe.metadata(for: sourceURL)
         } else {
             sourceMetadata = knownSourceMetadata
         }

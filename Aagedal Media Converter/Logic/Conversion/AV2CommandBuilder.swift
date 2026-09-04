@@ -336,11 +336,12 @@ enum AV2CommandBuilder {
         videoFrameRate: Double?
     ) async -> Resolved? {
         let metadataURL = visualSourceURL ?? inputURL
-        let metadata = try? await VideoMetadataService.shared.metadata(for: metadataURL)
+        let metadata = try? await BoundedVideoMetadataProbe.metadata(for: metadataURL)
         let stream = metadata?.primaryVideoStream
         guard let geometry = await FFMPEGCommandBuilder.sourceGeometry(
             for: metadataURL,
-            sourceMetadata: metadata
+            sourceMetadata: metadata,
+            probeMetadataIfNeeded: false
         ) else {
             logger.error("AV2: could not determine source dimensions for \(metadataURL.lastPathComponent, privacy: .public)")
             return nil

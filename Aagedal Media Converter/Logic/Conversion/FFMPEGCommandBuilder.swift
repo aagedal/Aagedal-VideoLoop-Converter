@@ -123,8 +123,19 @@ enum FFMPEGCommandBuilder {
             arguments.append(contentsOf: waveformCommandArguments(for: waveformRequest, includeAudioOutput: includeAudioOutput, audioRoutingConfig: audioRoutingConfig))
 
             var ffmpegArgs = preset.ffmpegArguments
-            await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
-            await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+            await adjustArgumentsForInput(
+                preset: preset,
+                inputURL: inputURL,
+                ffmpegArgs: &ffmpegArgs,
+                trimStart: normalizedTrimStart,
+                trimEnd: normalizedTrimEnd,
+                sourceMetadata: sourceMetadata
+            )
+            await adjustDeinterlaceFilter(
+                inputURL: inputURL,
+                ffmpegArgs: &ffmpegArgs,
+                sourceMetadata: sourceMetadata
+            )
             sanitizeArgumentsForCustomVideoPipeline(&ffmpegArgs)
             if !includeAudioOutput {
                 removeArgumentPair("-map", value: "[audout]", from: &arguments)
@@ -169,8 +180,19 @@ enum FFMPEGCommandBuilder {
             arguments.append(contentsOf: synthesizedVideoCommandArguments(for: synthesizedVideoRequest))
 
             var ffmpegArgs = preset.ffmpegArguments
-            await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
-            await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+            await adjustArgumentsForInput(
+                preset: preset,
+                inputURL: inputURL,
+                ffmpegArgs: &ffmpegArgs,
+                trimStart: normalizedTrimStart,
+                trimEnd: normalizedTrimEnd,
+                sourceMetadata: sourceMetadata
+            )
+            await adjustDeinterlaceFilter(
+                inputURL: inputURL,
+                ffmpegArgs: &ffmpegArgs,
+                sourceMetadata: sourceMetadata
+            )
             sanitizeArgumentsForCustomVideoPipeline(&ffmpegArgs)
             if synthesizedVideoRequest.includeAudio {
                 removeArgumentPair("-an", value: nil, from: &ffmpegArgs)
@@ -232,8 +254,19 @@ enum FFMPEGCommandBuilder {
         }
 
         if !isImageSequenceInput {
-            await adjustArgumentsForInput(preset: preset, inputURL: inputURL, ffmpegArgs: &ffmpegArgs, trimStart: normalizedTrimStart, trimEnd: normalizedTrimEnd)
-            await adjustDeinterlaceFilter(inputURL: inputURL, ffmpegArgs: &ffmpegArgs)
+            await adjustArgumentsForInput(
+                preset: preset,
+                inputURL: inputURL,
+                ffmpegArgs: &ffmpegArgs,
+                trimStart: normalizedTrimStart,
+                trimEnd: normalizedTrimEnd,
+                sourceMetadata: sourceMetadata
+            )
+            await adjustDeinterlaceFilter(
+                inputURL: inputURL,
+                ffmpegArgs: &ffmpegArgs,
+                sourceMetadata: sourceMetadata
+            )
 
             // Filter out unsupported audio codecs (e.g., APAC spatial audio from iPhone)
             // Skip for stream copy (which doesn't decode) and when audio routing is applied (has its own mapping)
@@ -402,7 +435,8 @@ extension FFMPEGCommandBuilder {
     /// is the containing directory and cannot be probed as media.
     static func sourceGeometry(
         for sourceURL: URL,
-        sourceMetadata: VideoMetadata?
+        sourceMetadata: VideoMetadata?,
+        probeMetadataIfNeeded: Bool = true
     ) async -> SourceGeometry? {
         if let stream = sourceMetadata?.primaryVideoStream,
            let width = stream.width,
@@ -415,7 +449,8 @@ extension FFMPEGCommandBuilder {
             )
         }
 
-        if let metadata = try? await VideoMetadataService.shared.metadata(for: sourceURL),
+        if probeMetadataIfNeeded,
+           let metadata = try? await BoundedVideoMetadataProbe.metadata(for: sourceURL),
            let stream = metadata.primaryVideoStream,
            let width = stream.width,
            let height = stream.height {
@@ -970,7 +1005,7 @@ extension FFMPEGCommandBuilder {
         case .preserveSource:
             if let knownSourceMetadata {
                 sourceMetadata = knownSourceMetadata
-            } else if let probedMetadata = try? await VideoMetadataService.shared.metadata(for: inputURL) {
+            } else if let probedMetadata = try? await BoundedVideoMetadataProbe.metadata(for: inputURL) {
                 sourceMetadata = probedMetadata
             } else {
                 // Preserve FFmpeg's source metadata mapping when the in-process
@@ -1211,12 +1246,18 @@ extension FFMPEGCommandBuilder {
         inputURL: URL,
         ffmpegArgs: inout [String],
         trimStart: Double? = nil,
-        trimEnd: Double? = nil
+        trimEnd: Double? = nil,
+        sourceMetadata: VideoMetadata? = nil
     ) async {
         // Handle AVC-Intra mono channel splitting
         if preset == .tvAVCIntra {
             // Calculate effective duration for silent streams
-            let effectiveDuration = await calculateEffectiveDurationForAudio(inputURL: inputURL, trimStart: trimStart, trimEnd: trimEnd)
+            let effectiveDuration = await calculateEffectiveDurationForAudio(
+                inputURL: inputURL,
+                trimStart: trimStart,
+                trimEnd: trimEnd,
+                sourceMetadata: sourceMetadata
+            )
             await adjustAVCIntraAudio(inputURL: inputURL, ffmpegArgs: &ffmpegArgs, duration: effectiveDuration)
             return
         }
@@ -1247,7 +1288,8 @@ extension FFMPEGCommandBuilder {
     private static func calculateEffectiveDurationForAudio(
         inputURL: URL,
         trimStart: Double?,
-        trimEnd: Double?
+        trimEnd: Double?,
+        sourceMetadata: VideoMetadata?
     ) async -> Double? {
         // If we have both trim points, use the difference
         if let start = trimStart, let end = trimEnd {
@@ -1255,8 +1297,13 @@ extension FFMPEGCommandBuilder {
         }
 
         // Try to get the file's total duration
-        if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL),
-           let totalDuration = metadata.duration {
+        let resolvedMetadata: VideoMetadata?
+        if let sourceMetadata {
+            resolvedMetadata = sourceMetadata
+        } else {
+            resolvedMetadata = try? await BoundedVideoMetadataProbe.metadata(for: inputURL)
+        }
+        if let totalDuration = resolvedMetadata?.duration {
             if let start = trimStart {
                 return totalDuration - start
             } else if let end = trimEnd {
@@ -1531,15 +1578,31 @@ extension FFMPEGCommandBuilder {
 
     static func adjustDeinterlaceFilter(
         inputURL: URL,
-        ffmpegArgs: inout [String]
+        ffmpegArgs: inout [String],
+        sourceMetadata: VideoMetadata? = nil,
+        metadataTimeout: Duration = BoundedVideoMetadataProbe.defaultTimeout,
+        metadataProbe: @escaping @Sendable (URL) async throws -> VideoMetadata = {
+            try await VideoMetadataService.shared.metadata(for: $0)
+        }
     ) async {
         // Only proceed if a video filter graph exists
         guard let vfIndex = ffmpegArgs.firstIndex(of: "-vf"), vfIndex + 1 < ffmpegArgs.count else {
             return
         }
 
+        let metadata: VideoMetadata?
+        if let sourceMetadata {
+            metadata = sourceMetadata
+        } else {
+            metadata = try? await BoundedVideoMetadataProbe.metadata(
+                for: inputURL,
+                timeout: metadataTimeout,
+                probe: metadataProbe
+            )
+        }
+
         let isInterlaced: Bool
-        if let metadata = try? await VideoMetadataService.shared.metadata(for: inputURL) {
+        if let metadata {
             isInterlaced = metadata.primaryVideoStream?.isInterlaced ?? false
         } else {
             isInterlaced = false

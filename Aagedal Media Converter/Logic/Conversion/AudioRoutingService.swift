@@ -26,7 +26,7 @@ enum AudioRoutingService {
         }
 
         // Try to get richer metadata from VideoMetadataService
-        let metadata = try? await VideoMetadataService.shared.metadata(for: url)
+        let metadata = try? await BoundedVideoMetadataProbe.metadata(for: url)
 
         // For MXF (including IMF essences), pull SMPTE 377-4 MCA labels via mxf2raw.
         let mcaLabels: [AudioTrackMCALabels]

@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 246 unit tests. The UI test target now has deterministic smoke
+- There are 247 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -738,8 +738,15 @@ audit now finds ten remaining direct, unbounded consumers outside guarded entry 
 Player audio ordering, AVPlayer track-option refresh, and on-demand channel-waveform discovery now
 use the same bounded probe. Refresh attempts are explicitly owned and superseded work cannot publish
 track options for a newer player item; teardown cancels the active refresh. A focused test verifies
-that audio discovery returns on deadline without joining a stalled parser. Seven direct unbounded
-consumers remain in conversion command builders and conversion audio routing.
+that audio discovery returns on deadline without joining a stalled parser.
+
+The seven direct `VideoMetadataService` consumers in conversion command builders, AV2 planning and
+muxing, and conversion audio routing now use the shared non-joining fifteen-second deadline. Command
+planning reuses request metadata for deinterlace and AVC-Intra duration decisions when it is already
+available, and a failed AV2 metadata read no longer immediately starts a second geometry probe. A
+focused non-cooperative test verifies that deinterlace planning returns on deadline and applies its
+existing progressive-source fallback. Lower-level raw probes in `FFMPEGProbeService`, AV2 duration
+fallbacks, and operation-wide deduplication across AV2 segment/build/bit-depth planning remain open.
 
 Normal application termination now uses AppKit's asynchronous terminate-later handshake
 instead of blocking the main thread on a semaphore to reach the preview actor. Repeated quit

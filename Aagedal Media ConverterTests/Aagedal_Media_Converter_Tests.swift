@@ -1215,6 +1215,32 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
     }
 
+    func testDeinterlacePlanningDoesNotJoinTimedOutMetadataProbe() async {
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        var arguments = ["-vf", "yadif=0,scale=1920:1080"]
+        let start = ContinuousClock.now
+
+        await FFMPEGCommandBuilder.adjustDeinterlaceFilter(
+            inputURL: URL(fileURLWithPath: "/private/stalled-deinterlace.mov"),
+            ffmpegArgs: &arguments,
+            metadataTimeout: .milliseconds(50)
+        ) { _ in
+            try await withCheckedThrowingContinuation { continuation in
+                probeStarted.signal()
+                DispatchQueue.global(qos: .utility).async {
+                    releaseProbe.wait()
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(arguments, ["-vf", "scale=1920:1080"])
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
     func testBoundedVideoMetadataBatchUsesOneConcurrentDeadlineWindow() async throws {
         let urls = (0..<10).map { URL(fileURLWithPath: "/private/stalled-\($0).mov") }
         let expected = videoMetadata(timecode: nil, frameRate: 25)
