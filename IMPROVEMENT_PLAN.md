@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 266 tests pass. The
+- The unit-test baseline is green: 278 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 266 unit tests. The UI test target now has deterministic smoke
+- There are 278 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -655,7 +655,7 @@ incremental stdin and coordinated multi-process support.
 
 Status: in progress; image-sequence duration probing migrated async end-to-end,
 preview/analytics media preflight bounded, Apple Vision per-frame OCR bounded, and
-Whisper model downloads made cancellation-safe 2026-09-04.
+Whisper and Parakeet model downloads made cancellation-safe 2026-09-04.
 
 - Make image-sequence duration probing async end-to-end, or give the compatibility
   bridge a bounded timeout while callers are migrated.
@@ -808,8 +808,24 @@ a cancelled download from publishing over or clearing its retry. Downloaded file
 outside the models directory until the final ownership check, and cancellation is no longer
 reported as a user-visible download failure. Focused tests cover deadline configuration, staged
 publication and progress, prompt parent cancellation, and a non-cooperative late result racing a
-successful retry. All 266 unit tests pass, and the cancellation/late-result slice also passes
-under Thread Sanitizer. Parakeet model metadata and file downloads remain the next analogous audit.
+successful retry.
+
+Parakeet model metadata and file downloads now use injectable, exactly-once URLSession
+operations with explicit five-minute metadata and twelve-hour file resource deadlines.
+Parent-task and Settings cancellation reach the active request, while model-keyed attempt IDs
+keep simultaneous downloads isolated and prevent late progress or files from a cancelled run
+overwriting its retry. Each attempt builds a UUID-owned HuggingFace cache tree and publishes it
+only after the complete snapshot passes a final ownership check; failure and cancellation remove
+staging files without exposing `refs/main`. Remote filenames, commit IDs, and blob identifiers are
+validated before filesystem use, HTTP failures are rejected, and blob metadata is explicitly
+requested so LFS files can be verified against their published SHA-256 before installation.
+Active state and progress live in the manager, so a recreated Settings view can rediscover and
+cancel an in-flight transfer or report its terminal failure, while duplicate callers receive an
+explicit in-progress error. Focused tests cover deadline policy, cache layout and progress,
+metadata and parent cancellation, concurrent-model isolation, duplicate callers, atomic
+replacement of incomplete caches, late retry results and failures, checksum failure, unsafe
+remote paths, and staging cleanup. All 278 unit tests pass;
+the wider audit of remaining unbounded framework callbacks continues.
 
 ### 2.3 Standardize user-visible errors
 

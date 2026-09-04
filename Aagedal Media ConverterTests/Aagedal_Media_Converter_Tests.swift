@@ -1185,6 +1185,495 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertEqual(URLSessionWhisperModelDownloadOperation.resourceTimeout, 12 * 60 * 60)
     }
 
+    func testParakeetModelDownloadsUseExplicitNetworkDeadlines() {
+        let metadataConfiguration = URLSessionParakeetModelMetadataOperation.makeConfiguration()
+        let fileConfiguration = URLSessionParakeetFileDownloadOperation.makeConfiguration()
+
+        XCTAssertEqual(metadataConfiguration.timeoutIntervalForRequest, 60)
+        XCTAssertEqual(
+            metadataConfiguration.timeoutIntervalForResource,
+            URLSessionParakeetModelMetadataOperation.resourceTimeout
+        )
+        XCTAssertEqual(URLSessionParakeetModelMetadataOperation.resourceTimeout, 5 * 60)
+        XCTAssertEqual(URLSessionParakeetModelMetadataOperation.maximumResponseBytes, 4 * 1_024 * 1_024)
+        XCTAssertEqual(fileConfiguration.timeoutIntervalForRequest, 60)
+        XCTAssertEqual(
+            fileConfiguration.timeoutIntervalForResource,
+            URLSessionParakeetFileDownloadOperation.resourceTimeout
+        )
+        XCTAssertEqual(URLSessionParakeetFileDownloadOperation.resourceTimeout, 12 * 60 * 60)
+    }
+
+    func testParakeetModelDownloadStagesCompleteCacheAndPublishesProgress() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-success-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let model = ParakeetModel.allModels[0]
+        let configDownload = root.appendingPathComponent("config.download")
+        let weightsDownload = root.appendingPathComponent("weights.download")
+        try Data("config".utf8).write(to: configDownload)
+        try Data("weights".utf8).write(to: weightsDownload)
+        let metadata = ParakeetModelMetadata(
+            sha: "commit123",
+            siblings: [
+                ParakeetModelMetadata.File(
+                    rfilename: "config.json",
+                    size: 6,
+                    lfs: nil
+                ),
+                ParakeetModelMetadata.File(
+                    rfilename: "subdir/model.safetensors",
+                    size: 7,
+                    lfs: .init(
+                        sha256: "9a129038d9a00aed0cf6a7ea059ca50a813449061ab87848cf1a13eafdf33b2c"
+                    )
+                ),
+            ]
+        )
+        let configOperation = ControlledParakeetFileDownloadOperation()
+        let weightsOperation = ControlledParakeetFileDownloadOperation()
+        let operations = ParakeetFileDownloadOperationQueue([configOperation, weightsOperation])
+        let recorder = ParakeetModelProgressRecorder()
+        let manager = ParakeetModelManager(
+            cacheDirectory: root.appendingPathComponent("hub", isDirectory: true),
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { sourceURL in
+                XCTAssertEqual(
+                    URLComponents(url: sourceURL, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first(where: { $0.name == "blobs" })?.value,
+                    "true"
+                )
+                return ImmediateParakeetMetadataOperation(metadata: metadata)
+            },
+            fileDownloadOperationFactory: { _, _ in operations.next() }
+        )
+
+        let task = Task {
+            try await manager.downloadModel(model) { recorder.record($0) }
+        }
+        await configOperation.waitUntilStarted()
+        configOperation.emitProgress(bytesWritten: 3, totalExpected: 6)
+        configOperation.succeed(
+            temporaryURL: configDownload,
+            expectedContentLength: 6,
+            eTag: "\"configetag\""
+        )
+        await weightsOperation.waitUntilStarted()
+        weightsOperation.succeed(
+            temporaryURL: weightsDownload,
+            expectedContentLength: 7,
+            eTag: nil
+        )
+        try await task.value
+        await recorder.waitUntilCompleted()
+
+        let cache = manager.modelCachePath(for: model)
+        XCTAssertEqual(
+            try String(contentsOf: cache.appendingPathComponent("refs/main"), encoding: .utf8),
+            "commit123"
+        )
+        XCTAssertEqual(
+            try Data(contentsOf: cache.appendingPathComponent("blobs/configetag")),
+            Data("config".utf8)
+        )
+        XCTAssertEqual(
+            try Data(
+                contentsOf: cache.appendingPathComponent(
+                    "blobs/9a129038d9a00aed0cf6a7ea059ca50a813449061ab87848cf1a13eafdf33b2c"
+                )
+            ),
+            Data("weights".utf8)
+        )
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(
+                atPath: cache.appendingPathComponent(
+                    "snapshots/commit123/subdir/model.safetensors"
+                ).path
+            ),
+            "../../../blobs/9a129038d9a00aed0cf6a7ea059ca50a813449061ab87848cf1a13eafdf33b2c"
+        )
+        XCTAssertTrue(recorder.fractions.contains { abs($0 - (3.0 / 13.0)) < 0.0001 })
+        XCTAssertEqual(recorder.fractions.last, 1)
+        XCTAssertFalse(
+            (try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("hub").path))
+                .contains { $0.hasPrefix(".parakeet-download-") }
+        )
+    }
+
+    func testParakeetModelDownloadRejectsChecksumMismatchWithoutPublishing() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-checksum-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let model = ParakeetModel.allModels[0]
+        let downloadedFile = root.appendingPathComponent("corrupt.download")
+        try Data("corrupt".utf8).write(to: downloadedFile)
+        let metadata = ParakeetModelMetadata(
+            sha: "testcommit",
+            siblings: [
+                ParakeetModelMetadata.File(
+                    rfilename: "model.safetensors",
+                    size: 7,
+                    lfs: .init(sha256: String(repeating: "0", count: 64))
+                )
+            ]
+        )
+        let operation = ControlledParakeetFileDownloadOperation()
+        let manager = ParakeetModelManager(
+            cacheDirectory: root.appendingPathComponent("hub", isDirectory: true),
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in operation }
+        )
+
+        let task = Task { try await manager.downloadModel(model) { _ in } }
+        await operation.waitUntilStarted()
+        operation.succeed(
+            temporaryURL: downloadedFile,
+            expectedContentLength: 7,
+            eTag: nil
+        )
+
+        do {
+            try await task.value
+            XCTFail("Expected checksum verification to fail")
+        } catch let error as ParakeetModelDownloadError {
+            XCTAssertTrue(error.localizedDescription.contains("checksum verification"))
+        }
+        XCTAssertFalse(manager.isModelDownloaded(model))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadedFile.path))
+    }
+
+    func testParakeetModelMetadataCancellationIsPromptAndTargeted() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-metadata-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = ParakeetModel.allModels[0]
+        let metadataOperation = ControlledParakeetMetadataOperation()
+        let manager = ParakeetModelManager(
+            cacheDirectory: root,
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in metadataOperation },
+            fileDownloadOperationFactory: { _, _ in
+                XCTFail("A file download should not start after metadata cancellation")
+                return ControlledParakeetFileDownloadOperation()
+            }
+        )
+        let task = Task { try await manager.downloadModel(model) { _ in } }
+        await metadataOperation.waitUntilStarted()
+
+        let start = ContinuousClock.now
+        await manager.cancelDownload(for: model)
+        do {
+            try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        XCTAssertEqual(metadataOperation.cancellationCount, 1)
+        let status = await manager.getModelStatus(model)
+        XCTAssertEqual(status, .notDownloaded)
+    }
+
+    func testParakeetModelManagerExposesActiveDownloadAndRejectsDuplicateCaller() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-active-state-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = ParakeetModel.allModels[0]
+        let metadata = makeParakeetMetadata(fileName: "model.bin")
+        let fileOperation = ControlledParakeetFileDownloadOperation()
+        let manager = ParakeetModelManager(
+            cacheDirectory: root,
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in fileOperation }
+        )
+        let task = Task { try await manager.downloadModel(model) { _ in } }
+        await fileOperation.waitUntilStarted()
+        fileOperation.emitProgress(bytesWritten: 2, totalExpected: 4)
+
+        let activeStatus = await manager.getModelStatus(model)
+        XCTAssertEqual(activeStatus, .downloading)
+        for _ in 0..<100 {
+            if await manager.getDownloadProgress(model) != nil { break }
+            await Task.yield()
+        }
+        let progress = await manager.getDownloadProgress(model)
+        XCTAssertEqual(progress?.currentFileFraction, 0.5)
+
+        do {
+            try await manager.downloadModel(model) { _ in }
+            XCTFail("Expected a duplicate caller to be rejected")
+        } catch ParakeetModelDownloadError.downloadAlreadyInProgress {
+            // Expected.
+        } catch {
+            XCTFail("Expected an already-in-progress error, got \(error)")
+        }
+
+        await manager.cancelDownload(for: model)
+        do {
+            try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+    }
+
+    func testParakeetModelManagerPreservesTerminalFailureForRecreatedSettings() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-terminal-state-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = ParakeetModel.allModels[0]
+        let metadata = makeParakeetMetadata(fileName: "model.bin")
+        let fileOperation = ControlledParakeetFileDownloadOperation()
+        let manager = ParakeetModelManager(
+            cacheDirectory: root,
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in fileOperation }
+        )
+        let task = Task { try await manager.downloadModel(model) { _ in } }
+        await fileOperation.waitUntilStarted()
+        fileOperation.fail(with: URLError(.networkConnectionLost))
+
+        do {
+            try await task.value
+            XCTFail("Expected the download to fail")
+        } catch is URLError {
+            // Expected.
+        } catch {
+            XCTFail("Expected the original network failure, got \(error)")
+        }
+
+        let preservedFailure = await manager.takeDownloadFailure(model)
+        XCTAssertNotNil(preservedFailure)
+        XCTAssertTrue(preservedFailure?.isEmpty == false)
+        let consumedFailure = await manager.takeDownloadFailure(model)
+        XCTAssertNil(consumedFailure)
+    }
+
+    func testParakeetModelDownloadAtomicallyReplacesIncompleteCache() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-cache-replace-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let model = ParakeetModel.allModels[0]
+        let hub = root.appendingPathComponent("hub", isDirectory: true)
+        let existingCache = hub.appendingPathComponent("models--" + model.id.replacingOccurrences(of: "/", with: "--"))
+        try FileManager.default.createDirectory(at: existingCache, withIntermediateDirectories: true)
+        let staleFile = existingCache.appendingPathComponent("stale-partial-download")
+        try Data("stale".utf8).write(to: staleFile)
+
+        let metadata = makeParakeetMetadata(fileName: "model.bin")
+        let downloadedFile = root.appendingPathComponent("model.download")
+        try Data("complete".utf8).write(to: downloadedFile)
+        let fileOperation = ControlledParakeetFileDownloadOperation()
+        let manager = ParakeetModelManager(
+            cacheDirectory: hub,
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in fileOperation }
+        )
+
+        let task = Task { try await manager.downloadModel(model) { _ in } }
+        await fileOperation.waitUntilStarted()
+        fileOperation.succeed(
+            temporaryURL: downloadedFile,
+            expectedContentLength: 8,
+            eTag: "complete"
+        )
+        try await task.value
+
+        XCTAssertTrue(manager.isModelDownloaded(model))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleFile.path))
+        XCTAssertEqual(
+            try Data(contentsOf: existingCache.appendingPathComponent("blobs/complete")),
+            Data("complete".utf8)
+        )
+    }
+
+    func testParakeetModelDownloadMapsLateFailureAfterTargetedCancellation() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-late-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = ParakeetModel.allModels[0]
+        let metadata = makeParakeetMetadata(fileName: "model.bin")
+        let fileOperation = ControlledParakeetFileDownloadOperation(honorsCancellation: false)
+        let manager = ParakeetModelManager(
+            cacheDirectory: root,
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in fileOperation }
+        )
+        let task = Task { try await manager.downloadModel(model) { _ in } }
+        await fileOperation.waitUntilStarted()
+        await manager.cancelDownload(for: model)
+        fileOperation.fail(with: URLError(.networkConnectionLost))
+
+        do {
+            try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected: a late network failure must retain the user's cancellation outcome.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+    }
+
+    func testParakeetModelDownloadRejectsUnsafeRemotePathBeforeFileDownload() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-unsafe-path-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = ParakeetModel.allModels[0]
+        let metadata = makeParakeetMetadata(fileName: "../outside.bin")
+        let manager = ParakeetModelManager(
+            cacheDirectory: root,
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in
+                XCTFail("Unsafe metadata must be rejected before starting a file download")
+                return ControlledParakeetFileDownloadOperation()
+            }
+        )
+
+        do {
+            try await manager.downloadModel(model) { _ in }
+            XCTFail("Expected unsafe metadata to be rejected")
+        } catch let error as ParakeetModelDownloadError {
+            XCTAssertTrue(error.localizedDescription.contains("unsafe file path"))
+        } catch {
+            XCTFail("Expected a Parakeet download error, got \(error)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("outside.bin").path))
+        XCTAssertFalse(manager.isModelDownloaded(model))
+    }
+
+    func testParakeetModelDownloadParentCancellationStopsActiveFile() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-parent-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = ParakeetModel.allModels[0]
+        let metadata = makeParakeetMetadata(fileName: "model.bin")
+        let fileOperation = ControlledParakeetFileDownloadOperation()
+        let manager = ParakeetModelManager(
+            cacheDirectory: root,
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in fileOperation }
+        )
+        let task = Task { try await manager.downloadModel(model) { _ in } }
+        await fileOperation.waitUntilStarted()
+
+        let start = ContinuousClock.now
+        task.cancel()
+        do {
+            try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("Expected cancellation, got \(error)")
+        }
+
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        XCTAssertEqual(fileOperation.cancellationCount, 1)
+        XCTAssertFalse(manager.isModelDownloaded(model))
+    }
+
+    func testParakeetModelCancellationDoesNotStopAnotherModel() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-isolation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let firstModel = ParakeetModel.allModels[0]
+        let secondModel = ParakeetModel.allModels[1]
+        let metadata = makeParakeetMetadata(fileName: "model.bin")
+        let firstOperation = ControlledParakeetFileDownloadOperation()
+        let secondOperation = ControlledParakeetFileDownloadOperation()
+        let secondFile = root.appendingPathComponent("second.download")
+        try Data("second".utf8).write(to: secondFile)
+        let manager = ParakeetModelManager(
+            cacheDirectory: root.appendingPathComponent("hub", isDirectory: true),
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { url, _ in
+                url.absoluteString.contains(firstModel.id) ? firstOperation : secondOperation
+            }
+        )
+
+        let firstTask = Task { try await manager.downloadModel(firstModel) { _ in } }
+        let secondTask = Task { try await manager.downloadModel(secondModel) { _ in } }
+        await firstOperation.waitUntilStarted()
+        await secondOperation.waitUntilStarted()
+        await manager.cancelDownload(for: firstModel)
+        secondOperation.succeed(temporaryURL: secondFile, expectedContentLength: 6, eTag: "second")
+
+        do {
+            try await firstTask.value
+            XCTFail("Expected the first model download to be cancelled")
+        } catch is CancellationError {
+            // Expected.
+        }
+        try await secondTask.value
+
+        XCTAssertEqual(firstOperation.cancellationCount, 1)
+        XCTAssertEqual(secondOperation.cancellationCount, 0)
+        XCTAssertFalse(manager.isModelDownloaded(firstModel))
+        XCTAssertTrue(manager.isModelDownloaded(secondModel))
+    }
+
+    func testParakeetModelLateCancelledAttemptCannotReplaceRetry() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-retry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let model = ParakeetModel.allModels[0]
+        let metadata = makeParakeetMetadata(fileName: "model.bin")
+        let firstFile = root.appendingPathComponent("first.download")
+        let secondFile = root.appendingPathComponent("second.download")
+        try Data("first".utf8).write(to: firstFile)
+        try Data("second".utf8).write(to: secondFile)
+        let firstOperation = ControlledParakeetFileDownloadOperation(honorsCancellation: false)
+        let secondOperation = ControlledParakeetFileDownloadOperation()
+        let operations = ParakeetFileDownloadOperationQueue([firstOperation, secondOperation])
+        let manager = ParakeetModelManager(
+            cacheDirectory: root.appendingPathComponent("hub", isDirectory: true),
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in operations.next() }
+        )
+
+        let firstTask = Task { try await manager.downloadModel(model) { _ in } }
+        await firstOperation.waitUntilStarted()
+        await manager.cancelDownload(for: model)
+
+        let retryTask = Task { try await manager.downloadModel(model) { _ in } }
+        await secondOperation.waitUntilStarted()
+        secondOperation.succeed(temporaryURL: secondFile, expectedContentLength: 6, eTag: "second")
+        try await retryTask.value
+
+        firstOperation.succeed(temporaryURL: firstFile, expectedContentLength: 5, eTag: "first")
+        do {
+            try await firstTask.value
+            XCTFail("Expected the cancelled attempt to reject its late result")
+        } catch is CancellationError {
+            // Expected.
+        }
+
+        let installedBlob = manager.modelCachePath(for: model).appendingPathComponent("blobs/second")
+        XCTAssertEqual(try Data(contentsOf: installedBlob), Data("second".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: firstFile.path))
+        XCTAssertEqual(firstOperation.cancellationCount, 1)
+    }
+
     func testWhisperModelDownloadPublishesOwnedTemporaryFileAndProgress() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("whisper-manager-success-\(UUID().uuidString)", isDirectory: true)
@@ -11091,6 +11580,255 @@ private final class RcloneCallbackRecorder: @unchecked Sendable {
         lock.withLock {
             recordedValues.append(value)
             recordedSpeeds.append(speed)
+        }
+    }
+}
+
+private func makeParakeetMetadata(fileName: String) -> ParakeetModelMetadata {
+    ParakeetModelMetadata(
+        sha: "testcommit",
+        siblings: [
+            ParakeetModelMetadata.File(
+                rfilename: fileName,
+                size: nil,
+                lfs: nil
+            )
+        ]
+    )
+}
+
+private final class ImmediateParakeetMetadataOperation: ParakeetModelMetadataOperation,
+    @unchecked Sendable
+{
+    private let metadata: ParakeetModelMetadata
+
+    init(metadata: ParakeetModelMetadata) {
+        self.metadata = metadata
+    }
+
+    func run() async throws -> ParakeetModelMetadata {
+        metadata
+    }
+
+    func cancel() {}
+}
+
+private final class ControlledParakeetMetadataOperation: ParakeetModelMetadataOperation,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let honorsCancellation: Bool
+    private var result: Result<ParakeetModelMetadata, Error>?
+    private var continuation: CheckedContinuation<ParakeetModelMetadata, Error>?
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var recordedCancellationCount = 0
+
+    init(honorsCancellation: Bool = true) {
+        self.honorsCancellation = honorsCancellation
+    }
+
+    var cancellationCount: Int {
+        lock.withLock { recordedCancellationCount }
+    }
+
+    func run() async throws -> ParakeetModelMetadata {
+        try await withCheckedThrowingContinuation { continuation in
+            let state = lock.withLock { () -> (
+                Result<ParakeetModelMetadata, Error>?,
+                [CheckedContinuation<Void, Never>]
+            ) in
+                let currentResult = result
+                if currentResult == nil {
+                    self.continuation = continuation
+                }
+                started = true
+                let waiters = startWaiters
+                startWaiters.removeAll()
+                return (currentResult, waiters)
+            }
+            state.1.forEach { $0.resume() }
+            if let result = state.0 {
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    func cancel() {
+        let shouldResolve = lock.withLock { () -> Bool in
+            recordedCancellationCount += 1
+            return honorsCancellation
+        }
+        if shouldResolve {
+            resolve(.failure(CancellationError()))
+        }
+    }
+
+    func succeed(with metadata: ParakeetModelMetadata) {
+        resolve(.success(metadata))
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !started else { return true }
+                startWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately { continuation.resume() }
+        }
+    }
+
+    private func resolve(_ newResult: Result<ParakeetModelMetadata, Error>) {
+        let pending = lock.withLock { () -> CheckedContinuation<ParakeetModelMetadata, Error>? in
+            guard result == nil else { return nil }
+            result = newResult
+            let pending = continuation
+            continuation = nil
+            return pending
+        }
+        pending?.resume(with: newResult)
+    }
+}
+
+private final class ControlledParakeetFileDownloadOperation: ParakeetFileDownloadOperation,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let honorsCancellation: Bool
+    private var result: Result<ParakeetFileDownloadResult, Error>?
+    private var continuation: CheckedContinuation<ParakeetFileDownloadResult, Error>?
+    private var progressHandler: (@Sendable (Int64, Int64) -> Void)?
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var recordedCancellationCount = 0
+
+    init(honorsCancellation: Bool = true) {
+        self.honorsCancellation = honorsCancellation
+    }
+
+    var cancellationCount: Int {
+        lock.withLock { recordedCancellationCount }
+    }
+
+    func run(
+        progress: @escaping @Sendable (Int64, Int64) -> Void
+    ) async throws -> ParakeetFileDownloadResult {
+        try await withCheckedThrowingContinuation { continuation in
+            let state = lock.withLock { () -> (
+                Result<ParakeetFileDownloadResult, Error>?,
+                [CheckedContinuation<Void, Never>]
+            ) in
+                let currentResult = result
+                if currentResult == nil {
+                    self.continuation = continuation
+                    progressHandler = progress
+                }
+                started = true
+                let waiters = startWaiters
+                startWaiters.removeAll()
+                return (currentResult, waiters)
+            }
+            state.1.forEach { $0.resume() }
+            if let result = state.0 {
+                continuation.resume(with: result)
+            }
+        }
+    }
+
+    func cancel() {
+        let shouldResolve = lock.withLock { () -> Bool in
+            recordedCancellationCount += 1
+            return honorsCancellation
+        }
+        if shouldResolve {
+            resolve(.failure(CancellationError()))
+        }
+    }
+
+    func emitProgress(bytesWritten: Int64, totalExpected: Int64) {
+        let handler = lock.withLock { result == nil ? progressHandler : nil }
+        handler?(bytesWritten, totalExpected)
+    }
+
+    func succeed(
+        temporaryURL: URL,
+        expectedContentLength: Int64,
+        eTag: String?,
+        statusCode: Int = 200
+    ) {
+        resolve(
+            .success(
+                ParakeetFileDownloadResult(
+                    temporaryURL: temporaryURL,
+                    statusCode: statusCode,
+                    expectedContentLength: expectedContentLength,
+                    eTag: eTag
+                )
+            )
+        )
+    }
+
+    func fail(with error: Error) {
+        resolve(.failure(error))
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !started else { return true }
+                startWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately { continuation.resume() }
+        }
+    }
+
+    private func resolve(_ newResult: Result<ParakeetFileDownloadResult, Error>) {
+        let pending = lock.withLock { () -> CheckedContinuation<ParakeetFileDownloadResult, Error>? in
+            guard result == nil else { return nil }
+            result = newResult
+            let pending = continuation
+            continuation = nil
+            progressHandler = nil
+            return pending
+        }
+        pending?.resume(with: newResult)
+    }
+}
+
+private final class ParakeetFileDownloadOperationQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private var operations: [any ParakeetFileDownloadOperation]
+
+    init(_ operations: [any ParakeetFileDownloadOperation]) {
+        self.operations = operations
+    }
+
+    func next() -> any ParakeetFileDownloadOperation {
+        lock.withLock {
+            precondition(!operations.isEmpty, "No configured Parakeet download operation remains")
+            return operations.removeFirst()
+        }
+    }
+}
+
+private final class ParakeetModelProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedFractions: [Double] = []
+
+    var fractions: [Double] {
+        lock.withLock { recordedFractions }
+    }
+
+    func record(_ progress: ModelDownloadProgress) {
+        lock.withLock { recordedFractions.append(progress.overallFraction) }
+    }
+
+    func waitUntilCompleted() async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while fractions.last != 1, ContinuousClock.now < deadline {
+            await Task.yield()
         }
     }
 }
