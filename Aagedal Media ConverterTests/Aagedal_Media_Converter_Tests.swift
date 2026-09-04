@@ -1346,6 +1346,62 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: downloadedFile.path))
     }
 
+    func testParakeetModelDownloadRejectsTruncatedNonLFSFileWithoutPublishing() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("parakeet-manager-truncated-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let model = ParakeetModel.allModels[0]
+        let downloadedFile = root.appendingPathComponent("config.download")
+        try Data("tiny".utf8).write(to: downloadedFile)
+        let metadata = ParakeetModelMetadata(
+            sha: "testcommit",
+            siblings: [
+                ParakeetModelMetadata.File(
+                    rfilename: "config.json",
+                    size: 8,
+                    lfs: nil
+                )
+            ]
+        )
+        let operation = ControlledParakeetFileDownloadOperation()
+        let cacheDirectory = root.appendingPathComponent("hub", isDirectory: true)
+        let manager = ParakeetModelManager(
+            cacheDirectory: cacheDirectory,
+            isParakeetInstalled: { true },
+            metadataOperationFactory: { _ in ImmediateParakeetMetadataOperation(metadata: metadata) },
+            fileDownloadOperationFactory: { _, _ in operation }
+        )
+
+        let task = Task { try await manager.downloadModel(model) { _ in } }
+        await operation.waitUntilStarted()
+        operation.succeed(
+            temporaryURL: downloadedFile,
+            expectedContentLength: 8,
+            eTag: "configetag"
+        )
+
+        do {
+            try await task.value
+            XCTFail("Expected truncated non-LFS content to fail size validation")
+        } catch let error as ParakeetModelDownloadError {
+            XCTAssertTrue(error.localizedDescription.contains("unexpected size"))
+        } catch {
+            XCTFail("Expected a Parakeet download error, got \(error)")
+        }
+
+        let cache = manager.modelCachePath(for: model)
+        XCTAssertFalse(manager.isModelDownloaded(model))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cache.appendingPathComponent("refs/main").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadedFile.path))
+        if FileManager.default.fileExists(atPath: cacheDirectory.path) {
+            XCTAssertFalse(
+                (try FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path))
+                    .contains { $0.hasPrefix(".parakeet-download-") }
+            )
+        }
+    }
+
     func testParakeetModelMetadataCancellationIsPromptAndTargeted() async {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("parakeet-manager-metadata-cancel-\(UUID().uuidString)", isDirectory: true)

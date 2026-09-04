@@ -384,6 +384,17 @@ actor ParakeetModelManager {
                         "HuggingFace returned HTTP \(downloadResult.statusCode ?? 0)"
                     )
                 }
+                if let expectedFileSize = file.size {
+                    let resourceValues = try downloadResult.temporaryURL.resourceValues(
+                        forKeys: [.fileSizeKey]
+                    )
+                    guard let actualFileSize = resourceValues.fileSize,
+                          Int64(actualFileSize) == expectedFileSize else {
+                        throw ParakeetModelDownloadError.downloadFailed(
+                            "A downloaded model file had an unexpected size"
+                        )
+                    }
+                }
                 if let expectedSHA256 = file.lfs?.sha256 {
                     guard expectedSHA256.count == 64,
                           expectedSHA256.allSatisfy({ $0.isHexDigit }) else {

@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 278 tests pass. The
+- The unit-test baseline is green: 279 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 278 unit tests. The UI test target now has deterministic smoke
+- There are 279 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -818,13 +818,14 @@ overwriting its retry. Each attempt builds a UUID-owned HuggingFace cache tree a
 only after the complete snapshot passes a final ownership check; failure and cancellation remove
 staging files without exposing `refs/main`. Remote filenames, commit IDs, and blob identifiers are
 validated before filesystem use, HTTP failures are rejected, and blob metadata is explicitly
-requested so LFS files can be verified against their published SHA-256 before installation.
+requested so every known file size is checked before publication and LFS files can also be
+verified against their published SHA-256 before installation.
 Active state and progress live in the manager, so a recreated Settings view can rediscover and
 cancel an in-flight transfer or report its terminal failure, while duplicate callers receive an
 explicit in-progress error. Focused tests cover deadline policy, cache layout and progress,
 metadata and parent cancellation, concurrent-model isolation, duplicate callers, atomic
-replacement of incomplete caches, late retry results and failures, checksum failure, unsafe
-remote paths, and staging cleanup. All 278 unit tests pass;
+replacement of incomplete caches, late retry results and failures, truncated non-LFS files,
+checksum failure, unsafe remote paths, and staging cleanup. All 279 unit tests pass;
 the wider audit of remaining unbounded framework callbacks continues.
 
 ### 2.3 Standardize user-visible errors
