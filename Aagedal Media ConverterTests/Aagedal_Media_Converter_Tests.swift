@@ -1232,6 +1232,50 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(start.duration(to: .now), .milliseconds(500))
     }
 
+    @MainActor
+    func testPreviewAudioDiscoveryDoesNotJoinTimedOutMetadataProbe() async {
+        let url = URL(fileURLWithPath: "/private/stalled-player-audio.mov")
+        let item = VideoItem(
+            url: url,
+            name: url.lastPathComponent,
+            size: 0,
+            duration: "--:--",
+            thumbnailData: nil,
+            status: .waiting,
+            progress: 0,
+            eta: nil,
+            outputURL: nil
+        )
+        let controller = PreviewPlayerController(videoItem: item)
+        let probeStarted = DispatchSemaphore(value: 0)
+        let releaseProbe = DispatchSemaphore(value: 0)
+        defer { releaseProbe.signal() }
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await controller.determineAudioStreamOrder(
+                for: item,
+                metadataTimeout: .milliseconds(50)
+            ) { _ in
+                try await withCheckedThrowingContinuation { continuation in
+                    probeStarted.signal()
+                    DispatchQueue.global(qos: .utility).async {
+                        releaseProbe.wait()
+                        continuation.resume(throwing: CancellationError())
+                    }
+                }
+            }
+            XCTFail("Expected metadata timeout")
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            // Expected.
+        } catch {
+            XCTFail("Expected deadline error, got \(error)")
+        }
+
+        XCTAssertEqual(probeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
     func testMergeCompatibilityMetadataProbePreservesParentCancellation() async {
         let firstURL = URL(fileURLWithPath: "/private/merge-a.mov")
         let secondURL = URL(fileURLWithPath: "/private/merge-b.mov")

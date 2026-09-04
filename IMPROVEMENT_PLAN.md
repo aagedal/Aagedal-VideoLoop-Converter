@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 245 tests pass. The
+- The unit-test baseline is green: 246 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
   `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
   `ExportPreset.swift` (2,241).
-- There are 245 unit tests. The UI test target now has deterministic smoke
+- There are 246 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -733,8 +733,13 @@ terminal failure as ongoing metadata gathering.
 Preview asset generation now reuses one shared bounded metadata result for cached per-stream waveform
 discovery and new waveform rendering. A stalled parse can no longer pin the preview workflow at either
 read, and cancelling preview generation propagates instead of being erased by `try?`. The refreshed
-audit now finds ten remaining direct, unbounded consumers outside guarded entry points. Player audio
-discovery and conversion command builders should migrate next.
+audit now finds ten remaining direct, unbounded consumers outside guarded entry points.
+
+Player audio ordering, AVPlayer track-option refresh, and on-demand channel-waveform discovery now
+use the same bounded probe. Refresh attempts are explicitly owned and superseded work cannot publish
+track options for a newer player item; teardown cancels the active refresh. A focused test verifies
+that audio discovery returns on deadline without joining a stalled parser. Seven direct unbounded
+consumers remain in conversion command builders and conversion audio routing.
 
 Normal application termination now uses AppKit's asynchronous terminate-later handshake
 instead of blocking the main thread on a semaphore to reach the preview actor. Repeated quit

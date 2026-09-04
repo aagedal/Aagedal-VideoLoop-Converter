@@ -111,6 +111,8 @@ final class PreviewPlayerController: ObservableObject {
     private var previewAssetURL: URL?  // Track URL being processed to avoid redundant cancellation
     private var chapterProbeTask: Task<Void, Never>?
     private var chapterProbeURL: URL?
+    private var audioTrackRefreshTask: Task<Void, Never>?
+    private var audioTrackRefreshID: UUID?
     var loopObserver: Any?
     var playbackDidFinish: (() -> Void)?
     var timeObserver: Any?
@@ -847,14 +849,22 @@ final class PreviewPlayerController: ObservableObject {
     }
 
     /// Determines the preferred ordering of audio stream indices based on metadata (default + channel count).
-    nonisolated func determineAudioStreamOrder(for item: VideoItem) async -> [Int] {
+    nonisolated func determineAudioStreamOrder(
+        for item: VideoItem,
+        metadataTimeout: Duration = BoundedVideoMetadataProbe.defaultTimeout,
+        metadataProbe: @escaping @Sendable (URL) async throws -> VideoMetadata = {
+            try await VideoMetadataService.shared.metadata(for: $0)
+        }
+    ) async throws -> [Int] {
         if let metadata = item.metadata {
             return orderAudioStreams(from: metadata)
         }
-        if let metadata = try? await VideoMetadataService.shared.metadata(for: item.url) {
-            return orderAudioStreams(from: metadata)
-        }
-        return []
+        let metadata = try await BoundedVideoMetadataProbe.metadata(
+            for: item.url,
+            timeout: metadataTimeout,
+            probe: metadataProbe
+        )
+        return orderAudioStreams(from: metadata)
     }
     
     nonisolated private func orderAudioStreams(from metadata: VideoMetadata) -> [Int] {
@@ -873,9 +883,19 @@ final class PreviewPlayerController: ObservableObject {
     }
 
     func refreshAudioTrackOptions(for item: VideoItem, playerItem: AVPlayerItem?) {
+        audioTrackRefreshTask?.cancel()
+        let refreshID = UUID()
+        audioTrackRefreshID = refreshID
         let existingSelection = selectedAudioTrackOrderIndex
-        Task { @MainActor [weak self] in
+        audioTrackRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                if self.audioTrackRefreshID == refreshID {
+                    self.audioTrackRefreshTask = nil
+                    self.audioTrackRefreshID = nil
+                }
+            }
+            guard self.audioTrackRefreshID == refreshID, !Task.isCancelled else { return }
 
             if useMPV {
                 guard let mpv = mpvPlayer else { return }
@@ -888,7 +908,13 @@ final class PreviewPlayerController: ObservableObject {
                 if let cached = item.metadata {
                     metadata = cached
                 } else {
-                    metadata = try? await VideoMetadataService.shared.metadata(for: item.url)
+                    do {
+                        metadata = try await BoundedVideoMetadataProbe.metadata(for: item.url)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        metadata = nil
+                    }
                 }
 
                 let orderedIndices = metadata.map { self.orderAudioStreams(from: $0) } ?? []
@@ -899,6 +925,7 @@ final class PreviewPlayerController: ObservableObject {
                     mediaGroup = nil
                 }
 
+                guard self.audioTrackRefreshID == refreshID, !Task.isCancelled else { return }
                 self.buildAudioTrackOptions(metadata: metadata, orderedIndices: orderedIndices, mediaGroup: mediaGroup)
             }
 
@@ -1194,8 +1221,15 @@ final class PreviewPlayerController: ObservableObject {
             guard let self else { return }
 
             // Get metadata to know channel count and layout
-            guard let metadata = try? await VideoMetadataService.shared.metadata(for: url),
-                  streamIndex < metadata.audioStreams.count else { return }
+            let metadata: VideoMetadata
+            do {
+                metadata = try await BoundedVideoMetadataProbe.metadata(for: url)
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+            guard streamIndex < metadata.audioStreams.count else { return }
 
             let stream = metadata.audioStreams[streamIndex]
             let channels = stream.channels ?? 2
@@ -1326,6 +1360,9 @@ final class PreviewPlayerController: ObservableObject {
         currentChannelWaveformLabels = []
         channelWaveformGenerationTask?.cancel()
         channelWaveformGenerationTask = nil
+        audioTrackRefreshID = nil
+        audioTrackRefreshTask?.cancel()
+        audioTrackRefreshTask = nil
         chapterProbeTask?.cancel()
         chapterProbeTask = nil
         chapterProbeURL = nil
