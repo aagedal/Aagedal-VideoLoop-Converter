@@ -33,6 +33,11 @@ enum AV2CommandBuilder {
 
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "AV2CommandBuilder")
 
+    enum MetadataSource: Sendable {
+        case probeIfNeeded
+        case resolved(VideoMetadata?)
+    }
+
     struct AV2Command: Sendable {
         /// ffmpeg arguments that decode/trim/scale the source and write y4m to stdout (`pipe:1`).
         let ffmpegArguments: [String]
@@ -103,7 +108,8 @@ enum AV2CommandBuilder {
         visualSourceURL: URL? = nil,
         customInputArguments: [String]? = nil,
         expectedDuration: Double? = nil,
-        videoFrameRate: Double? = nil
+        videoFrameRate: Double? = nil,
+        metadataSource: MetadataSource = .probeIfNeeded
     ) async -> AV2Command? {
         guard let r = await resolve(
             inputURL: inputURL,
@@ -113,7 +119,8 @@ enum AV2CommandBuilder {
             visualSourceURL: visualSourceURL,
             customInputArguments: customInputArguments,
             expectedDuration: expectedDuration,
-            videoFrameRate: videoFrameRate
+            videoFrameRate: videoFrameRate,
+            metadataSource: metadataSource
         ) else {
             return nil
         }
@@ -178,7 +185,8 @@ enum AV2CommandBuilder {
         visualSourceURL: URL? = nil,
         customInputArguments: [String]? = nil,
         expectedDuration: Double? = nil,
-        videoFrameRate: Double? = nil
+        videoFrameRate: Double? = nil,
+        metadataSource: MetadataSource = .probeIfNeeded
     ) async -> AV2SegmentPlan? {
         // Seeking each worker independently is not yet validated for concat/image2 demuxers.
         // Keep virtual inputs on the correct single-process path until their segment boundaries
@@ -192,7 +200,8 @@ enum AV2CommandBuilder {
             visualSourceURL: visualSourceURL,
             customInputArguments: customInputArguments,
             expectedDuration: expectedDuration,
-            videoFrameRate: videoFrameRate
+            videoFrameRate: videoFrameRate,
+            metadataSource: metadataSource
         ) else {
             return nil
         }
@@ -281,7 +290,8 @@ enum AV2CommandBuilder {
         trimStart: Double?,
         trimEnd: Double?,
         cropConfig: CropConfig?,
-        visualSourceURL: URL? = nil
+        visualSourceURL: URL? = nil,
+        metadataSource: MetadataSource = .probeIfNeeded
     ) async -> Int? {
         await resolve(
             inputURL: inputURL,
@@ -291,7 +301,8 @@ enum AV2CommandBuilder {
             visualSourceURL: visualSourceURL,
             customInputArguments: nil,
             expectedDuration: nil,
-            videoFrameRate: nil
+            videoFrameRate: nil,
+            metadataSource: metadataSource
         )?.bitDepth
     }
 
@@ -333,10 +344,16 @@ enum AV2CommandBuilder {
         visualSourceURL: URL?,
         customInputArguments: [String]?,
         expectedDuration: Double?,
-        videoFrameRate: Double?
+        videoFrameRate: Double?,
+        metadataSource: MetadataSource
     ) async -> Resolved? {
         let metadataURL = visualSourceURL ?? inputURL
-        let metadata = try? await BoundedVideoMetadataProbe.metadata(for: metadataURL)
+        let metadata: VideoMetadata? = switch metadataSource {
+        case .probeIfNeeded:
+            try? await BoundedVideoMetadataProbe.metadata(for: metadataURL)
+        case .resolved(let metadata):
+            metadata
+        }
         let stream = metadata?.primaryVideoStream
         guard let geometry = await FFMPEGCommandBuilder.sourceGeometry(
             for: metadataURL,

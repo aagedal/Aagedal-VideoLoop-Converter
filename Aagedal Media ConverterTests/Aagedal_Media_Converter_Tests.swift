@@ -8115,6 +8115,52 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         }
     }
 
+    func testAV2PlanningReusesOneKnownMetadataResultAcrossEveryStage() async throws {
+        let inputURL = URL(fileURLWithPath: "/private/nonexistent-av2-source.mov")
+        let outputURL = URL(fileURLWithPath: "/private/nonexistent-av2-output.ivf")
+        let metadata = videoMetadata(timecode: "01:02:03:12", frameRate: 24)
+
+        try await withPresetSettingsAsync([
+            AppConstants.av2ParallelChunksKey: 2,
+            AppConstants.av2RateControlModeKey: AV2RateControlMode.constantQuality.rawValue,
+            AppConstants.av2BitDepthKey: AV2BitDepthOption.auto.rawValue
+        ]) {
+            let command = await AV2CommandBuilder.build(
+                inputURL: inputURL,
+                outputURL: outputURL,
+                trimStart: nil,
+                trimEnd: nil,
+                cropConfig: nil,
+                metadataSource: .resolved(metadata)
+            )
+            XCTAssertEqual(command?.outputWidth, 1920)
+            XCTAssertEqual(command?.outputHeight, 1080)
+            XCTAssertEqual(command?.frameRate ?? -1, 24, accuracy: 0.001)
+
+            let plan = await AV2CommandBuilder.buildSegments(
+                inputURL: inputURL,
+                trimStart: nil,
+                trimEnd: nil,
+                cropConfig: nil,
+                metadataSource: .resolved(metadata)
+            )
+            let unwrappedPlan = try XCTUnwrap(plan)
+            defer { try? FileManager.default.removeItem(at: unwrappedPlan.segmentDirectory) }
+            XCTAssertEqual(unwrappedPlan.segments.count, 2)
+            XCTAssertEqual(unwrappedPlan.totalFrames, 1_440)
+            XCTAssertEqual(unwrappedPlan.bitDepth, 8)
+
+            let bitDepth = await AV2CommandBuilder.resolvedBitDepth(
+                inputURL: inputURL,
+                trimStart: nil,
+                trimEnd: nil,
+                cropConfig: nil,
+                metadataSource: .resolved(metadata)
+            )
+            XCTAssertEqual(bitDepth, 8)
+        }
+    }
+
     func testAV2BuildUsesConcatInputAndKnownVirtualSourceDuration() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AagedalMediaConverterAV2ConcatTests-\(UUID().uuidString)", isDirectory: true)
