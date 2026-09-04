@@ -171,6 +171,191 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertLessThan(cancelStart.duration(to: .now), .seconds(2))
     }
 
+    func testSubprocessRunnerPipelineStreamsProducerOutputAndDrainsBothTools() async throws {
+        let producerChunks = SubprocessChunkRecorder()
+        let consumerChunks = SubprocessChunkRecorder()
+        let result = try await SubprocessRunner().runPipeline(
+            producer: SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: [
+                    "-c",
+                    "dd if=/dev/zero bs=65536 count=8 2>/dev/null; printf 'producer warning' >&2"
+                ],
+                standardOutputCaptureLimit: 0,
+                standardErrorCaptureLimit: 64
+            ),
+            consumer: SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/usr/bin/wc"),
+                arguments: ["-c"],
+                standardOutputCaptureLimit: 64,
+                standardErrorCaptureLimit: 64
+            ),
+            producerOutputHandler: { producerChunks.append($0) },
+            consumerOutputHandler: { consumerChunks.append($0) }
+        )
+
+        guard case .completed(let producerResult) = result.producer else {
+            return XCTFail("Expected the pipeline producer to complete")
+        }
+        XCTAssertTrue(producerResult.succeeded)
+        XCTAssertEqual(producerResult.standardOutput.count, 0)
+        XCTAssertEqual(producerResult.discardedStandardOutputBytes, 8 * 65_536)
+        XCTAssertEqual(producerResult.standardErrorText, "producer warning")
+        XCTAssertTrue(result.consumer.succeeded)
+        XCTAssertEqual(
+            result.consumer.standardOutputText.trimmingCharacters(in: .whitespacesAndNewlines),
+            String(8 * 65_536)
+        )
+        XCTAssertEqual(producerChunks.standardOutput.count, 8 * 65_536)
+        XCTAssertEqual(String(decoding: producerChunks.standardError, as: UTF8.self), "producer warning")
+        XCTAssertEqual(consumerChunks.standardOutput, result.consumer.standardOutput)
+    }
+
+    func testSubprocessRunnerPipelineReturnsProducerFailureAfterSendingEOF() async throws {
+        let privatePath = "/private/media/secret.mov"
+        let producerRequest = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "printf 'partial'; printf 'cannot read \(privatePath)' >&2; exit 7"],
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: 256,
+            sensitiveValues: [privatePath]
+        )
+        let result = try await SubprocessRunner().runPipeline(
+            producer: producerRequest,
+            consumer: SubprocessRequest(executableURL: URL(fileURLWithPath: "/bin/cat"))
+        )
+
+        guard case .completed(let producerResult) = result.producer else {
+            return XCTFail("Expected the failed producer to return its structured result")
+        }
+        XCTAssertEqual(producerResult.terminationStatus, 7)
+        XCTAssertEqual(result.consumer.standardOutputText, "partial")
+        XCTAssertTrue(result.consumer.succeeded)
+        XCTAssertFalse(
+            producerRequest.redactedDiagnostic(producerResult.standardErrorText).contains(privatePath)
+        )
+    }
+
+    func testSubprocessRunnerPipelineReportsProducerLaunchFailure() async throws {
+        let missingPath = "/private/tools/missing-producer"
+        let result = try await SubprocessRunner().runPipeline(
+            producer: SubprocessRequest(
+                executableURL: URL(fileURLWithPath: missingPath),
+                sensitiveValues: [missingPath]
+            ),
+            consumer: SubprocessRequest(executableURL: URL(fileURLWithPath: "/bin/cat"))
+        )
+
+        guard case .failed(.failedToStart(let reason)) = result.producer else {
+            return XCTFail("Expected a producer launch failure")
+        }
+        XCTAssertTrue(result.consumer.succeeded)
+        XCTAssertFalse(reason.contains(missingPath))
+    }
+
+    func testSubprocessRunnerPipelineConsumerTimeoutCancelsProducer() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SubprocessPipelineTimeout-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let producerPIDURL = temporaryDirectory.appendingPathComponent("producer.pid")
+        let producerRequest = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                "printf '%s' $$ > \"$1\"; while :; do printf '0123456789'; done",
+                "pipeline-producer",
+                producerPIDURL.path
+            ],
+            terminationGracePeriod: .milliseconds(100),
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: 64,
+            sensitiveValues: [producerPIDURL.path]
+        )
+        let consumerRequest = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "sleep 30"],
+            timeout: .milliseconds(200),
+            terminationGracePeriod: .milliseconds(100),
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: 64
+        )
+        let start = ContinuousClock.now
+
+        do {
+            _ = try await SubprocessRunner().runPipeline(
+                producer: producerRequest,
+                consumer: consumerRequest
+            )
+            XCTFail("Expected the pipeline consumer to time out")
+        } catch SubprocessRunnerError.timedOut {
+            // Expected.
+        }
+
+        XCTAssertLessThan(start.duration(to: .now), .seconds(2))
+        let pidText = try String(contentsOf: producerPIDURL, encoding: .utf8)
+        let producerPID = try XCTUnwrap(pid_t(pidText))
+        try await Task.sleep(for: .milliseconds(300))
+        let probeResult = Darwin.kill(producerPID, 0)
+        let probeError = errno
+        XCTAssertEqual(probeResult, -1, "Pipeline producer survived consumer timeout")
+        XCTAssertEqual(probeError, ESRCH)
+    }
+
+    func testSubprocessRunnerPipelineBrokenConnectionStopsProducerPromptly() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SubprocessPipelineBrokenPipe-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let producerPIDURL = temporaryDirectory.appendingPathComponent("producer.pid")
+        let pipelineTask = Task {
+            try await SubprocessRunner().runPipeline(
+                producer: SubprocessRequest(
+                    executableURL: URL(fileURLWithPath: "/bin/sh"),
+                    arguments: [
+                        "-c",
+                        "printf '%s' $$ > \"$1\"; while :; do printf '0123456789'; done",
+                        "pipeline-producer",
+                        producerPIDURL.path
+                    ],
+                    terminationGracePeriod: .milliseconds(100),
+                    standardOutputCaptureLimit: 0,
+                    standardErrorCaptureLimit: 64,
+                    sensitiveValues: [producerPIDURL.path]
+                ),
+                consumer: SubprocessRequest(
+                    executableURL: URL(fileURLWithPath: "/bin/sh"),
+                    arguments: ["-c", "exec 0<&-; sleep 30"],
+                    terminationGracePeriod: .milliseconds(100),
+                    standardOutputCaptureLimit: 0,
+                    standardErrorCaptureLimit: 64
+                )
+            )
+        }
+
+        let pidDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !FileManager.default.fileExists(atPath: producerPIDURL.path),
+              ContinuousClock.now < pidDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let pidText = try String(contentsOf: producerPIDURL, encoding: .utf8)
+        let producerPID = try XCTUnwrap(pid_t(pidText))
+        let exitDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while Darwin.kill(producerPID, 0) == 0, ContinuousClock.now < exitDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(Darwin.kill(producerPID, 0), -1, "Producer survived a closed pipeline")
+        XCTAssertEqual(errno, ESRCH)
+
+        pipelineTask.cancel()
+        do {
+            _ = try await pipelineTask.value
+            XCTFail("Expected cancellation while the consumer was still alive")
+        } catch is CancellationError {
+            // Expected.
+        }
+    }
+
     func testSubprocessRunnerDeliversEveryCapturedByteToIncrementalHandler() async throws {
         let recorder = SubprocessChunkRecorder()
         let result = try await SubprocessRunner().run(
@@ -9473,6 +9658,310 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testSingleAV2EncodeUsesBoundedRedactedPipelineAndSplitPOCProgress() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2PipelinePolicy-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let y4mData = Data("YUV4MPEG2 W2 H2 F24:1 Ip A1:1 C420\nFRAME\nfixture".utf8)
+        let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
+        let runner = SequencedRecordingSubprocessRunner { index, request, outputHandler in
+            if index == 0 {
+                outputHandler?(SubprocessOutputChunk(stream: .standardOutput, data: y4mData))
+                outputHandler?(
+                    SubprocessOutputChunk(
+                        stream: .standardError,
+                        data: Data("out_time=00:00:00.500000\r".utf8)
+                    )
+                )
+                return successfulSubprocessResult()
+            }
+
+            XCTAssertEqual(request.standardInput, y4mData)
+            outputHandler?(
+                SubprocessOutputChunk(stream: .standardOutput, data: Data("frame PO".utf8))
+            )
+            outputHandler?(
+                SubprocessOutputChunk(stream: .standardOutput, data: Data("C: 0\n".utf8))
+            )
+            let outputIndex = try XCTUnwrap(request.arguments.firstIndex(of: "-o"))
+            let outputPath = try XCTUnwrap(
+                request.arguments.indices.contains(outputIndex + 1)
+                    ? request.arguments[outputIndex + 1]
+                    : nil
+            )
+            try Data("encoded AV2".utf8).write(to: URL(fileURLWithPath: outputPath))
+            return successfulSubprocessResult()
+        }
+        let ffmpegPath = "/private/tools/ffmpeg"
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { ffmpegPath }
+        )
+        let inputURL = temporaryDirectory.appendingPathComponent("private input.mov")
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("private output")
+        let outputURL = outputBaseURL.appendingPathExtension("ivf")
+        defer { FileSafetyUtils.unregisterCreatedFile(outputURL) }
+
+        let result = try await withPresetSettingsAsync([
+            AppConstants.av2ParallelChunksKey: 1,
+            AppConstants.av2ContainerKey: AV2Container.ivf.rawValue
+        ]) {
+            await runConversion(
+                ConversionRequest(
+                    inputURL: inputURL,
+                    outputURL: outputBaseURL,
+                    preset: .av2,
+                    includeDateTag: false,
+                    sourceMetadata: videoMetadata(
+                        timecode: nil,
+                        frameRate: 24,
+                        duration: 1
+                    ),
+                    expectedDuration: 1,
+                    videoFrameRate: 24
+                ),
+                using: converter,
+                progressUpdate: { progress, _ in
+                    progressValues.withLock { $0.append(progress) }
+                }
+            )
+        }
+
+        XCTAssertTrue(result.success, result.errorReason ?? "AV2 pipeline failed without a reason")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertTrue(progressValues.withLock { values in
+            values.contains { abs($0 - (1.0 / 24.0)) < 0.001 }
+        })
+
+        let requests = runner.requests
+        XCTAssertEqual(requests.count, 2)
+        let producer = requests[0]
+        let consumer = requests[1]
+        XCTAssertEqual(producer.executableURL.path, ffmpegPath)
+        XCTAssertEqual(producer.timeout, FFMPEGConverter.av2PipelineTimeout)
+        XCTAssertEqual(producer.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(
+            producer.standardErrorCaptureLimit,
+            FFMPEGConverter.av2PipelineDiagnosticCaptureLimit
+        )
+        XCTAssertEqual(consumer.timeout, FFMPEGConverter.av2PipelineTimeout)
+        XCTAssertEqual(consumer.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(
+            consumer.standardErrorCaptureLimit,
+            FFMPEGConverter.av2PipelineDiagnosticCaptureLimit
+        )
+        XCTAssertTrue(consumer.arguments.containsAdjacent("-o", outputURL.path))
+        XCTAssertFalse(producer.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(consumer.redactedCommandDescription.contains(outputURL.path))
+        XCTAssertFalse(producer.redactedCommandDescription.contains(ffmpegPath))
+    }
+
+    func testSingleAV2PipelineFailureRedactsDiagnosticsAndCleansPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2PipelineFailure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("secret input.mov")
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("private output")
+        let outputURL = outputBaseURL.appendingPathExtension("ivf")
+        let runner = SequencedRecordingSubprocessRunner { index, request, _ in
+            if index == 0 {
+                return successfulSubprocessResult(
+                    standardError: "Could not read \(inputURL.path)",
+                    terminationStatus: 7
+                )
+            }
+            let outputIndex = try XCTUnwrap(request.arguments.firstIndex(of: "-o"))
+            let outputPath = request.arguments[outputIndex + 1]
+            try Data("partial AV2".utf8).write(to: URL(fileURLWithPath: outputPath))
+            return successfulSubprocessResult(
+                standardError: "avmenc rejected truncated Y4M",
+                terminationStatus: 9
+            )
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+
+        let result = try await withPresetSettingsAsync([
+            AppConstants.av2ParallelChunksKey: 1,
+            AppConstants.av2ContainerKey: AV2Container.ivf.rawValue
+        ]) {
+            await runConversion(
+                ConversionRequest(
+                    inputURL: inputURL,
+                    outputURL: outputBaseURL,
+                    preset: .av2,
+                    includeDateTag: false,
+                    sourceMetadata: videoMetadata(
+                        timecode: nil,
+                        frameRate: 24,
+                        duration: 1
+                    ),
+                    expectedDuration: 1,
+                    videoFrameRate: 24
+                ),
+                using: converter
+            )
+        }
+
+        XCTAssertFalse(result.success)
+        let reason = try XCTUnwrap(result.errorReason)
+        XCTAssertTrue(reason.contains("<redacted>"), reason)
+        XCTAssertFalse(reason.contains(inputURL.path), reason)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testSingleAV2ProducerLaunchFailureWinsOverDownstreamEncoderError() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2PipelineLaunchFailure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let privateFFmpegPath = "/private/tools/missing-ffmpeg"
+        let runner = SequencedRecordingSubprocessRunner { index, request, _ in
+            if index == 0 {
+                throw SubprocessRunnerError.failedToStart(
+                    command: request.redactedCommandDescription,
+                    underlying: "Could not launch \(privateFFmpegPath)"
+                )
+            }
+            return successfulSubprocessResult(
+                standardError: "avmenc could not read an empty input",
+                terminationStatus: 9
+            )
+        }
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { privateFFmpegPath }
+        )
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let outputURL = outputBaseURL.appendingPathExtension("ivf")
+
+        let result = try await withPresetSettingsAsync([
+            AppConstants.av2ParallelChunksKey: 1,
+            AppConstants.av2ContainerKey: AV2Container.ivf.rawValue
+        ]) {
+            await runConversion(
+                ConversionRequest(
+                    inputURL: temporaryDirectory.appendingPathComponent("input.mov"),
+                    outputURL: outputBaseURL,
+                    preset: .av2,
+                    includeDateTag: false,
+                    sourceMetadata: videoMetadata(timecode: nil, frameRate: 24, duration: 1),
+                    expectedDuration: 1,
+                    videoFrameRate: 24
+                ),
+                using: converter
+            )
+        }
+
+        XCTAssertFalse(result.success)
+        let reason = try XCTUnwrap(result.errorReason)
+        XCTAssertTrue(reason.contains("Failed to start FFmpeg"), reason)
+        XCTAssertTrue(reason.contains("<redacted>"), reason)
+        XCTAssertFalse(reason.contains(privateFFmpegPath), reason)
+        XCTAssertFalse(reason.contains("empty input"), reason)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testSingleAV2CompletedPipelineCannotPublishAfterCancellationWinsOwnership() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2PipelineLateCancellation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = CancellingCompletedPipelineRunner()
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        await runner.setBeforeConsumerReturns {
+            await converter.cancelConversion()
+        }
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let outputURL = outputBaseURL.appendingPathExtension("ivf")
+
+        let result = try await withPresetSettingsAsync([
+            AppConstants.av2ParallelChunksKey: 1,
+            AppConstants.av2ContainerKey: AV2Container.ivf.rawValue
+        ]) {
+            await runConversion(
+                ConversionRequest(
+                    inputURL: temporaryDirectory.appendingPathComponent("input.mov"),
+                    outputURL: outputBaseURL,
+                    preset: .av2,
+                    includeDateTag: false,
+                    sourceMetadata: videoMetadata(timecode: nil, frameRate: 24, duration: 1),
+                    expectedDuration: 1,
+                    videoFrameRate: 24
+                ),
+                using: converter
+            )
+        }
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "Conversion cancelled")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
+    func testSingleAV2PipelineCancellationStopsTrackedProducer() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AV2PipelineCancellation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let runner = TwoStageBlockingPipelineRunner()
+        let converter = FFMPEGConverter(
+            subprocessRunner: runner,
+            ffmpegPathProvider: { "/private/tools/ffmpeg" }
+        )
+        let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
+        let outputURL = outputBaseURL.appendingPathExtension("ivf")
+        let request = ConversionRequest(
+            inputURL: temporaryDirectory.appendingPathComponent("input.mov"),
+            outputURL: outputBaseURL,
+            preset: .av2,
+            includeDateTag: false,
+            sourceMetadata: videoMetadata(timecode: nil, frameRate: 24, duration: 1),
+            expectedDuration: 1,
+            videoFrameRate: 24
+        )
+
+        let result = try await withPresetSettingsAsync([
+            AppConstants.av2ParallelChunksKey: 1,
+            AppConstants.av2ContainerKey: AV2Container.ivf.rawValue
+        ]) {
+            let resultTask = Task {
+                await conversionResult(converter: converter, request: request)
+            }
+            await runner.waitUntilBothStagesStarted()
+            await converter.cancelConversion()
+            return await resultTask.value
+        }
+
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "Conversion cancelled")
+        let cancellationDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < cancellationDeadline {
+            if await runner.cancelledStageCount >= 2 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let cancelledProducerCount = await runner.cancelledProducerCount
+        let cancelledConsumerCount = await runner.cancelledConsumerCount
+        XCTAssertEqual(cancelledProducerCount, 1)
+        XCTAssertEqual(cancelledConsumerCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+        XCTAssertFalse(FileSafetyUtils.isCreatedByApp(outputURL))
+    }
+
     func testGeneratedAV2StartOnlyTrimPlansOnlyRemainingFrames() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AagedalMediaConverterAV2TrimTests-\(UUID().uuidString)", isDirectory: true)
@@ -11568,6 +12057,90 @@ private final class CountingBlockingSubprocessRunner: SubprocessRunning, @unchec
         for waiter in waiters {
             waiter.resume()
         }
+    }
+}
+
+private actor TwoStageBlockingPipelineRunner: SubprocessRunning {
+    private var producerStarted = false
+    private var consumerStarted = false
+    private(set) var cancelledProducerCount = 0
+    private(set) var cancelledConsumerCount = 0
+
+    var cancelledStageCount: Int {
+        cancelledProducerCount + cancelledConsumerCount
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        producerStarted = true
+        do {
+            try await Task.sleep(for: .seconds(30))
+        } catch {
+            cancelledProducerCount += 1
+            throw error
+        }
+        return successfulSubprocessResult()
+    }
+
+    func runWithStreamingStandardInput(
+        _ request: SubprocessRequest,
+        inputProducer: @escaping SubprocessStandardInputProducer,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        consumerStarted = true
+        let writer = SubprocessStandardInputWriter(write: { _ in }, finish: {})
+        let inputTask = Task { await inputProducer(writer) }
+        do {
+            try await Task.sleep(for: .seconds(30))
+        } catch {
+            inputTask.cancel()
+            cancelledConsumerCount += 1
+            throw error
+        }
+        inputTask.cancel()
+        return successfulSubprocessResult()
+    }
+
+    func waitUntilBothStagesStarted() async {
+        while !producerStarted || !consumerStarted {
+            await Task.yield()
+        }
+    }
+}
+
+private actor CancellingCompletedPipelineRunner: SubprocessRunning {
+    private var beforeConsumerReturns: (@Sendable () async -> Void)?
+
+    func setBeforeConsumerReturns(_ operation: @escaping @Sendable () async -> Void) {
+        beforeConsumerReturns = operation
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        successfulSubprocessResult()
+    }
+
+    func runWithStreamingStandardInput(
+        _ request: SubprocessRequest,
+        inputProducer: @escaping SubprocessStandardInputProducer,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        let writer = SubprocessStandardInputWriter(write: { _ in }, finish: {})
+        await inputProducer(writer)
+        if let outputIndex = request.arguments.firstIndex(of: "-o"),
+           request.arguments.indices.contains(outputIndex + 1) {
+            try Data("encoded AV2".utf8).write(
+                to: URL(fileURLWithPath: request.arguments[outputIndex + 1])
+            )
+        }
+        let operation = beforeConsumerReturns
+        beforeConsumerReturns = nil
+        await operation?()
+        return successfulSubprocessResult()
     }
 }
 

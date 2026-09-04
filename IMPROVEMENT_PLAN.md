@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 286 tests pass. The
+- The unit-test baseline is green: 296 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -19,21 +19,21 @@ issue link when it starts.
   policy, manual/preserved/drop-frame timecode, image-sequence inputs and JPEG
   output, DCP/IMF conformance arguments, and AV2 chunk planning now have direct
   coverage as well.
-- The app contains about 88,300 lines of Swift. Several core files are very large:
-  `FFMPEGConverter.swift` (3,456 lines), `ConversionManager.swift` (2,891),
-  `ContentView.swift` (2,900), `VideoFileListView.swift` (2,240), and
+- The app contains about 93,800 lines of Swift. Several core files are very large:
+  `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
+  `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 286 unit tests. The UI test target now has deterministic smoke
+- There are 296 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
-- External tools still have 12 direct `Process` construction sites outside the
-  shared runner, DEBUG-only UI-test fixture, and UI-test target. Seven are active
-  launches; five are configuration-only shims that already hand execution to the
-  shared runner. The remaining launch paths do not yet share one cancellation,
+- External tools still have nine direct `Process` construction sites outside the
+  shared runner, DEBUG-only UI-test fixture, and UI-test target. Four are active
+  AV2 launches; five are configuration-only shims that already hand execution to
+  the shared runner. The remaining launch paths do not yet share one cancellation,
   timeout, pipe-draining, and error-reporting layer.
 - Image-sequence import now probes associated-audio duration asynchronously end to
   end behind a non-joining five-second deadline. The former semaphore compatibility
@@ -656,9 +656,21 @@ MXF cleanup. Focused tests cover live streaming, backpressure timeout and cancel
 non-joining producer cleanup, request policy, output bytes, encoder-stage cancellation, timeout
 mapping, and partial-output cleanup.
 
-Remaining AV2 pipe call sites are still open. The refreshed audit counts six direct production
-launches plus five configuration-only `Process` shims. Coordinated multi-process support is the
-next runner primitive needed to migrate the AV2 decoder and encoder pipelines.
+The shared runner now supports a coordinated producer-to-consumer pipeline on top of its
+backpressured standard-input API. It starts and drains both tools through the same bounded,
+redacted request policy; preserves structured producer launch, timeout, cancellation, and
+connection failures; and cancels upstream production when the consumer stops. The single-file
+AV2 encode now uses this pipeline for ffmpeg-to-avmenc streaming instead of two directly managed
+`Process` instances. Conversion-owned task tracking stops both tools on cancellation or
+supersession, partial IVF output is removed on every failed terminal path, and split-chunk `POC:`
+and ffmpeg progress records remain supported. Focused tests cover full-duplex draining, EOF after
+producer failure, launch failure, downstream-timeout cancellation, bounded/redacted AV2 policy,
+broken-pipe producer shutdown, split progress, upstream diagnostic precedence, partial-output
+cleanup, both-stage conversion cancellation, and late ownership cancellation.
+
+Four direct production launches plus five configuration-only `Process` shims remain. The active
+launches are the chunked AV2 ffmpeg-to-avmenc worker pair and the AV2 decoder-to-ffmpeg pair; the
+next migration should move the chunked workers onto the coordinated runner, followed by decode.
 
 ### 2.2 Remove sync-over-async waits
 
@@ -834,7 +846,7 @@ cancel an in-flight transfer or report its terminal failure, while duplicate cal
 explicit in-progress error. Focused tests cover deadline policy, cache layout and progress,
 metadata and parent cancellation, concurrent-model isolation, duplicate callers, atomic
 replacement of incomplete caches, late retry results and failures, truncated non-LFS files,
-checksum failure, unsafe remote paths, and staging cleanup. All 286 unit tests pass;
+checksum failure, unsafe remote paths, and staging cleanup. All 296 unit tests pass;
 the wider audit of remaining unbounded framework callbacks continues.
 
 ### 2.3 Standardize user-visible errors

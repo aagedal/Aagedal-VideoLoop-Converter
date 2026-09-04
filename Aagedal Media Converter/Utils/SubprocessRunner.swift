@@ -68,6 +68,27 @@ struct SubprocessResult: Sendable, Equatable {
     }
 }
 
+enum SubprocessPipelineStageFailure: Sendable, Equatable {
+    case cancelled
+    case timedOut(result: SubprocessResult)
+    case failedToStart(reason: String)
+    case connectionClosed(reason: String)
+    case failed(reason: String)
+}
+
+enum SubprocessPipelineStageOutcome: Sendable, Equatable {
+    case completed(SubprocessResult)
+    case failed(SubprocessPipelineStageFailure)
+    /// The consumer exited before the producer reported a terminal result. The producer is
+    /// cancelled without being joined so an uncooperative upstream tool cannot delay return.
+    case unfinished
+}
+
+struct SubprocessPipelineResult: Sendable, Equatable {
+    let producer: SubprocessPipelineStageOutcome
+    let consumer: SubprocessResult
+}
+
 struct SubprocessRequest: Sendable {
     static let defaultCaptureLimit = 256 * 1024
 
@@ -282,6 +303,82 @@ extension SubprocessRunning {
         return try await run(
             request.replacingStandardInput(with: collector.snapshot()),
             outputHandler: outputHandler
+        )
+    }
+
+    /// Runs a backpressured producer-to-consumer pipeline. The consumer is launched first, then
+    /// every producer stdout chunk is written directly to its stdin while both stderr streams are
+    /// drained by their respective runner invocations. Consumer cancellation or timeout cancels
+    /// the producer through the streaming-input task without joining an uncooperative producer.
+    func runPipeline(
+        producer producerRequest: SubprocessRequest,
+        consumer consumerRequest: SubprocessRequest,
+        producerOutputHandler: (@Sendable (SubprocessOutputChunk) -> Void)? = nil,
+        consumerOutputHandler: (@Sendable (SubprocessOutputChunk) -> Void)? = nil
+    ) async throws -> SubprocessPipelineResult {
+        precondition(
+            consumerRequest.standardInput == nil,
+            "A pipeline consumer cannot also provide buffered standard input"
+        )
+
+        let producerState = SubprocessPipelineProducerState()
+        let consumerResult = try await runWithStreamingStandardInput(
+            consumerRequest,
+            inputProducer: { standardInput in
+                let producerTask = Task {
+                    try await self.run(producerRequest) { chunk in
+                        if case .standardOutput = chunk.stream {
+                            do {
+                                try standardInput.write(chunk.data)
+                            } catch {
+                                producerState.recordConnectionFailureAndCancelProducer(
+                                    producerRequest.redactedDiagnostic(error.localizedDescription)
+                                )
+                            }
+                        }
+                        producerOutputHandler?(chunk)
+                    }
+                }
+                producerState.installProducerTask(producerTask)
+                defer { producerState.clearProducerTask() }
+                do {
+                    let result = try await withTaskCancellationHandler {
+                        try await producerTask.value
+                    } onCancel: {
+                        producerState.cancelProducer()
+                    }
+                    producerState.finish(with: .completed(result))
+                } catch is CancellationError {
+                    producerState.finish(with: .failed(.cancelled))
+                } catch SubprocessRunnerError.timedOut(_, let result) {
+                    producerState.finish(with: .failed(.timedOut(result: result)))
+                } catch SubprocessRunnerError.failedToStart(_, let underlying) {
+                    producerState.finish(
+                        with: .failed(
+                            .failedToStart(
+                                reason: producerRequest.redactedDiagnostic(underlying)
+                            )
+                        )
+                    )
+                } catch {
+                    producerState.finish(
+                        with: .failed(
+                            .failed(
+                                reason: producerRequest.redactedDiagnostic(
+                                    error.localizedDescription
+                                )
+                            )
+                        )
+                    )
+                }
+                standardInput.finish()
+            },
+            outputHandler: consumerOutputHandler
+        )
+
+        return SubprocessPipelineResult(
+            producer: producerState.snapshot(),
+            consumer: consumerResult
         )
     }
 }
@@ -792,6 +889,65 @@ private final class StandardInputFinishGate: @unchecked Sendable {
             guard !isFinished else { return false }
             isFinished = true
             return true
+        }
+    }
+}
+
+private final class SubprocessPipelineProducerState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var outcome: SubprocessPipelineStageOutcome?
+    private var connectionFailure: String?
+    private var producerTask: Task<SubprocessResult, Error>?
+    private var producerCancellationRequested = false
+
+    func installProducerTask(_ task: Task<SubprocessResult, Error>) {
+        let shouldCancel = lock.withLock { () -> Bool in
+            producerTask = task
+            return producerCancellationRequested
+        }
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    func clearProducerTask() {
+        lock.withLock {
+            producerTask = nil
+        }
+    }
+
+    func cancelProducer() {
+        let task = lock.withLock { () -> Task<SubprocessResult, Error>? in
+            producerCancellationRequested = true
+            return producerTask
+        }
+        task?.cancel()
+    }
+
+    func recordConnectionFailureAndCancelProducer(_ reason: String) {
+        let task = lock.withLock { () -> Task<SubprocessResult, Error>? in
+            if connectionFailure == nil {
+                connectionFailure = reason
+            }
+            producerCancellationRequested = true
+            return producerTask
+        }
+        task?.cancel()
+    }
+
+    func finish(with outcome: SubprocessPipelineStageOutcome) {
+        lock.withLock {
+            guard self.outcome == nil else { return }
+            self.outcome = outcome
+        }
+    }
+
+    func snapshot() -> SubprocessPipelineStageOutcome {
+        lock.withLock {
+            if let connectionFailure {
+                return .failed(.connectionClosed(reason: connectionFailure))
+            }
+            return outcome ?? .unfinished
         }
     }
 }

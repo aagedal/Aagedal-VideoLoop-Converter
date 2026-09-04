@@ -120,6 +120,7 @@ actor FFMPEGConverter {
     private var currentAVCIntraPreprocessingTaskID: UUID?
     private var currentAV2HelperTask: Task<AV2HelperRunResult, Never>?
     private var currentAV2HelperTaskID: UUID?
+    private var currentAV2PipelineTasks: [UUID: Task<SubprocessPipelineResult, Error>] = [:]
     private var currentProgressGate: ConversionProgressGate?
     private var activeConversionID: UUID?
     private var postProcessingConversionID: UUID?
@@ -149,6 +150,8 @@ actor FFMPEGConverter {
     static let av2ProbeHelperTimeout: Duration = .seconds(5 * 60)
     static let av2AudioHelperTimeout: Duration = .seconds(12 * 60 * 60)
     static let av2HelperDiagnosticCaptureLimit = 256 * 1024
+    static let av2PipelineTimeout: Duration = .seconds(7 * 24 * 60 * 60)
+    static let av2PipelineDiagnosticCaptureLimit = 512 * 1024
     static let nativeWaveformEncodingTimeout: Duration = .seconds(7 * 24 * 60 * 60)
     static let nativeWaveformDiagnosticCaptureLimit = 256 * 1024
 
@@ -459,6 +462,8 @@ actor FFMPEGConverter {
         currentAV2HelperTask?.cancel()
         currentAV2HelperTask = nil
         currentAV2HelperTaskID = nil
+        for task in currentAV2PipelineTasks.values { task.cancel() }
+        currentAV2PipelineTasks.removeAll()
         let supersededBMXOperationID = activeBMXOperationID
         activeConversionID = nil
         postProcessingConversionID = nil
@@ -769,6 +774,14 @@ actor FFMPEGConverter {
                     sourceMetadata: av2PlanningMetadata,
                     progressUpdate: progressUpdate
                 )
+            }
+
+            guard activeConversionID == conversionID else {
+                if muxToMKV {
+                    Self.cleanupTempFile(at: encodeURL, label: "superseded AV2 intermediate .ivf")
+                }
+                finish(false, "Conversion cancelled")
+                return
             }
 
             guard encodeResult.success else {
@@ -1952,13 +1965,12 @@ actor FFMPEGConverter {
         return text
     }
 
-    // MARK: - Native Waveform Conversion (Swift Renderer)
+    // MARK: - AV2 Conversion
 
-    /// Runs the native waveform pipeline: decode PCM → FFT → Swift-rendered frames → pipe to FFmpeg.
     /// Runs the experimental AV2 export as a two-process pipe: ffmpeg decodes/trims/scales
     /// the source to y4m on stdout, which is piped into avmenc's stdin; avmenc writes the
-    /// final video-only `.ivf`. ffmpeg's stderr drives the standard progress parser — pipe
-    /// backpressure makes its frame counter advance at avmenc's actual encode rate.
+    /// final video-only `.ivf`. avmenc's `POC:` records drive frame progress when the total
+    /// is known, with ffmpeg's stderr feeding the standard time-based fallback parser.
     private func runAV2Conversion(
         inputURL: URL,
         outputFileURL: URL,
@@ -1993,32 +2005,30 @@ actor FFMPEGConverter {
             return AV2EncodeResult(success: false, errorReason: "Could not determine source video dimensions for AV2 encoding", keyframeIndices: [])
         }
 
-        let ffmpeg = Process()
-        ffmpeg.executableURL = URL(fileURLWithPath: ffmpegPath)
-        ffmpeg.arguments = command.ffmpegArguments
-
-        let avmenc = Process()
-        avmenc.executableURL = URL(fileURLWithPath: avmencPath)
-        avmenc.arguments = command.avmencArguments
-
-        // Bridge: ffmpeg stdout → avmenc stdin (same Pipe object on both ends).
-        let bridgePipe = Pipe()
-        ffmpeg.standardOutput = bridgePipe
-        avmenc.standardInput = bridgePipe
-
-        let ffmpegErrPipe = Pipe()
-        let avmencErrPipe = Pipe()
-        let avmencOutPipe = Pipe()  // avmenc prints per-frame "POC:" progress to stdout (not stderr)
-        ffmpeg.standardError = ffmpegErrPipe
-        ffmpeg.standardInput = FileHandle.nullDevice
-        avmenc.standardError = avmencErrPipe
-        avmenc.standardOutput = avmencOutPipe  // bitstream goes to the -o file; stdout is progress text
-
-        await setCurrentProcess(ffmpeg)
-        await setAuxProcess(avmenc)
-
-        Self.logger.info("AV2 ffmpeg: \(ffmpegPath, privacy: .public) \(command.ffmpegArguments.joined(separator: " "), privacy: .public)")
-        Self.logger.info("AV2 avmenc: \(avmencPath, privacy: .public) \(command.avmencArguments.joined(separator: " "), privacy: .public)")
+        let privatePaths = Set(
+            (command.ffmpegArguments + command.avmencArguments)
+                .filter { $0.hasPrefix("/") }
+                + [inputURL.path, outputFileURL.path, ffmpegPath, avmencPath]
+                + [visualSourceURL?.path].compactMap { $0 }
+        )
+        let ffmpegRequest = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: ffmpegPath),
+            arguments: command.ffmpegArguments,
+            timeout: Self.av2PipelineTimeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: Self.av2PipelineDiagnosticCaptureLimit,
+            sensitiveValues: privatePaths
+        )
+        let avmencRequest = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: avmencPath),
+            arguments: command.avmencArguments,
+            timeout: Self.av2PipelineTimeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: Self.av2PipelineDiagnosticCaptureLimit,
+            sensitiveValues: privatePaths
+        )
+        Self.logger.info("AV2 ffmpeg: \(ffmpegRequest.redactedCommandDescription, privacy: .public)")
+        Self.logger.info("AV2 avmenc: \(avmencRequest.redactedCommandDescription, privacy: .public)")
 
         // Progress is driven by AVMENC, not ffmpeg. ffmpeg only decodes the source and feeds y4m
         // (fast — it finishes and exits within seconds), while avmenc does the slow encoding and
@@ -2032,8 +2042,6 @@ actor FFMPEGConverter {
             return max(1, Int((dur * fps).rounded()))
         }()
         let encodedFrames = OSAllocatedUnfairLock<Int>(initialState: 0)
-        let ffmpegStderr = StderrCollector()
-        let avmencStderr = StderrCollector()
 
         // Fallback time-based progress (only used when we can't determine a frame count).
         let totalDurationBox = DurationBox()
@@ -2044,104 +2052,116 @@ actor FFMPEGConverter {
         let progressThrottler = ProgressThrottler()
         let frameRate = command.frameRate ?? 24.0
 
-        ffmpegErrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if totalFrames == 0,
-               let output = String(data: data, encoding: .utf8), !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let (newTotal, _) = FFMPEGProgressParser.handleOutput(
-                    output,
-                    totalDuration: totalDurationBox.value,
-                    effectiveDuration: effectiveDurationBox.value,
-                    frameRate: frameRate,
-                    frameStallTracker: frameStallTracker,
-                    progressThrottler: progressThrottler,
-                    progressUpdate: progressUpdate
-                )
-                if let newTotal { totalDurationBox.value = newTotal }
+        let ffmpegProgressParser = FFMPEGProgressStreamParser(
+            totalDuration: totalDurationBox,
+            effectiveDuration: effectiveDurationBox,
+            frameRate: frameRate,
+            frameStallTracker: frameStallTracker,
+            progressThrottler: progressThrottler,
+            progressUpdate: progressUpdate
+        )
+        defer { ffmpegProgressParser.finish() }
+        let avmencProgressParser = AV2POCStreamParser { newFrames in
+            guard totalFrames > 0 else { return }
+            let count = encodedFrames.withLock { state -> Int in
+                state += newFrames
+                return state
             }
-            if !data.isEmpty { Task { await ffmpegStderr.append(data) } }
-        }
-
-        // avmenc prints one "POC:" line per encoded frame to STDOUT — count them to drive the
-        // encode progress bar. (The IVF bitstream itself goes to the -o file, not stdout.)
-        avmencOutPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty, totalFrames > 0, let text = String(data: data, encoding: .utf8) else { return }
-            let newOnes = text.components(separatedBy: "POC:").count - 1
-            if newOnes > 0 {
-                let count = encodedFrames.withLock { state -> Int in state += newOnes; return state }
-                let shown = min(count, totalFrames)
-                let fraction = min(0.99, Double(count) / Double(totalFrames))
-                progressUpdate(fraction, "Encoding AV2 — frame \(shown)/\(totalFrames)")
-            }
-        }
-
-        // avmenc stderr carries warnings/errors; drain it continuously (so the encoder never
-        // blocks on a full stderr buffer) and keep it for the failure reason.
-        avmencErrPipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if !data.isEmpty { Task { await avmencStderr.append(data) } }
+            let shown = min(count, totalFrames)
+            let fraction = min(0.99, Double(count) / Double(totalFrames))
+            progressUpdate(fraction, "Encoding AV2 — frame \(shown)/\(totalFrames)")
         }
 
         // Show an immediate status: avmenc buffers frames (lag-in-frames) before emitting the
         // first "POC:" line, so there's a gap before frame-based progress starts climbing.
         progressUpdate(0.0, totalFrames > 0 ? "Encoding AV2 — frame 0/\(totalFrames)" : "Encoding AV2…")
 
-        // 2-of-2 termination barrier: finalize only after BOTH processes have exited
-        // (the .ivf isn't fully flushed until avmenc terminates).
-        let exitState = OSAllocatedUnfairLock<(ffmpeg: Int32?, avmenc: Int32?, resumed: Bool)>(initialState: (nil, nil, false))
-
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            @Sendable func resumeIfBothFinished() {
-                let shouldResume = exitState.withLock { state -> Bool in
-                    guard state.ffmpeg != nil, state.avmenc != nil, !state.resumed else { return false }
-                    state.resumed = true
-                    return true
+        let pipelineID = UUID()
+        let runner = subprocessRunner
+        let pipelineTask = Task {
+            try await runner.runPipeline(
+                producer: ffmpegRequest,
+                consumer: avmencRequest,
+                producerOutputHandler: { chunk in
+                    guard totalFrames == 0, case .standardError = chunk.stream else { return }
+                    ffmpegProgressParser.consume(chunk.data)
+                },
+                consumerOutputHandler: { chunk in
+                    guard case .standardOutput = chunk.stream else { return }
+                    avmencProgressParser.consume(chunk.data)
                 }
-                if shouldResume { continuation.resume() }
-            }
+            )
+        }
+        currentAV2PipelineTasks[pipelineID] = pipelineTask
 
-            ffmpeg.terminationHandler = { process in
-                exitState.withLock { $0.ffmpeg = process.terminationStatus }
-                resumeIfBothFinished()
+        let pipelineResult: SubprocessPipelineResult
+        do {
+            pipelineResult = try await pipelineTask.value
+        } catch is CancellationError {
+            currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+            if FileManager.default.fileExists(atPath: outputFileURL.path) {
+                Self.cleanupTempFile(at: outputFileURL, label: "cancelled AV2 .ivf")
             }
-            avmenc.terminationHandler = { process in
-                exitState.withLock { $0.avmenc = process.terminationStatus }
-                resumeIfBothFinished()
+            return AV2EncodeResult(success: false, errorReason: "Conversion cancelled", keyframeIndices: [])
+        } catch SubprocessRunnerError.timedOut {
+            currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+            if FileManager.default.fileExists(atPath: outputFileURL.path) {
+                Self.cleanupTempFile(at: outputFileURL, label: "timed-out AV2 .ivf")
             }
+            return AV2EncodeResult(success: false, errorReason: "AV2 encoding timed out after 7 days", keyframeIndices: [])
+        } catch SubprocessRunnerError.failedToStart(_, let underlying) {
+            currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+            if FileManager.default.fileExists(atPath: outputFileURL.path) {
+                Self.cleanupTempFile(at: outputFileURL, label: "failed AV2 .ivf")
+            }
+            let reason = avmencRequest.redactedDiagnostic(underlying)
+            return AV2EncodeResult(success: false, errorReason: "Failed to start AV2 encoder: \(reason)", keyframeIndices: [])
+        } catch {
+            currentAV2PipelineTasks.removeValue(forKey: pipelineID)
+            if FileManager.default.fileExists(atPath: outputFileURL.path) {
+                Self.cleanupTempFile(at: outputFileURL, label: "failed AV2 .ivf")
+            }
+            let reason = avmencRequest.redactedDiagnostic(error.localizedDescription)
+            return AV2EncodeResult(success: false, errorReason: "Failed to run AV2 pipeline: \(reason)", keyframeIndices: [])
+        }
+        currentAV2PipelineTasks.removeValue(forKey: pipelineID)
 
-            do {
-                // Start the consumer (avmenc) before the producer (ffmpeg).
-                try avmenc.run()
-                try ffmpeg.run()
-                // Release the parent's copies of the bridge fds so EOF propagates correctly:
-                // when ffmpeg exits, the last writer closes and avmenc sees end-of-input; if
-                // avmenc dies first, ffmpeg's next write gets SIGPIPE and it exits.
-                try? bridgePipe.fileHandleForWriting.close()
-                try? bridgePipe.fileHandleForReading.close()
-            } catch {
-                Self.logger.error("AV2: failed to launch pipeline: \(error.localizedDescription, privacy: .public)")
-                if avmenc.isRunning { avmenc.terminate() }
-                if ffmpeg.isRunning { ffmpeg.terminate() }
-                // Synthesize terminations for whichever side never started so the barrier resumes.
-                exitState.withLock { state in
-                    if state.ffmpeg == nil { state.ffmpeg = -1 }
-                    if state.avmenc == nil { state.avmenc = -1 }
-                }
-                resumeIfBothFinished()
+        let avmencResult = pipelineResult.consumer
+        let ffmpegResult: SubprocessResult?
+        var pipelineFailureReason: String?
+        switch pipelineResult.producer {
+        case .completed(let result):
+            ffmpegResult = result
+        case .failed(.cancelled):
+            ffmpegResult = nil
+            pipelineFailureReason = "Conversion cancelled"
+        case .failed(.timedOut(let result)):
+            ffmpegResult = result
+            pipelineFailureReason = "FFmpeg input preparation timed out after 7 days"
+        case .failed(.failedToStart(let reason)):
+            ffmpegResult = nil
+            pipelineFailureReason = "Failed to start FFmpeg: \(reason)"
+        case .failed(.connectionClosed(let reason)):
+            ffmpegResult = nil
+            if avmencResult.succeeded {
+                pipelineFailureReason = "AV2 pipeline closed before all frames were delivered: \(reason)"
+            }
+        case .failed(.failed(let reason)):
+            ffmpegResult = nil
+            pipelineFailureReason = "FFmpeg input preparation failed: \(reason)"
+        case .unfinished:
+            ffmpegResult = nil
+            if avmencResult.succeeded {
+                pipelineFailureReason = "FFmpeg input preparation did not finish"
             }
         }
 
-        // Both processes have exited.
-        ffmpegErrPipe.fileHandleForReading.readabilityHandler = nil
-        avmencErrPipe.fileHandleForReading.readabilityHandler = nil
-        avmencOutPipe.fileHandleForReading.readabilityHandler = nil
-        await setCurrentProcess(nil)
-        await setAuxProcess(nil)
-
-        let (ffmpegStatus, avmencStatus) = exitState.withLock { ($0.ffmpeg ?? -1, $0.avmenc ?? -1) }
-        var success = ffmpegStatus == 0 && avmencStatus == 0
-        var errorReason: String? = nil
+        let ffmpegStatus = ffmpegResult?.terminationStatus ?? -1
+        let avmencStatus = avmencResult.terminationStatus
+        var success = ffmpegResult?.succeeded == true
+            && avmencResult.succeeded
+            && pipelineFailureReason == nil
+        var errorReason = pipelineFailureReason
 
         if success, let validationError = Self.validateOutputFile(at: outputFileURL) {
             success = false
@@ -2150,12 +2170,13 @@ actor FFMPEGConverter {
 
         if !success {
             // Prefer avmenc's stderr when avmenc failed: if avmenc dies first, ffmpeg exits via
-            // SIGPIPE (141) — a symptom, not the root cause.
-            if avmencStatus != 0 {
-                let stderrString = String(data: await avmencStderr.snapshot(), encoding: .utf8) ?? ""
+            // SIGPIPE (141) — a symptom, not the root cause. An independently failed producer,
+            // however, is the root cause of avmenc subsequently rejecting empty/truncated Y4M.
+            if avmencStatus != 0, errorReason == nil, ffmpegResult?.succeeded != false {
+                let stderrString = avmencRequest.redactedDiagnostic(avmencResult.standardErrorText)
                 errorReason = Self.extractAvmencErrorReason(from: stderrString, exitCode: avmencStatus)
-            } else if errorReason == nil {
-                let stderrString = String(data: await ffmpegStderr.snapshot(), encoding: .utf8) ?? ""
+            } else if errorReason == nil, let ffmpegResult {
+                let stderrString = ffmpegRequest.redactedDiagnostic(ffmpegResult.standardErrorText)
                 errorReason = Self.extractErrorReason(from: stderrString, exitCode: ffmpegStatus)
             }
             if FileManager.default.fileExists(atPath: outputFileURL.path) {
@@ -3986,6 +4007,8 @@ actor FFMPEGConverter {
         currentAV2HelperTask?.cancel()
         currentAV2HelperTask = nil
         currentAV2HelperTaskID = nil
+        for task in currentAV2PipelineTasks.values { task.cancel() }
+        currentAV2PipelineTasks.removeAll()
         if let bmxOperationID {
             await BMXService.shared.cancel(operationID: bmxOperationID)
             _ = await BMXService.shared.finishCancellationTracking(operationID: bmxOperationID)
@@ -4015,6 +4038,7 @@ actor FFMPEGConverter {
         currentAVCIntraPreprocessingTaskID = nil
         currentAV2HelperTask = nil
         currentAV2HelperTaskID = nil
+        currentAV2PipelineTasks.removeAll()
         currentProcess = nil
         auxProcess = nil
         return true
@@ -4042,6 +4066,7 @@ actor FFMPEGConverter {
         currentAVCIntraPreprocessingTaskID = nil
         currentAV2HelperTask = nil
         currentAV2HelperTaskID = nil
+        currentAV2PipelineTasks.removeAll()
         currentProcess = nil
         auxProcess = nil
         return true
@@ -4104,6 +4129,37 @@ actor FFMPEGConverter {
         var value: Double? {
             get { lock.withLock { $0 } }
             set { lock.withLock { $0 = newValue } }
+        }
+    }
+
+    /// Counts avmenc's `POC:` progress markers across arbitrary stdout chunk boundaries without
+    /// retaining the rest of its verbose per-frame output.
+    private final class AV2POCStreamParser: @unchecked Sendable {
+        private let lock = NSLock()
+        private let onFrames: @Sendable (Int) -> Void
+        private var pending = ""
+
+        init(onFrames: @escaping @Sendable (Int) -> Void) {
+            self.onFrames = onFrames
+        }
+
+        func consume(_ data: Data) {
+            guard !data.isEmpty else { return }
+            let frameCount = lock.withLock { () -> Int in
+                pending += String(decoding: data, as: UTF8.self)
+                var count = 0
+                while let range = pending.range(of: "POC:") {
+                    count += 1
+                    pending.removeSubrange(pending.startIndex..<range.upperBound)
+                }
+                if pending.count > 3 {
+                    pending = String(pending.suffix(3))
+                }
+                return count
+            }
+            if frameCount > 0 {
+                onFrames(frameCount)
+            }
         }
     }
 
