@@ -111,6 +111,8 @@ actor FFMPEGConverter {
     private var currentWaveformAnalysisTask: Task<FrequencyBandData, Error>?
     private var currentWaveformAnalysisID: UUID?
     private var currentWaveformFrameWriterTask: Task<Void, Never>?
+    private var currentImageSequenceAudioTask: Task<ImageSequenceAudioStagingResult, Never>?
+    private var currentImageSequenceAudioTaskID: UUID?
     private var currentPackageAudioTask: Task<AudioExtractionResult, Never>?
     private var currentPackageAudioTaskID: UUID?
     private var currentPackageWrapperTask: Task<PackageWrapperResult, Never>?
@@ -137,6 +139,8 @@ actor FFMPEGConverter {
     private static let outputReservations = ConversionOutputReservations()
     static let packageAudioExtractionTimeout: Duration = .seconds(12 * 60 * 60)
     static let packageAudioDiagnosticCaptureLimit = 256 * 1024
+    static let imageSequenceAudioExtractionTimeout: Duration = .seconds(12 * 60 * 60)
+    static let imageSequenceAudioDiagnosticCaptureLimit = 256 * 1024
     static let packageWrapperTimeout: Duration = .seconds(12 * 60 * 60)
     static let packageWrapperDiagnosticCaptureLimit = 256 * 1024
     static let avcIntraAudioPreprocessingTimeout: Duration = .seconds(12 * 60 * 60)
@@ -425,6 +429,9 @@ actor FFMPEGConverter {
         currentWaveformAnalysisID = nil
         currentWaveformFrameWriterTask?.cancel()
         currentWaveformFrameWriterTask = nil
+        currentImageSequenceAudioTask?.cancel()
+        currentImageSequenceAudioTask = nil
+        currentImageSequenceAudioTaskID = nil
         currentPackageAudioTask?.cancel()
         currentPackageAudioTask = nil
         currentPackageAudioTaskID = nil
@@ -1659,7 +1666,8 @@ actor FFMPEGConverter {
                 if success && capturedIsImageSequenceExport && capturedRequest.customInputArguments == nil {
                     let outputFolder = capturedFinalOutputURL.deletingLastPathComponent()
                     let outputBaseName = outputFolder.lastPathComponent
-                    await Self.extractAudioAsWAV(
+                    let audioResult = await self?.extractImageSequenceAudioAsWAV(
+                        conversionID: conversionID,
                         inputURL: capturedInputURL,
                         outputFolder: outputFolder,
                         baseName: outputBaseName,
@@ -1668,22 +1676,23 @@ actor FFMPEGConverter {
                         trimEnd: capturedRequest.trimEnd
                     )
 
-                    // Generate metadata sidecar with source color space and technical specs
-                    let sidecarEnabled = UserDefaults.standard.object(forKey: AppConstants.imageSequenceMetadataSidecarEnabledKey) != nil
-                        ? UserDefaults.standard.bool(forKey: AppConstants.imageSequenceMetadataSidecarEnabledKey)
-                        : AppConstants.defaultImageSequenceMetadataSidecarEnabled
+                    if case .cancelled? = audioResult {
+                        success = false
+                        errorReason = "Conversion cancelled"
+                    }
 
-                    if sidecarEnabled, let metadata = capturedRequest.sourceMetadata {
-                        let formatRaw = UserDefaults.standard.string(forKey: AppConstants.imageSequenceMetadataSidecarFormatKey)
-                            ?? AppConstants.defaultImageSequenceMetadataSidecarFormat
-                        let format = MetadataSidecarGenerator.SidecarFormat(rawValue: formatRaw) ?? .markdown
-                        MetadataSidecarGenerator.generateSidecar(
+                    if success {
+                        let stillOwnsPostProcessing = await self?.generateImageSequenceMetadataSidecarIfOwned(
+                            conversionID: conversionID,
                             originalFileName: capturedInputBaseName,
                             outputFolder: outputFolder,
-                            metadata: metadata,
-                            cameraMetadata: capturedRequest.sourceCameraMetadata,
-                            format: format
-                        )
+                            metadata: capturedRequest.sourceMetadata,
+                            cameraMetadata: capturedRequest.sourceCameraMetadata
+                        ) ?? false
+                        if !stillOwnsPostProcessing {
+                            success = false
+                            errorReason = "Conversion cancelled"
+                        }
                     }
                 }
 
@@ -3120,22 +3129,132 @@ actor FFMPEGConverter {
 
     /// Extracts the audio track from a video file as a WAV file alongside the image sequence output.
     /// Only runs if the input has audio streams. The WAV file is placed in the same subfolder as the images.
-    private static func extractAudioAsWAV(
+    private func extractImageSequenceAudioAsWAV(
+        conversionID: UUID,
         inputURL: URL,
         outputFolder: URL,
         baseName: String,
         ffmpegPath: String,
         trimStart: Double?,
         trimEnd: Double?
-    ) async {
-        // Check if source has audio streams
-        guard let audioStreams = await FFMPEGProbeService.fetchAudioStreams(for: inputURL),
-              !audioStreams.isEmpty else {
-            logger.debug("No audio streams in source, skipping WAV extraction")
-            return
+    ) async -> ImageSequenceAudioExtractionResult {
+        guard postProcessingConversionID == conversionID else { return .cancelled }
+
+        let taskID = UUID()
+        let runner = subprocessRunner
+        let task = Task {
+            await Self.stageAudioAsWAV(
+                inputURL: inputURL,
+                outputFolder: outputFolder,
+                baseName: baseName,
+                ffmpegPath: ffmpegPath,
+                trimStart: trimStart,
+                trimEnd: trimEnd,
+                subprocessRunner: runner
+            )
+        }
+        currentImageSequenceAudioTask?.cancel()
+        currentImageSequenceAudioTask = task
+        currentImageSequenceAudioTaskID = taskID
+
+        let result = await task.value
+        if currentImageSequenceAudioTaskID == taskID {
+            currentImageSequenceAudioTask = nil
+            currentImageSequenceAudioTaskID = nil
         }
 
+        guard postProcessingConversionID == conversionID else {
+            if case .staged(let stagedURL, _, _) = result {
+                Self.cleanupTempFile(at: stagedURL, label: "superseded image-sequence audio WAV")
+            }
+            return .cancelled
+        }
+
+        switch result {
+        case .staged(let stagedURL, let outputURL, let request):
+            // This actor-isolated ownership check and synchronous rename form one publication
+            // boundary: cancellation or a replacement conversion cannot interleave here.
+            return Self.publishStagedAudioWAV(
+                stagedURL: stagedURL,
+                outputURL: outputURL,
+                request: request
+            )
+        case .noAudioInSource:
+            return .noAudioInSource
+        case .failed(let reason):
+            return .failed(reason: reason)
+        case .cancelled:
+            return .cancelled
+        }
+    }
+
+    static func extractAudioAsWAV(
+        inputURL: URL,
+        outputFolder: URL,
+        baseName: String,
+        ffmpegPath: String,
+        trimStart: Double?,
+        trimEnd: Double?,
+        subprocessRunner: any SubprocessRunning = SubprocessRunner(),
+        audioStreamProvider: @escaping @Sendable (URL) async -> [FFMPEGProbeService.AudioStreamInfo]? = {
+            await FFMPEGProbeService.fetchAudioStreams(for: $0)
+        }
+    ) async -> ImageSequenceAudioExtractionResult {
+        let result = await stageAudioAsWAV(
+            inputURL: inputURL,
+            outputFolder: outputFolder,
+            baseName: baseName,
+            ffmpegPath: ffmpegPath,
+            trimStart: trimStart,
+            trimEnd: trimEnd,
+            subprocessRunner: subprocessRunner,
+            audioStreamProvider: audioStreamProvider
+        )
+
+        switch result {
+        case .staged(let stagedURL, let outputURL, let request):
+            guard !Task.isCancelled else {
+                cleanupTempFile(at: stagedURL, label: "cancelled image-sequence audio WAV")
+                return .cancelled
+            }
+            return publishStagedAudioWAV(
+                stagedURL: stagedURL,
+                outputURL: outputURL,
+                request: request
+            )
+        case .noAudioInSource:
+            return .noAudioInSource
+        case .failed(let reason):
+            return .failed(reason: reason)
+        case .cancelled:
+            return .cancelled
+        }
+    }
+
+    private static func stageAudioAsWAV(
+        inputURL: URL,
+        outputFolder: URL,
+        baseName: String,
+        ffmpegPath: String,
+        trimStart: Double?,
+        trimEnd: Double?,
+        subprocessRunner: any SubprocessRunning,
+        audioStreamProvider: @escaping @Sendable (URL) async -> [FFMPEGProbeService.AudioStreamInfo]? = {
+            await FFMPEGProbeService.fetchAudioStreams(for: $0)
+        }
+    ) async -> ImageSequenceAudioStagingResult {
+        // Check if source has audio streams
+        guard let audioStreams = await audioStreamProvider(inputURL),
+              !audioStreams.isEmpty else {
+            logger.debug("No audio streams in source, skipping WAV extraction")
+            return .noAudioInSource
+        }
+        guard !Task.isCancelled else { return .cancelled }
+
         let wavOutputURL = outputFolder.appendingPathComponent("\(baseName).wav")
+        let stagedWAVURL = outputFolder.appendingPathComponent(
+            ".\(baseName)-\(UUID().uuidString).wav"
+        )
 
         var args: [String] = ["-y", "-nostdin"]
 
@@ -3156,31 +3275,135 @@ actor FFMPEGConverter {
             "-vn",           // No video
             "-c:a", "pcm_s24le",  // 24-bit WAV
             "-rf64", "auto", // Use RF64 for files >4GB
-            wavOutputURL.path
+            stagedWAVURL.path
         ])
 
         logger.info("Extracting audio as WAV: \(wavOutputURL.lastPathComponent)")
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = args
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
+        let sensitiveValues = Set(
+            args.filter { $0.hasPrefix("/") } + [
+                ffmpegPath,
+                inputURL.path,
+                outputFolder.path,
+                wavOutputURL.path,
+                stagedWAVURL.path,
+            ]
+        )
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: ffmpegPath),
+            arguments: args,
+            timeout: imageSequenceAudioExtractionTimeout,
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: imageSequenceAudioDiagnosticCaptureLimit,
+            sensitiveValues: sensitiveValues
+        )
+
+        func cleanupPartialOutput() {
+            guard FileManager.default.fileExists(atPath: stagedWAVURL.path) else { return }
+            Self.cleanupTempFile(at: stagedWAVURL, label: "partial image-sequence audio WAV")
+        }
+
+        func failureReason(_ base: String, diagnostic: String = "") -> String {
+            let trimmed = diagnostic.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? base : "\(base): \(trimmed)"
+        }
 
         do {
-            try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus == 0 {
-                logger.info("Audio WAV extraction complete: \(wavOutputURL.lastPathComponent)")
-            } else {
-                logger.warning("Audio WAV extraction failed with status \(process.terminationStatus)")
-                // Clean up partial WAV file
-                Self.cleanupTempFile(at: wavOutputURL, label: "partial audio WAV")
+            let result = try await subprocessRunner.run(request)
+            guard result.succeeded else {
+                let reason = failureReason(
+                    "FFmpeg audio extraction exited with status \(result.terminationStatus)",
+                    diagnostic: request.redactedDiagnostic(result.standardErrorText)
+                )
+                logger.warning("Image-sequence audio extraction failed: \(reason, privacy: .public)")
+                cleanupPartialOutput()
+                return .failed(reason: reason)
             }
+            if let validationError = Self.validateOutputFile(at: stagedWAVURL) {
+                let reason = request.redactedDiagnostic(validationError)
+                logger.warning("Image-sequence audio extraction output validation failed: \(reason, privacy: .public)")
+                cleanupPartialOutput()
+                return .failed(reason: reason)
+            }
+            try Task.checkCancellation()
+            return .staged(stagedWAVURL, wavOutputURL, request)
+        } catch is CancellationError {
+            cleanupPartialOutput()
+            return .cancelled
+        } catch SubprocessRunnerError.timedOut(_, let result) {
+            let reason = failureReason(
+                "FFmpeg audio extraction timed out after 12 hours",
+                diagnostic: request.redactedDiagnostic(result.standardErrorText)
+            )
+            logger.warning("Image-sequence audio extraction timed out: \(reason, privacy: .public)")
+            cleanupPartialOutput()
+            return .failed(reason: reason)
         } catch {
-            logger.error("Failed to start audio extraction: \(error.localizedDescription)")
+            let diagnostic = request.redactedDiagnostic(error.localizedDescription)
+            let reason = failureReason("Failed to start FFmpeg audio extraction", diagnostic: diagnostic)
+            logger.error("Image-sequence audio extraction launch failed: \(reason, privacy: .public)")
+            cleanupPartialOutput()
+            return .failed(reason: reason)
         }
+    }
+
+    private static func publishStagedAudioWAV(
+        stagedURL: URL,
+        outputURL: URL,
+        request: SubprocessRequest
+    ) -> ImageSequenceAudioExtractionResult {
+        do {
+            if FileManager.default.fileExists(atPath: outputURL.path) {
+                _ = try FileManager.default.replaceItemAt(outputURL, withItemAt: stagedURL)
+            } else {
+                try FileManager.default.moveItem(at: stagedURL, to: outputURL)
+            }
+            logger.info("Audio WAV extraction complete: \(outputURL.lastPathComponent)")
+            return .extracted(outputURL)
+        } catch {
+            if FileManager.default.fileExists(atPath: stagedURL.path) {
+                cleanupTempFile(at: stagedURL, label: "unpublished image-sequence audio WAV")
+            }
+            let diagnostic = request.redactedDiagnostic(error.localizedDescription)
+            let reason = diagnostic.isEmpty
+                ? "Failed to publish extracted audio"
+                : "Failed to publish extracted audio: \(diagnostic)"
+            logger.error("Image-sequence audio publication failed: \(reason, privacy: .public)")
+            return .failed(reason: reason)
+        }
+    }
+
+    /// Checks conversion ownership and writes the optional metadata sidecar without an actor
+    /// suspension between those operations, so cancellation cannot interleave before publication.
+    private func generateImageSequenceMetadataSidecarIfOwned(
+        conversionID: UUID,
+        originalFileName: String,
+        outputFolder: URL,
+        metadata: VideoMetadata?,
+        cameraMetadata: CameraMetadata?
+    ) -> Bool {
+        guard postProcessingConversionID == conversionID else { return false }
+
+        let sidecarEnabled = UserDefaults.standard.object(
+            forKey: AppConstants.imageSequenceMetadataSidecarEnabledKey
+        ) != nil
+            ? UserDefaults.standard.bool(forKey: AppConstants.imageSequenceMetadataSidecarEnabledKey)
+            : AppConstants.defaultImageSequenceMetadataSidecarEnabled
+
+        if sidecarEnabled, let metadata {
+            let formatRaw = UserDefaults.standard.string(
+                forKey: AppConstants.imageSequenceMetadataSidecarFormatKey
+            ) ?? AppConstants.defaultImageSequenceMetadataSidecarFormat
+            let format = MetadataSidecarGenerator.SidecarFormat(rawValue: formatRaw) ?? .markdown
+            MetadataSidecarGenerator.generateSidecar(
+                originalFileName: originalFileName,
+                outputFolder: outputFolder,
+                metadata: metadata,
+                cameraMetadata: cameraMetadata,
+                format: format
+            )
+        }
+        return true
     }
 
     /// Extracts audio from source as 24-bit PCM 48 kHz WAV for SMPTE-package exports (DCP, IMF).
@@ -3195,6 +3418,20 @@ actor FFMPEGConverter {
         case extracted(URL)
         case noAudioInSource
         case failed(reason: String)
+    }
+
+    enum ImageSequenceAudioExtractionResult: Sendable {
+        case extracted(URL)
+        case noAudioInSource
+        case failed(reason: String)
+        case cancelled
+    }
+
+    private enum ImageSequenceAudioStagingResult: Sendable {
+        case staged(URL, URL, SubprocessRequest)
+        case noAudioInSource
+        case failed(reason: String)
+        case cancelled
     }
 
     struct PackageAudioInput: Equatable, Sendable {
@@ -3515,6 +3752,9 @@ actor FFMPEGConverter {
         currentWaveformAnalysisID = nil
         currentWaveformFrameWriterTask?.cancel()
         currentWaveformFrameWriterTask = nil
+        currentImageSequenceAudioTask?.cancel()
+        currentImageSequenceAudioTask = nil
+        currentImageSequenceAudioTaskID = nil
         currentPackageAudioTask?.cancel()
         currentPackageAudioTask = nil
         currentPackageAudioTaskID = nil

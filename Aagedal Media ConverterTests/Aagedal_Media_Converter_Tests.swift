@@ -6301,6 +6301,298 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         )
     }
 
+    func testImageSequenceAudioExtractionUsesBoundedRedactedRunnerAndValidatesOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("private image sequence audio \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("frames.wav")
+        try Data("older valid sidecar".utf8).write(to: outputURL)
+        let privateFFmpegPath = "/private/tools/ffmpeg"
+        let runner = RecordingSubprocessRunner { request, _ in
+            let stagedURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            try Data("pcm fixture".utf8).write(to: stagedURL)
+            return successfulSubprocessResult()
+        }
+
+        let result = await FFMPEGConverter.extractAudioAsWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            baseName: "frames",
+            ffmpegPath: privateFFmpegPath,
+            trimStart: 1.25,
+            trimEnd: 2.5,
+            subprocessRunner: runner,
+            audioStreamProvider: { _ in
+                [FFMPEGProbeService.AudioStreamInfo(
+                    index: 1,
+                    channels: 2,
+                    channelLayout: "stereo",
+                    codecName: "aac"
+                )]
+            }
+        )
+
+        guard case .extracted(let producedURL) = result else {
+            return XCTFail("Expected the fake runner output to be accepted")
+        }
+        XCTAssertEqual(producedURL, outputURL)
+        XCTAssertEqual(try Data(contentsOf: producedURL), Data("pcm fixture".utf8))
+
+        let request = try XCTUnwrap(runner.lastRequest)
+        XCTAssertEqual(request.executableURL.path, privateFFmpegPath)
+        XCTAssertEqual(request.timeout, FFMPEGConverter.imageSequenceAudioExtractionTimeout)
+        XCTAssertEqual(request.standardOutputCaptureLimit, 0)
+        XCTAssertEqual(
+            request.standardErrorCaptureLimit,
+            FFMPEGConverter.imageSequenceAudioDiagnosticCaptureLimit
+        )
+        XCTAssertTrue(request.arguments.containsAdjacent("-ss", "1.250"))
+        XCTAssertTrue(request.arguments.containsAdjacent("-t", "1.250"))
+        XCTAssertTrue(request.arguments.containsAdjacent("-c:a", "pcm_s24le"))
+        XCTAssertTrue(request.arguments.containsAdjacent("-rf64", "auto"))
+        let stagedPath = try XCTUnwrap(request.arguments.last)
+        XCTAssertNotEqual(stagedPath, outputURL.path)
+        XCTAssertEqual(URL(fileURLWithPath: stagedPath).pathExtension, "wav")
+        XCTAssertFalse(request.redactedCommandDescription.contains(privateFFmpegPath))
+        XCTAssertFalse(request.redactedCommandDescription.contains(inputURL.path))
+        XCTAssertFalse(request.redactedCommandDescription.contains(outputURL.path))
+    }
+
+    func testImageSequenceAudioExtractionRedactsFailureAndRemovesPartialOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("failed image sequence audio \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("private source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("frames.wav")
+        try Data("older valid sidecar".utf8).write(to: outputURL)
+        let runner = RecordingSubprocessRunner { request, _ in
+            let stagedURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            try Data("partial".utf8).write(to: stagedURL)
+            return successfulSubprocessResult(
+                standardError: "cannot read \(inputURL.path) or write \(stagedURL.path)",
+                terminationStatus: 7
+            )
+        }
+
+        let result = await FFMPEGConverter.extractAudioAsWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            baseName: "frames",
+            ffmpegPath: "/private/tools/ffmpeg",
+            trimStart: nil,
+            trimEnd: nil,
+            subprocessRunner: runner,
+            audioStreamProvider: { _ in
+                [FFMPEGProbeService.AudioStreamInfo(index: 1, channels: 2, channelLayout: "stereo", codecName: "aac")]
+            }
+        )
+
+        guard case .failed(let reason) = result else {
+            return XCTFail("Expected nonzero FFmpeg exit to fail")
+        }
+        XCTAssertTrue(reason.contains("status 7"))
+        XCTAssertTrue(reason.contains("<redacted>"))
+        XCTAssertFalse(reason.contains(inputURL.path))
+        XCTAssertFalse(reason.contains(outputURL.path))
+        XCTAssertEqual(try Data(contentsOf: outputURL), Data("older valid sidecar".utf8))
+    }
+
+    func testImageSequenceAudioExtractionMapsTimeoutAndInvalidOutput() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("image sequence audio failures \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("frames.wav")
+        let hasAudio: @Sendable (URL) async -> [FFMPEGProbeService.AudioStreamInfo]? = { _ in
+            [FFMPEGProbeService.AudioStreamInfo(index: 1, channels: 2, channelLayout: "stereo", codecName: "aac")]
+        }
+        let timeoutRunner = RecordingSubprocessRunner { request, _ in
+            let stagedURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+            try Data("partial".utf8).write(to: stagedURL)
+            throw SubprocessRunnerError.timedOut(
+                command: request.redactedCommandDescription,
+                result: successfulSubprocessResult(
+                    standardError: "stalled at \(stagedURL.path)",
+                    terminationStatus: SIGKILL
+                )
+            )
+        }
+        let timeoutResult = await FFMPEGConverter.extractAudioAsWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            baseName: "frames",
+            ffmpegPath: "/private/tools/ffmpeg",
+            trimStart: nil,
+            trimEnd: nil,
+            subprocessRunner: timeoutRunner,
+            audioStreamProvider: hasAudio
+        )
+        guard case .failed(let timeoutReason) = timeoutResult else {
+            return XCTFail("Expected timeout to fail")
+        }
+        XCTAssertTrue(timeoutReason.contains("timed out after 12 hours"))
+        XCTAssertTrue(timeoutReason.contains("<redacted>"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+
+        let missingOutputResult = await FFMPEGConverter.extractAudioAsWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            baseName: "frames",
+            ffmpegPath: "/private/tools/ffmpeg",
+            trimStart: nil,
+            trimEnd: nil,
+            subprocessRunner: RecordingSubprocessRunner { _, _ in successfulSubprocessResult() },
+            audioStreamProvider: hasAudio
+        )
+        guard case .failed(let missingReason) = missingOutputResult else {
+            return XCTFail("Expected missing output to fail validation")
+        }
+        XCTAssertEqual(missingReason, "Output file was not created")
+
+        let emptyOutputResult = await FFMPEGConverter.extractAudioAsWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            baseName: "frames",
+            ffmpegPath: "/private/tools/ffmpeg",
+            trimStart: nil,
+            trimEnd: nil,
+            subprocessRunner: RecordingSubprocessRunner { request, _ in
+                let stagedURL = URL(fileURLWithPath: try XCTUnwrap(request.arguments.last))
+                try Data().write(to: stagedURL)
+                return successfulSubprocessResult()
+            },
+            audioStreamProvider: hasAudio
+        )
+        guard case .failed(let emptyReason) = emptyOutputResult else {
+            return XCTFail("Expected empty output to fail validation")
+        }
+        XCTAssertEqual(emptyReason, "Output file is empty (0 bytes)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    func testImageSequenceAudioExtractionCancellationAndNoAudioSkipRunner() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cancelled image sequence audio \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("source.mov")
+        let outputURL = temporaryDirectory.appendingPathComponent("frames.wav")
+        try Data("partial".utf8).write(to: outputURL)
+        let runner = CountingBlockingSubprocessRunner()
+        let task = Task {
+            await FFMPEGConverter.extractAudioAsWAV(
+                inputURL: inputURL,
+                outputFolder: temporaryDirectory,
+                baseName: "frames",
+                ffmpegPath: "/private/tools/ffmpeg",
+                trimStart: nil,
+                trimEnd: nil,
+                subprocessRunner: runner,
+                audioStreamProvider: { _ in
+                    [FFMPEGProbeService.AudioStreamInfo(index: 1, channels: 2, channelLayout: "stereo", codecName: "aac")]
+                }
+            )
+        }
+
+        await runner.waitUntilStarted(count: 1)
+        task.cancel()
+        guard case .cancelled = await task.value else {
+            return XCTFail("Expected image-sequence audio cancellation")
+        }
+        XCTAssertEqual(runner.cancelledCount, 1)
+        XCTAssertEqual(try Data(contentsOf: outputURL), Data("partial".utf8))
+
+        let lateRunner = DeferredSuccessfulFileRunner(outputData: Data("late replacement".utf8))
+        let lateTask = Task {
+            await FFMPEGConverter.extractAudioAsWAV(
+                inputURL: inputURL,
+                outputFolder: temporaryDirectory,
+                baseName: "frames",
+                ffmpegPath: "/private/tools/ffmpeg",
+                trimStart: nil,
+                trimEnd: nil,
+                subprocessRunner: lateRunner,
+                audioStreamProvider: { _ in
+                    [FFMPEGProbeService.AudioStreamInfo(index: 1, channels: 2, channelLayout: "stereo", codecName: "aac")]
+                }
+            )
+        }
+        await lateRunner.waitUntilStarted()
+        lateTask.cancel()
+        lateRunner.release()
+        guard case .cancelled = await lateTask.value else {
+            return XCTFail("A late non-cooperative success must not publish after cancellation")
+        }
+        XCTAssertEqual(try Data(contentsOf: outputURL), Data("partial".utf8))
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(at: temporaryDirectory, includingPropertiesForKeys: nil)
+                .contains { $0.lastPathComponent.hasPrefix(".frames-") }
+        )
+
+        let skipRunner = RecordingSubprocessRunner { _, _ in
+            XCTFail("No-audio input must not launch FFmpeg")
+            return successfulSubprocessResult()
+        }
+        let noAudioResult = await FFMPEGConverter.extractAudioAsWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            baseName: "frames",
+            ffmpegPath: "/private/tools/ffmpeg",
+            trimStart: nil,
+            trimEnd: nil,
+            subprocessRunner: skipRunner,
+            audioStreamProvider: { _ in [] }
+        )
+        guard case .noAudioInSource = noAudioResult else {
+            return XCTFail("Expected an audio-free source to skip extraction")
+        }
+        XCTAssertNil(skipRunner.lastRequest)
+    }
+
+    func testGeneratedImageSequenceAudioExtractionPublishesWAV() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("generated image sequence audio \(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let inputURL = temporaryDirectory.appendingPathComponent("source.mkv")
+        try runFFmpeg([
+            "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "color=c=blue:s=64x32:r=24:d=0.5",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=0.5",
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-c:v", "ffv1", "-c:a", "pcm_s16le", "-shortest", inputURL.path,
+        ])
+
+        let result = await FFMPEGConverter.extractAudioAsWAV(
+            inputURL: inputURL,
+            outputFolder: temporaryDirectory,
+            baseName: "frames",
+            ffmpegPath: ffmpegExecutableURL.path,
+            trimStart: 0.1,
+            trimEnd: 0.4
+        )
+
+        guard case .extracted(let outputURL) = result else {
+            return XCTFail("Expected generated source audio to be extracted")
+        }
+        XCTAssertEqual(outputURL, temporaryDirectory.appendingPathComponent("frames.wav"))
+        let duration = try XCTUnwrap(ParsingUtils.parseDuration(from: inspectMedia(at: outputURL)))
+        XCTAssertEqual(duration, 0.3, accuracy: 0.02)
+        XCTAssertFalse(
+            try FileManager.default.contentsOfDirectory(at: temporaryDirectory, includingPropertiesForKeys: nil)
+                .contains { $0.lastPathComponent.hasPrefix(".frames-") }
+        )
+    }
+
     func testAVCIntraAudioPreprocessingUsesBoundedRedactedRunnerAndValidatesOutput() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("private AVC-Intra preprocessing \(UUID().uuidString)", isDirectory: true)
@@ -8893,6 +9185,67 @@ private final class DeferredSuccessfulWhisperRunner: SubprocessRunning, @uncheck
         let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
             defer { releaseContinuation = nil }
             return releaseContinuation
+        }
+        continuation?.resume()
+    }
+}
+
+private final class DeferredSuccessfulFileRunner: SubprocessRunning, @unchecked Sendable {
+    private let outputData: Data
+    private let lock = NSLock()
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseRequested = false
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    init(outputData: Data) {
+        self.outputData = outputData
+    }
+
+    func run(
+        _ request: SubprocessRequest,
+        outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
+    ) async throws -> SubprocessResult {
+        await withCheckedContinuation { continuation in
+            let state = lock.withLock { () -> (Bool, [CheckedContinuation<Void, Never>]) in
+                started = true
+                let waiters = startWaiters
+                startWaiters.removeAll()
+                if releaseRequested {
+                    releaseRequested = false
+                    return (true, waiters)
+                }
+                releaseContinuation = continuation
+                return (false, waiters)
+            }
+            state.1.forEach { $0.resume() }
+            if state.0 { continuation.resume() }
+        }
+
+        let outputPath = try XCTUnwrap(request.arguments.last)
+        try outputData.write(to: URL(fileURLWithPath: outputPath))
+        return successfulSubprocessResult()
+    }
+
+    func waitUntilStarted() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !started else { return true }
+                startWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately { continuation.resume() }
+        }
+    }
+
+    func release() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+            if let continuation = releaseContinuation {
+                releaseContinuation = nil
+                return continuation
+            }
+            releaseRequested = true
+            return nil
         }
         continuation?.resume()
     }
