@@ -29,7 +29,7 @@ set -euo pipefail
 echo "==> scripts/release.sh starting"
 
 echo "==> Verifying bundled dependency manifest"
-scripts/bundled-dependency-manifest.py --check
+scripts/bundled-dependency-manifest.py --check --require-complete-licenses
 
 # -----------------------------------------------------------------------------
 # Toolchain resolution
