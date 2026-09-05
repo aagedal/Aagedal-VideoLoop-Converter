@@ -17,6 +17,10 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Preview thumbnails and filmstrips no longer wait indefinitely on AVFoundation.** Native rendering has a deadline and cancellation support, and late images cannot overwrite fallback thumbnails.
+- **Player setup now ignores stale framework callbacks.** Track checks, initial seeks, and audio-selection loads are bounded; replacing or closing a player cancels owned work and prevents late results from changing the new player.
+- **DCP and IMF exports stop when a picture frame cannot be prepared.** Failed frame reads, malformed frames, and write errors are reported before video wrapping instead of silently producing an incomplete package.
+
 - **Partial-download duration inspection can no longer wait indefinitely on media parsing.** The shared duration probe now bounds its parser and AVFoundation fallbacks and returns promptly when cancelled.
 
 - **Queue failures now have an accessible Error details view.** Conversion, download, subtitle, upload, and analysis errors can be read and selected in a scrollable popover. Copy diagnostics includes app, system, and preset context with known file paths and URLs redacted; upload and analysis failures also retain their status text.

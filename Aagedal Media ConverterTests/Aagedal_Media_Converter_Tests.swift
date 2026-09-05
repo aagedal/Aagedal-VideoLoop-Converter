@@ -6,6 +6,7 @@
 //
 
 import Darwin
+import AVFoundation
 import os
 import XCTest
 @testable import Aagedal_Media_Converter
@@ -2362,6 +2363,82 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             return callback
         }
         callback?()
+    }
+
+    @MainActor
+    func testPreviewReadyStatusBoundsMetadataAndInitialSeek() async throws {
+        let url = URL(fileURLWithPath: "/private/stalled-preview.mov")
+        let video = VideoItem(url: url, name: "Preview", size: 0, duration: "00:00:01",
+                              status: .waiting, progress: 0, eta: nil, outputURL: nil)
+        let controller = PreviewPlayerController(videoItem: video)
+        let item = AVPlayerItem(url: url)
+        controller.player = AVPlayer(playerItem: item)
+        let releaseMetadata = DispatchSemaphore(value: 0)
+        let releaseSeek = DispatchSemaphore(value: 0)
+        defer {
+            releaseMetadata.signal()
+            releaseSeek.signal()
+            controller.teardown()
+        }
+        let started = ContinuousClock.now
+        controller.prepareReadyPlayerItem(item, startTime: 0, timeout: .milliseconds(30), verify: {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    releaseMetadata.wait()
+                    continuation.resume(returning: true)
+                }
+            }
+        }, seek: {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    releaseSeek.wait()
+                    continuation.resume(returning: true)
+                }
+            }
+        })
+        let task = try XCTUnwrap(controller.playerItemStatusTask)
+        await task.value
+        XCTAssertLessThan(started.duration(to: .now), .seconds(1))
+        XCTAssertTrue(controller.isReady)
+        XCTAssertNil(controller.playerItemStatusTask)
+    }
+
+    @MainActor
+    func testPreviewStatusRemovalCancelsWorkAndRejectsLateUnsupportedResult() async throws {
+        let url = URL(fileURLWithPath: "/private/replaced-preview.mov")
+        let video = VideoItem(url: url, name: "Preview", size: 0, duration: "00:00:01",
+                              status: .waiting, progress: 0, eta: nil, outputURL: nil)
+        let controller = PreviewPlayerController(videoItem: video)
+        let item = AVPlayerItem(url: url)
+        controller.player = AVPlayer(playerItem: item)
+        let probeStarted = expectation(description: "Metadata inspection started")
+        let probeFinished = expectation(description: "Late metadata inspection finished")
+        let release = DispatchSemaphore(value: 0)
+        defer { controller.teardown() }
+        controller.prepareReadyPlayerItem(item, startTime: 0, verify: {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().async {
+                    probeStarted.fulfill()
+                    release.wait()
+                    probeFinished.fulfill()
+                    continuation.resume(returning: false)
+                }
+            }
+        }, seek: { true })
+        let task = try XCTUnwrap(controller.playerItemStatusTask)
+        await fulfillment(of: [probeStarted], timeout: 1)
+        controller.removePlayerItemStatusObserver()
+        let replacement = AVPlayer()
+        controller.player = replacement
+        let started = ContinuousClock.now
+        await task.value
+        XCTAssertLessThan(started.duration(to: .now), .seconds(1))
+        release.signal()
+        await fulfillment(of: [probeFinished], timeout: 1)
+        XCTAssertTrue(controller.player === replacement)
+        XCTAssertFalse(controller.useMPV)
+        XCTAssertFalse(controller.isReady)
+        XCTAssertNil(controller.playerItemStatusTask)
     }
 
     func testBoundedVideoMetadataProbeReturnsSuccessfulResult() async throws {
@@ -9704,6 +9781,65 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
     }
 
+    func testPackageCodestreamPreparationRequiresEveryFrameAndCountsWrittenBytes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let frames = ["frame_000001.jp2", "frame_000002.jp2"]
+        let codestreams = [Data([0xFF, 0x4F, 1, 2, 0xFF, 0xD9]), Data([0xFF, 0x4F, 3, 0xFF, 0xD9])]
+        for (frame, codestream) in zip(frames, codestreams) {
+            try (Data([0, 0, 0, 12]) + codestream).write(to: root.appendingPathComponent(frame))
+        }
+        let destination = root.appendingPathComponent("codestreams")
+        var completedFrames: [Int] = []
+        let bytes = try FFMPEGConverter.preparePackageCodestreams(
+            sourceDirectory: root, frameNames: frames, destinationDirectory: destination
+        ) { completed, total in
+            XCTAssertEqual(total, 2)
+            completedFrames.append(completed)
+        }
+        XCTAssertEqual(bytes, Int64(codestreams.reduce(0) { $0 + $1.count }))
+        XCTAssertEqual(completedFrames, [1, 2])
+        for (frame, expected) in zip(frames, codestreams) {
+            let output = destination.appendingPathComponent(frame).deletingPathExtension().appendingPathExtension("j2c")
+            XCTAssertEqual(try Data(contentsOf: output), expected)
+        }
+    }
+
+    func testPackageCodestreamPreparationRejectsMissingAndMalformedFrames() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data([0xFF, 0x4F, 1]).write(to: root.appendingPathComponent("valid.jp2"))
+        try Data("invalid frame".utf8).write(to: root.appendingPathComponent("invalid.jp2"))
+        for badFrame in ["missing.jp2", "invalid.jp2"] {
+            let destination = root.appendingPathComponent(UUID().uuidString)
+            var completedFrames: [Int] = []
+            XCTAssertThrowsError(try FFMPEGConverter.preparePackageCodestreams(
+                sourceDirectory: root, frameNames: ["valid.jp2", badFrame], destinationDirectory: destination
+            ) { completed, _ in completedFrames.append(completed) })
+            XCTAssertEqual(completedFrames, [1], "A failed frame must never be counted as prepared")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: destination.appendingPathComponent(badFrame).deletingPathExtension().appendingPathExtension("j2c").path))
+        }
+    }
+
+    func testPackageCodestreamPreparationReportsDirectoryAndWriteFailures() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("frame.jp2")
+        try Data([0xFF, 0x4F, 1]).write(to: source)
+        XCTAssertThrowsError(try FFMPEGConverter.preparePackageCodestreams(
+            sourceDirectory: root, frameNames: ["frame.jp2"], destinationDirectory: source
+        ))
+        let destination = root.appendingPathComponent("output")
+        try FileManager.default.createDirectory(at: destination.appendingPathComponent("frame.j2c"), withIntermediateDirectories: true)
+        XCTAssertThrowsError(try FFMPEGConverter.preparePackageCodestreams(
+            sourceDirectory: root, frameNames: ["frame.jp2"], destinationDirectory: destination
+        ))
+        XCTAssertEqual(try Data(contentsOf: source), Data([0xFF, 0x4F, 1]))
+    }
+
     func testDCPManifestAssemblyMovesDummyEssencesAndBuildsConsistentAssets() async throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AagedalMediaConverterDCPManifestTests-\(UUID().uuidString)", isDirectory: true)
@@ -13810,5 +13946,117 @@ extension SwiftExifDurationDeadlineTests {
         stalled.release()
         await fulfillment(of: [stopped], timeout: 2)
         XCTAssertEqual(scopes.stoppedURLs, [url])
+    }
+}
+
+extension Aagedal_Media_Converter_Tests {
+    func testNativePreviewDeadlinePublishesOnlyReturnedFrameIndices() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destinations = (0..<3).map { directory.appendingPathComponent("thumb_\($0).png") }
+        let image = Data("generated image".utf8)
+        let generator = PreviewAssetGenerator(thumbnailRenderer: { _, requests in
+            XCTAssertEqual(requests.map(\.index), [0, 2])
+            return [2: image]
+        })
+        let result = try await generator.generateNativeThumbnails(
+            url: directory.appendingPathComponent("source.mov"),
+            requests: [0, 2].map { PreviewThumbnailRequest(index: $0, position: 0, width: 320, tolerance: 1) },
+            destinations: destinations
+        )
+        XCTAssertEqual(result, [2: image])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destinations[0].path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destinations[1].path))
+        XCTAssertEqual(try Data(contentsOf: destinations[2]), image)
+    }
+
+    func testNativePreviewDeadlineDoesNotPublishLateFramesOverFallback() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destinations = (0..<2).map { directory.appendingPathComponent("thumb_\($0).png") }
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let generator = PreviewAssetGenerator(
+            thumbnailTimeout: .milliseconds(50),
+            thumbnailRenderer: { _, _ in
+                await withCheckedContinuation { continuation in
+                    started.signal()
+                    DispatchQueue.global().async {
+                        release.wait()
+                        continuation.resume(returning: [0: Data("late".utf8), 1: Data("late".utf8)])
+                        finished.signal()
+                    }
+                }
+            }
+        )
+        let start = ContinuousClock.now
+        do {
+            _ = try await generator.generateNativeThumbnails(
+                url: directory.appendingPathComponent("source.mov"),
+                requests: [0, 1].map { PreviewThumbnailRequest(index: $0, position: 0, width: 320, tolerance: 1) },
+                destinations: destinations
+            )
+            XCTFail("Expected timeout")
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            // Expected even though the renderer has not completed.
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 1), .success)
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        let fallback = Data("fallback".utf8)
+        try fallback.write(to: destinations[0])
+        release.signal()
+        XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(try Data(contentsOf: destinations[0]), fallback)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destinations[1].path))
+    }
+
+    func testNativePreviewCancellationReturnsWithoutPublishingLateRowThumbnail() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("row_thumb.png")
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let finished = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let generator = PreviewAssetGenerator(
+            thumbnailTimeout: .seconds(10),
+            thumbnailRenderer: { _, _ in
+                await withCheckedContinuation { continuation in
+                    started.signal()
+                    DispatchQueue.global().async {
+                        release.wait()
+                        continuation.resume(returning: [0: Data("late".utf8)])
+                        finished.signal()
+                    }
+                }
+            }
+        )
+        let task = Task {
+            try await generator.generateNativeThumbnails(
+                url: directory.appendingPathComponent("source.mov"),
+                requests: [PreviewThumbnailRequest(index: 0, position: 1, width: 640, tolerance: 2)],
+                destinations: [destination]
+            )
+        }
+        XCTAssertEqual(started.wait(timeout: .now() + 1), .success)
+        let start = ContinuousClock.now
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+        release.signal()
+        XCTAssertEqual(finished.wait(timeout: .now() + 1), .success)
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
     }
 }
