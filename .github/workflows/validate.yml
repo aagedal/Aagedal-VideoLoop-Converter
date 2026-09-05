@@ -104,6 +104,9 @@ jobs:
             -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Verify Release architectures and library resolution
+        run: python3 scripts/verify-release-bundle.py "$RUNNER_TEMP/DerivedData/Build/Products/Release/$SCHEME.app" --architecture arm64
+
       - name: Upload diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
