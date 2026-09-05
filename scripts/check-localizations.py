@@ -15,8 +15,8 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CATALOG = ROOT / "Aagedal Media Converter/Resources/Localizable.xcstrings"
 DEFAULT_AUDIT = ROOT / "scripts/localization-audit.json"
-MISSING_CATEGORIES = {"intentional-format-token", "app-intent-phrase"}
-TRANSLATED_CATEGORIES = {"translated-user-interface"}
+MISSING_CATEGORIES = {"intentional-format-token"}
+TRANSLATED_CATEGORIES = {"translated-user-interface", "translated-app-intent"}
 PLACEHOLDER_PATTERN = re.compile(
     r"%(?:\d+\$)?(?:lld|llu|ld|lu|d|u|i|f|g|s|c|@)|\$\{[^}]+\}"
 )
@@ -167,7 +167,7 @@ def main() -> int:
     print(
         f"{locale} catalog audit: {len(strings)} total, {len(missing_locale)} missing; "
         f"{counts['intentional-format-token']} intentional tokens, "
-        f"{counts['app-intent-phrase']} App Intent phrases pending, "
+        f"{counts['translated-app-intent']} App Intent strings translated, "
         f"{counts['translated-user-interface']} UI strings translated"
     )
     if errors:

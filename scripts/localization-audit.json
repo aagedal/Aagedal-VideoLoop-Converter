@@ -18,7 +18,25 @@
       "PRESET_IMF_PRORES_DESCRIPTION",
       "yyyyMMdd"
     ],
-    "app-intent-phrase": [
+    "translated-user-interface": [
+      "%lld screens",
+      "Add Existing Virtual Display",
+      "Add Virtual Display",
+      "Choose which display(s) to record",
+      "Create a virtual display to record a window off-screen",
+      "Keep Until App Quits",
+      "Lifetime",
+      "On: virtual displays persist for the whole session. Off: each is removed when you take it off the grid or close record mode.",
+      "REC",
+      "Record All",
+      "Record All Displays",
+      "Remove Virtual Display",
+      "Stop All",
+      "The settings sync folder couldn't be monitored. Check folder access or choose another sync location: %@",
+      "The settings file couldn't be downloaded from iCloud Drive. Check your connection and try Sync Now again: %@",
+      "The settings backups folder couldn't be opened in Finder. Try again."
+    ],
+    "translated-app-intent": [
       "Animated Still",
       "Convert (Default Preset)",
       "Convert ${videos} to an animated still",
@@ -78,21 +96,6 @@
       "Remux (Stream Copy)",
       "Remux ${videos} (stream copy)",
       "Remux the selected videos with the Stream Copy preset (no re-encoding), saving alongside the source files and starting conversion immediately."
-    ],
-    "translated-user-interface": [
-      "%lld screens",
-      "Add Existing Virtual Display",
-      "Add Virtual Display",
-      "Choose which display(s) to record",
-      "Create a virtual display to record a window off-screen",
-      "Keep Until App Quits",
-      "Lifetime",
-      "On: virtual displays persist for the whole session. Off: each is removed when you take it off the grid or close record mode.",
-      "REC",
-      "Record All",
-      "Record All Displays",
-      "Remove Virtual Display",
-      "Stop All"
     ]
   },
   "placeholderExceptions": {
