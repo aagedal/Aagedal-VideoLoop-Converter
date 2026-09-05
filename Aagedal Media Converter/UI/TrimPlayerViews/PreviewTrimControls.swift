@@ -94,6 +94,9 @@ struct PreviewTrimControls: View {
             .font(.system(.subheadline, design: .monospaced))
             .foregroundColor(.accentColor)
             .help("Jump to trim start")
+            .accessibilityLabel("Jump to trim start")
+            .accessibilityValue(formatTimecodeWithMode(seconds: item.effectiveTrimStart))
+            .accessibilityIdentifier("trim.jumpToStart")
             .padding(.trailing, 15)
             
             // Current playback time - editable on double click
@@ -104,6 +107,8 @@ struct PreviewTrimControls: View {
                         .textFieldStyle(.plain)
                         .font(.system(.subheadline, design: .monospaced))
                         .focused($isTimecodeFocused)
+                        .accessibilityLabel("Playback timecode")
+                        .accessibilityIdentifier("trim.timecodeInput")
                         .onSubmit {
                             seekToTimecode()
                         }
@@ -125,6 +130,13 @@ struct PreviewTrimControls: View {
                     startTimecodeEdit()
                 }
                 .help("Double-click to enter timecode. Click mode label or press T to toggle mode.")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Playback timecode")
+                .accessibilityValue(formatTimecodeWithMode(seconds: currentPlaybackTime))
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { startTimecodeEdit() }
+                .accessibilityAction(named: "Cycle timecode mode") { timecodeDisplayMode.toggle() }
+                .accessibilityIdentifier("trim.timecode")
             }
 
             Button(action: { controller.seekTo(item.effectiveTrimEnd) }) {
@@ -135,6 +147,9 @@ struct PreviewTrimControls: View {
             .font(.system(.subheadline, design: .monospaced))
             .foregroundColor(.accentColor)
             .help("Jump to trim end")
+            .accessibilityLabel("Jump to trim end")
+            .accessibilityValue(formatTimecodeWithMode(seconds: item.effectiveTrimEnd))
+            .accessibilityIdentifier("trim.jumpToEnd")
 
             // Frame rate picker for image sequences
             if item.isImageSequence, item.imageSequenceConfig != nil {
@@ -158,6 +173,8 @@ struct PreviewTrimControls: View {
                         .help("Reveal last screenshot in Finder")
                         .foregroundColor(controller.lastScreenshotURL == nil ? .gray : .blue)
                 }
+                .accessibilityLabel("Reveal last screenshot in Finder")
+                .accessibilityIdentifier("trim.revealScreenshot")
                 .disabled(controller.lastScreenshotURL == nil ? true : false)
 
                 // Draggable icon for last screenshot
@@ -186,6 +203,9 @@ struct PreviewTrimControls: View {
                     }
                     .buttonStyle(.plain)
                     .help("Toggle crop controls (C)")
+                    .accessibilityLabel("Crop controls")
+                    .accessibilityValue(isCropControlsExpanded ? "Expanded" : "Collapsed")
+                    .accessibilityIdentifier("trim.cropControls")
 
                     if let config = item.cropConfig, config.isActive {
                         Text("\(Int(config.normalizedRect.width * 100))%")
@@ -231,6 +251,8 @@ struct PreviewTrimControls: View {
             }
             .disabled(item.trimStart == nil && item.trimEnd == nil)
             .help("Reset trim points")
+            .accessibilityLabel("Reset trim points")
+            .accessibilityIdentifier("trim.reset")
         }
         .fixedSize(horizontal: false, vertical: true)
     }
