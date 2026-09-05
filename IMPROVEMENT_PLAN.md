@@ -1,6 +1,6 @@
 # Aagedal Media Converter Improvement Plan
 
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 This is the prioritized improvement roadmap. `TODO.md` remains a small historical
 feature checklist; new improvement work should be tracked here with an owner or
@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 303 tests pass. The
+- The unit-test baseline is green: 308 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 303 unit tests. The UI test target now has deterministic smoke
+- There are 308 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -316,7 +316,7 @@ Target: after the correctness net; approximately 1–2 weeks.
 
 ### 2.1 Introduce one subprocess runner
 
-Status: in progress; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
+Status: completed 2026-09-05; shared runner plus yt-dlp, rclone, OCR, Whisper, Parakeet,
 analytics, package-version probes, merge preparation, screenshot capture, and the
 ordinary FFmpeg conversion, Deno archive extraction, and yt-dlp warm-up paths
 migrated 2026-09-01–04. Image-sequence WAV sidecar extraction and AV2 one-shot
@@ -360,8 +360,7 @@ user-cancel, live-stop, and stall outcomes, cancel the full subprocess tree, and
 one concurrent or late download from cancelling or clearing another. Fake-runner tests
 cover split output, successful result validation, redacted failures, explicit and parent-task
 cancellation, and live-stop behavior; the runner also verifies that every captured byte reaches its
-incremental handler, including final-drain bytes. Robust process-group isolation is still
-open, so this item remains in progress.
+incremental handler, including final-drain bytes.
 
 The rclone upload, connection-test, and password-obscuring paths now use the shared
 runner with six-hour, one-minute, and five-second deadlines respectively, bounded
@@ -688,7 +687,17 @@ cleanup, and two-stage cancellation.
 The Homebrew/Python resolver now returns immutable executable, argument, and environment
 configurations directly to yt-dlp, its updater, and Parakeet. The five configuration-only
 `Process` shims have been removed, leaving the shared runner as the sole production owner of
-`Process`. Robust process-group isolation still remains open, so this item stays in progress.
+subprocess launch.
+
+The runner now launches each tool atomically into a dedicated POSIX process group instead
+of discovering descendants from a point-in-time PID-tree snapshot. Cancellation and timeout
+send TERM and then KILL to the whole group, including descendants created during shutdown or
+reparented after a wrapper exits. The direct `posix_spawn` path preserves explicit/inherited
+environments, working directories, stdin/stdout/stderr behavior, an empty signal mask, and
+structured exit status. Focused tests cover group identity, environment and working-directory
+semantics, descendant cleanup, TERM-ignoring escalation, pipelines, streaming input, bounded
+capture, and cancellation. A child that deliberately escapes with `setsid`/`setpgid` remains
+outside the runner's control, matching ordinary process-group semantics.
 
 ### 2.2 Remove sync-over-async waits
 
@@ -864,7 +873,7 @@ cancel an in-flight transfer or report its terminal failure, while duplicate cal
 explicit in-progress error. Focused tests cover deadline policy, cache layout and progress,
 metadata and parent cancellation, concurrent-model isolation, duplicate callers, atomic
 replacement of incomplete caches, late retry results and failures, truncated non-LFS files,
-checksum failure, unsafe remote paths, and staging cleanup. All 303 unit tests pass;
+checksum failure, unsafe remote paths, and staging cleanup. All 308 unit tests pass;
 the wider audit of remaining unbounded framework callbacks continues.
 
 ### 2.3 Standardize user-visible errors
@@ -884,6 +893,12 @@ continues into a misleading manifest-assembly failure. The conversion now logs t
 underlying filesystem diagnostic, reports a concise package-specific queue error,
 skips manifest publication, and still cleans temporary essences. Both new messages
 are included in the Norwegian catalog.
+
+Settings sync no longer treats an unreadable, malformed, or newer-format snapshot as
+if no remote file existed. Automatic reconciliation preserves the existing file instead
+of overwriting it with local settings, publishes an actionable Settings error, and logs
+the failure; manual import uses the same validated decoder. Focused tests cover valid,
+malformed, and unsupported-schema snapshots.
 
 ## Priority 3 — Reduce change risk in architecture
 
@@ -940,6 +955,9 @@ unlabeled interactive controls in Accessibility Inspector.
 
 ### 4.2 Close the localization gap
 
+Status: in progress; Norwegian catalog omissions classified and checked in CI
+2026-09-05.
+
 - Classify the 87 Norwegian-missing entries as user-facing text, intentional
   format tokens, or App Intent phrases.
 - Translate user-facing text and validate interpolation/plural variants.
@@ -948,6 +966,14 @@ unlabeled interactive controls in Accessibility Inspector.
 
 Acceptance: CI reports no unclassified user-facing strings missing Norwegian, and
 both locales fit without clipped controls.
+
+The 87-entry Norwegian gap has been classified as 15 intentional format/command
+tokens, 59 App Intent phrases, and 13 ordinary interface strings. All 13 interface
+strings are now translated, and a checked-in audit plus CI script rejects new
+unclassified omissions, stale classifications, incorrectly translatable format
+tokens, and interpolation mismatches. The audit also fixed a malformed `%@`
+placeholder in the Norwegian timecode help text. Translating the 59 App Intent
+phrases and performing English/Norwegian screenshot and clipping checks remain.
 
 ### 4.3 Finish broadcast-grade screen-recording rates
 
@@ -975,6 +1001,8 @@ Terminal unless installation itself requires it.
 
 Target: before the next public release, then automate.
 
+Status: in progress; reproducible bundled Mach-O inventory added 2026-09-05.
+
 - Inventory bundled executables and dylibs; remove anything unreachable from the
   shipping app after dependency verification.
 - Generate a version/checksum/license manifest for bundled tools.
@@ -988,6 +1016,16 @@ Target: before the next public release, then automate.
 
 Acceptance: a release fails early when a binary, license, signature, architecture,
 or update artifact is inconsistent.
+
+`BundledDependencies.json` now records every executable and dylib shipped from the
+app's Binaries and Frameworks directories, including byte size, SHA-256, file mode,
+architecture, linked libraries, dylib install names, and available tool versions.
+The generator runs in CI and at the start of a release, so a changed, added, or
+removed binary cannot ship with a stale inventory. Known executable licenses are
+identified without guessing; the manifest deliberately lists missing local license
+files and unclassified dylib licenses as release follow-up. Full per-library license
+attribution, reachability analysis, and signed/notarized artifact verification remain
+open.
 
 ## Suggested delivery sequence
 

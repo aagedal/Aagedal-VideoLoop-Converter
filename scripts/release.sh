@@ -28,6 +28,9 @@ set -euo pipefail
 
 echo "==> scripts/release.sh starting"
 
+echo "==> Verifying bundled dependency manifest"
+scripts/bundled-dependency-manifest.py --check
+
 # -----------------------------------------------------------------------------
 # Toolchain resolution
 # -----------------------------------------------------------------------------

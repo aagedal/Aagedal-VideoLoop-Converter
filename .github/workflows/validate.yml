@@ -31,6 +31,12 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify bundled dependency manifest
+        run: scripts/bundled-dependency-manifest.py --check
+
+      - name: Check localization catalog
+        run: python3 scripts/check-localizations.py
+
       - name: Build Debug app
         run: |
           set -o pipefail

@@ -60,6 +60,9 @@ final class SettingsSyncService {
     /// The `defaults` payload we last wrote, used to skip no-op rewrites triggered
     /// by unrelated `UserDefaults` churn.
     private var lastWrittenDefaults: [String: JSONValue]?
+    /// A snapshot that exists but could not be validated must not be replaced by
+    /// a local-change debounce or the write half of "Sync Now".
+    private var protectedUnreadableSnapshotURL: URL?
 
     private var writeDebounce: DispatchWorkItem?
     private var directorySource: DispatchSourceFileSystemObject?
@@ -151,11 +154,7 @@ final class SettingsSyncService {
     /// Imports a snapshot from an arbitrary file (manual "Import Settings…").
     @discardableResult
     func importSnapshot(from url: URL, notify: Bool) throws -> SettingsSnapshot {
-        let data = try Data(contentsOf: url)
-        let snapshot = try Self.makeDecoder().decode(SettingsSnapshot.self, from: data)
-        guard snapshot.schemaVersion <= SettingsSnapshot.currentSchemaVersion else {
-            throw SyncError.unsupportedSchema(snapshot.schemaVersion)
-        }
+        let snapshot = try readSnapshot(at: url)
         apply(snapshot, notify: notify)
         return snapshot
     }
@@ -249,6 +248,12 @@ final class SettingsSyncService {
             lastErrorMessage = SyncError.locationUnavailable.localizedDescription
             return
         }
+        guard protectedUnreadableSnapshotURL?.standardizedFileURL != fileURL.standardizedFileURL else {
+            return
+        }
+        // Do not seed over an iCloud placeholder while the remote snapshot is
+        // still downloading. The directory monitor will retry after it arrives.
+        guard !hasUndownloadedICloudFile(fileURL) else { return }
         let snapshot = makeSnapshot(modifiedAt: Date())
         // Never clobber a good file with an empty snapshot — that only happens via
         // a bug, and a remote copy could otherwise be wiped out.
@@ -278,15 +283,19 @@ final class SettingsSyncService {
     private func checkForRemoteChanges() {
         guard syncEnabled, !isApplyingRemote, let fileURL = snapshotFileURL() else { return }
         ensureDownloaded(fileURL)
-        guard FileManager.default.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
-              let snapshot = try? Self.makeDecoder().decode(SettingsSnapshot.self, from: data) else {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            protectedUnreadableSnapshotURL = nil
             return
         }
-        guard snapshot.schemaVersion <= SettingsSnapshot.currentSchemaVersion else {
-            lastErrorMessage = SyncError.unsupportedSchema(snapshot.schemaVersion).localizedDescription
+        let snapshot: SettingsSnapshot
+        do {
+            snapshot = try readSnapshot(at: fileURL)
+        } catch {
+            reportSnapshotReadFailure(error, at: fileURL)
             return
         }
+        protectedUnreadableSnapshotURL = nil
+        lastErrorMessage = nil
         // Newest-wins: only import a strictly newer snapshot. This also filters out
         // our own writes (whose timestamp we record in lastAppliedModifiedAt).
         if let applied = lastAppliedModifiedAt, snapshot.modifiedAt <= applied { return }
@@ -318,18 +327,26 @@ final class SettingsSyncService {
             return
         }
         ensureDownloaded(fileURL)
-        if FileManager.default.fileExists(atPath: fileURL.path),
-           let data = try? Data(contentsOf: fileURL),
-           let snapshot = try? Self.makeDecoder().decode(SettingsSnapshot.self, from: data),
-           snapshot.schemaVersion <= SettingsSnapshot.currentSchemaVersion {
-            apply(snapshot, notify: true)
-            lastSyncDate = snapshot.modifiedAt
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            do {
+                let snapshot = try readSnapshot(at: fileURL)
+                apply(snapshot, notify: true)
+                lastSyncDate = snapshot.modifiedAt
+                protectedUnreadableSnapshotURL = nil
+                lastErrorMessage = nil
+            } catch {
+                // Preserve the existing file. Treating a malformed or temporarily
+                // unreadable snapshot as "missing" would let writeSnapshot() replace
+                // the only remote copy with this Mac's settings.
+                reportSnapshotReadFailure(error, at: fileURL)
+            }
         } else if hasUndownloadedICloudFile(fileURL) {
             // A remote snapshot exists but hasn't downloaded yet. Don't seed over
             // it — wait for the download; the directory monitor and app-activation
             // re-check will import it once it lands.
             return
         } else {
+            protectedUnreadableSnapshotURL = nil
             writeSnapshot()
         }
     }
@@ -486,15 +503,48 @@ final class SettingsSyncService {
         return encoder
     }
 
-    private static func makeDecoder() -> JSONDecoder {
+    nonisolated private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
     }
 
+    /// Decodes and validates the portable settings format without applying it.
+    /// Kept internal so format failures can be covered without mutating user defaults.
+    nonisolated static func decodeSnapshot(_ data: Data) throws -> SettingsSnapshot {
+        let snapshot: SettingsSnapshot
+        do {
+            snapshot = try makeDecoder().decode(SettingsSnapshot.self, from: data)
+        } catch {
+            throw SyncError.invalidFile
+        }
+        guard snapshot.schemaVersion <= SettingsSnapshot.currentSchemaVersion else {
+            throw SyncError.unsupportedSchema(snapshot.schemaVersion)
+        }
+        return snapshot
+    }
+
+    private func readSnapshot(at url: URL) throws -> SettingsSnapshot {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            throw SyncError.fileReadFailed(error.localizedDescription)
+        }
+        return try Self.decodeSnapshot(data)
+    }
+
+    private func reportSnapshotReadFailure(_ error: Error, at url: URL) {
+        protectedUnreadableSnapshotURL = url
+        lastErrorMessage = error.localizedDescription
+        logger.error("Failed to read settings snapshot: \(error.localizedDescription, privacy: .public)")
+    }
+
     enum SyncError: LocalizedError {
         case unsupportedSchema(Int)
         case locationUnavailable
+        case invalidFile
+        case fileReadFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -507,6 +557,16 @@ final class SettingsSyncService {
                 return String(
                     localized: "The sync location isn't available. Turn on iCloud Drive or choose a custom folder.",
                     comment: "Settings sync location error."
+                )
+            case .invalidFile:
+                return String(
+                    localized: "The settings file is damaged or isn't a valid Aagedal Media Converter settings file. Choose another file or restore a backup.",
+                    comment: "Settings sync import error for malformed JSON or an invalid settings snapshot."
+                )
+            case .fileReadFailed(let details):
+                return String(
+                    localized: "The settings file couldn't be read: \(details)",
+                    comment: "Settings sync read error followed by the filesystem diagnostic."
                 )
             }
         }

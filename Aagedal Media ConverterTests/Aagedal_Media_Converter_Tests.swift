@@ -12,6 +12,52 @@ import XCTest
 
 final class Aagedal_Media_Converter_Tests: XCTestCase {
 
+    func testSettingsSnapshotDecoderAcceptsCurrentFormat() throws {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let source = SettingsSnapshot(
+            defaults: ["example": .string("value")],
+            modifiedAt: date
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        let decoded = try SettingsSyncService.decodeSnapshot(encoder.encode(source))
+
+        XCTAssertEqual(decoded.schemaVersion, SettingsSnapshot.currentSchemaVersion)
+        XCTAssertEqual(decoded.modifiedAt, date)
+        XCTAssertEqual(decoded.defaults, source.defaults)
+    }
+
+    func testSettingsSnapshotDecoderRejectsMalformedFileWithActionableError() {
+        XCTAssertThrowsError(
+            try SettingsSyncService.decodeSnapshot(Data("not settings JSON".utf8))
+        ) { error in
+            guard case SettingsSyncService.SyncError.invalidFile = error else {
+                return XCTFail("Expected invalid-file error, got \(error)")
+            }
+            XCTAssertTrue(error.localizedDescription.contains("restore a backup"))
+        }
+    }
+
+    func testSettingsSnapshotDecoderRejectsNewerSchemaWithoutApplyingIt() throws {
+        let data = Data("""
+        {
+          "schemaVersion": \(SettingsSnapshot.currentSchemaVersion + 1),
+          "appVersion": "future",
+          "deviceName": "Future Mac",
+          "modifiedAt": "2026-09-05T10:00:00Z",
+          "defaults": {}
+        }
+        """.utf8)
+
+        XCTAssertThrowsError(try SettingsSyncService.decodeSnapshot(data)) { error in
+            guard case SettingsSyncService.SyncError.unsupportedSchema(let version) = error else {
+                return XCTFail("Expected unsupported-schema error, got \(error)")
+            }
+            XCTAssertEqual(version, SettingsSnapshot.currentSchemaVersion + 1)
+        }
+    }
+
     func testSubprocessRunnerCapturesOutputAndStructuredExit() async throws {
         let result = try await SubprocessRunner().run(
             SubprocessRequest(
@@ -413,6 +459,44 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
 
         XCTAssertTrue(result.succeeded)
         XCTAssertLessThan(start.duration(to: .now), .seconds(1))
+    }
+
+    func testSubprocessRunnerLaunchesChildInDedicatedProcessGroup() async throws {
+        let result = try await SubprocessRunner().run(
+            SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: [
+                    "-c",
+                    "printf '%s %s\\n' \"$$\" \"$(ps -o pgid= -p $$ | tr -d ' ')\""
+                ]
+            )
+        )
+
+        let identifiers = result.standardOutputText.split(whereSeparator: { $0.isWhitespace })
+            .compactMap { pid_t($0) }
+        XCTAssertEqual(identifiers.count, 2)
+        XCTAssertEqual(identifiers.first, identifiers.last)
+        XCTAssertNotEqual(identifiers.first, Darwin.getpgrp())
+    }
+
+    func testSubprocessRunnerPosixSpawnPreservesEnvironmentAndCurrentDirectory() async throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SubprocessSpawn-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        try Data().write(to: temporaryDirectory.appendingPathComponent("cwd-marker"))
+
+        let result = try await SubprocessRunner().run(
+            SubprocessRequest(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "test -f cwd-marker && printf '%s' \"$SPAWN_TEST_VALUE\""],
+                environment: ["SPAWN_TEST_VALUE": "inherited"],
+                currentDirectoryURL: temporaryDirectory
+            )
+        )
+
+        XCTAssertTrue(result.succeeded)
+        XCTAssertEqual(result.standardOutputText, "inherited")
     }
 
     func testSubprocessRunnerTimeoutTerminatesDescendant() async throws {

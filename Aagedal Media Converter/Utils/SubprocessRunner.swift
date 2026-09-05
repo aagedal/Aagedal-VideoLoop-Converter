@@ -484,7 +484,7 @@ private enum SubprocessTerminationCause: Sendable {
 private final class SubprocessExecution: @unchecked Sendable {
     private let request: SubprocessRequest
     private let outputHandler: (@Sendable (SubprocessOutputChunk) -> Void)?
-    private let process = Process()
+    private let process = IsolatedProcess()
     private let stdoutPipe = Pipe()
     private let stderrPipe = Pipe()
     private let stdinPipe: Pipe?
@@ -524,14 +524,6 @@ private final class SubprocessExecution: @unchecked Sendable {
     }
 
     func start() throws {
-        process.executableURL = request.executableURL
-        process.arguments = request.arguments
-        process.environment = request.environment
-        process.currentDirectoryURL = request.currentDirectoryURL
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        process.standardInput = stdinPipe ?? FileHandle.nullDevice
-
         installReadabilityHandler(
             on: stdoutPipe.fileHandleForReading,
             stream: .standardOutput,
@@ -550,7 +542,15 @@ private final class SubprocessExecution: @unchecked Sendable {
         }
 
         do {
-            try process.run()
+            try process.run(
+                executableURL: request.executableURL,
+                arguments: request.arguments,
+                environment: request.environment,
+                currentDirectoryURL: request.currentDirectoryURL,
+                standardInput: stdinPipe,
+                standardOutput: stdoutPipe,
+                standardError: stderrPipe
+            )
         } catch {
             removeReadabilityHandlers()
             throw error
@@ -689,9 +689,7 @@ private final class SubprocessExecution: @unchecked Sendable {
         }
         let stdout = stdoutCollector.snapshot()
         let stderr = stderrCollector.snapshot()
-        let reason: SubprocessTermination = process.terminationReason == .exit
-            ? .exited
-            : .uncaughtSignal
+        let reason = process.termination
         return SubprocessResult(
             terminationStatus: process.terminationStatus,
             termination: reason,
@@ -773,8 +771,6 @@ private final class SubprocessExecution: @unchecked Sendable {
 
     private func terminateProcessTree() {
         guard process.isRunning else { return }
-        let processID = process.processIdentifier
-        let initialDescendants = Self.descendantProcessIDs(of: processID)
         let gracePeriod = request.terminationGracePeriod
         let cleanupTask = Task.detached(priority: .utility) { [process] in
             do {
@@ -783,24 +779,12 @@ private final class SubprocessExecution: @unchecked Sendable {
                 return
             }
 
-            var remainingDescendants = initialDescendants
-            if process.isRunning {
-                remainingDescendants.append(contentsOf: Self.descendantProcessIDs(of: processID))
-            }
-            for childID in Set(remainingDescendants) {
-                _ = Darwin.kill(childID, SIGKILL)
-            }
-            if process.isRunning {
-                _ = Darwin.kill(processID, SIGKILL)
-            }
+            process.terminateProcessGroup(with: SIGKILL)
         }
         lock.withLock {
             terminationCleanupTask = cleanupTask
         }
 
-        for childID in initialDescendants.reversed() {
-            _ = Darwin.kill(childID, SIGTERM)
-        }
         process.terminate()
     }
 
@@ -811,26 +795,206 @@ private final class SubprocessExecution: @unchecked Sendable {
         }
     }
 
-    private static func descendantProcessIDs(of processID: pid_t) -> [pid_t] {
-        childProcessIDs(of: processID).flatMap { childID in
-            [childID] + descendantProcessIDs(of: childID)
+}
+
+/// Minimal `posix_spawn` wrapper that atomically places each launched tool in a new process group.
+/// Group signaling is race-free for ordinary descendants: processes forked after cancellation or
+/// reparented after a wrapper exits remain members until they explicitly leave the group.
+private final class IsolatedProcess: @unchecked Sendable {
+    typealias TerminationHandler = @Sendable (IsolatedProcess) -> Void
+
+    private let lock = NSLock()
+    private var processID: pid_t = 0
+    private var running = false
+    private var status: Int32 = 0
+    private var reason: SubprocessTermination = .exited
+
+    var terminationHandler: TerminationHandler?
+
+    var isRunning: Bool {
+        lock.withLock { running }
+    }
+
+    var terminationStatus: Int32 {
+        lock.withLock { status }
+    }
+
+    var termination: SubprocessTermination {
+        lock.withLock { reason }
+    }
+
+    func run(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String]?,
+        currentDirectoryURL: URL?,
+        standardInput: Pipe?,
+        standardOutput: Pipe,
+        standardError: Pipe
+    ) throws {
+        var fileActions: posix_spawn_file_actions_t?
+        try Self.check(posix_spawn_file_actions_init(&fileActions))
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        var attributes: posix_spawnattr_t?
+        try Self.check(posix_spawnattr_init(&attributes))
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        var signalMask = sigset_t()
+        sigemptyset(&signalMask)
+        try Self.check(posix_spawnattr_setsigmask(&attributes, &signalMask))
+        try Self.check(
+            posix_spawnattr_setflags(
+                &attributes,
+                Int16(
+                    POSIX_SPAWN_SETPGROUP
+                        | POSIX_SPAWN_SETSIGMASK
+                        | POSIX_SPAWN_CLOEXEC_DEFAULT
+                )
+            )
+        )
+        // A zero pgroup asks posix_spawn to use the child's PID as its process-group ID.
+        try Self.check(posix_spawnattr_setpgroup(&attributes, 0))
+
+        if let currentDirectoryURL {
+            try currentDirectoryURL.withUnsafeFileSystemRepresentation { path in
+                guard let path else { throw POSIXError(.EINVAL) }
+                if #available(macOS 26.0, *) {
+                    try Self.check(posix_spawn_file_actions_addchdir(&fileActions, path))
+                } else {
+                    try Self.check(posix_spawn_file_actions_addchdir_np(&fileActions, path))
+                }
+            }
+        }
+
+        if let standardInput {
+            try Self.addPipe(
+                standardInput,
+                childDescriptor: STDIN_FILENO,
+                childUsesReadEnd: true,
+                actions: &fileActions
+            )
+        } else {
+            try Self.check(
+                posix_spawn_file_actions_addopen(
+                    &fileActions,
+                    STDIN_FILENO,
+                    "/dev/null",
+                    O_RDONLY,
+                    0
+                )
+            )
+        }
+        try Self.addPipe(
+            standardOutput,
+            childDescriptor: STDOUT_FILENO,
+            childUsesReadEnd: false,
+            actions: &fileActions
+        )
+        try Self.addPipe(
+            standardError,
+            childDescriptor: STDERR_FILENO,
+            childUsesReadEnd: false,
+            actions: &fileActions
+        )
+
+        let argumentStorage = ([executableURL.path] + arguments).map { strdup($0) }
+        guard argumentStorage.allSatisfy({ $0 != nil }) else { throw POSIXError(.ENOMEM) }
+        defer { argumentStorage.forEach { free($0) } }
+        var argumentVector = argumentStorage.map { $0.map(UnsafeMutablePointer.init) }
+        argumentVector.append(nil)
+
+        let environmentValues = environment ?? ProcessInfo.processInfo.environment
+        let environmentStorage = environmentValues.map { strdup("\($0.key)=\($0.value)") }
+        guard environmentStorage.allSatisfy({ $0 != nil }) else { throw POSIXError(.ENOMEM) }
+        defer { environmentStorage.forEach { free($0) } }
+        var environmentVector = environmentStorage.map { $0.map(UnsafeMutablePointer.init) }
+        environmentVector.append(nil)
+
+        var spawnedPID: pid_t = 0
+        let spawnResult = executableURL.withUnsafeFileSystemRepresentation { executablePath in
+            guard let executablePath else { return EINVAL }
+            return posix_spawn(
+                &spawnedPID,
+                executablePath,
+                &fileActions,
+                &attributes,
+                &argumentVector,
+                &environmentVector
+            )
+        }
+        try Self.check(spawnResult)
+
+        lock.withLock {
+            processID = spawnedPID
+            running = true
+        }
+        let processIDToWaitFor = spawnedPID
+        DispatchQueue.global(qos: .utility).async { [self] in
+            waitForTermination(of: processIDToWaitFor)
         }
     }
 
-    private static func childProcessIDs(of processID: pid_t) -> [pid_t] {
-        let requiredBytes = proc_listchildpids(processID, nil, 0)
-        guard requiredBytes > 0 else { return [] }
+    func terminate() {
+        terminateProcessGroup(with: SIGTERM)
+    }
 
-        let capacity = Int(requiredBytes) / MemoryLayout<pid_t>.stride
-        var processIDs = [pid_t](repeating: 0, count: capacity)
-        let writtenCount = processIDs.withUnsafeMutableBytes { buffer in
-            proc_listchildpids(processID, buffer.baseAddress, Int32(buffer.count))
+    func terminateProcessGroup(with signal: Int32) {
+        let groupID = lock.withLock { processID }
+        guard groupID > 0 else { return }
+        _ = Darwin.kill(-groupID, signal)
+    }
+
+    private func waitForTermination(of spawnedPID: pid_t) {
+        var waitStatus: Int32 = 0
+        var result: pid_t
+        repeat {
+            result = Darwin.waitpid(spawnedPID, &waitStatus, 0)
+        } while result == -1 && errno == EINTR
+
+        let handler = lock.withLock { () -> TerminationHandler? in
+            guard running else { return nil }
+            running = false
+            if result == spawnedPID {
+                let terminatingSignal = waitStatus & 0x7f
+                if terminatingSignal == 0 {
+                    status = (waitStatus >> 8) & 0xff
+                    reason = .exited
+                } else {
+                    status = terminatingSignal
+                    reason = .uncaughtSignal
+                }
+            } else {
+                status = -1
+                reason = .uncaughtSignal
+            }
+            return terminationHandler
         }
-        guard writtenCount > 0 else { return [] }
+        handler?(self)
+    }
 
-        // Unlike proc_listpids, proc_listchildpids returns a PID count when a buffer is supplied.
-        let count = min(Int(writtenCount), processIDs.count)
-        return Array(processIDs.prefix(count)).filter { $0 > 0 }
+    private static func addPipe(
+        _ pipe: Pipe,
+        childDescriptor: Int32,
+        childUsesReadEnd: Bool,
+        actions: inout posix_spawn_file_actions_t?
+    ) throws {
+        let readDescriptor = pipe.fileHandleForReading.fileDescriptor
+        let writeDescriptor = pipe.fileHandleForWriting.fileDescriptor
+        let sourceDescriptor = childUsesReadEnd ? readDescriptor : writeDescriptor
+        try check(posix_spawn_file_actions_adddup2(&actions, sourceDescriptor, childDescriptor))
+        if readDescriptor != childDescriptor {
+            try check(posix_spawn_file_actions_addclose(&actions, readDescriptor))
+        }
+        if writeDescriptor != childDescriptor {
+            try check(posix_spawn_file_actions_addclose(&actions, writeDescriptor))
+        }
+    }
+
+    private static func check(_ result: Int32) throws {
+        guard result == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: result) ?? .EINVAL)
+        }
     }
 }
 
