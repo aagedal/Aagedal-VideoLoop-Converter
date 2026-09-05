@@ -14076,6 +14076,292 @@
           }
         }
       }
+    },
+    "Error details" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feildetaljer"
+          }
+        }
+      }
+    },
+    "Copy diagnostics" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopier diagnostikk"
+          }
+        }
+      }
+    },
+    "Download failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nedlasting mislyktes"
+          }
+        }
+      }
+    },
+    "Conversion failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konvertering mislyktes"
+          }
+        }
+      }
+    },
+    "Subtitle generation failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generering av undertekster mislyktes"
+          }
+        }
+      }
+    },
+    "Analysis failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Analyse mislyktes"
+          }
+        }
+      }
+    },
+    "Crop horizontal position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskjæringens horisontale posisjon"
+          }
+        }
+      }
+    },
+    "Crop vertical position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskjæringens vertikale posisjon"
+          }
+        }
+      }
+    },
+    "Crop width" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskjæringsbredde"
+          }
+        }
+      }
+    },
+    "Crop height" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskjæringshøyde"
+          }
+        }
+      }
+    },
+    "Crop aspect ratio" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskjæringens sideforhold"
+          }
+        }
+      }
+    },
+    "Enter a pixel value and press Return to apply." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skriv inn en pikselverdi og trykk Retur for å bruke den."
+          }
+        }
+      }
+    },
+    "Playback timecode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tidskode for avspilling"
+          }
+        }
+      }
+    },
+    "Cycle timecode mode" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bytt tidskodemodus"
+          }
+        }
+      }
+    },
+    "Crop controls" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskjæringskontroller"
+          }
+        }
+      }
+    },
+    "Expanded" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utvidet"
+          }
+        }
+      }
+    },
+    "Collapsed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjult"
+          }
+        }
+      }
+    },
+    "Hide playback controls" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skjul avspillingskontroller"
+          }
+        }
+      }
+    },
+    "Show playback controls" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis avspillingskontroller"
+          }
+        }
+      }
+    },
+    "Close fullscreen player" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lukk fullskjermspilleren"
+          }
+        }
+      }
+    },
+    "Previous in queue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forrige i køen"
+          }
+        }
+      }
+    },
+    "Next in queue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neste i køen"
+          }
+        }
+      }
+    },
+    "Automatically play next item" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spill neste element automatisk"
+          }
+        }
+      }
+    },
+    "Loop queue" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gjenta køen"
+          }
+        }
+      }
+    },
+    "Playback position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avspillingsposisjon"
+          }
+        }
+      }
+    },
+    "%@ pixels" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ piksler"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

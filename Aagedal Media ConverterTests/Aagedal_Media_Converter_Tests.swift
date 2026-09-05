@@ -12,6 +12,44 @@ import XCTest
 
 final class Aagedal_Media_Converter_Tests: XCTestCase {
 
+    func testQueueFailureDiagnosticsIncludesAllFailedStages() throws {
+        let details = try XCTUnwrap(QueueFailureDiagnostics.details(
+            downloadError: "download detail", conversionFailed: true,
+            conversionError: "encode detail", subtitleStatus: .failed("subtitle detail"),
+            uploadStatus: .failed("upload detail"), analyticsStatus: .failed("analysis detail")
+        ))
+        for message in ["download detail", "encode detail", "subtitle detail", "upload detail", "analysis detail"] {
+            XCTAssertTrue(details.contains(message))
+        }
+        XCTAssertNil(QueueFailureDiagnostics.details(
+            downloadError: nil, conversionFailed: false, conversionError: "stale error",
+            subtitleStatus: .notQueued, uploadStatus: .cancelled, analyticsStatus: .completed
+        ))
+    }
+
+    func testQueueFailureDiagnosticsKeepsFailuresWithoutTechnicalMessages() throws {
+        let details = try XCTUnwrap(QueueFailureDiagnostics.details(
+            downloadError: nil, conversionFailed: true, conversionError: nil,
+            subtitleStatus: .notQueued, uploadStatus: .notQueued, analyticsStatus: .notQueued
+        ))
+        XCTAssertFalse(details.isEmpty)
+    }
+
+    func testCopiedQueueDiagnosticsRedactsKnownPathsAndRemoteCredentials() {
+        let report = QueueFailureDiagnostics.report(
+            details: "Failed /Users/person/Secret Clip.mov to /Volumes/Private/output.mov; https://user:password@example.com/file?token=secret; decoder returned 42",
+            appVersion: "4.3 (123)", systemVersion: "macOS test", preset: "H.264",
+            privateValues: ["/Users/person/Secret Clip.mov", "/Volumes/Private/output.mov", ""]
+        )
+        for privateText in ["Secret Clip", "/Users/person", "/Volumes/Private", "password", "token=secret", "example.com"] {
+            XCTAssertFalse(report.contains(privateText))
+        }
+        XCTAssertTrue(report.contains("4.3 (123)"))
+        XCTAssertTrue(report.contains("macOS test"))
+        XCTAssertTrue(report.contains("H.264"))
+        XCTAssertTrue(report.contains("decoder returned 42"))
+    }
+
     func testSettingsMonitorCreatesDirectoryAndOpensDescriptor() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
