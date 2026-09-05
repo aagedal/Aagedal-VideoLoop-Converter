@@ -102,6 +102,8 @@ actor FFMPEGConverter {
     private var currentImageSequenceAudioTaskID: UUID?
     private var currentPackageAudioTask: Task<AudioExtractionResult, Never>?
     private var currentPackageAudioTaskID: UUID?
+    private var currentPackagePreparationTask: Task<Int64, Error>?
+    private var currentPackagePreparationTaskID: UUID?
     private var currentPackageWrapperTask: Task<PackageWrapperResult, Never>?
     private var currentPackageWrapperTaskID: UUID?
     private var currentAVCIntraPreprocessingTask: Task<AVCIntraAudioPreprocessingResult, Never>?
@@ -384,6 +386,48 @@ actor FFMPEGConverter {
         return result
     }
 
+    /// Runs blocking frame I/O off the converter actor so cancellation can reach it.
+    private func prepareTrackedPackageCodestreams(
+        conversionID: UUID,
+        sourceDirectory: URL,
+        frameNames: [String],
+        destinationDirectory: URL,
+        progress: @escaping @Sendable (Int, Int) -> Void = { _, _ in }
+    ) async throws -> Int64 {
+        guard postProcessingConversionID == conversionID else { throw CancellationError() }
+        let taskID = UUID()
+        let task = Task.detached {
+            var lastEmit = Date.distantPast
+            return try Self.preparePackageCodestreams(
+                sourceDirectory: sourceDirectory,
+                frameNames: frameNames,
+                destinationDirectory: destinationDirectory
+            ) { completed, total in
+                let now = Date()
+                if now.timeIntervalSince(lastEmit) >= 0.25 || completed == total {
+                    lastEmit = now
+                    progress(completed, total)
+                }
+            }
+        }
+        currentPackagePreparationTask?.cancel()
+        currentPackagePreparationTask = task
+        currentPackagePreparationTaskID = taskID
+        defer {
+            if currentPackagePreparationTaskID == taskID {
+                currentPackagePreparationTask = nil
+                currentPackagePreparationTaskID = nil
+            }
+        }
+        let bytes = try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        guard postProcessingConversionID == conversionID else { throw CancellationError() }
+        return bytes
+    }
+
     /// Removes an incomplete ordinary-file output and revokes its app-created trust record.
     /// A failed encode must not leave a stale registration that could authorize deleting an
     /// unrelated file created at the same path later.
@@ -435,6 +479,9 @@ actor FFMPEGConverter {
         currentPackageAudioTask?.cancel()
         currentPackageAudioTask = nil
         currentPackageAudioTaskID = nil
+        currentPackagePreparationTask?.cancel()
+        currentPackagePreparationTask = nil
+        currentPackagePreparationTaskID = nil
         currentPackageWrapperTask?.cancel()
         currentPackageWrapperTask = nil
         currentPackageWrapperTaskID = nil
@@ -1099,7 +1146,9 @@ actor FFMPEGConverter {
                             let j2cDir = FileManager.default.temporaryDirectory
                                 .appendingPathComponent("dcp_j2c_\(UUID().uuidString)", isDirectory: true)
                             do {
-                                _ = try Self.preparePackageCodestreams(
+                                guard let self else { throw CancellationError() }
+                                _ = try await self.prepareTrackedPackageCodestreams(
+                                    conversionID: conversionID,
                                     sourceDirectory: jp2Dir,
                                     frameNames: jp2Files,
                                     destinationDirectory: j2cDir
@@ -1115,12 +1164,12 @@ actor FFMPEGConverter {
                                 ]
 
                                 Self.logger.info("Running asdcp-wrap for DCP video")
-                                let wrapResult = await self?.runTrackedPackageWrapper(
+                                let wrapResult = await self.runTrackedPackageWrapper(
                                     conversionID: conversionID,
                                     executablePath: asdcpWrapPath,
                                     arguments: videoWrapArgs,
                                     outputURL: tmpVideoMXF
-                                ) ?? .cancelled
+                                )
                                 switch wrapResult {
                                 case .success(let diagnostic):
                                     if !diagnostic.isEmpty {
@@ -1141,6 +1190,9 @@ actor FFMPEGConverter {
                                     success = false
                                 }
 
+                            } catch is CancellationError {
+                                errorReason = "Conversion cancelled"
+                                success = false
                             } catch {
                                 Self.logger.error("DCP frame preparation failed: \(error.localizedDescription, privacy: .public)")
                                 let reason = error.localizedDescription
@@ -1357,19 +1409,16 @@ actor FFMPEGConverter {
                                 let j2cDir = FileManager.default.temporaryDirectory
                                     .appendingPathComponent("imf_j2c_\(UUID().uuidString)", isDirectory: true)
                                 do {
-                                    var lastEmit = Date.distantPast
+                                    guard let self else { throw CancellationError() }
                                     let totalFrames = jp2Files.count
-                                    let expectedMXFBytes = try Self.preparePackageCodestreams(
+                                    let expectedMXFBytes = try await self.prepareTrackedPackageCodestreams(
+                                        conversionID: conversionID,
                                         sourceDirectory: jp2Dir,
                                         frameNames: jp2Files,
                                         destinationDirectory: j2cDir
                                     ) { completed, total in
-                                        let now = Date()
-                                        if now.timeIntervalSince(lastEmit) >= 0.25 || completed == total {
-                                            lastEmit = now
-                                            let fraction = Double(completed) / Double(total)
-                                            progressUpdate(0.78 + fraction * 0.02, "Preparing J2C frames \(completed)/\(total)")
-                                        }
+                                        let fraction = Double(completed) / Double(total)
+                                        progressUpdate(0.78 + fraction * 0.02, "Preparing J2C frames \(completed)/\(total)")
                                     }
                                     print("[IMF] J2C extraction complete (\(totalFrames) frames, \(ByteCountFormatter.string(fromByteCount: expectedMXFBytes, countStyle: .file)))")
 
@@ -1416,12 +1465,12 @@ actor FFMPEGConverter {
                                             )
                                         }
                                     }
-                                    let wrapResult = await self?.runTrackedPackageWrapper(
+                                    let wrapResult = await self.runTrackedPackageWrapper(
                                         conversionID: conversionID,
                                         executablePath: raw2bmxPath,
                                         arguments: videoWrapArgs,
                                         outputURL: tmpVideoMXF
-                                    ) ?? .cancelled
+                                    )
                                     pollerTask.cancel()
                                     await pollerTask.value
                                     switch wrapResult {
@@ -1442,6 +1491,9 @@ actor FFMPEGConverter {
                                         errorReason = "Conversion cancelled"
                                         success = false
                                     }
+                                } catch is CancellationError {
+                                    errorReason = "Conversion cancelled"
+                                    success = false
                                 } catch {
                                     Self.logger.error("IMF frame preparation failed: \(error.localizedDescription, privacy: .public)")
                                     let reason = error.localizedDescription
@@ -4049,6 +4101,9 @@ actor FFMPEGConverter {
         currentPackageAudioTask?.cancel()
         currentPackageAudioTask = nil
         currentPackageAudioTaskID = nil
+        currentPackagePreparationTask?.cancel()
+        currentPackagePreparationTask = nil
+        currentPackagePreparationTaskID = nil
         currentPackageWrapperTask?.cancel()
         currentPackageWrapperTask = nil
         currentPackageWrapperTaskID = nil
@@ -4641,10 +4696,12 @@ extension FFMPEGConverter {
             let destination = destinationDirectory.appendingPathComponent(frameName)
                 .deletingPathExtension().appendingPathExtension("j2c")
             let codestream = data[marker.lowerBound...]
+            try Task.checkCancellation()
             try codestream.write(to: destination, options: .atomic)
             totalBytes += Int64(codestream.count)
             progress(index + 1, frameNames.count)
         }
+        try Task.checkCancellation()
         return totalBytes
     }
 }

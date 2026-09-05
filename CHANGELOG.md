@@ -17,6 +17,8 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Cancelling DCP/IMF export now stops frame preparation.** Queue cancellation interrupts JPEG 2000 codestream preparation between frames, cleans scratch files after the worker stops, and prevents package wrapping from starting.
+
 - **Settings controls have clearer accessibility names.** Folder actions, timecode adjustments, and update-command copying now announce their purpose. Screenshot format and transparency pickers have distinct spoken labels.
 
 - **Preview thumbnails and filmstrips no longer wait indefinitely on AVFoundation.** Native rendering has a deadline and cancellation support, and late images cannot overwrite fallback thumbnails.

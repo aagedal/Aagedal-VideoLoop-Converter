@@ -9781,6 +9781,74 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: outputURL.path))
     }
 
+    func testPackageCodestreamPreparationChecksCancellationAfterFinalFrame() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data([0xFF, 0x4F, 1]).write(to: root.appendingPathComponent("frame.jp2"))
+        let task = Task.detached {
+            try FFMPEGConverter.preparePackageCodestreams(
+                sourceDirectory: root,
+                frameNames: ["frame.jp2"],
+                destinationDirectory: root.appendingPathComponent("output")
+            ) { _, _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+        }
+        do {
+            _ = try await task.value
+            XCTFail("Cancellation during the final frame must not report successful preparation")
+        } catch is CancellationError {
+            // Expected even when there is no next frame to check cancellation.
+        }
+    }
+
+    func testIMFQueueCancellationStopsFramePreparationBeforeWrapper() async throws {
+        guard BinaryPathResolver.raw2bmxPath != nil else {
+            throw XCTSkip("Bundled raw2bmx is required to enter IMF frame preparation")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runner = SequencedRecordingSubprocessRunner { index, request, _ in
+            XCTAssertEqual(index, 0, "Cancellation must prevent launching the package wrapper")
+            let pattern = try XCTUnwrap(request.arguments.last)
+            for frame in 1...2 {
+                let path = pattern.replacingOccurrences(of: "%06d", with: String(format: "%06d", frame))
+                try Data([0xFF, 0x4F, 1]).write(to: URL(fileURLWithPath: path))
+            }
+            return successfulSubprocessResult()
+        }
+        let converter = FFMPEGConverter(subprocessRunner: runner, ffmpegPathProvider: { "/fixture/ffmpeg" })
+        let preparedStatuses = OSAllocatedUnfairLock(initialState: [String]())
+        let result = await runConversion(
+            ConversionRequest(
+                inputURL: root.appendingPathComponent("input.mov"),
+                outputURL: root.appendingPathComponent("output"),
+                preset: .imfJ2K,
+                includeDateTag: false,
+                sourceMetadata: videoMetadata(timecode: nil, frameRate: 24, duration: 1),
+                expectedDuration: 1,
+                videoFrameRate: 24
+            ),
+            using: converter
+        ) { _, status in
+            guard let status, status.hasPrefix("Preparing J2C frames") else { return }
+            preparedStatuses.withLock { $0.append(status) }
+            let cancelled = DispatchSemaphore(value: 0)
+            Task {
+                await converter.cancelConversion()
+                cancelled.signal()
+            }
+            XCTAssertEqual(cancelled.wait(timeout: .now() + 5), .success,
+                           "Frame preparation must leave the converter actor available for cancellation")
+        }
+        XCTAssertFalse(result.success)
+        XCTAssertEqual(result.errorReason, "Conversion cancelled")
+        XCTAssertEqual(preparedStatuses.withLock { $0 }, ["Preparing J2C frames 1/2"])
+        XCTAssertEqual(runner.requests.count, 1)
+    }
+
     func testPackageCodestreamPreparationRequiresEveryFrameAndCountsWrittenBytes() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

@@ -903,9 +903,14 @@ retain their own source access until any late completion. A failed player immedi
 falls back with its existing error instead of launching speculative diagnostic metadata
 reads. Tests cover stalled metadata/seek and late results after player replacement.
 The wider callback audit remains open; these concrete preview candidates are implemented.
-One concrete follow-up is normal queue cancellation during synchronous DCP/IMF frame
-preparation: wrapper ownership prevents a later process launch, but the untracked
-post-processing task can continue stripping frames until its loop completes.
+Normal queue cancellation now also stops DCP/IMF codestream preparation. Blocking
+frame I/O runs in an actor-owned detached task, with cooperative checks before each
+frame, before output writes, and after the final progress callback. Cancellation and
+supersession cancel that task; cleanup waits for it to stop before deleting scratch
+frames, and a cancelled preparation cannot launch a wrapper. Two focused tests pass:
+full IMF queue cancellation after frame one prevents frame two and wrapper launch,
+and cancellation during the final frame cannot report success (Codex, 2026-09-05).
+The wider audit of unbounded framework callbacks remains open.
 
 ### 2.3 Standardize user-visible errors
 
