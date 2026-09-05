@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 317 tests pass. The
+- The unit-test baseline is green: 325 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,13 +23,14 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 317 unit tests. The UI test target now has deterministic smoke
+- There are 325 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
 - GitHub Actions now builds Debug and runs unit tests on pushes and pull requests;
-  tagged and scheduled runs also build Release. `main` still needs a branch rule
-  that makes the Debug build-and-test job required.
+  tagged and scheduled runs also build Release. `main` now requires the GitHub
+  Actions Debug build-and-test check, including for administrators, with strict
+  up-to-date branch enforcement.
 - External tools now construct `Process` only inside the shared runner in production.
   The DEBUG-only UI-test fixture generator now uses the same runner as well.
   All production launch paths share the same cancellation, timeout, pipe-draining,
@@ -76,8 +77,7 @@ tests.
 
 ### 0.2 Add build-and-test CI
 
-Status: implemented and validated on GitHub Actions 2026-08-31; required-check
-enforcement remains to be configured.
+Status: completed 2026-09-05; hosted validation and required-check enforcement configured (Codex).
 
 - On every pull request and push, build the Debug app and run unit tests on macOS.
 - Add a Release build on tags or a scheduled run so packaging-only problems are
@@ -93,9 +93,9 @@ target on every pull request and push. Tagged and weekly scheduled runs also bui
 Release; manually dispatched runs can validate both configurations on demand.
 Failed jobs retain their `.xcresult` bundles for diagnosis. The appcast publisher
 remains an independent workflow. The first hosted Debug build and unit-test run
-passed on commit `a57ed1d`. The `main` branch currently has no protection rule, so
-make `Debug build and unit tests` a required check before marking this item
-complete.
+passed on commit `a57ed1d`. The `main` branch now requires `Debug build and unit tests`,
+bound to the GitHub Actions app identity, with strict up-to-date checks and administrator
+enforcement. The GitHub API confirmed the configured protection on 2026-09-05.
 
 ### 0.3 Turn the existing TODO into current work
 
@@ -294,7 +294,7 @@ Preset, Start/Cancel, Settings, and each Settings sidebar pane. The generated
 placeholder test has been replaced with empty-queue/toolbar assertions and a Settings
 test that opens the window and moves from General to Presets to Metadata while
 checking the exposed pane state. A DEBUG-only launch hook now generates a tiny media
-fixture in a caller-owned temporary directory and imports it through the production
+fixture in an app-owned temporary directory and imports it through the production
 URL path, allowing the UI suite to verify queue import and preset selection without
 automating the sandboxed system file picker. The generated-fixture import and preset
 selection test passed twice consecutively. The same fixture now exercises a successful
@@ -705,6 +705,7 @@ outside the runner's control, matching ordinary process-group semantics.
 Status: in progress; image-sequence duration probing migrated async end-to-end,
 preview/analytics media preflight bounded, Apple Vision per-frame OCR bounded, and
 Whisper and Parakeet model downloads made cancellation-safe 2026-09-04.
+Native preview rendering and player observer work bounded 2026-09-05 (Codex).
 
 - Make image-sequence duration probing async end-to-end, or give the compatibility
   bridge a bounded timeout while callers are migrated.
@@ -884,9 +885,27 @@ cancellation is checked before fallback reads. The innermost worker retains its 
 sandbox access until parsing actually finishes, and image-sequence imports keep their
 existing folder-owning deadline around an explicitly unbounded resolver. Focused tests
 cover immediate success, a stalled parser deadline, parent cancellation, and late
-security-scope release. AVFoundation thumbnail/filmstrip
-generation and player observer metadata loads remain concrete audit candidates;
-thumbnail deadlines require safeguards against late output-file writes.
+security-scope release. The subsequent native-preview slice below addresses
+AVFoundation thumbnail/filmstrip generation and player observer metadata loads,
+including safeguards against late output-file writes.
+
+Native AVFoundation row-thumbnail and filmstrip rendering now has a fifteen-second
+non-joining deadline, including track/format loading, image generation, and PNG encoding.
+Each worker retains its own security access and produces only in-memory bytes; cache
+files are written atomically only after the caller accepts the result. Late output cannot
+overwrite a fallback thumbnail, and cancellation suppresses fallback work. Injectable tests
+cover accepted publication, timeout with late frames, and prompt cancellation.
+
+Player readiness now owns and bounds track validation and its initial seek. Replacing or
+tearing down a player cancels this work, and operation/observer identities reject stale
+metadata, time, loop, and seek callbacks. Audible-selection group loads are bounded and
+retain their own source access until any late completion. A failed player immediately
+falls back with its existing error instead of launching speculative diagnostic metadata
+reads. Tests cover stalled metadata/seek and late results after player replacement.
+The wider callback audit remains open; these concrete preview candidates are implemented.
+One concrete follow-up is normal queue cancellation during synchronous DCP/IMF frame
+preparation: wrapper ownership prevents a later process launch, but the untracked
+post-processing task can continue stripping frames until its loop completes.
 
 ### 2.3 Standardize user-visible errors
 
@@ -905,6 +924,15 @@ continues into a misleading manifest-assembly failure. The conversion now logs t
 underlying filesystem diagnostic, reports a concise package-specific queue error,
 skips manifest publication, and still cleans temporary essences. Both new messages
 are included in the Norwegian catalog.
+
+DCP and IMF App 2e now share checked JPEG 2000 codestream preparation. Scratch-directory
+creation, frame reads, missing codestream markers, and atomic output writes must all
+succeed before the video wrapper starts. A failed frame can no longer be silently dropped
+or counted toward the expected essence bytes; the queue reports the underlying preparation
+error and cleans scratch frames. DCP skips audio work after picture failure, preserving
+the original error, and scoped cleanup removes unused temporary picture/audio essences.
+Tests cover exact output bytes/progress, missing and malformed frames, directory
+conflicts, and output-write failures.
 
 Settings sync no longer treats an unreadable, malformed, or newer-format snapshot as
 if no remote file existed. Automatic reconciliation preserves the existing file instead
@@ -932,15 +960,23 @@ failures dismiss stale popovers. Three unit tests cover aggregation, missing det
 and redaction. Capturing the exact historical tool versions and redacted commands
 per operation remains open; this initial report does not reconstruct them from current
 settings. The wider filesystem/bookmark error audit also remains open.
-The combined unit suite passes all 317 tests. The failure UI smoke test now asserts
-that Error details opens, contains the full failure, and exposes Copy diagnostics,
-and retains a screenshot when reached. Local execution is blocked before those new
-assertions: FFmpeg cannot write into the sandboxed UI runner's private fixture
-folder (`Operation not permitted`, exit 255). A shared `/tmp` experiment was reverted
-because the runner cannot create that folder either. The DEBUG fixture generator now
-uses the shared bounded runner with captured/redacted errors and explicit bundled
-FFmpeg selection, making that setup failure diagnosable. A sandbox-compatible fixture
-handoff and successful UI/screenshot run remain required; no visual pass is claimed.
+The combined unit suite passes all 325 tests (zero failures or skips); a focused
+three-test package-preparation run also passes after the final cleanup adjustment.
+The DEBUG fixture generator now creates and removes fixtures inside the app's own
+temporary directory, avoiding the UI runner's inaccessible sandbox. Fixture-test
+teardown relaunches the app for synchronous cleanup because XCTest termination can
+bypass normal termination notifications. Missing-input
+failure is requested through a launch flag and performed by the app after import.
+Output preferences are installed in the volatile argument domain before views are
+constructed, so the test folder is not saved into the user's output settings.
+The failure UI smoke test reaches Error details, checks the full failure and Copy
+diagnostics button, and captures a window screenshot. All six functional UI smoke
+tests pass in two consecutive runs, with the
+saved output-folder preference verified unchanged. All six also passed after explicit
+teardown cleanup was added; the final fixture directory was confirmed absent.
+The window-only Error details
+screenshot was visually checked for readable text and an accessible Copy button.
+Full locale/VoiceOver validation remains tracked under Priority 4.
 
 ## Priority 3 — Reduce change risk in architecture
 
