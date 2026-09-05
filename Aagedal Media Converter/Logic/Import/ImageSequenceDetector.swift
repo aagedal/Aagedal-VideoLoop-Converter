@@ -100,7 +100,8 @@ enum ImageSequenceDetector {
         securityScope: SecurityScope = .live,
         detectsAssociatedAudio: Bool = true,
         audioDurationProbe: @escaping AudioDurationProbe = { url in
-            await SwiftExifMediaProbe.duration(for: url)
+            // probeAudioDuration owns the selected folder scope and deadline.
+            await SwiftExifMediaProbe.durationWithoutDeadline(for: url)
         }
     ) async -> [ImageSequenceConfig] {
         guard !Task.isCancelled else { return [] }
@@ -135,7 +136,8 @@ enum ImageSequenceDetector {
         securityScope: SecurityScope = .live,
         detectsAssociatedAudio: Bool = true,
         audioDurationProbe: @escaping AudioDurationProbe = { url in
-            await SwiftExifMediaProbe.duration(for: url)
+            // probeAudioDuration owns the selected folder scope and deadline.
+            await SwiftExifMediaProbe.durationWithoutDeadline(for: url)
         }
     ) async -> ImageSequenceConfig? {
         guard !Task.isCancelled else { return nil }

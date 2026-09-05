@@ -74,7 +74,7 @@ enum SwiftExifMediaProbe {
         for url: URL,
         timeout: Duration = BoundedVideoMetadataProbe.defaultTimeout
     ) async -> Double? {
-        await duration(for: url, timeout: timeout, probe: resolveDuration)
+        await duration(for: url, timeout: timeout, probe: durationWithoutDeadline)
     }
 
     /// Bounds the entire parser/fallback chain, including callers outside the metadata
@@ -82,10 +82,21 @@ enum SwiftExifMediaProbe {
     static func duration(
         for url: URL,
         timeout: Duration,
+        startAccess: @escaping @Sendable (URL) -> SecurityScopedAccess = {
+            SecurityScopedBookmarkManager.shared.startAccessing(url: $0)
+        },
+        stopAccess: @escaping @Sendable (SecurityScopedAccess) -> Void = {
+            SecurityScopedBookmarkManager.shared.stopAccessing($0)
+        },
         probe: @escaping @Sendable (URL) async -> Double?
     ) async -> Double? {
         do {
             return try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try Task.checkCancellation()
+                // Own access inside the non-joining worker: the caller can return and
+                // release its access while an uncooperative parser is still reading.
+                let access = startAccess(url)
+                defer { stopAccess(access) }
                 try Task.checkCancellation()
                 let result = await probe(url)
                 try Task.checkCancellation()
@@ -96,7 +107,9 @@ enum SwiftExifMediaProbe {
         }
     }
 
-    private static func resolveDuration(for url: URL) async -> Double? {
+    /// Only for callers that already own a non-joining deadline and retain the
+    /// applicable security scope until this entire operation returns.
+    static func durationWithoutDeadline(for url: URL) async -> Double? {
         guard !Task.isCancelled else { return nil }
         if canReadVideo(url) {
             if let meta = try? await readVideo(url), let d = meta.duration, d > 0 {

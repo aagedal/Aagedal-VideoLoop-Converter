@@ -13737,3 +13737,40 @@ final class SwiftExifDurationDeadlineTests: XCTestCase {
         stalled.release()
     }
 }
+
+
+extension SwiftExifDurationDeadlineTests {
+    func testDurationTimeoutRetainsSecurityAccessUntilLateProbeReturns() async {
+        let stalled = DeferredTerminationCleanup()
+        let scopes = SecurityScopeRecorder()
+        let stopped = expectation(description: "Late probe releases its own scope")
+        defer { stalled.release() }
+        let url = URL(fileURLWithPath: "/tmp/scoped-duration.mov")
+        let task = Task {
+            await SwiftExifMediaProbe.duration(
+                for: url,
+                timeout: .milliseconds(100),
+                startAccess: { url in
+                    _ = scopes.start(url)
+                    return .direct(url)
+                },
+                stopAccess: { access in
+                    if case .direct(let url) = access { scopes.stop(url) }
+                    stopped.fulfill()
+                }
+            ) { _ in
+                await stalled.run()
+                return 12.5
+            }
+        }
+        await stalled.waitUntilStarted()
+        let result = await task.value
+        XCTAssertNil(result)
+        XCTAssertEqual(scopes.startedURLs, [url])
+        XCTAssertTrue(scopes.stoppedURLs.isEmpty)
+
+        stalled.release()
+        await fulfillment(of: [stopped], timeout: 2)
+        XCTAssertEqual(scopes.stoppedURLs, [url])
+    }
+}
