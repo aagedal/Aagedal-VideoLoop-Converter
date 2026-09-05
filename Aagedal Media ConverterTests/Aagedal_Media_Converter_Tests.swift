@@ -12,6 +12,40 @@ import XCTest
 
 final class Aagedal_Media_Converter_Tests: XCTestCase {
 
+    func testSettingsMonitorCreatesDirectoryAndOpensDescriptor() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("settings", isDirectory: true)
+
+        let fd = try SettingsSyncService.openMonitoringDirectory(directory)
+        defer { close(fd) }
+
+        var isDirectory: ObjCBool = false
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory))
+        XCTAssertTrue(isDirectory.boolValue)
+        XCTAssertNotEqual(fcntl(fd, F_GETFD), -1)
+        XCTAssertNotEqual(fcntl(fd, F_GETFD) & FD_CLOEXEC, 0)
+    }
+
+    func testSettingsMonitorReportsBlockedDirectoryWithoutReplacingFile() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let blocker = root.appendingPathComponent("settings")
+        let original = Data("existing user file".utf8)
+        try original.write(to: blocker)
+
+        XCTAssertThrowsError(try SettingsSyncService.openMonitoringDirectory(blocker.appendingPathComponent("nested"))) { error in
+            guard case SettingsSyncService.SyncError.monitoringFailed(let details) = error else {
+                return XCTFail("Expected actionable monitoring error, got \(error)")
+            }
+            XCTAssertFalse(details.isEmpty)
+            XCTAssertTrue(error.localizedDescription.contains("choose another sync location"))
+        }
+        XCTAssertEqual(try Data(contentsOf: blocker), original)
+    }
+
+
     func testSettingsSnapshotDecoderAcceptsCurrentFormat() throws {
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let source = SettingsSnapshot(

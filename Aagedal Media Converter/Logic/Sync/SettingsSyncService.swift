@@ -66,7 +66,7 @@ final class SettingsSyncService {
 
     private var writeDebounce: DispatchWorkItem?
     private var directorySource: DispatchSourceFileSystemObject?
-    private var monitoredFD: Int32 = -1
+    private var monitoringErrorMessage: String?
 
     private static let writeDebounceInterval: TimeInterval = 2.0
 
@@ -271,7 +271,7 @@ final class SettingsSyncService {
             lastAppliedModifiedAt = snapshot.modifiedAt
             persistLastSyncDate(snapshot.modifiedAt)
             lastSyncDate = snapshot.modifiedAt
-            lastErrorMessage = nil
+            lastErrorMessage = monitoringErrorMessage
         } catch {
             lastErrorMessage = error.localizedDescription
             logger.error("Failed to write settings snapshot: \(error.localizedDescription, privacy: .public)")
@@ -295,7 +295,7 @@ final class SettingsSyncService {
             return
         }
         protectedUnreadableSnapshotURL = nil
-        lastErrorMessage = nil
+        lastErrorMessage = monitoringErrorMessage
         // Newest-wins: only import a strictly newer snapshot. This also filters out
         // our own writes (whose timestamp we record in lastAppliedModifiedAt).
         if let applied = lastAppliedModifiedAt, snapshot.modifiedAt <= applied { return }
@@ -303,12 +303,17 @@ final class SettingsSyncService {
         lastSyncDate = snapshot.modifiedAt
     }
 
-    /// Best-effort: if iCloud has only a placeholder on disk, ask it to download
-    /// the real file. Harmless no-op for plain (non-iCloud) folders.
+    /// If iCloud has only a placeholder on disk, request the real file and report
+    /// download failures. This is a no-op for plain (non-iCloud) folders.
     private func ensureDownloaded(_ fileURL: URL) {
         guard !FileManager.default.fileExists(atPath: fileURL.path),
               hasUndownloadedICloudFile(fileURL) else { return }
-        try? FileManager.default.startDownloadingUbiquitousItem(at: fileURL)
+        do {
+            try FileManager.default.startDownloadingUbiquitousItem(at: fileURL)
+        } catch {
+            lastErrorMessage = SyncError.downloadFailed(error.localizedDescription).localizedDescription
+            logger.error("Failed to download settings snapshot: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// `true` when iCloud has a remote snapshot for `fileURL` that hasn't been
@@ -333,7 +338,7 @@ final class SettingsSyncService {
                 apply(snapshot, notify: true)
                 lastSyncDate = snapshot.modifiedAt
                 protectedUnreadableSnapshotURL = nil
-                lastErrorMessage = nil
+                lastErrorMessage = monitoringErrorMessage
             } catch {
                 // Preserve the existing file. Treating a malformed or temporarily
                 // unreadable snapshot as "missing" would let writeSnapshot() replace
@@ -355,13 +360,19 @@ final class SettingsSyncService {
 
     private func startMonitoring() {
         stopMonitoring()
-        guard let fileURL = snapshotFileURL() else { return }
-        let directory = fileURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        let fd = open(directory.path, O_EVTONLY)
-        guard fd >= 0 else { return }
-        monitoredFD = fd
+        guard let fileURL = snapshotFileURL() else {
+            lastErrorMessage = SyncError.locationUnavailable.localizedDescription
+            return
+        }
+        let fd: Int32
+        do {
+            fd = try Self.openMonitoringDirectory(fileURL.deletingLastPathComponent())
+        } catch {
+            monitoringErrorMessage = error.localizedDescription
+            lastErrorMessage = monitoringErrorMessage
+            logger.error("Failed to monitor settings folder: \(error.localizedDescription, privacy: .public)")
+            return
+        }
         let source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
             eventMask: [.write, .delete, .rename],
@@ -370,15 +381,31 @@ final class SettingsSyncService {
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated { self?.checkForRemoteChanges() }
         }
-        source.setCancelHandler { [weak self] in
-            guard let self else { close(fd); return }
-            if self.monitoredFD >= 0 { close(self.monitoredFD); self.monitoredFD = -1 }
-        }
+        // Cancellation is asynchronous. Close this source's descriptor, never a
+        // shared property that may already belong to a replacement monitor.
+        source.setCancelHandler { close(fd) }
         directorySource = source
         source.resume()
     }
 
+    /// Creates the sync folder and opens it for monitoring. Kept independent of
+    /// service state so filesystem failures can be tested without user defaults.
+    nonisolated static func openMonitoringDirectory(_ directory: URL) throws -> Int32 {
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let fd = open(directory.path, O_EVTONLY | O_CLOEXEC)
+            guard fd >= 0 else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
+            return fd
+        } catch {
+            throw SyncError.monitoringFailed(error.localizedDescription)
+        }
+    }
+
     private func stopMonitoring() {
+        if lastErrorMessage == monitoringErrorMessage { lastErrorMessage = nil }
+        monitoringErrorMessage = nil
         directorySource?.cancel()
         directorySource = nil
     }
@@ -481,9 +508,17 @@ final class SettingsSyncService {
 
     /// Opens the local backups folder in Finder so the user can recover a past
     /// settings file via "Import Settings…".
-    func revealBackupsInFinder() {
-        try? FileManager.default.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(backupsDirectory)
+    func revealBackupsInFinder() throws {
+        do {
+            try FileManager.default.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
+            guard NSWorkspace.shared.open(backupsDirectory) else {
+                throw SyncError.backupsOpenFailed
+            }
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            logger.error("Failed to open settings backups: \(error.localizedDescription, privacy: .public)")
+            throw error
+        }
     }
 
     /// Whether the active sync location is currently usable (iCloud Drive on, or a
@@ -545,6 +580,9 @@ final class SettingsSyncService {
         case locationUnavailable
         case invalidFile
         case fileReadFailed(String)
+        case monitoringFailed(String)
+        case downloadFailed(String)
+        case backupsOpenFailed
 
         var errorDescription: String? {
             switch self {
@@ -562,6 +600,21 @@ final class SettingsSyncService {
                 return String(
                     localized: "The settings file is damaged or isn't a valid Aagedal Media Converter settings file. Choose another file or restore a backup.",
                     comment: "Settings sync import error for malformed JSON or an invalid settings snapshot."
+                )
+            case .monitoringFailed(let details):
+                return String(
+                    localized: "The settings sync folder couldn't be monitored. Check folder access or choose another sync location: \(details)",
+                    comment: "Settings sync monitoring error followed by the filesystem diagnostic."
+                )
+            case .downloadFailed(let details):
+                return String(
+                    localized: "The settings file couldn't be downloaded from iCloud Drive. Check your connection and try Sync Now again: \(details)",
+                    comment: "Settings sync download error followed by the iCloud diagnostic."
+                )
+            case .backupsOpenFailed:
+                return String(
+                    localized: "The settings backups folder couldn't be opened in Finder. Try again.",
+                    comment: "Settings sync backup folder reveal error."
                 )
             case .fileReadFailed(let details):
                 return String(
