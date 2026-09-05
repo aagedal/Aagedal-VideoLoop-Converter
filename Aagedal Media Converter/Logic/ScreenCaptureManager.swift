@@ -59,30 +59,30 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .hevcGrowing:
-            return "Growing HEVC 10-bit 4:2:2 (Resolve/Premiere)"
+            return String(localized: "Growing HEVC 10-bit 4:2:2 (Resolve/Premiere)")
         case .avcGrowing:
-            return "Growing H.264 (Compatibility)"
+            return String(localized: "Growing H.264 (Compatibility)")
         case .proRes4444Growing:
-            return "Growing ProRes 4444 (Visually Lossless)"
+            return String(localized: "Growing ProRes 4444 (Visually Lossless)")
         case .hevc42210Bit:
-            return "HEVC 10-bit 4:2:2 (Hardware)"
+            return String(localized: "HEVC 10-bit 4:2:2 (Hardware)")
         case .proRes4444:
-            return "ProRes 4444 (Visually Lossless)"
+            return String(localized: "ProRes 4444 (Visually Lossless)")
         }
     }
 
     var detail: String {
         switch self {
         case .hevcGrowing:
-            return "Edit while recording in DaVinci Resolve & Premiere. Hardware HEVC 10-bit 4:2:2, fragmented .mov."
+            return String(localized: "Edit while recording in DaVinci Resolve & Premiere. Hardware HEVC 10-bit 4:2:2, fragmented .mov.")
         case .avcGrowing:
-            return "Edit while recording with maximum compatibility. Hardware H.264, fragmented .mov."
+            return String(localized: "Edit while recording with maximum compatibility. Hardware H.264, fragmented .mov.")
         case .proRes4444Growing:
-            return "Edit while recording in DaVinci Resolve & Premiere. ProRes 4444 at a constant frame rate (CFR) — visually lossless, but because ProRes can't compress duplicate frames, a mostly-static screen makes very large files. Needs a ProRes hardware encoder (M1 Pro/Max or later) for high frame rates."
+            return String(localized: "Edit while recording in DaVinci Resolve & Premiere. ProRes 4444 at a constant frame rate (CFR) — visually lossless, but because ProRes can't compress duplicate frames, a mostly-static screen makes very large files. Needs a ProRes hardware encoder (M1 Pro/Max or later) for high frame rates.")
         case .hevc42210Bit:
-            return "Hardware HEVC 10-bit 4:2:2; source format determines chroma. Variable frame rate, not flagged as a growing clip — best for importing after recording."
+            return String(localized: "Hardware HEVC 10-bit 4:2:2; source format determines chroma. Variable frame rate, not flagged as a growing clip — best for importing after recording.")
         case .proRes4444:
-            return "Visually lossless ProRes 4444 for grading. Variable frame rate (VFR) keeps files smaller when the screen is static. Not flagged as a growing clip, so DaVinci Resolve won't poll it for updates while recording — best for importing afterward."
+            return String(localized: "Visually lossless ProRes 4444 for grading. Variable frame rate (VFR) keeps files smaller when the screen is static. Not flagged as a growing clip, so DaVinci Resolve won't poll it for updates while recording — best for importing afterward.")
         }
     }
 
@@ -92,6 +92,12 @@ enum CapturePreset: String, CaseIterable, Identifiable {
 
     var fileType: AVFileType {
         .mov
+    }
+
+    var frameRateDetail: String {
+        isGrowing
+            ? String(localized: "Constant frame rate (CFR): static frames are repeated at the selected rate.")
+            : String(localized: "Variable frame rate (VFR): the selected rate is a maximum; static screens may produce fewer frames.")
     }
 
     var targetFrameRate: Int {
@@ -117,7 +123,7 @@ enum CapturePreset: String, CaseIterable, Identifiable {
         [.hevcGrowing, .avcGrowing, .proRes4444Growing, .hevc42210Bit, .proRes4444]
     }
 
-    func videoSettings(width: Int, height: Int, frameRate: Int, hevcProfileOverride: String? = nil) -> [String: Any] {
+    func videoSettings(width: Int, height: Int, frameRate: CaptureFrameRate, hevcProfileOverride: String? = nil) -> [String: Any] {
         let compressionProperties: [String: Any]
         let codec: AVVideoCodecType
         let encoderSpec: [String: Any]?
@@ -126,9 +132,9 @@ enum CapturePreset: String, CaseIterable, Identifiable {
         case .hevcGrowing:
             codec = .hevc
             var properties: [String: Any] = [
-                AVVideoAverageBitRateKey: growingBitrate(width: width, height: height, frameRate: frameRate),
-                AVVideoExpectedSourceFrameRateKey: frameRate,
-                AVVideoMaxKeyFrameIntervalKey: frameRate,          // ~1 s GOP
+                AVVideoAverageBitRateKey: growingBitrate(width: width, height: height, frameRate: frameRate.framesPerSecond),
+                AVVideoExpectedSourceFrameRateKey: frameRate.framesPerSecond,
+                AVVideoMaxKeyFrameIntervalKey: frameRate.nominalRate,          // ~1 s GOP
                 AVVideoAllowFrameReorderingKey: false              // low-latency for live edit
             ]
             // 10-bit 4:2:2: prefer Main42210, fall back to Main10, else let the
@@ -141,20 +147,20 @@ enum CapturePreset: String, CaseIterable, Identifiable {
         case .avcGrowing:
             codec = .h264
             compressionProperties = [
-                AVVideoAverageBitRateKey: growingBitrate(width: width, height: height, frameRate: frameRate),
+                AVVideoAverageBitRateKey: growingBitrate(width: width, height: height, frameRate: frameRate.framesPerSecond),
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
-                AVVideoExpectedSourceFrameRateKey: frameRate,
-                AVVideoMaxKeyFrameIntervalKey: frameRate,          // ~1 s GOP
+                AVVideoExpectedSourceFrameRateKey: frameRate.framesPerSecond,
+                AVVideoMaxKeyFrameIntervalKey: frameRate.nominalRate,          // ~1 s GOP
                 AVVideoAllowFrameReorderingKey: false
             ]
             encoderSpec = nil
         case .hevc42210Bit:
             codec = .hevc
-            let bitrate = hevcBitrate(width: width, height: height, frameRate: frameRate)
+            let bitrate = hevcBitrate(width: width, height: height, frameRate: frameRate.framesPerSecond)
             var properties: [String: Any] = [
                 AVVideoAverageBitRateKey: bitrate.average,
-                AVVideoExpectedSourceFrameRateKey: frameRate,
-                AVVideoMaxKeyFrameIntervalKey: frameRate,
+                AVVideoExpectedSourceFrameRateKey: frameRate.framesPerSecond,
+                AVVideoMaxKeyFrameIntervalKey: frameRate.nominalRate,
                 kVTCompressionPropertyKey_DataRateLimits as String: bitrate.dataRateLimits
             ]
             if let hevcProfileOverride {
@@ -199,13 +205,13 @@ enum CapturePreset: String, CaseIterable, Identifiable {
 
     /// Bitrate for the growing presets — lighter than the archival HEVC 4:2:2
     /// preset so edit-while-recording files stay manageable. ~0.1 bits/pixel.
-    private func growingBitrate(width: Int, height: Int, frameRate: Int) -> Int {
+    private func growingBitrate(width: Int, height: Int, frameRate: Double) -> Int {
         let pixelsPerSecond = Double(width) * Double(height) * Double(frameRate)
         let target = Int(pixelsPerSecond * 0.10)
         return min(max(target, 12_000_000), 120_000_000)
     }
 
-    private func hevcBitrate(width: Int, height: Int, frameRate: Int) -> (average: Int, dataRateLimits: [Int]) {
+    private func hevcBitrate(width: Int, height: Int, frameRate: Double) -> (average: Int, dataRateLimits: [Int]) {
         let pixelsPerSecond = Double(width) * Double(height) * Double(frameRate)
         let targetBitsPerSecond = pixelsPerSecond * 0.28
         let minBitrate = 50_000_000
@@ -216,32 +222,79 @@ enum CapturePreset: String, CaseIterable, Identifiable {
     }
 }
 
+/// Exact frame cadence shared by ScreenCaptureKit, the CFR writer and timecode.
+struct CaptureFrameRate: Equatable, Sendable {
+    let numerator: Int32
+    let denominator: Int32
+
+    init(_ numerator: Int32, denominator: Int32 = 1) {
+        precondition(numerator > 0 && denominator > 0)
+        self.numerator = numerator
+        self.denominator = denominator
+    }
+
+    var framesPerSecond: Double { Double(numerator) / Double(denominator) }
+    var frameDuration: CMTime { CMTime(value: Int64(denominator), timescale: numerator) }
+    var nominalRate: Int { Int(framesPerSecond.rounded()) }
+    var droppedFramesPerMinute: Int {
+        denominator == 1001 && (numerator == 30000 || numerator == 60000) ? nominalRate / 15 : 0
+    }
+    var timecodeFlags: UInt32 {
+        kCMTimeCodeFlag_24HourMax | (droppedFramesPerMinute > 0 ? kCMTimeCodeFlag_DropFrame : 0)
+    }
+    var framesPerTimecodeDay: Int {
+        nominalRate * 86400 - droppedFramesPerMinute * (1440 - 144)
+    }
+
+    func presentationOffset(frameIndex: Int) -> CMTime {
+        CMTime(value: Int64(frameIndex) * Int64(denominator), timescale: numerator)
+    }
+
+    func timecodeFrame(hour: Int, minute: Int, second: Int, nanosecond: Int = 0) -> Int {
+        let totalMinutes = hour * 60 + minute
+        // The first 2/4 labels are omitted at every minute except multiples of ten.
+        var subFrame = min(nominalRate - 1, Int(Double(nanosecond) / 1_000_000_000 * Double(nominalRate)))
+        if second == 0 && minute % 10 != 0 {
+            subFrame = max(subFrame, droppedFramesPerMinute)
+        }
+        let labels = (totalMinutes * 60 + second) * nominalRate + subFrame
+        return labels - droppedFramesPerMinute * (totalMinutes - totalMinutes / 10)
+    }
+
+    func wrappedTimecodeFrame(start: Int, frameIndex: Int) -> Int {
+        (start + frameIndex) % framesPerTimecodeDay
+    }
+}
+
 enum CaptureFrameRateOption: String, CaseIterable, Identifiable {
     case auto
+    case fps25
+    case fps2997
     case fps50
+    case fps5994
     case fps60
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .auto:
-            return "Auto (Display)"
-        case .fps50:
-            return "50 fps (PAL)"
-        case .fps60:
-            return "60 fps (NTSC)"
+        case .auto: return String(localized: "Auto (Display)")
+        case .fps25: return String(localized: "25 fps (PAL)")
+        case .fps2997: return String(localized: "29.97 fps (NTSC)")
+        case .fps50: return String(localized: "50 fps (PAL)")
+        case .fps5994: return String(localized: "59.94 fps (NTSC)")
+        case .fps60: return String(localized: "60 fps")
         }
     }
 
-    var fixedValue: Int? {
+    var fixedValue: CaptureFrameRate? {
         switch self {
-        case .auto:
-            return nil
-        case .fps50:
-            return 50
-        case .fps60:
-            return 60
+        case .auto: return nil
+        case .fps25: return CaptureFrameRate(25)
+        case .fps2997: return CaptureFrameRate(30000, denominator: 1001)
+        case .fps50: return CaptureFrameRate(50)
+        case .fps5994: return CaptureFrameRate(60000, denominator: 1001)
+        case .fps60: return CaptureFrameRate(60)
         }
     }
 }
@@ -255,9 +308,9 @@ enum CaptureDynamicRangeOption: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .sdr:
-            return "SDR (Display)"
+            return String(localized: "SDR (Display)")
         case .hdrP3CanonicalDisplay:
-            return "HDR Display P3 (macOS 26+)"
+            return String(localized: "HDR Display P3 (macOS 26+)")
         }
     }
 
@@ -611,7 +664,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         case .preview:
             let previewResolution = scaledPreviewResolution(from: pixelResolution, maxWidth: max(1, maxPreviewWidth))
             let destinationRect = CGRect(origin: .zero, size: previewResolution)
-            let previewFrameRate = min(resolvedFrameRate(option: settings.frameRate, display: display, fallback: 30), 60)
+            let requestedPreviewRate = resolvedFrameRate(option: settings.frameRate, display: display, fallback: 30)
+            let previewFrameRate = requestedPreviewRate.framesPerSecond > 60 ? CaptureFrameRate(60) : requestedPreviewRate
             config = makeStreamConfiguration(
                 resolution: previewResolution, frameRate: previewFrameRate, pixelFormat: kCVPixelFormatType_32BGRA,
                 sourceRect: sourceRect, destinationRect: destinationRect, dynamicRange: .sdr
@@ -937,7 +991,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
     private func makeStreamConfiguration(
         resolution: CGSize,
-        frameRate: Int,
+        frameRate: CaptureFrameRate,
         pixelFormat: OSType?,
         sourceRect: CGRect,
         destinationRect: CGRect,
@@ -956,7 +1010,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         }
         config.width = Int(resolution.width)
         config.height = Int(resolution.height)
-        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(frameRate))
+        config.minimumFrameInterval = frameRate.frameDuration
         if let pixelFormat {
             config.pixelFormat = pixelFormat
         }
@@ -1007,11 +1061,11 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         option: CaptureFrameRateOption,
         display: SCDisplay,
         fallback: Int
-    ) -> Int {
+    ) -> CaptureFrameRate {
         if let fixed = option.fixedValue {
             return fixed
         }
-        return frameRate(for: display, fallback: fallback)
+        return CaptureFrameRate(Int32(frameRate(for: display, fallback: fallback)))
     }
 
     private func normalizedDynamicRange(_ option: CaptureDynamicRangeOption) -> CaptureDynamicRangeOption {
@@ -1578,7 +1632,7 @@ private final class CaptureAssetWriterFinalizationBox: @unchecked Sendable {
     }
 }
 
-private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
+final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
     private let outputURL: URL
     private let fileType: AVFileType
     private let videoSettings: [String: Any]
@@ -1588,7 +1642,7 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     /// Growing preset: fragmented `.mov` + CFR pump + timecode track + the
     /// Blackmagic recording xattr (the DaVinci Resolve growing-file trigger).
     private let isGrowing: Bool
-    private let frameRate: Int
+    private let frameRate: CaptureFrameRate
     private var writer: AVAssetWriter?
     private var videoInput: AVAssetWriterInput?
     private var audioInput: AVAssetWriterInput?
@@ -1629,7 +1683,7 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         dynamicRange: CaptureDynamicRangeOption,
         includeMicrophone: Bool,
         isGrowing: Bool = false,
-        frameRate: Int = 60
+        frameRate: CaptureFrameRate = CaptureFrameRate(60)
     ) throws {
         self.outputURL = outputURL
         self.fileType = fileType
@@ -1638,7 +1692,7 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         self.dynamicRange = dynamicRange
         self.includeMicrophone = includeMicrophone
         self.isGrowing = isGrowing
-        self.frameRate = max(1, frameRate)
+        self.frameRate = frameRate
     }
 
     func append(sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) {
@@ -1661,7 +1715,10 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
             }
 
             if let writer {
-                let startTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                let sourceTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                let startTime = isGrowing
+                    ? CMTimeConvertScale(sourceTime, timescale: frameRate.numerator, method: .roundTowardZero)
+                    : sourceTime
                 writer.startWriting()
                 writer.startSession(atSourceTime: startTime)
                 started = true
@@ -1798,6 +1855,9 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: fileType)
         if isGrowing {
+            // Preserve the exact rational endpoint in the movie edit timeline too;
+            // the default 600 Hz movie timescale rounds NTSC track durations.
+            writer.movieTimeScale = frameRate.numerator
             // ~1 s fragments so the file is a valid growing movie on disk.
             writer.movieFragmentInterval = CMTime(value: 1, timescale: 1)
         }
@@ -1815,6 +1875,7 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
             sourceFormatHint: formatHint
         )
         videoInput.expectsMediaDataInRealTime = true
+        if isGrowing { videoInput.mediaTimeScale = frameRate.numerator }
 
         let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
         audioInput.expectsMediaDataInRealTime = true
@@ -1875,26 +1936,20 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     /// Adds a per-frame `tmcd` timecode track (growing presets) starting at
     /// wall-clock time-of-day, associated with the video track. Must run before
     /// `startWriting()`.
-    ///
-    /// `resolvedFrameRate` always yields an integer rate (50, 60, or the display's
-    /// `maximumFramesPerSecond`) — never a fractional NTSC rate — so the track is correctly
-    /// non-drop-frame (`flags: 0`) with `frameQuanta == frameRate`. A fractional rate
-    /// (29.97/59.94) would instead need `kCMTimeCodeFlag_DropFrame` and a rounded quanta to
-    /// stay aligned with wall clock. The frame counter also does not wrap at 24h, so a
-    /// recording crossing midnight keeps counting past 24:00:00:00 rather than rolling over.
     private func setupTimecodeTrack(on writer: AVAssetWriter, videoInput: AVAssetWriterInput) {
         var tcFormat: CMTimeCodeFormatDescription?
         let status = CMTimeCodeFormatDescriptionCreate(
             allocator: kCFAllocatorDefault,
             timeCodeFormatType: kCMTimeCodeFormatType_TimeCode32,
-            frameDuration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
-            frameQuanta: UInt32(frameRate),
-            flags: 0,
+            frameDuration: frameRate.frameDuration,
+            frameQuanta: UInt32(frameRate.nominalRate),
+            flags: frameRate.timecodeFlags,
             extensions: nil,
             formatDescriptionOut: &tcFormat
         )
         guard status == noErr, let tcFormat else { return }
         let input = AVAssetWriterInput(mediaType: .timecode, outputSettings: nil, sourceFormatHint: tcFormat)
+        input.mediaTimeScale = frameRate.numerator
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input) else { return }
         writer.add(input)
@@ -1906,9 +1961,10 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         hasTimecodeInput = true
 
         let comps = Calendar.current.dateComponents([.hour, .minute, .second, .nanosecond], from: Date())
-        let seconds = (comps.hour ?? 0) * 3600 + (comps.minute ?? 0) * 60 + (comps.second ?? 0)
-        let subFrame = Int(Double(comps.nanosecond ?? 0) / 1_000_000_000.0 * Double(frameRate))
-        timecodeStartFrame = seconds * frameRate + subFrame
+        timecodeStartFrame = frameRate.timecodeFrame(
+            hour: comps.hour ?? 0, minute: comps.minute ?? 0,
+            second: comps.second ?? 0, nanosecond: comps.nanosecond ?? 0
+        )
     }
 
     // MARK: - Growing-file CFR pump
@@ -1977,7 +2033,7 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     }
 
     private func startCFRPump() {
-        let interval = 1.0 / Double(frameRate)
+        let interval = 1.0 / frameRate.framesPerSecond
         let timer = DispatchSource.makeTimerSource(queue: cfrQueue)
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(2))
         timer.setEventHandler { [weak self] in self?.pumpTick() }
@@ -2007,14 +2063,14 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
 
         let elapsed = CMTimeGetSeconds(CMTimeSubtract(CMClockGetTime(hostClock), sessionStartPTS))
         guard elapsed.isFinite, elapsed >= 0 else { return }
-        let targetIndex = Int(elapsed * Double(frameRate))
+        let targetIndex = Int(elapsed * frameRate.framesPerSecond)
 
         while emittedFrameIndex <= targetIndex {
             guard writeError == nil else { return }
             guard videoInput.isReadyForMoreMediaData else { break }  // backpressure: retry next tick
             let pts = CMTimeAdd(
                 sessionStartPTS,
-                CMTime(value: CMTimeValue(emittedFrameIndex), timescale: CMTimeScale(frameRate))
+                frameRate.presentationOffset(frameIndex: emittedFrameIndex)
             )
             if adaptor.append(buffer, withPresentationTime: pts) {
                 if videoSampleCount == 0 { logger.info("First video frame emitted (CFR).") }
@@ -2031,7 +2087,7 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
     private func appendTimecode(frameIndex: Int) {
         guard hasTimecodeInput, let input = timecodeInput, let format = timecodeFormat,
               input.isReadyForMoreMediaData else { return }
-        var frameNumber = UInt32(truncatingIfNeeded: timecodeStartFrame + frameIndex).bigEndian
+        var frameNumber = UInt32(frameRate.wrappedTimecodeFrame(start: timecodeStartFrame, frameIndex: frameIndex)).bigEndian
         var blockBuffer: CMBlockBuffer?
         guard CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: 4,
@@ -2045,10 +2101,10 @@ private final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendabl
         guard copied else { return }
         var sample: CMSampleBuffer?
         var timing = CMSampleTimingInfo(
-            duration: CMTime(value: 1, timescale: CMTimeScale(frameRate)),
+            duration: frameRate.frameDuration,
             presentationTimeStamp: CMTimeAdd(
                 sessionStartPTS,
-                CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(frameRate))
+                frameRate.presentationOffset(frameIndex: frameIndex)
             ),
             decodeTimeStamp: .invalid
         )

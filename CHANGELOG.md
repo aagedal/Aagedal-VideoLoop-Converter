@@ -11,6 +11,11 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 - **Spotlight & Siri shortcuts.** The ten most common presets — led by **Convert (Default Preset)** — are exposed as zero-setup App Shortcuts, so you can run them from Spotlight or by voice (e.g. *"Convert with Aagedal Media Converter"*) without first building a shortcut. Because a Spotlight/Siri phrase can't carry files, running one this way opens the app, switches to that preset, and presents a file picker — convert actions then start as soon as you choose your files. Apple caps this surface at ten per app; the niche presets (AV2, TV, Image Sequence, DCP, IMF) stay available as full actions inside the Shortcuts app.
 - **The app now opens automatically.** Every convert action and "Add to Encode Queue" now launches the app if it isn't already running and reliably hands off its files, instead of silently doing nothing when the app was closed. A small launch-time buffer replays a request that arrives before the window's receivers are ready, so nothing is lost to the cold-launch race — and never runs twice.
 
+## Screen recording
+
+- **Broadcast frame rates and drop-frame timecode.** Screen recording now offers 25, 29.97, 50, 59.94, and 60 fps alongside display-native Auto. Growing recordings use exact rational timing, including the MOV duration, and drop-frame timecode at 29.97/59.94 with midnight rollover. Settings and the recording overlay explain constant versus variable frame rate.
+- **Norwegian capture settings are more complete.** Rate choices, preset names/descriptions, dynamic range, and frame-rate explanations are now localized. Capture folder buttons also have explicit accessibility labels.
+
 ## Encoding
 
 - **Bundled FFmpeg updated to 8.1.1.** Replaces the previous build that dynamically linked Homebrew's `libvorbis.dylib` — and crashed on launch — with a self-contained, statically-linked GPL build. Non-free components are dropped: `libfdk_aac` gives way to the native `aac` / `aac_at` encoders.

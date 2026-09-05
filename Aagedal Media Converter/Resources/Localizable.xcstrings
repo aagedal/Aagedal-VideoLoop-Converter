@@ -1,6 +1,206 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "HDR Display P3 (macOS 26+)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HDR Display P3 (macOS 26+)"
+          }
+        }
+      }
+    },
+    "SDR (Display)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SDR (skjerm)"
+          }
+        }
+      }
+    },
+    "Visually lossless ProRes 4444 for grading. Variable frame rate (VFR) keeps files smaller when the screen is static. Not flagged as a growing clip, so DaVinci Resolve won't poll it for updates while recording — best for importing afterward." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Visuelt tapsfri ProRes 4444 for fargekorrigering. Variabel bildefrekvens (VFR) gir mindre filer når skjermen er statisk. Klippet er ikke merket som voksende, så DaVinci Resolve ser ikke etter oppdateringer under opptak – best egnet for import etterpå."
+          }
+        }
+      }
+    },
+    "Hardware HEVC 10-bit 4:2:2; source format determines chroma. Variable frame rate, not flagged as a growing clip — best for importing after recording." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maskinvarekodet HEVC 10-bit 4:2:2; kildeformatet avgjør fargesamplingen. Variabel bildefrekvens, uten merking som voksende klipp – best egnet for import etter opptak."
+          }
+        }
+      }
+    },
+    "Edit while recording in DaVinci Resolve & Premiere. ProRes 4444 at a constant frame rate (CFR) — visually lossless, but because ProRes can't compress duplicate frames, a mostly-static screen makes very large files. Needs a ProRes hardware encoder (M1 Pro/Max or later) for high frame rates." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rediger under opptak i DaVinci Resolve og Premiere. ProRes 4444 med konstant bildefrekvens (CFR) er visuelt tapsfri, men siden ProRes ikke kan komprimere duplikatbilder, gir en stort sett statisk skjerm svært store filer. Høy bildefrekvens krever en ProRes-maskinvarekoder (M1 Pro/Max eller nyere)."
+          }
+        }
+      }
+    },
+    "Edit while recording with maximum compatibility. Hardware H.264, fragmented .mov." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rediger under opptak med maksimal kompatibilitet. Maskinvarekodet H.264, fragmentert .mov."
+          }
+        }
+      }
+    },
+    "Edit while recording in DaVinci Resolve & Premiere. Hardware HEVC 10-bit 4:2:2, fragmented .mov." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rediger under opptak i DaVinci Resolve og Premiere. Maskinvarekodet HEVC 10-bit 4:2:2, fragmentert .mov."
+          }
+        }
+      }
+    },
+    "ProRes 4444 (Visually Lossless)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ProRes 4444 (visuelt tapsfri)"
+          }
+        }
+      }
+    },
+    "HEVC 10-bit 4:2:2 (Hardware)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HEVC 10-bit 4:2:2 (maskinvare)"
+          }
+        }
+      }
+    },
+    "Growing ProRes 4444 (Visually Lossless)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voksende ProRes 4444 (visuelt tapsfri)"
+          }
+        }
+      }
+    },
+    "Growing H.264 (Compatibility)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voksende H.264 (kompatibilitet)"
+          }
+        }
+      }
+    },
+    "Growing HEVC 10-bit 4:2:2 (Resolve/Premiere)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Voksende HEVC 10-bit 4:2:2 (Resolve/Premiere)"
+          }
+        }
+      }
+    },
+    "Variable frame rate (VFR): the selected rate is a maximum; static screens may produce fewer frames." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variabel bildefrekvens (VFR): valgt bildefrekvens er en øvre grense; statiske skjermbilder kan gi færre bilder."
+          }
+        }
+      }
+    },
+    "Constant frame rate (CFR): static frames are repeated at the selected rate." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konstant bildefrekvens (CFR): statiske bilder gjentas med valgt bildefrekvens."
+          }
+        }
+      }
+    },
+    "60 fps" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "60 b/s"
+          }
+        }
+      }
+    },
+    "59.94 fps (NTSC)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "59,94 b/s (NTSC)"
+          }
+        }
+      }
+    },
+    "50 fps (PAL)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "50 b/s (PAL)"
+          }
+        }
+      }
+    },
+    "29.97 fps (NTSC)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "29,97 b/s (NTSC)"
+          }
+        }
+      }
+    },
+    "25 fps (PAL)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "25 b/s (PAL)"
+          }
+        }
+      }
+    },
+    "Auto (Display)" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisk (skjerm)"
+          }
+        }
+      }
+    },
     "" : {
       "shouldTranslate" : false
     },

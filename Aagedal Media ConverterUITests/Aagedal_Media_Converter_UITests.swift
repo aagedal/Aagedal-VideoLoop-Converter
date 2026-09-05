@@ -64,6 +64,35 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
     }
 
     @MainActor
+    func testScreenCaptureSettingsExposeBroadcastRatesInBothLanguages() throws {
+        for (language, locale, labels) in [
+            ("en", "en_US", ["Auto (Display)", "25 fps (PAL)", "29.97 fps (NTSC)", "50 fps (PAL)", "59.94 fps (NTSC)", "60 fps"]),
+            ("nb", "nb_NO", ["Automatisk (skjerm)", "25 b/s (PAL)", "29,97 b/s (NTSC)", "50 b/s (PAL)", "59,94 b/s (NTSC)", "60 b/s"])
+        ] {
+            launchApp(language: language, locale: locale)
+            defer { app.terminate() }
+            let settingsButton = element("toolbar.settings")
+            XCTAssertTrue(settingsButton.waitForExistence(timeout: 10))
+            settingsButton.click()
+            let captureTab = element("settings.tab.screenCapture")
+            XCTAssertTrue(captureTab.waitForExistence(timeout: 5))
+            captureTab.click()
+            let picker = element("capture.frameRate")
+            XCTAssertTrue(picker.waitForExistence(timeout: 5))
+            let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+            screenshot.name = "Screen Capture Settings - \(language)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            picker.click()
+            for label in labels {
+                XCTAssertTrue(app.menuItems[label].exists, "Missing frame rate: \(label)")
+            }
+            app.typeKey(.escape, modifierFlags: [])
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testImportsGeneratedFixtureAndSelectsPreset() throws {
         launchApp(generatedFixture: true)
         defer { terminateAndCleanFixtures() }
@@ -188,10 +217,12 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         generatedFixture: Bool = false,
         defaultPreset: String = "VideoLoop",
         realtimeInput: Bool = false,
-        removeFixtureAfterImport: Bool = false
+        removeFixtureAfterImport: Bool = false,
+        language: String = "en",
+        locale: String = "en_US"
     ) {
         app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-ffmpegBinarySource", "app"]
+        app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale, "-ffmpegBinarySource", "app"]
         app.launchEnvironment["AMC_UI_TEST_SESSION"] = "1"
         if generatedFixture {
             app.launchArguments += [

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CD4320100000000000000001 /* CaptureFrameRateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD4320100000000000000002 /* CaptureFrameRateTests.swift */; };
 		00B3F16A9264F886CA667DAC /* NativeWaveformVideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */; };
 		11255751B6534433ACCE197E /* TesseractOCREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4782DE38B404350A2A11FCF /* TesseractOCREngine.swift */; };
 		15A41FC10346A7F73664E9A1 /* ComparisonMetadataView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F82CC3B9944D3DAF6B3F9C93 /* ComparisonMetadataView.swift */; };
@@ -257,6 +258,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		CD4320100000000000000002 /* CaptureFrameRateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFrameRateTests.swift; sourceTree = "<group>"; };
 		07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = YTDLPSettingsView.swift; sourceTree = "<group>"; };
 		0A661B3187048E83E24FB0AB /* WhisperModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModels.swift; sourceTree = "<group>"; };
 		0FEA89ED716FE15C8986DB34 /* BinaryPathResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BinaryPathResolver.swift; sourceTree = "<group>"; };
@@ -812,6 +814,7 @@
 			isa = PBXGroup;
 			children = (
 				8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */,
+				CD4320100000000000000002 /* CaptureFrameRateTests.swift */,
 			);
 			path = "Aagedal Media ConverterTests";
 			sourceTree = "<group>";
@@ -1401,6 +1404,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8EBD10242EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift in Sources */,
+				CD4320100000000000000001 /* CaptureFrameRateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

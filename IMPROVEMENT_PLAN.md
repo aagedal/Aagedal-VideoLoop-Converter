@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 325 tests pass. The
+- The unit-test baseline is green: 333 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 325 unit tests. The UI test target now has deterministic smoke
+- There are 333 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -43,7 +43,7 @@ issue link when it starts.
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
   flow coverage.
-- The string catalog has 1,230 entries. All 59 previously missing App Intent
+- The string catalog has 1,250 entries. All 59 previously missing App Intent
   strings and the ordinary interface omissions are now translated into Norwegian.
   The only 15 missing entries are intentionally untranslated format/command tokens;
   CI rejects unclassified omissions and broken interpolation placeholders.
@@ -1081,6 +1081,8 @@ app, Settings, and Shortcuts remain.
 
 ### 4.3 Finish broadcast-grade screen-recording rates
 
+Status: implementation and generated-writer validation completed 2026-09-05 (Codex); live capture/editor validation remains.
+
 - Offer explicit 25, 29.97, 50, and 59.94 choices if professional PAL/NTSC delivery
   is the goal; keep display-native Auto separate.
 - Use rational frame durations rather than representing every rate as an integer.
@@ -1089,6 +1091,37 @@ app, Settings, and Shortcuts remain.
 
 Acceptance: `avg_frame_rate`, `r_frame_rate`, duration, frame count, and timecode
 match the selected rate in generated validation recordings.
+
+Capture now offers 25, exact 30000/1001, 50, exact 60000/1001, and integer
+60 fps while preserving existing saved choices and display-native Auto. Stream
+configuration, growing-file CFR presentation times, encoder hints, movie/media
+clocks, and timecode share one rational rate. The two NTSC choices use drop-frame
+labels and all timecodes wrap at midnight. Settings and the recording overlay
+explicitly explain CFR versus the non-growing presets' VFR delivery cap.
+
+Six focused tests cover saved choices, long timestamp arithmetic, drop-frame
+minute/ten-minute boundaries, midnight rollover, CoreMedia timecode descriptions,
+and generated AVC growing recordings at all five fixed rates. The generated movies
+verify actual frame spacing, final frame duration, total video duration against frame
+count, and persisted timecode duration/quanta/flags. This caught and fixed total
+track-duration rounding caused by AVAssetWriter's default 600 Hz movie clock.
+The test distinguishes actual video samples from AVAssetReader's zero-sample
+boundary markers rather than weakening frame-cadence assertions.
+
+The bilingual Settings UI test verifies all six menu options and captures English
+and Norwegian screenshots. Visual inspection exposed twelve older preset/detail/
+dynamic-range strings bypassing the catalog; these now use localization, alongside
+the eight new rate/explanation entries. The catalog audit passes with 1,250 entries
+and the same 15 intentional omissions.
+
+Remaining: live static/animated screen recordings across rates, long A/V sync,
+Auto/display behavior, sandbox/permission flows, and midnight/editor interoperability.
+The final combined validation passes all 333 unit tests and seven functional UI
+smoke tests, with no failures. English/Norwegian capture-settings screenshots were
+visually checked for clipping.
+The existing timecode-input backpressure/append-error handling and stop-time final
+frame flush also need a separate reliability follow-up. These remain explicit
+validation gaps rather than a claim that the full milestone is complete.
 
 ### 4.4 Improve first-run and dependency diagnostics
 
