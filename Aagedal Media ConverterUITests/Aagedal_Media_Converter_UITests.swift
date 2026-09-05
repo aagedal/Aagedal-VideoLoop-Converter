@@ -54,13 +54,8 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
 
     @MainActor
     func testImportsGeneratedFixtureAndSelectsPreset() throws {
-        let fixtureDirectory = try makeFixtureDirectory()
-
-        launchApp(generatedFixtureDirectory: fixtureDirectory)
-        defer {
-            app.terminate()
-            try? FileManager.default.removeItem(at: fixtureDirectory)
-        }
+        launchApp(generatedFixture: true)
+        defer { terminateAndCleanFixtures() }
 
         let queueItem = element("queue.item")
         XCTAssertTrue(queueItem.waitForExistence(timeout: 20))
@@ -87,17 +82,12 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
 
     @MainActor
     func testStartsAndCancelsConversion() throws {
-        let fixtureDirectory = try makeFixtureDirectory()
-
         launchApp(
-            generatedFixtureDirectory: fixtureDirectory,
+            generatedFixture: true,
             defaultPreset: "H.264 / AVC",
             realtimeInput: true
         )
-        defer {
-            app.terminate()
-            try? FileManager.default.removeItem(at: fixtureDirectory)
-        }
+        defer { terminateAndCleanFixtures() }
 
         let queueItem = element("queue.item")
         XCTAssertTrue(queueItem.waitForExistence(timeout: 20))
@@ -119,16 +109,11 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
 
     @MainActor
     func testExposesSuccessfulConversionResult() throws {
-        let fixtureDirectory = try makeFixtureDirectory()
-
         launchApp(
-            generatedFixtureDirectory: fixtureDirectory,
+            generatedFixture: true,
             defaultPreset: "H.264 / AVC"
         )
-        defer {
-            app.terminate()
-            try? FileManager.default.removeItem(at: fixtureDirectory)
-        }
+        defer { terminateAndCleanFixtures() }
 
         let queueItem = element("queue.item")
         XCTAssertTrue(queueItem.waitForExistence(timeout: 20))
@@ -143,23 +128,16 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
 
     @MainActor
     func testExposesFailedConversionAndError() throws {
-        let fixtureDirectory = try makeFixtureDirectory()
-
         launchApp(
-            generatedFixtureDirectory: fixtureDirectory,
-            defaultPreset: "H.264 / AVC"
+            generatedFixture: true,
+            defaultPreset: "H.264 / AVC",
+            removeFixtureAfterImport: true
         )
-        defer {
-            app.terminate()
-            try? FileManager.default.removeItem(at: fixtureDirectory)
-        }
+        defer { terminateAndCleanFixtures() }
 
         let queueItem = element("queue.item")
         XCTAssertTrue(queueItem.waitForExistence(timeout: 20))
         XCTAssertEqual(queueItem.label, "ui-test-fixture.mp4")
-        try FileManager.default.removeItem(
-            at: fixtureDirectory.appendingPathComponent("ui-test-fixture.mp4")
-        )
         let conversionButton = element("toolbar.conversion")
         XCTAssertTrue(conversionButton.waitForExistence(timeout: 5))
         conversionButton.click()
@@ -175,7 +153,7 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         XCTAssertTrue(expandedDetails.waitForExistence(timeout: 5))
         XCTAssertTrue((expandedDetails.value as? String ?? "").contains("Cannot access input file"))
         XCTAssertTrue(element("queue.errorDetails.copy").isEnabled)
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        let screenshot = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
         screenshot.name = "Queue error details"
         screenshot.lifetime = .keepAlways
         add(screenshot)
@@ -196,20 +174,23 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
 
     @MainActor
     private func launchApp(
-        generatedFixtureDirectory: URL? = nil,
+        generatedFixture: Bool = false,
         defaultPreset: String = "VideoLoop",
-        realtimeInput: Bool = false
+        realtimeInput: Bool = false,
+        removeFixtureAfterImport: Bool = false
     ) {
         app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-ffmpegBinarySource", "app"]
-        if let generatedFixtureDirectory {
+        app.launchEnvironment["AMC_UI_TEST_SESSION"] = "1"
+        if generatedFixture {
             app.launchArguments += [
-                "-outputFolder", generatedFixtureDirectory.path,
                 "-defaultExportPreset", defaultPreset,
                 "-saveNextToOriginal", "NO",
             ]
             app.launchEnvironment["AMC_UI_TEST_GENERATED_FIXTURE"] = "1"
-            app.launchEnvironment["AMC_UI_TEST_FIXTURE_DIRECTORY"] = generatedFixtureDirectory.path
+            if removeFixtureAfterImport {
+                app.launchEnvironment["AMC_UI_TEST_REMOVE_FIXTURE_AFTER_IMPORT"] = "1"
+            }
             if realtimeInput {
                 app.launchEnvironment["AMC_UI_TEST_REALTIME_INPUT"] = "1"
             }
@@ -217,11 +198,16 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         app.launch()
     }
 
-    private func makeFixtureDirectory() throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AagedalMediaConverterUITests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
+    @MainActor
+    private func terminateAndCleanFixtures() {
+        app.terminate()
+        // XCTest may force-terminate the app without willTerminateNotification.
+        // Relaunch for synchronous app-owned cleanup; the runner never accesses
+        // the app's private fixture files or output directory.
+        app.launchEnvironment.removeValue(forKey: "AMC_UI_TEST_GENERATED_FIXTURE")
+        app.launchEnvironment["AMC_UI_TEST_CLEANUP_FIXTURES"] = "1"
+        app.launch()
+        app.terminate()
     }
 
     @MainActor

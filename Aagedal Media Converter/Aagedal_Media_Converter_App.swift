@@ -23,6 +23,9 @@ struct Aagedal_Media_Converter_App: App {
     private let sparkleUpdater = SparkleUpdater.shared
 
     init() {
+#if DEBUG
+        UITestFixtureConfiguration.configureLaunchDefaults()
+#endif
         // Suppress MoltenVK info logs (level 2 = warnings only, no info spam)
         setenv("MVK_CONFIG_LOG_LEVEL", "2", 1)
 
