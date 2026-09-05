@@ -1,6 +1,76 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "VideoLoop with sound": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VideoLoop med lyd"
+          }
+        }
+      }
+    },
+    "Stream Copy": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strømkopiering"
+          }
+        }
+      }
+    },
+    "Animated Still (%@)": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animert stillbilde (%@)"
+          }
+        }
+      }
+    },
+    "Image Sequence (%@)": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildesekvens (%@)"
+          }
+        }
+      }
+    },
+    "Audio Only (%@)": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun lyd (%@)"
+          }
+        }
+      }
+    },
+    "Timed out while discovering screens and windows. Try starting capture again.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd under søk etter skjermer og vinduer. Prøv å starte opptaket på nytt."
+          }
+        }
+      }
+    },
+    "Availability and architecture checked. This helper does not have a verified read-only version check.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgjengelighet og arkitektur er kontrollert. Dette hjelpeverktøyet har ingen verifisert versjonskontroll som bare leser informasjon."
+          }
+        }
+      }
+    },
     "16:9 aspect ratio": {
       "localizations": {
         "nb": {

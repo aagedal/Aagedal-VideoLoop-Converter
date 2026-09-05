@@ -1,5 +1,13 @@
 # v.4.3.0
 
+- **The preset picker keeps its active selection visible**, even when that preset is hidden in Settings. Descriptive built-in preset names now translate into Norwegian without changing saved identifiers or custom names.
+
+- **Upload Settings no longer reads passwords just to check whether they are saved.** Credential presence checks avoid secret-data retrieval and authentication prompts.
+
+- **Screen and window discovery no longer waits indefinitely.** Recording and system-audio metering stop waiting after 15 seconds and respond promptly to cancellation.
+- **Standalone subtitle and analytics actions keep consistent settings.** Model, language, OCR engine, analytics frame sampling, and automatic export preferences are captured before work starts.
+- **Tool Diagnostics now includes package and AV2 helpers.** BMX and AS-DCP helpers have bounded version checks; AV2 and Parakeet expose availability and architecture with a clear note when version validation is unavailable.
+
 
 - **Tool Diagnostics in Settings** shows active tool paths, architecture, executable status, and bounded version checks, with distinct guidance for missing tools, launch failures, and timeouts.
 - **Norwegian Settings and Shortcuts** now localize dynamic choices and descriptions, and Shortcuts search matches translated actions. Long empty-queue tips wrap fully.

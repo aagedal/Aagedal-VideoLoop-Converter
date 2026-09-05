@@ -65,6 +65,37 @@ final class ToolDiagnosticsTests: XCTestCase {
         XCTAssertNil(timeout.version)
     }
 
+    func testAvailabilityOnlyProbeDoesNotLaunchOrClaimVersionValidation() async throws {
+        let runner = DiagnosticRunner(output: "must not launch")
+        let diagnostics = ToolDiagnostics(runner: runner)
+        let available = try await diagnostics.check(id: "avmenc", name: "AV2 encoder",
+                                                     path: "/usr/bin/true", arguments: nil)
+        XCTAssertTrue(available.executable)
+        XCTAssertNil(available.version)
+        XCTAssertNil(available.failure)
+        XCTAssertNotNil(available.note)
+        let missing = try await diagnostics.check(id: "avmenc", name: "AV2 encoder",
+                                                   path: nil, arguments: nil)
+        XCTAssertFalse(missing.executable)
+        XCTAssertNotNil(missing.failure)
+        XCTAssertNil(missing.note)
+        let requests = await runner.requests
+        XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testHelperChecksUseOnlyVerifiedVersionFlags() {
+        let checks = ToolDiagnostics.helperChecks
+        XCTAssertEqual(Set(checks.map(\.id)),
+                       Set(["bmxtranswrap", "mxf2raw", "raw2bmx", "asdcp-wrap", "avmenc", "avmdec", "parakeet"]))
+        for check in checks {
+            switch check.id {
+            case "bmxtranswrap", "mxf2raw", "raw2bmx": XCTAssertEqual(check.arguments, ["--version"])
+            case "asdcp-wrap": XCTAssertEqual(check.arguments, ["-V"])
+            default: XCTAssertNil(check.arguments)
+            }
+        }
+    }
+
     func testCancellationDoesNotBecomeToolFailure() async throws {
         let runner = DiagnosticRunner(output: "", cancel: true)
         do {

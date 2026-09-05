@@ -4153,17 +4153,17 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             ffmpegPathProvider: { ffmpegPath },
             ssimulacra2PathProvider: { ssimulacra2Path },
             mediaInfoProvider: StubAnalyticsMediaInfoProvider(
-                duration: 1,
+                duration: 10,
                 resolution: (width: 640, height: 360)
-            ),
-            ssimulacra2MaxFramesOverride: 1
+            )
         )
 
         let results = try await service.runAnalytics(
             sourceFile: fixture.source,
             encodedFile: fixture.encoded,
             enabledMetrics: [.ssimulacra2],
-            vmafModel: .vmaf_v0_6_1
+            vmafModel: .vmaf_v0_6_1,
+            ssimulacra2MaxFrames: 1
         ) { _, _ in }
 
         XCTAssertEqual(results.first?.overallScore, 97.53500802)
@@ -4208,8 +4208,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             ffmpegPathProvider: { "/private/tools/ffmpeg" },
             ssimulacra2PathProvider: { "/private/tools/ssimulacra2_rs" },
             mediaInfoProvider: provider,
-            mediaInfoTimeout: .milliseconds(50),
-            ssimulacra2MaxFramesOverride: 1
+            mediaInfoTimeout: .milliseconds(50)
         )
         let start = ContinuousClock.now
 
@@ -4218,7 +4217,8 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
                 sourceFile: fixture.source,
                 encodedFile: fixture.encoded,
                 enabledMetrics: [.ssimulacra2],
-                vmafModel: .vmaf_v0_6_1
+                vmafModel: .vmaf_v0_6_1,
+                ssimulacra2MaxFrames: 1
             ) { _, _ in }
             XCTFail("Expected media duration discovery to time out")
         } catch let AnalyticsError.metricFailed(metric, reason) {
@@ -4260,8 +4260,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             ffmpegPathProvider: { "/private/tools/ffmpeg" },
             ssimulacra2PathProvider: { "/private/tools/ssimulacra2_rs" },
             mediaInfoProvider: provider,
-            mediaInfoTimeout: .milliseconds(50),
-            ssimulacra2MaxFramesOverride: 1
+            mediaInfoTimeout: .milliseconds(50)
         )
         let start = ContinuousClock.now
 
@@ -4270,7 +4269,8 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
                 sourceFile: fixture.source,
                 encodedFile: fixture.encoded,
                 enabledMetrics: [.ssimulacra2],
-                vmafModel: .vmaf_v0_6_1
+                vmafModel: .vmaf_v0_6_1,
+                ssimulacra2MaxFrames: 1
             ) { _, _ in }
             XCTFail("Expected media resolution discovery to time out")
         } catch let AnalyticsError.metricFailed(metric, reason) {

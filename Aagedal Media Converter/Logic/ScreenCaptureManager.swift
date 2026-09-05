@@ -1340,7 +1340,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     }
 
     static func shareableContent() async throws -> SCShareableContent {
-        try await SCShareableContent.current
+        try await ScreenCaptureContentDiscovery.current()
     }
 
     private func contentFilter(
@@ -1568,6 +1568,48 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             }
         }
         return nil
+    }
+}
+
+/// ScreenCaptureKit can leave discovery suspended while the capture service is
+/// unavailable. Return promptly on cancellation or deadline without joining its
+/// framework callback; the late snapshot has no side effects and is discarded.
+enum ScreenCaptureContentDiscovery {
+    static func current() async throws -> SCShareableContent {
+        let snapshot = try await discover {
+            ScreenCaptureContentSnapshot(content: try await SCShareableContent.current)
+        }
+        return snapshot.content
+    }
+
+    static func discover<Snapshot: Sendable>(
+        timeout: Duration = .seconds(15),
+        provider: @escaping @Sendable () async throws -> Snapshot
+    ) async throws -> Snapshot {
+        do {
+            let snapshot = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try Task.checkCancellation()
+                return try await provider()
+            }
+            try Task.checkCancellation()
+            return snapshot
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            throw ScreenCaptureContentDiscoveryError.timedOut
+        }
+    }
+}
+
+/// This immutable framework snapshot is only read after its producer returns.
+/// ScreenCaptureKit does not declare the Objective-C snapshot Sendable.
+private struct ScreenCaptureContentSnapshot: @unchecked Sendable {
+    let content: SCShareableContent
+}
+
+enum ScreenCaptureContentDiscoveryError: LocalizedError {
+    case timedOut
+
+    var errorDescription: String? {
+        String(localized: "Timed out while discovering screens and windows. Try starting capture again.")
     }
 }
 

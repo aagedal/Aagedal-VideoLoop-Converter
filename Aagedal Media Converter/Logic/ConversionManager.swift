@@ -3130,7 +3130,8 @@ actor ConversionManager: Sendable {
                 sourceFile: sourceURL,
                 encodedFile: encodedURL,
                 enabledMetrics: enabledMetrics,
-                vmafModel: vmafModel
+                vmafModel: vmafModel,
+                ssimulacra2MaxFrames: settings.ssimulacra2MaxFrames
             ) { metric, progressValue in
                 Task { @MainActor in
                     if let idx = droppedFiles.wrappedValue.firstIndex(where: { $0.id == itemID }) {
@@ -3160,7 +3161,7 @@ actor ConversionManager: Sendable {
                     droppedFiles.wrappedValue[idx].analyticsResults = analyticsResults
                     droppedFiles.wrappedValue[idx].analyticsProgress = 1.0
                 }
-                AnalyticsExporter.autoExportIfEnabled(results: analyticsResults, encodedFileURL: encodedURL)
+                AnalyticsExporter.autoExportIfEnabled(results: analyticsResults, encodedFileURL: encodedURL, settings: settings.autoExport)
             }
 
             logger.info("Quality analytics completed for \(encodedURL.lastPathComponent, privacy: .public)")

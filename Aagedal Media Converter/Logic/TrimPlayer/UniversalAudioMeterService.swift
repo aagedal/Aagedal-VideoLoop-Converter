@@ -107,7 +107,7 @@ final class UniversalAudioMeterService: NSObject, ObservableObject {
     
     /// Helper to create content filter off the main actor
     nonisolated private func createContentFilter() async throws -> SCContentFilter {
-        let content = try await SCShareableContent.current
+        let content = try await ScreenCaptureContentDiscovery.current()
         
         guard let myApp = content.applications.first(where: { $0.bundleIdentifier == Bundle.main.bundleIdentifier }) else {
             throw NSError(domain: "UniversalAudioMeter", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not find own application"])

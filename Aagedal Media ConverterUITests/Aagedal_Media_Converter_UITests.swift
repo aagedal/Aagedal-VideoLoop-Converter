@@ -28,6 +28,50 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
     }
 
     @MainActor
+    func testHiddenDefaultPresetStillDisplaysItsSelectionInBothLanguages() throws {
+        for (language, locale) in [("en", "en_US"), ("nb", "nb_NO")] {
+            launchApp(language: language, locale: locale, additionalArguments: ["-videoLoopVisible", "NO"])
+            defer { app.terminate() }
+            XCTAssertTrue(element("queue.empty").waitForExistence(timeout: 10))
+            XCTAssertTrue(waitForValue("VideoLoop", of: element("toolbar.preset"), timeout: 5))
+            app.activate()
+            attachWindowScreenshot(named: "Hidden active preset - \(language)")
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testDescriptivePresetNamesInBothLanguages() throws {
+        for (language, locale, prefixes) in [
+            ("en", "en_US", ["VideoLoop with sound", "Stream Copy", "Animated Still (", "Audio Only (", "Image Sequence ("]),
+            ("nb", "nb_NO", ["VideoLoop med lyd", "Strømkopiering", "Animert stillbilde (", "Kun lyd (", "Bildesekvens ("])
+        ] {
+            launchApp(language: language, locale: locale)
+            defer { app.terminate() }
+            XCTAssertTrue(element("toolbar.settings").waitForExistence(timeout: 10))
+            app.activate()
+            element("toolbar.settings").click()
+            XCTAssertTrue(element("settings.root").waitForExistence(timeout: 10))
+            for pane in ["presets", "encoding"] {
+                let identifier = "settings.tab.\(pane)"
+                element(identifier).click()
+                let row = app.outlineRows.containing(.any, identifier: identifier).firstMatch
+                XCTAssertTrue(waitForSelection(of: row, timeout: 5))
+                if pane == "presets" {
+                    for prefix in prefixes {
+                        let name = app.staticTexts.matching(NSPredicate(
+                            format: "label BEGINSWITH %@ OR value BEGINSWITH %@", prefix, prefix
+                        )).firstMatch
+                        XCTAssertTrue(name.exists, "Missing localized preset name: \(prefix)")
+                    }
+                }
+                attachWindowScreenshot(named: "Localized preset names - \(language) - \(pane)")
+            }
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testOpensSettingsAndMovesBetweenPanes() throws {
         launchApp()
         defer { app.terminate() }
@@ -90,8 +134,15 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
             defer { app.terminate() }
             XCTAssertTrue(element("queue.empty").waitForExistence(timeout: 10))
             attachWindowScreenshot(named: "Locale audit - \(language) - main")
+            app.activate()
             element("toolbar.settings").click()
             let root = element("settings.root")
+            if !root.waitForExistence(timeout: 3) {
+                // Desktop focus can consume the first click. Retry once, then
+                // still require the real Settings window and sidebar selection.
+                app.activate()
+                element("toolbar.settings").click()
+            }
             XCTAssertTrue(root.waitForExistence(timeout: 10))
 
             for (identifier, english, norwegian) in panes {
@@ -106,9 +157,12 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
                 )
                 let row = app.outlineRows.containing(.any, identifier: "settings.tab.\(identifier)").firstMatch
                 app.activate()
-                row.click()
-                let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
-                XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
+                tab.click()
+                if !waitForSelection(of: row, timeout: 3) {
+                    app.activate()
+                    tab.click()
+                }
+                XCTAssertTrue(waitForSelection(of: row, timeout: 5))
                 attachWindowScreenshot(named: "Locale audit - \(language) - \(identifier)")
             }
             app.terminate()
@@ -170,8 +224,10 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
             XCTAssertEqual(check.label, checkLabel)
             attachWindowScreenshot(named: "Tool Diagnostics - \(language)")
             check.click()
-            XCTAssertTrue(waitForEnabled(true, of: check, timeout: 50))
-            XCTAssertTrue(element("settings.tools.ffmpeg").exists)
+            XCTAssertTrue(waitForEnabled(true, of: check, timeout: 90))
+            for id in ["ffmpeg", "bmxtranswrap", "mxf2raw", "raw2bmx", "asdcp-wrap", "avmenc", "avmdec", "parakeet"] {
+                XCTAssertTrue(element("settings.tools.\(id)").exists)
+            }
             attachWindowScreenshot(named: "Tool Diagnostics results - \(language)")
             app.terminate()
         }
@@ -273,6 +329,9 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         XCTAssertTrue(waitForLabel("Cannot access input file", of: errorDetail, timeout: 5))
         let detailsButton = element("queue.item.errorDetails")
         XCTAssertTrue(detailsButton.waitForExistence(timeout: 5))
+        app.activate()
+        let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: detailsButton)
+        XCTAssertEqual(XCTWaiter.wait(for: [hittable], timeout: 5), .completed)
         detailsButton.click()
         let expandedDetails = element("queue.errorDetails.text")
         XCTAssertTrue(expandedDetails.waitForExistence(timeout: 5))
@@ -304,14 +363,15 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         realtimeInput: Bool = false,
         removeFixtureAfterImport: Bool = false,
         language: String = "en",
-        locale: String = "en_US"
+        locale: String = "en_US",
+        additionalArguments: [String] = []
     ) {
         app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale, "-ffmpegBinarySource", "app"]
+        app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale, "-ffmpegBinarySource", "app", "-defaultExportPreset", defaultPreset]
+        app.launchArguments += additionalArguments
         app.launchEnvironment["AMC_UI_TEST_SESSION"] = "1"
         if generatedFixture {
             app.launchArguments += [
-                "-defaultExportPreset", defaultPreset,
                 "-saveNextToOriginal", "NO",
             ]
             app.launchEnvironment["AMC_UI_TEST_GENERATED_FIXTURE"] = "1"
@@ -335,6 +395,12 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         app.launchEnvironment["AMC_UI_TEST_CLEANUP_FIXTURES"] = "1"
         app.launch()
         app.terminate()
+    }
+
+    @MainActor
+    private func waitForSelection(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
     @MainActor

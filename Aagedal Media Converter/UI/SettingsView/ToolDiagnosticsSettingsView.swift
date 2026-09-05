@@ -39,6 +39,9 @@ struct ToolDiagnosticsSettingsView: View {
                     if let version = result.version {
                         Text(verbatim: version).textSelection(.enabled)
                     }
+                    if let note = result.note {
+                        Text(note).foregroundStyle(.secondary)
+                    }
                     if let failure = result.failure {
                         Label(failure, systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
@@ -65,7 +68,7 @@ struct ToolDiagnosticsSettingsView: View {
             let ytdlp = await YTDLPUpdateService.shared.resolveYTDLPPath()
             let deno = await YTDLPUpdateService.shared.resolveDenoPath()
             let rclone = await RcloneUpdateService.shared.resolveRclonePath()
-            let tools: [(String, String, String?, [String])] = [
+            let tools: [(String, String, String?, [String]?)] = [
                 ("ffmpeg", "FFmpeg", BinaryPathResolver.ffmpegPath, ["-version"]),
                 ("ytdlp", "yt-dlp", ytdlp, ["--version"]),
                 ("deno", "Deno", deno, ["--version"]),
@@ -73,10 +76,10 @@ struct ToolDiagnosticsSettingsView: View {
                 ("tesseract", "Tesseract", BinaryPathResolver.tesseractPath, ["--version"]),
                 ("ssimulacra2", "SSIMULACRA2", BinaryPathResolver.ssimulacra2Path, ["--version"])
             ]
-            for (id, name, path, arguments) in tools {
+            for (id, name, path, arguments) in tools + ToolDiagnostics.helperChecks {
                 try Task.checkCancellation()
                 var configuration: HomebrewPythonExecutor.ToolExecutionConfiguration?
-                if let path, id == "ytdlp" {
+                if let path, let arguments, id == "ytdlp" {
                     configuration = HomebrewPythonExecutor.ytDLPExecutionConfiguration(scriptPath: path, arguments: arguments)
                 }
                 let result = try await diagnostics.check(id: id, name: name, path: path,

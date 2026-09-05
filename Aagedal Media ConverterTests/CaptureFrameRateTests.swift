@@ -1,9 +1,77 @@
 import AVFoundation
 import XCTest
 import ScreenCaptureKit
+import os
 @testable import Aagedal_Media_Converter
 
 final class CaptureFrameRateTests: XCTestCase {
+    func testScreenCaptureDiscoveryReturnsSnapshot() async throws {
+        let snapshot = try await ScreenCaptureContentDiscovery.discover {
+            ["display", "window"]
+        }
+        XCTAssertEqual(snapshot, ["display", "window"])
+    }
+
+    func testScreenCaptureDiscoveryTimesOutWithoutJoiningLateCallback() async {
+        let registered = expectation(description: "Discovery started")
+        let completed = expectation(description: "Discovery returned on deadline")
+        let callback = OSAllocatedUnfairLock<CheckedContinuation<String, Never>?>(initialState: nil)
+        let task = Task {
+            do {
+                _ = try await ScreenCaptureContentDiscovery.discover(timeout: .milliseconds(50)) {
+                    await withCheckedContinuation { continuation in
+                        callback.withLock { $0 = continuation }
+                        registered.fulfill()
+                    }
+                }
+                XCTFail("Expected discovery timeout")
+            } catch ScreenCaptureContentDiscoveryError.timedOut {
+                // Expected; the framework operation remains suspended.
+            } catch {
+                XCTFail("Unexpected discovery failure: \(error)")
+            }
+            completed.fulfill()
+        }
+        await fulfillment(of: [registered, completed], timeout: 2)
+        let lateCallback = callback.withLock { value in
+            defer { value = nil }
+            return value
+        }
+        lateCallback?.resume(returning: "late display")
+        await task.value
+    }
+
+    func testScreenCaptureDiscoveryCancellationDoesNotWaitForFramework() async {
+        let registered = expectation(description: "Discovery started")
+        let completed = expectation(description: "Discovery returned on cancellation")
+        let callback = OSAllocatedUnfairLock<CheckedContinuation<String, Never>?>(initialState: nil)
+        let task = Task {
+            do {
+                _ = try await ScreenCaptureContentDiscovery.discover(timeout: .seconds(30)) {
+                    await withCheckedContinuation { continuation in
+                        callback.withLock { $0 = continuation }
+                        registered.fulfill()
+                    }
+                }
+                XCTFail("Expected cancellation")
+            } catch is CancellationError {
+                // Cancellation remains distinct from a capture-service timeout.
+            } catch {
+                XCTFail("Unexpected discovery failure: \(error)")
+            }
+            completed.fulfill()
+        }
+        await fulfillment(of: [registered], timeout: 2)
+        task.cancel()
+        await fulfillment(of: [completed], timeout: 2)
+        let lateCallback = callback.withLock { value in
+            defer { value = nil }
+            return value
+        }
+        lateCallback?.resume(returning: "late display")
+        await task.value
+    }
+
     func testPersistedOptionsKeepExistingValuesAndExposeExactRates() {
         XCTAssertNil(CaptureFrameRateOption.auto.fixedValue)
         XCTAssertEqual(CaptureFrameRateOption(rawValue: "fps50")?.fixedValue, CaptureFrameRate(50))

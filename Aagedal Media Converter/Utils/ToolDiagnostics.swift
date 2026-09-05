@@ -12,6 +12,7 @@ struct ToolDiagnostic: Identifiable, Sendable {
     let executable: Bool
     let version: String?
     let failure: String?
+    var note: String? = nil
 }
 
 /// Read-only, bounded checks of the same selected tools used by conversion services.
@@ -22,11 +23,26 @@ struct ToolDiagnostics: Sendable {
         self.runner = runner
     }
 
+    /// Version flags are restricted to those verified by the dependency manifest.
+    /// AVM and Parakeet are inspected without launch: guessing a version flag can
+    /// enter their conversion/transcription flows or initialize model dependencies.
+    static var helperChecks: [(id: String, name: String, path: String?, arguments: [String]?)] {
+        [
+            ("bmxtranswrap", "BMX transwrap", BinaryPathResolver.bmxtranswrapPath, ["--version"]),
+            ("mxf2raw", "BMX mxf2raw", BinaryPathResolver.mxf2rawPath, ["--version"]),
+            ("raw2bmx", "BMX raw2bmx", BinaryPathResolver.raw2bmxPath, ["--version"]),
+            ("asdcp-wrap", "AS-DCP wrap", BinaryPathResolver.asdcpWrapPath, ["-V"]),
+            ("avmenc", "AV2 encoder", BinaryPathResolver.avmencPath, nil),
+            ("avmdec", "AV2 decoder", BinaryPathResolver.avmdecPath, nil),
+            ("parakeet", "Parakeet MLX", BinaryPathResolver.parakeetMlxPath, nil)
+        ]
+    }
+
     func check(
         id: String,
         name: String,
         path: String?,
-        arguments: [String] = ["--version"],
+        arguments: [String]? = ["--version"],
         configuration: HomebrewPythonExecutor.ToolExecutionConfiguration? = nil
     ) async throws -> ToolDiagnostic {
         try Task.checkCancellation()
@@ -39,6 +55,11 @@ struct ToolDiagnostics: Sendable {
         guard executable else {
             return ToolDiagnostic(id: id, name: name, path: path, architecture: architecture, executable: false,
                                   version: nil, failure: String(localized: "The selected file is missing or is not executable."))
+        }
+        guard let arguments else {
+            return ToolDiagnostic(id: id, name: name, path: path, architecture: architecture,
+                                  executable: true, version: nil, failure: nil,
+                                  note: String(localized: "Availability and architecture checked. This helper does not have a verified read-only version check."))
         }
         let request = SubprocessRequest(
             executableURL: configuration?.executableURL ?? URL(fileURLWithPath: path),
