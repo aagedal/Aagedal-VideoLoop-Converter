@@ -1652,34 +1652,26 @@ struct ContentView: View {
             ? 15
             : 2
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: ffmpegPath)
-        process.arguments = [
-            "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=\(fixtureDuration)",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=\(fixtureDuration)",
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-c:v", "mpeg4", "-q:v", "5", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-shortest", fixtureURL.path,
-        ]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        let exitStatus = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { finishedProcess in
-                continuation.resume(returning: finishedProcess.terminationStatus)
-            }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: error)
-            }
-        }
-
-        guard exitStatus == 0,
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: ffmpegPath),
+            arguments: [
+                "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=\(fixtureDuration)",
+                "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=\(fixtureDuration)",
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-c:v", "mpeg4", "-q:v", "5", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-shortest", fixtureURL.path,
+            ],
+            timeout: .seconds(30),
+            standardOutputCaptureLimit: 0,
+            standardErrorCaptureLimit: 8 * 1024,
+            sensitiveValues: [directory.path, fixtureURL.path]
+        )
+        let result = try await SubprocessRunner().run(request)
+        guard result.succeeded,
               FileManager.default.fileExists(atPath: fixtureURL.path) else {
-            throw UITestFixtureError.generationFailed(exitStatus)
+            Logger(subsystem: "com.aagedal.MediaConverter", category: "UITestFixture").error("UI test fixture FFmpeg diagnostic: \(request.redactedDiagnostic(result.standardErrorText), privacy: .public)")
+            throw UITestFixtureError.generationFailed(result.terminationStatus)
         }
         return fixtureURL
     }

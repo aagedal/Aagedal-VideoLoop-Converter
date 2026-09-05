@@ -168,6 +168,18 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         let errorDetail = element("queue.item.detail")
         XCTAssertTrue(errorDetail.waitForExistence(timeout: 5))
         XCTAssertTrue(waitForLabel("Cannot access input file", of: errorDetail, timeout: 5))
+        let detailsButton = element("queue.item.errorDetails")
+        XCTAssertTrue(detailsButton.waitForExistence(timeout: 5))
+        detailsButton.click()
+        let expandedDetails = element("queue.errorDetails.text")
+        XCTAssertTrue(expandedDetails.waitForExistence(timeout: 5))
+        XCTAssertTrue((expandedDetails.value as? String ?? "").contains("Cannot access input file"))
+        XCTAssertTrue(element("queue.errorDetails.copy").isEnabled)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Queue error details"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(waitForLabel("Start Conversion", of: conversionButton, timeout: 5))
         XCTAssertTrue(waitForEnabled(false, of: conversionButton, timeout: 5))
     }
@@ -189,7 +201,7 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         realtimeInput: Bool = false
     ) {
         app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-ffmpegBinarySource", "app"]
         if let generatedFixtureDirectory {
             app.launchArguments += [
                 "-outputFolder", generatedFixtureDirectory.path,
