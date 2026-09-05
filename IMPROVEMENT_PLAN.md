@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 308 tests pass. The
+- The unit-test baseline is green: 310 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 308 unit tests. The UI test target now has deterministic smoke
+- There are 310 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -42,9 +42,10 @@ issue link when it starts.
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
   flow coverage.
-- The string catalog has 1,197 entries; 87 entries have no Norwegian localization.
-  Some are format tokens or App Intent phrases, so they must be classified before
-  translating.
+- The string catalog has 1,204 entries. All 59 previously missing App Intent
+  strings and the ordinary interface omissions are now translated into Norwegian.
+  The only 15 missing entries are intentionally untranslated format/command tokens;
+  CI rejects unclassified omissions and broken interpolation placeholders.
 - Bundled binaries, frameworks, and resources total roughly 280 MB before the app
   bundle is packaged. Their contents and licenses should be verified as part of a
   release rather than only reviewed manually.
@@ -878,7 +879,7 @@ the wider audit of remaining unbounded framework callbacks continues.
 
 ### 2.3 Standardize user-visible errors
 
-Status: in progress; DCP/IMF package-directory failures made explicit 2026-09-04.
+Status: in progress; settings-sync monitoring and backup failures surfaced 2026-09-05.
 
 - Keep `try?` for best-effort cleanup only. Log or surface failures for directory
   creation, bookmark access, file moves, settings import, and result validation.
@@ -899,6 +900,16 @@ if no remote file existed. Automatic reconciliation preserves the existing file 
 of overwriting it with local settings, publishes an actionable Settings error, and logs
 the failure; manual import uses the same validated decoder. Focused tests cover valid,
 malformed, and unsupported-schema snapshots.
+
+Settings sync now also reports folder creation/open failures while starting its directory
+monitor and preserves the monitoring error across otherwise successful reads and writes.
+Each cancelled monitor closes its own descriptor, preventing an old cancellation handler
+from closing a replacement monitor after the location changes. iCloud placeholder download
+failures are logged and shown, and backup-folder creation/Finder failures use the existing
+Settings alert even when sync is disabled. Two filesystem tests cover monitor-directory
+creation and failure without overwriting an existing file. All 310 unit tests pass; the final
+alert wiring also passed a focused rebuild/test. Real iCloud/Finder failure scenarios,
+remaining bookmark/filesystem paths, expandable queue details, and Copy diagnostics remain.
 
 ## Priority 3 — Reduce change risk in architecture
 
@@ -955,8 +966,7 @@ unlabeled interactive controls in Accessibility Inspector.
 
 ### 4.2 Close the localization gap
 
-Status: in progress; Norwegian catalog omissions classified and checked in CI
-2026-09-05.
+Status: translations completed 2026-09-05; visual locale validation remains.
 
 - Classify the 87 Norwegian-missing entries as user-facing text, intentional
   format tokens, or App Intent phrases.
@@ -972,8 +982,13 @@ tokens, 59 App Intent phrases, and 13 ordinary interface strings. All 13 interfa
 strings are now translated, and a checked-in audit plus CI script rejects new
 unclassified omissions, stale classifications, incorrectly translatable format
 tokens, and interpolation mismatches. The audit also fixed a malformed `%@`
-placeholder in the Norwegian timecode help text. Translating the 59 App Intent
-phrases and performing English/Norwegian screenshot and clipping checks remain.
+placeholder in the Norwegian timecode help text. All 59 App Intent titles, descriptions,
+and parameter summaries are now translated,
+with `${videos}` placeholders preserved and enforced by CI. Three new settings-sync
+errors are translated as well. The catalog check passes with 1,204 entries and only
+15 intentional omissions; negative checks verify missing translations and broken
+placeholders are rejected. English/Norwegian screenshots and clipping checks in the
+app, Settings, and Shortcuts remain.
 
 ### 4.3 Finish broadcast-grade screen-recording rates
 
@@ -1001,7 +1016,7 @@ Terminal unless installation itself requires it.
 
 Target: before the next public release, then automate.
 
-Status: in progress; reproducible bundled Mach-O inventory added 2026-09-05.
+Status: in progress; dependency inventory and pre-upload artifact validation added 2026-09-05.
 
 - Inventory bundled executables and dylibs; remove anything unreachable from the
   shipping app after dependency verification.
@@ -1024,8 +1039,22 @@ The generator runs in CI and at the start of a release, so a changed, added, or
 removed binary cannot ship with a stale inventory. Known executable licenses are
 identified without guessing; the manifest deliberately lists missing local license
 files and unclassified dylib licenses as release follow-up. Full per-library license
-attribution, reachability analysis, and signed/notarized artifact verification remain
-open.
+attribution and reachability analysis remain open.
+
+The release script now checks the exported bundle's strict/deep code signature and
+extracts the final distribution ZIP to verify its signature, notarization staple, and
+Gatekeeper assessment before uploading. A CryptoKit Ed25519 check verifies the ZIP
+against the public key embedded in the exported app, detecting a mismatched signing
+key as well as archive tampering. Appcast preparation happens in a separate candidate
+file before upload and validates XML, build/version/minimum-OS agreement with the
+exported app, increasing build numbers, archive length, HTTPS, and signature/key
+encoding. Command-line version/build overrides now reach the archive build itself.
+Nine release-script regression tests cover valid and rejected appcasts plus real
+Ed25519 signatures, tampering, wrong keys, and malformed signatures; CI runs them.
+The unsigned Release build, catalog audit, and bundled manifest check also pass.
+The signed/notarized publishing pipeline still needs a credentialed release run;
+architecture/dependency resolution enforcement, complete licenses, clean-machine
+installation/update checks, and measured size/memory baselines remain open.
 
 ## Suggested delivery sequence
 

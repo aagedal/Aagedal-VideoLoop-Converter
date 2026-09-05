@@ -34,6 +34,9 @@ jobs:
       - name: Verify bundled dependency manifest
         run: scripts/bundled-dependency-manifest.py --check
 
+      - name: Test release validation scripts
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: Check localization catalog
         run: python3 scripts/check-localizations.py
 
