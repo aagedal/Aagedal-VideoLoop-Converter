@@ -70,17 +70,46 @@ enum SwiftExifMediaProbe {
 
     /// Returns the container duration in seconds, or nil when no parser can read it.
     /// Tries SwiftMediaMetadata first (for supported containers), then falls back to AVFoundation.
-    static func duration(for url: URL) async -> Double? {
+    static func duration(
+        for url: URL,
+        timeout: Duration = BoundedVideoMetadataProbe.defaultTimeout
+    ) async -> Double? {
+        await duration(for: url, timeout: timeout, probe: resolveDuration)
+    }
+
+    /// Bounds the entire parser/fallback chain, including callers outside the metadata
+    /// service such as partial-download inspection. Late results cannot update the caller.
+    static func duration(
+        for url: URL,
+        timeout: Duration,
+        probe: @escaping @Sendable (URL) async -> Double?
+    ) async -> Double? {
+        do {
+            return try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try Task.checkCancellation()
+                let result = await probe(url)
+                try Task.checkCancellation()
+                return result
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    private static func resolveDuration(for url: URL) async -> Double? {
+        guard !Task.isCancelled else { return nil }
         if canReadVideo(url) {
             if let meta = try? await readVideo(url), let d = meta.duration, d > 0 {
                 return d
             }
         }
+        guard !Task.isCancelled else { return nil }
         if canReadAudio(url) {
             if let meta = try? await readAudio(url), let d = meta.duration, d > 0 {
                 return d
             }
         }
+        guard !Task.isCancelled else { return nil }
         return await avFoundationDuration(for: url)
     }
 

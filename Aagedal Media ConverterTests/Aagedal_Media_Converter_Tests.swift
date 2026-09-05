@@ -13682,3 +13682,58 @@ private final class DeferredTerminationCleanup: @unchecked Sendable {
         continuation?.resume()
     }
 }
+
+
+final class SwiftExifDurationDeadlineTests: XCTestCase {
+    func testDurationReturnsSuccessfulProbeValue() async {
+        let result = await SwiftExifMediaProbe.duration(
+            for: URL(fileURLWithPath: "/tmp/duration.mov"),
+            timeout: .seconds(1)
+        ) { _ in 12.5 }
+        XCTAssertEqual(result, 12.5)
+    }
+
+    func testDurationReturnsNilWithoutJoiningStalledProbe() async {
+        let stalled = DeferredTerminationCleanup()
+        defer { stalled.release() }
+        let started = ContinuousClock.now
+        let task = Task {
+            await SwiftExifMediaProbe.duration(
+                for: URL(fileURLWithPath: "/tmp/duration.mov"),
+                timeout: .milliseconds(100)
+            ) { _ in
+                await stalled.run()
+                return 12.5
+            }
+        }
+        await stalled.waitUntilStarted()
+
+        let result = await task.value
+        XCTAssertNil(result)
+        XCTAssertLessThan(started.duration(to: .now), .seconds(2))
+        // The suspended operation is released only after its caller has returned.
+        stalled.release()
+    }
+
+    func testDurationCancellationReturnsNilWithoutJoiningProbe() async {
+        let stalled = DeferredTerminationCleanup()
+        defer { stalled.release() }
+        let task = Task {
+            await SwiftExifMediaProbe.duration(
+                for: URL(fileURLWithPath: "/tmp/duration.mov"),
+                timeout: .seconds(30)
+            ) { _ in
+                await stalled.run()
+                return 12.5
+            }
+        }
+        await stalled.waitUntilStarted()
+        let started = ContinuousClock.now
+        task.cancel()
+
+        let result = await task.value
+        XCTAssertNil(result)
+        XCTAssertLessThan(started.duration(to: .now), .seconds(2))
+        stalled.release()
+    }
+}
