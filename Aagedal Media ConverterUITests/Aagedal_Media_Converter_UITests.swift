@@ -64,6 +64,64 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
     }
 
     @MainActor
+    func testMainWindowAndEverySettingsPaneInBothLanguages() throws {
+        let panes = [
+            ("general", "General", "Generelt"),
+            ("encoding", "Encoding Groups", "Kodingsgrupper"),
+            ("fileNames", "File Names", "Filnavn"),
+            ("metadata", "Metadata", "Metadata"),
+            ("presets", "Presets", "Forhåndsinnstillinger"),
+            ("screenshots", "Screenshots", "Skjermbilder"),
+            ("screenCapture", "Screen Capture", "Skjermopptak"),
+            ("waveform", "Audio Waveform", "Lydbølge"),
+            ("watchFolder", "Watch Folder", "Watch Folder"),
+            ("ytdlp", "Downloads", "Nedlastinger"),
+            ("upload", "Upload", "Opplasting"),
+            ("whisper", "Transcription", "Transkripsjon"),
+            ("ocr", "OCR", "OCR"),
+            ("analytics", "Analytics", "Analyse"),
+            ("sync", "Sync", "Synkronisering"),
+            ("updates", "Updates", "Oppdateringer"),
+            ("shortcuts", "Shortcuts", "Snarveier")
+        ]
+        for (language, locale) in [("en", "en_US"), ("nb", "nb_NO")] {
+            launchApp(language: language, locale: locale)
+            defer { app.terminate() }
+            XCTAssertTrue(element("queue.empty").waitForExistence(timeout: 10))
+            attachWindowScreenshot(named: "Locale audit - \(language) - main")
+            element("toolbar.settings").click()
+            let root = element("settings.root")
+            XCTAssertTrue(root.waitForExistence(timeout: 10))
+
+            for (identifier, english, norwegian) in panes {
+                let tab = element("settings.tab.\(identifier)")
+                XCTAssertTrue(tab.exists)
+                let expectedLabel = language == "en" ? english : norwegian
+                // AppKit static text exposes its spoken content as a value;
+                // other SwiftUI accessibility representations use the label.
+                XCTAssertTrue(
+                    tab.label == expectedLabel || tab.value as? String == expectedLabel,
+                    "Missing localized sidebar name: \(expectedLabel). \(tab.debugDescription)"
+                )
+                tab.click()
+                let row = app.outlineRows.containing(.any, identifier: "settings.tab.\(identifier)").firstMatch
+                let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
+                XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
+                attachWindowScreenshot(named: "Locale audit - \(language) - \(identifier)")
+            }
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    private func attachWindowScreenshot(named name: String) {
+        let attachment = XCTAttachment(screenshot: app.windows.firstMatch.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testScreenCaptureSettingsExposeBroadcastRatesInBothLanguages() throws {
         for (language, locale, labels) in [
             ("en", "en_US", ["Auto (Display)", "25 fps (PAL)", "29.97 fps (NTSC)", "50 fps (PAL)", "59.94 fps (NTSC)", "60 fps"]),

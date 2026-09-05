@@ -62,7 +62,7 @@ enum AV2CommandBuilder {
     }
 
     /// The full plan for a chunked encode: the per-chunk commands plus shared geometry and the
-    /// temp directory holding the segment files (cleaned up by the caller after concatenation).
+    /// proposed scratch directory. Planning does not create it; execution creates and owns it.
     struct AV2SegmentPlan: Sendable {
         let segments: [AV2SegmentCommand]
         let segmentDirectory: URL
@@ -226,7 +226,6 @@ enum AV2CommandBuilder {
 
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("av2chunks_\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         var segments: [AV2SegmentCommand] = []
         var startFrame = 0

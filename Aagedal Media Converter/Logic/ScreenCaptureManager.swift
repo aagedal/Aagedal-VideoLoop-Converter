@@ -1632,6 +1632,36 @@ private final class CaptureAssetWriterFinalizationBox: @unchecked Sendable {
     }
 }
 
+/// Both tracks must accept the same frame before the CFR cursor advances. A
+/// blocked timecode input must never silently create a gap in the timecode track.
+enum CaptureFrameEmission {
+    /// Keep each synchronous pass short so Stop and task cancellation can run
+    /// even when a large backlog meets an encoder that is continuously ready.
+    static func drain(
+        remainingFrameCount: Int,
+        checkDeadline: () throws -> Void,
+        emit: () throws -> Bool
+    ) throws -> Bool {
+        for _ in 0..<min(max(remainingFrameCount, 0), 32) {
+            try checkDeadline()
+            guard try emit() else { return false }
+        }
+        return remainingFrameCount <= 32
+    }
+
+    static func append(
+        videoReady: Bool,
+        timecodeReady: Bool,
+        appendVideo: () throws -> Void,
+        appendTimecode: () throws -> Void
+    ) throws -> Bool {
+        guard videoReady, timecodeReady else { return false }
+        try appendVideo()
+        try appendTimecode()
+        return true
+    }
+}
+
 final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
     private let outputURL: URL
     private let fileType: AVFileType
@@ -1649,6 +1679,7 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
     private var microphoneInput: AVAssetWriterInput?
     private var timecodeInput: AVAssetWriterInput?
     private var timecodeFormat: CMTimeCodeFormatDescription?
+    private var cfrVideoFormat: CMVideoFormatDescription?
     private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var hasVideoInput = false
     private var hasAudioInput = false
@@ -1670,7 +1701,7 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
     private var copyPool: CVPixelBufferPool?
     private var cfrTimer: DispatchSourceTimer?
     private let cfrQueue = DispatchQueue(label: "com.aagedal.capture.cfr")
-    private let hostClock = CMClockGetHostTimeClock()
+    private let currentTime: @Sendable () -> CMTime
     private var sessionStartPTS: CMTime = .zero
     private var emittedFrameIndex = 0
     private var timecodeStartFrame = 0
@@ -1683,7 +1714,8 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
         dynamicRange: CaptureDynamicRangeOption,
         includeMicrophone: Bool,
         isGrowing: Bool = false,
-        frameRate: CaptureFrameRate = CaptureFrameRate(60)
+        frameRate: CaptureFrameRate = CaptureFrameRate(60),
+        currentTime: @escaping @Sendable () -> CMTime = { CMClockGetTime(CMClockGetHostTimeClock()) }
     ) throws {
         self.outputURL = outputURL
         self.fileType = fileType
@@ -1693,13 +1725,14 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
         self.includeMicrophone = includeMicrophone
         self.isGrowing = isGrowing
         self.frameRate = frameRate
+        self.currentTime = currentTime
     }
 
     func append(sampleBuffer: CMSampleBuffer, type: SCStreamOutputType) {
-        guard CMSampleBufferDataIsReady(sampleBuffer) else { return }
+        guard !finished, CMSampleBufferDataIsReady(sampleBuffer) else { return }
         guard writeError == nil else { return }
         if let writer, writer.status == .failed {
-            writeError = writer.error
+            recordError(writer.error ?? CaptureWriterError.videoAppendFailed)
             return
         }
 
@@ -1796,9 +1829,15 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
     func finish() async throws {
         guard !finished else { return }
 
+        // Freeze the endpoint before waiting for encoder backpressure, so the
+        // recording cannot grow while its final frames are being drained.
+        let stopTime = currentTime()
         finished = true
-        // Stop the CFR pump first so no tick appends after markAsFinished.
         stopCFRPump()
+        if isGrowing, started, writeError == nil {
+            await flushCFRFrames(through: stopTime)
+        }
+        bufferLock.withLock { latestPixelBuffer = nil }
         // The recording xattr only marks a file as *currently growing*; a
         // finished file carries none (matches the reference recorder).
         if isGrowing {
@@ -1820,6 +1859,15 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
             return
         }
 
+        if isGrowing, videoSampleCount > 0 {
+            // With only one video frame, AVAssetWriter cannot infer cadence
+            // from adjacent timestamps and may otherwise extend its duration.
+            writer.endSession(atSourceTime: CMTimeAdd(
+                sessionStartPTS,
+                frameRate.presentationOffset(frameIndex: emittedFrameIndex)
+            ))
+        }
+
         if hasVideoInput {
             videoInput?.markAsFinished()
         }
@@ -1838,11 +1886,11 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
             finalization.start(completion: $0)
         }
 
-        if videoSampleCount == 0 {
-            throw CaptureWriterError.noVideoFrames
-        }
         if let error = writeError ?? writer.error {
             throw error
+        }
+        if videoSampleCount == 0 {
+            throw CaptureWriterError.noVideoFrames
         }
     }
 
@@ -2046,59 +2094,146 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
         cfrTimer = nil
         // Drain any in-flight tick so nothing appends after markAsFinished().
         cfrQueue.sync { }
-        bufferLock.lock()
-        latestPixelBuffer = nil
-        bufferLock.unlock()
+    }
+
+    /// Retry transient encoder backpressure without blocking a dispatch queue or
+    /// extending the captured endpoint. A stalled encoder must still allow Stop
+    /// to complete and report an incomplete recording.
+    private func flushCFRFrames(through stopTime: CMTime) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while writeError == nil {
+            if Task.isCancelled {
+                recordError(CancellationError())
+                return
+            }
+            let drained = cfrQueue.sync { emitCFRFrames(through: stopTime, deadline: deadline) }
+            if drained { return }
+            if ContinuousClock.now >= deadline {
+                recordError(CaptureWriterError.finalFrameFlushTimedOut)
+                return
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(10))
+            } catch {
+                recordError(error)
+                return
+            }
+        }
     }
 
     /// Emit duplicate frames up to the current host-clock position so the file
     /// is constant-frame-rate even while the screen is static.
     private func pumpTick() {
         guard !finished, writeError == nil else { return }
-        guard let videoInput, let adaptor = pixelBufferAdaptor else { return }
+        _ = emitCFRFrames(through: currentTime())
+    }
+
+    /// Returns false when captured frames need another bounded emission pass.
+    private func emitCFRFrames(through time: CMTime, deadline: ContinuousClock.Instant? = nil) -> Bool {
+        guard writeError == nil else { return true }
+        guard let videoInput else { return true }
         bufferLock.lock()
         let buffer = latestPixelBuffer
         bufferLock.unlock()
-        guard let buffer else { return }   // no frame captured yet
+        guard let buffer else { return true }   // no frame captured yet
 
-        let elapsed = CMTimeGetSeconds(CMTimeSubtract(CMClockGetTime(hostClock), sessionStartPTS))
-        guard elapsed.isFinite, elapsed >= 0 else { return }
+        let elapsed = CMTimeGetSeconds(CMTimeSubtract(time, sessionStartPTS))
+        guard elapsed.isFinite, elapsed >= 0 else { return true }
         let targetIndex = Int(elapsed * frameRate.framesPerSecond)
 
-        while emittedFrameIndex <= targetIndex {
-            guard writeError == nil else { return }
-            guard videoInput.isReadyForMoreMediaData else { break }  // backpressure: retry next tick
-            let pts = CMTimeAdd(
-                sessionStartPTS,
-                frameRate.presentationOffset(frameIndex: emittedFrameIndex)
+        do {
+            return try CaptureFrameEmission.drain(
+                remainingFrameCount: targetIndex - emittedFrameIndex + 1,
+                checkDeadline: {
+                    if let deadline, ContinuousClock.now >= deadline {
+                        throw CaptureWriterError.finalFrameFlushTimedOut
+                    }
+                },
+                emit: {
+                    guard writeError == nil else { return false }
+                    let pts = CMTimeAdd(
+                        sessionStartPTS,
+                        frameRate.presentationOffset(frameIndex: emittedFrameIndex)
+                    )
+                    let appended = try CaptureFrameEmission.append(
+                        videoReady: videoInput.isReadyForMoreMediaData,
+                        timecodeReady: !hasTimecodeInput || timecodeInput?.isReadyForMoreMediaData == true,
+                        appendVideo: {
+                            try appendCFRVideoFrame(buffer, at: pts, to: videoInput)
+                            if videoSampleCount == 0 { logger.info("First video frame emitted (CFR).") }
+                            videoSampleCount += 1
+                        },
+                        appendTimecode: { try appendTimecode(frameIndex: emittedFrameIndex) }
+                    )
+                    if appended { emittedFrameIndex += 1 }
+                    return appended
+                }
             )
-            if adaptor.append(buffer, withPresentationTime: pts) {
-                if videoSampleCount == 0 { logger.info("First video frame emitted (CFR).") }
-                videoSampleCount += 1
-                appendTimecode(frameIndex: emittedFrameIndex)
-                emittedFrameIndex += 1
-            } else {
-                recordError(writer?.error ?? CaptureWriterError.videoAppendFailed)
-                return
-            }
+        } catch {
+            recordError(error)
+            return true
         }
     }
 
-    private func appendTimecode(frameIndex: Int) {
-        guard hasTimecodeInput, let input = timecodeInput, let format = timecodeFormat,
-              input.isReadyForMoreMediaData else { return }
+    /// The pixel-buffer adaptor supplies no sample duration. Explicit timing is
+    /// essential for a single-frame recording, where no adjacent PTS exists for
+    /// AVAssetWriter to infer the requested cadence.
+    private func appendCFRVideoFrame(_ buffer: CVPixelBuffer, at pts: CMTime, to input: AVAssetWriterInput) throws {
+        // Color attachments are applied after the original capture sample's
+        // format was created. Build the format from our copied buffer so Core
+        // Media's image/format validation sees the actual emitted attachments.
+        let format: CMVideoFormatDescription
+        if let cached = cfrVideoFormat, CMVideoFormatDescriptionMatchesImageBuffer(cached, imageBuffer: buffer) {
+            format = cached
+        } else {
+            var description: CMVideoFormatDescription?
+            guard CMVideoFormatDescriptionCreateForImageBuffer(
+                allocator: kCFAllocatorDefault,
+                imageBuffer: buffer,
+                formatDescriptionOut: &description
+            ) == noErr, let description else {
+                throw CaptureWriterError.videoBufferUnavailable
+            }
+            cfrVideoFormat = description
+            format = description
+        }
+        var timing = CMSampleTimingInfo(
+            duration: frameRate.frameDuration,
+            presentationTimeStamp: pts,
+            decodeTimeStamp: .invalid
+        )
+        var sample: CMSampleBuffer?
+        guard CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: buffer,
+            formatDescription: format,
+            sampleTiming: &timing,
+            sampleBufferOut: &sample
+        ) == noErr, let sample else {
+            throw CaptureWriterError.videoBufferUnavailable
+        }
+        guard input.append(sample) else {
+            throw writer?.error ?? CaptureWriterError.videoAppendFailed
+        }
+    }
+
+    private func appendTimecode(frameIndex: Int) throws {
+        guard hasTimecodeInput else { return }
+        guard let input = timecodeInput, let format = timecodeFormat else {
+            throw CaptureWriterError.timecodeAppendFailed
+        }
         var frameNumber = UInt32(frameRate.wrappedTimecodeFrame(start: timecodeStartFrame, frameIndex: frameIndex)).bigEndian
         var blockBuffer: CMBlockBuffer?
         guard CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: 4,
             blockAllocator: nil, customBlockSource: nil, offsetToData: 0, dataLength: 4,
             flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &blockBuffer) == noErr,
-            let blockBuffer else { return }
+            let blockBuffer else { throw CaptureWriterError.timecodeAppendFailed }
         let copied = withUnsafeBytes(of: &frameNumber) { raw -> Bool in
             guard let base = raw.baseAddress else { return false }
             return CMBlockBufferReplaceDataBytes(with: base, blockBuffer: blockBuffer, offsetIntoDestination: 0, dataLength: 4) == noErr
         }
-        guard copied else { return }
+        guard copied else { throw CaptureWriterError.timecodeAppendFailed }
         var sample: CMSampleBuffer?
         var timing = CMSampleTimingInfo(
             duration: frameRate.frameDuration,
@@ -2114,8 +2249,10 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
             makeDataReadyCallback: nil, refcon: nil, formatDescription: format, sampleCount: 1,
             sampleTimingEntryCount: 1, sampleTimingArray: &timing,
             sampleSizeEntryCount: 1, sampleSizeArray: &sampleSize, sampleBufferOut: &sample) == noErr,
-            let sample else { return }
-        input.append(sample)
+            let sample else { throw CaptureWriterError.timecodeAppendFailed }
+        guard input.append(sample) else {
+            throw writer?.error ?? CaptureWriterError.timecodeAppendFailed
+        }
     }
 
     // MARK: - Growing-file xattr (DaVinci Resolve trigger)
@@ -2262,6 +2399,8 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
         case videoAppendFailed
         case audioAppendFailed
         case microphoneAppendFailed
+        case timecodeAppendFailed
+        case finalFrameFlushTimedOut
         case noVideoFrames
         case videoBufferUnavailable
 
@@ -2281,6 +2420,10 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
                 return "Failed to append audio samples to the capture writer."
             case .microphoneAppendFailed:
                 return "Failed to append microphone samples to the capture writer."
+            case .timecodeAppendFailed:
+                return String(localized: "Failed to append timecode samples to the capture writer.")
+            case .finalFrameFlushTimedOut:
+                return String(localized: "Timed out while writing the final screen recording frames. The file may be incomplete.")
             case .noVideoFrames:
                 return "No video frames were captured. Check Screen Recording permission."
             case .videoBufferUnavailable:

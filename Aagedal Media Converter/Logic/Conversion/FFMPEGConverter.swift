@@ -8,6 +8,7 @@
 // (at your option) any later version.
 
 import Foundation
+import Darwin
 import CoreGraphics
 import os
 import OSLog
@@ -2282,13 +2283,37 @@ actor FFMPEGConverter {
     /// files are joined (in order) by ``IVFConcatenator`` into the final video-only `.ivf`. A single
     /// failing chunk aborts the rest. Each chunk is an independent AV2 sequence (key frame at its
     /// first frame), which is what makes the bitstream-level concatenation valid.
-    private func runAV2ChunkedConversion(
+    func runAV2ChunkedConversion(
         plan: AV2CommandBuilder.AV2SegmentPlan,
         outputFileURL: URL,
         ffmpegPath: String,
         avmencPath: String,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void
     ) async -> AV2EncodeResult {
+        guard !Task.isCancelled else {
+            return AV2EncodeResult(success: false, errorReason: "Conversion cancelled", keyframeIndices: [])
+        }
+
+        // mkdir is exclusive: an existing file, directory, or symlink is never adopted as
+        // scratch space. Cleanup is installed only after this execution creates the directory.
+        let preparationError: Int32? = plan.segmentDirectory.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return EINVAL }
+            return Darwin.mkdir(path, mode_t(0o700)) == 0 ? nil : errno
+        }
+        if let preparationError {
+            let reason = NSError(domain: NSPOSIXErrorDomain, code: Int(preparationError)).localizedDescription
+            Self.logger.error("Could not prepare AV2 chunk scratch directory: \(reason, privacy: .public)")
+            return AV2EncodeResult(
+                success: false,
+                errorReason: String(localized: "Could not create temporary storage for AV2 chunks: \(reason). Check available disk space and temporary-folder permissions, then try again."),
+                keyframeIndices: []
+            )
+        }
+        defer { Self.cleanupDirectory(plan.segmentDirectory) }
+
+        guard !Task.isCancelled else {
+            return AV2EncodeResult(success: false, errorReason: "Conversion cancelled", keyframeIndices: [])
+        }
         let totalFrames = plan.totalFrames
         let chunkCount = plan.segments.count
         Self.logger.info("AV2 chunked encode: \(chunkCount) workers, \(totalFrames) frames → \(outputFileURL.lastPathComponent, privacy: .public)")
@@ -2334,7 +2359,6 @@ actor FFMPEGConverter {
 
         // All workers have exited (the task group is the 2N-of-2N termination barrier).
         if let failed = firstFailure ?? outcomes.first(where: { !$0.success }) {
-            Self.cleanupDirectory(plan.segmentDirectory)
             Self.logger.error("AV2 chunked failed at chunk \(failed.index): \(failed.errorReason ?? "unknown", privacy: .public)")
             return AV2EncodeResult(success: false, errorReason: failed.errorReason ?? "AV2 chunked encode failed", keyframeIndices: [])
         }
@@ -2343,7 +2367,6 @@ actor FFMPEGConverter {
         let ordered = plan.segments.sorted { $0.index < $1.index }.map { $0.outputURL }
         do {
             let result = try IVFConcatenator.concatenate(segmentURLs: ordered, into: outputFileURL)
-            Self.cleanupDirectory(plan.segmentDirectory)
             if let validationError = Self.validateOutputFile(at: outputFileURL) {
                 Self.cleanupTempFile(at: outputFileURL, label: "invalid AV2 .ivf")
                 return AV2EncodeResult(success: false, errorReason: validationError, keyframeIndices: [])
@@ -2352,7 +2375,6 @@ actor FFMPEGConverter {
             Self.logger.info("AV2 chunked encode complete: \(result.totalFrames) frames → \(outputFileURL.lastPathComponent, privacy: .public)")
             return AV2EncodeResult(success: true, errorReason: nil, keyframeIndices: result.keyframeIndices)
         } catch {
-            Self.cleanupDirectory(plan.segmentDirectory)
             if FileManager.default.fileExists(atPath: outputFileURL.path) {
                 Self.cleanupTempFile(at: outputFileURL, label: "partial AV2 .ivf")
             }

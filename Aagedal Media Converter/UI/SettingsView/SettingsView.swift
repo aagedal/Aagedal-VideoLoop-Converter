@@ -113,6 +113,7 @@ struct SettingsView: View {
                 } else {
                     Label(tab.label, systemImage: tab.icon)
                         .accessibilityIdentifier("settings.tab.\(tab.rawValue)")
+                        .accessibilityLabel(tab.label)
                 }
             }
             .listStyle(.sidebar)
@@ -132,6 +133,8 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .help(sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar")
+                    .accessibilityIdentifier("settings.toggleSidebar")
+                    .accessibilityLabel(sidebarCollapsed ? String(localized: "Show Sidebar") : String(localized: "Hide Sidebar"))
                 }
                 .background(Color(NSColor.windowBackgroundColor))
             }

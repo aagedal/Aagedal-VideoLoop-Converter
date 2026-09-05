@@ -13,6 +13,8 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Screen recording
 
+- **Stopping growing recordings preserves the final frames and timecode.** Video and timecode wait together when the writer is busy, failures are reported, and final frames drain with a deadline. Immediate-stop recordings now retain the correct single-frame duration.
+
 - **Broadcast frame rates and drop-frame timecode.** Screen recording now offers 25, 29.97, 50, 59.94, and 60 fps alongside display-native Auto. Growing recordings use exact rational timing, including the MOV duration, and drop-frame timecode at 29.97/59.94 with midnight rollover. Settings and the recording overlay explain constant versus variable frame rate.
 - **Norwegian capture settings are more complete.** Rate choices, preset names/descriptions, dynamic range, and frame-rate explanations are now localized. Capture folder buttons also have explicit accessibility labels.
 
@@ -21,6 +23,10 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 - **Bundled FFmpeg updated to 8.1.1.** Replaces the previous build that dynamically linked Homebrew's `libvorbis.dylib` — and crashed on launch — with a self-contained, statically-linked GPL build. Non-free components are dropped: `libfdk_aac` gives way to the native `aac` / `aac_at` encoders.
 
 ## Fixes
+
+- **AV2 chunk exports now explain temporary-storage failures before encoding starts.** Planning no longer leaves scratch folders behind, and existing files or directories are preserved if scratch creation fails.
+
+- **Settings sidebar controls have explicit accessibility names.** Pane names and the show/hide sidebar action are exposed for assistive technology, with bilingual navigation coverage.
 
 - **Cancelling DCP/IMF export now stops frame preparation.** Queue cancellation interrupts JPEG 2000 codestream preparation between frames, cleans scratch files after the worker stops, and prevents package wrapping from starting.
 

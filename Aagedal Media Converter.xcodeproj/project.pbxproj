@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		35D23935EC554B1B97085056 /* AV2ScratchDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F59A5246B4BA880E781B3 /* AV2ScratchDirectoryTests.swift */; };
+		68DB0573FE4F499AA72EF9AF /* ConversionQueueStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CEDDD06B78842E6A7446610 /* ConversionQueueStateTests.swift */; };
+		DDADD32918CD4580B1A5ECC6 /* ConversionQueueState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5693B21A7341B2A3FA32A7 /* ConversionQueueState.swift */; };
 		CD4320100000000000000001 /* CaptureFrameRateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD4320100000000000000002 /* CaptureFrameRateTests.swift */; };
 		00B3F16A9264F886CA667DAC /* NativeWaveformVideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */; };
 		11255751B6534433ACCE197E /* TesseractOCREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4782DE38B404350A2A11FCF /* TesseractOCREngine.swift */; };
@@ -258,6 +261,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A15F59A5246B4BA880E781B3 /* AV2ScratchDirectoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV2ScratchDirectoryTests.swift; sourceTree = "<group>"; };
+		2CEDDD06B78842E6A7446610 /* ConversionQueueStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionQueueStateTests.swift; sourceTree = "<group>"; };
+		CD5693B21A7341B2A3FA32A7 /* ConversionQueueState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionQueueState.swift; sourceTree = "<group>"; };
 		CD4320100000000000000002 /* CaptureFrameRateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFrameRateTests.swift; sourceTree = "<group>"; };
 		07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = YTDLPSettingsView.swift; sourceTree = "<group>"; };
 		0A661B3187048E83E24FB0AB /* WhisperModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModels.swift; sourceTree = "<group>"; };
@@ -627,6 +633,7 @@
 				VDISPMGR00001000FREF1 /* VirtualDisplayManager.swift */,
 				VDISPHDR00001000FREF1 /* CGVirtualDisplay+Private.h */,
 				8E545D932C3412AE0088C274 /* ConversionManager.swift */,
+				CD5693B21A7341B2A3FA32A7 /* ConversionQueueState.swift */,
 				ENCGRP00000000002 /* EncodingGroup.swift */,
 				8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */,
 				8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */,
@@ -815,6 +822,8 @@
 			children = (
 				8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */,
 				CD4320100000000000000002 /* CaptureFrameRateTests.swift */,
+				A15F59A5246B4BA880E781B3 /* AV2ScratchDirectoryTests.swift */,
+				2CEDDD06B78842E6A7446610 /* ConversionQueueStateTests.swift */,
 			);
 			path = "Aagedal Media ConverterTests";
 			sourceTree = "<group>";
@@ -1289,6 +1298,7 @@
 				8E824AC52EF8AB46001A6B95 /* FullscreenMPVView.swift in Sources */,
 				8EC9A6FE2EC149140082C67F /* PreviewPlayerController.swift in Sources */,
 				8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */,
+				DDADD32918CD4580B1A5ECC6 /* ConversionQueueState.swift in Sources */,
 				C2D3E4F5061728394A5B6C7D /* ScreenCaptureManager.swift in Sources */,
 				VDISPMGR00001000BUILD /* VirtualDisplayManager.swift in Sources */,
 				VDISPMENU0001000BUILD /* VirtualDisplayMenu.swift in Sources */,
@@ -1405,6 +1415,8 @@
 			files = (
 				8EBD10242EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift in Sources */,
 				CD4320100000000000000001 /* CaptureFrameRateTests.swift in Sources */,
+				35D23935EC554B1B97085056 /* AV2ScratchDirectoryTests.swift in Sources */,
+				68DB0573FE4F499AA72EF9AF /* ConversionQueueStateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

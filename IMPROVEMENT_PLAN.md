@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 333 tests pass. The
+- The unit-test baseline is green: 348 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 333 unit tests. The UI test target now has deterministic smoke
+- There are 348 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -43,7 +43,7 @@ issue link when it starts.
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
   flow coverage.
-- The string catalog has 1,250 entries. All 59 previously missing App Intent
+- The string catalog has 1,253 entries. All 59 previously missing App Intent
   strings and the ordinary interface omissions are now translated into Norwegian.
   The only 15 missing entries are intentionally untranslated format/command tokens;
   CI rejects unclassified omissions and broken interpolation placeholders.
@@ -983,11 +983,22 @@ The window-only Error details
 screenshot was visually checked for readable text and an accessible Copy button.
 Full locale/VoiceOver validation remains tracked under Priority 4.
 
+AV2 segment planning no longer creates scratch directories as a side effect.
+Execution exclusively creates its proposed directory before starting any workers,
+reports filesystem failures with localized recovery advice, and installs cleanup
+only after acquiring ownership. Five regressions cover abandoned plans, conflicting
+files/directories, missing parents, zero worker launches on preparation failure, and
+cleanup after worker failure. Test settings use the process's volatile argument
+domain so this new coverage does not persist changes to user preferences (Codex,
+2026-09-05).
+
 ## Priority 3 — Reduce change risk in architecture
 
 Target: continuous work after Priority 1 tests exist.
 
 ### 3.1 Split orchestration from state and views
+
+Status: in progress; queue decisions and bulk state transitions extracted 2026-09-05 (Codex).
 
 - Move import, queue commands, window/overlay presentation, and App Intent hand-off
   out of `ContentView` into small coordinators or observable models.
@@ -998,6 +1009,14 @@ Target: continuous work after Priority 1 tests exist.
 
 Acceptance: view bodies describe presentation, state transitions can be unit
 tested without launching the app, and each extraction is behavior-preserving.
+
+`ConversionQueueState` now owns ordered batch selection, duration-weighted progress,
+and bulk cancellation transitions. `ConversionManager` delegates these decisions
+without changing scheduling or subprocess ownership. Focused tests cover selected
+batch limits, trim-aware weighting, failed/cancelled exclusion, progress bounds,
+cancellation scope, preservation of unrelated item fields, and idempotence.
+Conversion execution, upload follow-up, and the ContentView/list-view coordinator
+extractions remain open.
 
 ### 3.2 Make conversion plans typed
 
@@ -1052,6 +1071,15 @@ labels and stable identifiers. Screenshot format and alpha pickers now carry dis
 spoken names despite their hidden visual labels. The Settings navigation UI test
 verifies the General/Screenshots button labels and all four screenshot picker names;
 the focused test passes. Manual VoiceOver and keyboard focus validation remains open.
+
+Sidebar pane names and the show/hide action now have explicit accessibility labels;
+the toggle also has a stable identifier. A new bilingual audit checks native sidebar
+row selection and translated names while capturing the main window and all 17 panes.
+The audit is implemented but has not completed a reliable desktop run: attempts were
+interrupted by focus changes, and an exported screenshot showed the macOS app switcher
+covering the app. Partial screenshots are not accepted as full visual validation.
+Run UI tests separately from unit tests on an idle desktop before closing this item
+(Codex, 2026-09-05).
 
 ### 4.2 Close the localization gap
 
@@ -1119,9 +1147,19 @@ Auto/display behavior, sandbox/permission flows, and midnight/editor interoperab
 The final combined validation passes all 333 unit tests and seven functional UI
 smoke tests, with no failures. English/Norwegian capture-settings screenshots were
 visually checked for clipping.
-The existing timecode-input backpressure/append-error handling and stop-time final
-frame flush also need a separate reliability follow-up. These remain explicit
-validation gaps rather than a claim that the full milestone is complete.
+The timecode-input and stop-time reliability follow-up is now implemented. Video
+and timecode wait for both writer inputs to be ready; timecode construction and
+append errors fail the recording instead of silently dropping labels. Stop freezes
+the endpoint and drains final CFR frames in bounded passes with a five-second
+deadline and cancellation checks. Video samples carry explicit rational durations,
+and the session ends at the exact emitted frame boundary, fixing doubled duration
+on immediate-stop single-frame recordings.
+Generated recordings verify persisted video/timecode sample counts and timestamps,
+including frozen-clock single-frame recordings at every fixed rate; deterministic
+tests cover backpressure, append failures,
+large-backlog yielding, and deadline checks within a pass. The new errors are
+translated into Norwegian. Live capture, A/V sync, permission flows, and editor
+interoperability remain validation gaps (Codex, 2026-09-05).
 
 ### 4.4 Improve first-run and dependency diagnostics
 
@@ -1190,6 +1228,13 @@ Full license attribution, reachability/removal decisions, measured size/memory b
 clean-machine install/update tests, and a credentialed release run remain.
 
 ## Suggested delivery sequence
+
+Latest validation (2026-09-05, Codex): the Debug app builds and all 348 unit tests
+pass with no failures or skips. The localization audit passes with 1,253 entries
+and 15 intentional omissions; all 23 release-script tests pass. The seven existing
+functional UI smoke tests passed during integration, but the new all-pane bilingual
+audit still needs an uninterrupted desktop run and screenshot inspection. Live
+screen capture, VoiceOver, and credentialed release validation were not performed.
 
 1. Green the failing crop test with fixture-backed expected behavior.
 2. Add CI and the first command/file-safety test matrix.

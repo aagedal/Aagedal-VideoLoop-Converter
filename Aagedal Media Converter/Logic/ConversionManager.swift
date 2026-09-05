@@ -1977,9 +1977,10 @@ actor ConversionManager: Sendable {
             return
         }
 
-        guard let nextFile = droppedFiles.wrappedValue.first(where: {
-            $0.status == .waiting && (allowedItemIDs?.contains($0.id) ?? true)
-        }) else {
+        guard let nextFile = ConversionQueueState.nextItem(
+            in: droppedFiles.wrappedValue,
+            allowedItemIDs: allowedItemIDs
+        ) else {
             self.isConverting = false
             self.activeBatchID = nil
             self.allowedItemIDs = nil
@@ -2402,13 +2403,7 @@ actor ConversionManager: Sendable {
 
         // Update UI-bound items to cancelled
         if let droppedFiles = currentDroppedFiles {
-            for idx in droppedFiles.wrappedValue.indices
-                where droppedFiles.wrappedValue[idx].status == .converting {
-                droppedFiles.wrappedValue[idx].status = .cancelled
-                droppedFiles.wrappedValue[idx].progress = 0.0
-                droppedFiles.wrappedValue[idx].eta = nil
-                droppedFiles.wrappedValue[idx].statusMessage = nil
-            }
+            ConversionQueueState.cancel(&droppedFiles.wrappedValue, scope: .converting)
         }
 
         // Update internal queue
@@ -2475,14 +2470,7 @@ actor ConversionManager: Sendable {
 
         // Update UI-bound items to cancelled
         if let droppedFiles = currentDroppedFiles {
-            for idx in droppedFiles.wrappedValue.indices
-                where droppedFiles.wrappedValue[idx].status == .converting
-                   || droppedFiles.wrappedValue[idx].status == .waiting {
-                droppedFiles.wrappedValue[idx].status = .cancelled
-                droppedFiles.wrappedValue[idx].progress = 0.0
-                droppedFiles.wrappedValue[idx].eta = nil
-                droppedFiles.wrappedValue[idx].statusMessage = nil
-            }
+            ConversionQueueState.cancel(&droppedFiles.wrappedValue, scope: .waitingAndConverting)
         }
 
         // Clear internal queue
@@ -2526,41 +2514,9 @@ actor ConversionManager: Sendable {
         #endif
         let files = droppedFiles.wrappedValue
         
-        // Filter out cancelled items
+        let progress = ConversionQueueState.overallProgress(for: files)
         #if DEBUG
-        logger.debug("Files: \(files.map { ($0.name, $0.status, $0.durationSeconds, $0.progress) }, privacy: .public)")
-        #endif
-        let activeFiles = files.filter { $0.status != .cancelled && $0.status != .failed }
-        
-        guard !activeFiles.isEmpty else {
-            progressContinuation?.yield(0.0)
-            return
-        }
-
-        // Total duration of active files (seconds)
-        let totalDuration = activeFiles.reduce(0.0) { sum, file in
-            sum + file.trimmedDuration
-        }
-        guard totalDuration > 0 else {
-            progressContinuation?.yield(0.0)
-            return
-        }
-
-        // Completed duration so far (seconds)
-        let completedDuration = activeFiles.reduce(0.0) { sum, file in
-            let durSec = file.trimmedDuration
-            switch file.status {
-            case .done:
-                return sum + durSec
-            case .converting:
-                return sum + durSec * file.progress
-            default:
-                return sum
-            }
-        }
-        let progress = min(max(completedDuration / totalDuration, 0.0), 1.0)
-        #if DEBUG
-        logger.debug("totalDuration: \(totalDuration) s, completedDuration: \(completedDuration) s, overallProgress: \(progress * 100)%")
+        logger.debug("overallProgress: \(progress * 100)%")
         #endif
         progressContinuation?.yield(progress)
     }

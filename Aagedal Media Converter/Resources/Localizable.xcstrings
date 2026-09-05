@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Could not create temporary storage for AV2 chunks: %@. Check available disk space and temporary-folder permissions, then try again.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke opprette midlertidig lagring for AV2-segmenter: %@. Kontroller ledig diskplass og tilgang til mappen for midlertidige filer, og prøv igjen."
+          }
+        }
+      }
+    },
+    "Failed to append timecode samples to the capture writer.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke skrive tidskode til skjermopptaket."
+          }
+        }
+      }
+    },
+    "Timed out while writing the final screen recording frames. The file may be incomplete.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd under skriving av de siste bildene i skjermopptaket. Filen kan være ufullstendig."
+          }
+        }
+      }
+    },
     "HDR Display P3 (macOS 26+)" : {
       "localizations" : {
         "nb" : {
