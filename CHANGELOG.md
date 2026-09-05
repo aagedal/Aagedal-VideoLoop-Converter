@@ -17,6 +17,12 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Partial-download duration inspection can no longer wait indefinitely on media parsing.** The shared duration probe now bounds its parser and AVFoundation fallbacks and returns promptly when cancelled.
+
+- **Queue failures now have an accessible Error details view.** Conversion, download, subtitle, upload, and analysis errors can be read and selected in a scrollable popover. Copy diagnostics includes app, system, and preset context with known file paths and URLs redacted; upload and analysis failures also retain their status text.
+- **Preview and fullscreen controls now expose more useful accessibility information.** Crop inputs have descriptive labels and pixel values, timecode displays expose editing actions, transport controls announce their state, and the fullscreen timeline supports accessible slider adjustment. New labels are translated into Norwegian.
+- **Release validation now rejects missing architectures and unresolved bundled libraries.** Exported and archived apps are checked for arm64, executable permissions, transitive library resolution, and bundle containment before publication, with the same gate on Release CI builds.
+
 - **Norwegian screen-recording controls are no longer left in English.** The remaining virtual-display and multi-display recording labels are translated, and localization validation now catches new unclassified omissions and broken interpolation placeholders.
 - **Cancelling an external tool now targets its complete process group.** Every shared-runner launch starts in a dedicated POSIX process group, so timeout and cancellation reliably reach descendants created during shutdown or reparented after a wrapper exits before escalating from TERM to KILL.
 - **Settings sync now explains monitoring, iCloud download, and backup-opening failures.** Switching sync folders no longer lets an old monitor close the new monitor’s file descriptor, and backup-opening errors appear even when sync is disabled.

@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 310 tests pass. The
+- The unit-test baseline is green: 317 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 310 unit tests. The UI test target now has deterministic smoke
+- There are 317 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -31,7 +31,7 @@ issue link when it starts.
   tagged and scheduled runs also build Release. `main` still needs a branch rule
   that makes the Debug build-and-test job required.
 - External tools now construct `Process` only inside the shared runner in production.
-  The remaining app-side construction is a DEBUG-only UI-test fixture generator.
+  The DEBUG-only UI-test fixture generator now uses the same runner as well.
   All production launch paths share the same cancellation, timeout, pipe-draining,
   and error-reporting layer.
 - Image-sequence import now probes associated-audio duration asynchronously end to
@@ -42,7 +42,7 @@ issue link when it starts.
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
   flow coverage.
-- The string catalog has 1,204 entries. All 59 previously missing App Intent
+- The string catalog has 1,230 entries. All 59 previously missing App Intent
   strings and the ordinary interface omissions are now translated into Norwegian.
   The only 15 missing entries are intentionally untranslated format/command tokens;
   CI rejects unclassified omissions and broken interpolation placeholders.
@@ -877,9 +877,20 @@ replacement of incomplete caches, late retry results and failures, truncated non
 checksum failure, unsafe remote paths, and staging cleanup. All 308 unit tests pass;
 the wider audit of remaining unbounded framework callbacks continues.
 
+The shared SwiftExif duration entry point now bounds the complete parser and
+AVFoundation fallback chain, covering partial-download inspection as well as callers
+with their own outer deadline. Late results cannot replace the returned outcome;
+cancellation is checked before fallback reads. The innermost worker retains its own
+sandbox access until parsing actually finishes, and image-sequence imports keep their
+existing folder-owning deadline around an explicitly unbounded resolver. Focused tests
+cover immediate success, a stalled parser deadline, parent cancellation, and late
+security-scope release. AVFoundation thumbnail/filmstrip
+generation and player observer metadata loads remain concrete audit candidates;
+thumbnail deadlines require safeguards against late output-file writes.
+
 ### 2.3 Standardize user-visible errors
 
-Status: in progress; settings-sync monitoring and backup failures surfaced 2026-09-05.
+Status: in progress; queue failure details and redacted diagnostic copying added 2026-09-05 (Codex).
 
 - Keep `try?` for best-effort cleanup only. Log or surface failures for directory
   creation, bookmark access, file moves, settings import, and result validation.
@@ -909,7 +920,27 @@ failures are logged and shown, and backup-folder creation/Finder failures use th
 Settings alert even when sync is disabled. Two filesystem tests cover monitor-directory
 creation and failure without overwriting an existing file. All 310 unit tests pass; the final
 alert wiring also passed a focused rebuild/test. Real iCloud/Finder failure scenarios,
-remaining bookmark/filesystem paths, expandable queue details, and Copy diagnostics remain.
+and remaining bookmark/filesystem paths remain; the subsequent queue-details slice is described below.
+
+Queue rows now expose an explicit keyboard-accessible Error details button with a
+selectable, scrollable popover. It collects conversion, download, subtitle, upload,
+and analysis failures, including failures without a technical message; upload and
+analysis errors no longer produce an empty status message. Copy diagnostics includes
+app/build, macOS, preset, and bounded captured errors, using the shared redactor for
+known input/output paths, filenames, home directory, and URLs. Reused cells or changed
+failures dismiss stale popovers. Three unit tests cover aggregation, missing details,
+and redaction. Capturing the exact historical tool versions and redacted commands
+per operation remains open; this initial report does not reconstruct them from current
+settings. The wider filesystem/bookmark error audit also remains open.
+The combined unit suite passes all 317 tests. The failure UI smoke test now asserts
+that Error details opens, contains the full failure, and exposes Copy diagnostics,
+and retains a screenshot when reached. Local execution is blocked before those new
+assertions: FFmpeg cannot write into the sandboxed UI runner's private fixture
+folder (`Operation not permitted`, exit 255). A shared `/tmp` experiment was reverted
+because the runner cannot create that folder either. The DEBUG fixture generator now
+uses the shared bounded runner with captured/redacted errors and explicit bundled
+FFmpeg selection, making that setup failure diagnosable. A sandbox-compatible fixture
+handoff and successful UI/screenshot run remain required; no visual pass is claimed.
 
 ## Priority 3 — Reduce change risk in architecture
 
@@ -954,6 +985,8 @@ Target: parallelizable once stable identifiers are introduced.
 
 ### 4.1 Audit the primary flows with VoiceOver and keyboard-only input
 
+Status: in progress; preview/fullscreen control semantics added 2026-09-05 (Codex).
+
 - Queue import/reorder/remove, preset selection, conversion controls, progress and
   errors, trim/crop, metadata, downloads/uploads, screen capture, and Settings.
 - Label icon-only controls, expose state/value changes, define logical focus order,
@@ -963,6 +996,14 @@ Target: parallelizable once stable identifiers are introduced.
 
 Acceptance: all primary flows are completable without a pointer and have no
 unlabeled interactive controls in Accessibility Inspector.
+
+Preview crop geometry inputs now have descriptive labels, pixel values, identifiers,
+and Return-key instructions. Preview/fullscreen timecode displays expose edit and
+cycle actions, and fullscreen transport buttons expose labels and toggle states. The
+custom fullscreen timeline has a native adjustable-slider accessibility representation.
+All new interface strings have Norwegian translations. Debug builds pass; manual
+VoiceOver and keyboard checks, trim-range/crop-overlay accessibility, and the wider
+primary-flow audit remain.
 
 ### 4.2 Close the localization gap
 
@@ -985,7 +1026,7 @@ tokens, and interpolation mismatches. The audit also fixed a malformed `%@`
 placeholder in the Norwegian timecode help text. All 59 App Intent titles, descriptions,
 and parameter summaries are now translated,
 with `${videos}` placeholders preserved and enforced by CI. Three new settings-sync
-errors are translated as well. The catalog check passes with 1,204 entries and only
+errors are translated as well. The catalog check passes with 1,230 entries and only
 15 intentional omissions; negative checks verify missing translations and broken
 placeholders are rejected. English/Norwegian screenshots and clipping checks in the
 app, Settings, and Shortcuts remain.
@@ -1053,8 +1094,19 @@ Nine release-script regression tests cover valid and rejected appcasts plus real
 Ed25519 signatures, tampering, wrong keys, and malformed signatures; CI runs them.
 The unsigned Release build, catalog audit, and bundled manifest check also pass.
 The signed/notarized publishing pipeline still needs a credentialed release run;
-architecture/dependency resolution enforcement, complete licenses, clean-machine
+complete licenses, clean-machine
 installation/update checks, and measured size/memory baselines remain open.
+
+Exported release bundles and the extracted final ZIP now pass a static Mach-O audit
+before publication. Release CI runs the same audit on its unsigned build. It requires
+arm64 and owner-executable permissions, resolves direct and transitive dylibs with
+per-helper executable paths and inherited rpaths, and rejects missing dependencies,
+external non-system library paths, and symlinks escaping the bundle. Fourteen generated
+Mach-O fixture tests cover success and rejection cases; all 23 release-script tests
+pass, and the existing unsigned Release bundle passes for all 44 Mach-O images.
+Architecture/dependency resolution enforcement is implemented (Codex, 2026-09-05).
+Full license attribution, reachability/removal decisions, measured size/memory baselines,
+clean-machine install/update tests, and a credentialed release run remain.
 
 ## Suggested delivery sequence
 
