@@ -161,6 +161,8 @@ private struct HomebrewUpdateHintView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Copy to clipboard")
+                .accessibilityLabel("Copy to clipboard")
+                .accessibilityIdentifier("settings.updates.copyCommand")
             }
         }
         .padding(.vertical, 4)

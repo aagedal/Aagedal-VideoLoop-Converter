@@ -1041,6 +1041,13 @@ All new interface strings have Norwegian translations. Debug builds pass; manual
 VoiceOver and keyboard checks, trim-range/crop-overlay accessibility, and the wider
 primary-flow audit remain.
 
+Settings folder actions in General, Screenshots, and Watch Folder, metadata timecode
+adjustments, and update-command copying now expose explicit localized accessibility
+labels and stable identifiers. Screenshot format and alpha pickers now carry distinct
+spoken names despite their hidden visual labels. The Settings navigation UI test
+verifies the General/Screenshots button labels and all four screenshot picker names;
+the focused test passes. Manual VoiceOver and keyboard focus validation remains open.
+
 ### 4.2 Close the localization gap
 
 Status: translations completed 2026-09-05; visual locale validation remains.

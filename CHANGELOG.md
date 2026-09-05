@@ -17,6 +17,8 @@ A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a 
 
 ## Fixes
 
+- **Settings controls have clearer accessibility names.** Folder actions, timecode adjustments, and update-command copying now announce their purpose. Screenshot format and transparency pickers have distinct spoken labels.
+
 - **Preview thumbnails and filmstrips no longer wait indefinitely on AVFoundation.** Native rendering has a deadline and cancellation support, and late images cannot overwrite fallback thumbnails.
 - **Player setup now ignores stale framework callbacks.** Track checks, initial seeks, and audio-selection loads are bounded; replacing or closing a player cancels owned work and prevents late results from changing the new player.
 - **DCP and IMF exports stop when a picture frame cannot be prepared.** Failed frame reads, malformed frames, and write errors are reported before video wrapping instead of silently producing an incomplete package.

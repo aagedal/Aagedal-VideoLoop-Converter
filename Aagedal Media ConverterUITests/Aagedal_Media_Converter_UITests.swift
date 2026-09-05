@@ -41,6 +41,17 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
         let generalTab = element("settings.tab.general")
         XCTAssertTrue(generalTab.waitForExistence(timeout: 5))
         XCTAssertEqual(settingsRoot.value as? String, "general")
+        XCTAssertEqual(element("settings.general.revealOutput").label, "Show in Finder")
+        XCTAssertEqual(element("settings.general.chooseOutput").label, "Change default output folder")
+
+        element("settings.tab.screenshots").click()
+        XCTAssertEqual(settingsRoot.value as? String, "screenshots")
+        XCTAssertEqual(element("settings.screenshots.reveal").label, "Show in Finder")
+        XCTAssertEqual(element("settings.screenshots.chooseFolder").label, "Change screenshot folder")
+        XCTAssertEqual(element("settings.screenshots.resetFolder").label, "Reset to Downloads")
+        for label in ["8-bit sources", "10-bit sources", ">10-bit sources", "Alpha channel"] {
+            XCTAssertTrue(app.popUpButtons[label].exists, "Missing accessible screenshot picker: \(label)")
+        }
 
         let presetsTab = element("settings.tab.presets")
         XCTAssertTrue(presetsTab.exists)
