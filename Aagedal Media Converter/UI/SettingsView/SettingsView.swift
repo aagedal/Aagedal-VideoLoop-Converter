@@ -10,6 +10,7 @@ struct SettingsView: View {
 
     private enum SettingsTab: String, CaseIterable, Hashable {
         case general
+        case tools
         case encoding
         case fileNames
         case metadata
@@ -45,6 +46,7 @@ struct SettingsView: View {
             case .analytics: return String(localized: "Analytics", comment: "Settings sidebar tab.")
             case .sync: return String(localized: "Sync", comment: "Settings sidebar tab.")
             case .updates: return String(localized: "Updates", comment: "Settings sidebar tab.")
+            case .tools: return String(localized: "Tool Diagnostics", comment: "Settings sidebar tab.")
             case .shortcuts: return String(localized: "Shortcuts", comment: "Settings sidebar tab.")
             }
         }
@@ -67,6 +69,7 @@ struct SettingsView: View {
             case .analytics: return "chart.bar.xaxis"
             case .sync: return "arrow.clockwise.icloud"
             case .updates: return "arrow.triangle.2.circlepath"
+            case .tools: return "stethoscope"
             case .shortcuts: return "command"
             }
         }
@@ -97,6 +100,7 @@ struct SettingsView: View {
         case .sync: SyncSettingsView()
         case .updates: UpdateSettingsView()
         case .shortcuts: ShortcutsSettingsView()
+        case .tools: ToolDiagnosticsSettingsView()
         }
     }
 
@@ -112,6 +116,8 @@ struct SettingsView: View {
                         .accessibilityLabel(tab.label)
                 } else {
                     Label(tab.label, systemImage: tab.icon)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                         .accessibilityIdentifier("settings.tab.\(tab.rawValue)")
                         .accessibilityLabel(tab.label)
                 }

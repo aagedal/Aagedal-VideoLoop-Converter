@@ -61,7 +61,7 @@ struct UpdateSettingsView: View {
                     if checkForUpdates {
                         Picker("Check frequency", selection: $checkFrequencyRaw) {
                             ForEach(UpdateCheckFrequency.allCases) { frequency in
-                                Text(frequency.rawValue).tag(frequency.rawValue)
+                                Text(LocalizedStringKey(frequency.rawValue)).tag(frequency.rawValue)
                             }
                         }
                     }
@@ -196,7 +196,7 @@ private struct SparkleUpdateControls: View {
                 set: { updater.updateCheckInterval = $0 }
             )) {
                 ForEach(Self.intervalChoices, id: \.seconds) { choice in
-                    Text(choice.label).tag(choice.seconds)
+                    Text(LocalizedStringKey(choice.label)).tag(choice.seconds)
                 }
             }
 

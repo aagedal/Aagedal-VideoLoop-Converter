@@ -1,5 +1,12 @@
 # v.4.3.0
 
+
+- **Tool Diagnostics in Settings** shows active tool paths, architecture, executable status, and bounded version checks, with distinct guidance for missing tools, launch failures, and timeouts.
+- **Norwegian Settings and Shortcuts** now localize dynamic choices and descriptions, and Shortcuts search matches translated actions. Long empty-queue tips wrap fully.
+- **Trim and crop accessibility** adds spoken timeline positions and boundaries, chapter actions, keyboard-focusable timecode buttons, and clearer crop/track control names.
+- **Post-conversion settings stay consistent during a job.** Transcription, OCR, and analytics capture their preferences at operation start, including subtitle embedding and OCR engine selection.
+- **Release checks now track license notice contents** and stop publishing when bundled dependency attribution is incomplete.
+
 A smaller, focused release built around **Shortcuts & Spotlight**. Instead of a single "convert with whatever's selected" action, there's now **one Convert action per export preset**, a **Convert with Default Preset** action that follows your configured default — so it can drive any of your *custom* presets — and the most common presets are surfaced as zero-setup **Spotlight / Siri shortcuts**. All of them now **launch the app automatically** when it isn't already running. Under the hood, the bundled **FFmpeg moves to 8.1.1**. Rounding it out: the queue's **drag-to-share handle now works on every drag** (not just the first after launch), and **importing from a camera card no longer freezes the window**.
 
 ## Shortcuts & App Intents

@@ -230,14 +230,23 @@ actor ConversionManager: Sendable {
     private let mergePreparationSubprocess: MergePreparationSubprocess
     private let subtitleEmbeddingSubprocess: SubtitleEmbeddingSubprocess
     private let ffmpegPathProvider: @Sendable () -> String?
+    private let transcriptionSettings: any TranscriptionSettingsProviding
+    private let ocrSettings: any OCRSettingsProviding
+    private let analyticsSettings: any AnalyticsSettingsProviding
 
     init(
         subprocessRunner: any SubprocessRunning = SubprocessRunner(),
-        ffmpegPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ffmpegPath }
+        ffmpegPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ffmpegPath },
+        transcriptionSettings: any TranscriptionSettingsProviding = PostConversionSettings(),
+        ocrSettings: any OCRSettingsProviding = PostConversionSettings(),
+        analyticsSettings: any AnalyticsSettingsProviding = PostConversionSettings()
     ) {
         self.mergePreparationSubprocess = MergePreparationSubprocess(subprocessRunner: subprocessRunner)
         self.subtitleEmbeddingSubprocess = SubtitleEmbeddingSubprocess(subprocessRunner: subprocessRunner)
         self.ffmpegPathProvider = ffmpegPathProvider
+        self.transcriptionSettings = transcriptionSettings
+        self.ocrSettings = ocrSettings
+        self.analyticsSettings = analyticsSettings
     }
 
     enum ConversionStatus {
@@ -2530,10 +2539,9 @@ actor ConversionManager: Sendable {
         droppedFiles: Binding<[VideoItem]>
     ) async {
         logger.info("[subtitle-trigger] post-encode Whisper for item \(itemID, privacy: .public) inputURL=\(inputURL.lastPathComponent, privacy: .public)")
-        // Get selected model and language from settings
-        let modelRaw = UserDefaults.standard.string(forKey: AppConstants.whisperModelKey) ?? AppConstants.defaultWhisperModel
-        let model = WhisperModel(rawValue: modelRaw) ?? .base
-        let language = UserDefaults.standard.string(forKey: AppConstants.whisperLanguageKey) ?? AppConstants.defaultWhisperLanguage
+        let settings = transcriptionSettings.transcriptionSnapshot()
+        let model = settings.whisperModel
+        let language = settings.whisperLanguage
 
         let operationID = UUID()
         // Publish the attempt token before dispatching work so an immediate cancel is routable.
@@ -2604,8 +2612,7 @@ actor ConversionManager: Sendable {
             logger.info("Subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
             // Embed SRT into the output file if enabled
-            let shouldEmbed = UserDefaults.standard.bool(forKey: AppConstants.embedSubtitlesKey)
-            if shouldEmbed {
+            if settings.embedSubtitles {
                 await embedSubtitles(
                     srtURL: srtURL,
                     into: inputURL,
@@ -2651,10 +2658,9 @@ actor ConversionManager: Sendable {
         droppedFiles: Binding<[VideoItem]>
     ) async {
         logger.info("[subtitle-trigger] post-encode Parakeet for item \(itemID, privacy: .public) inputURL=\(inputURL.lastPathComponent, privacy: .public)")
-        // Get selected model and language from settings
-        let modelId = UserDefaults.standard.string(forKey: AppConstants.parakeetModelKey) ?? AppConstants.defaultParakeetModel
-        let model = ParakeetModel.model(for: modelId) ?? ParakeetModel.allModels[0]
-        let language = UserDefaults.standard.string(forKey: AppConstants.parakeetLanguageKey) ?? AppConstants.defaultParakeetLanguage
+        let settings = transcriptionSettings.transcriptionSnapshot()
+        let model = settings.parakeetModel
+        let language = settings.parakeetLanguage
 
         let operationID = UUID()
         // Publish the attempt token before dispatching work so an immediate cancel is routable.
@@ -2711,8 +2717,7 @@ actor ConversionManager: Sendable {
             logger.info("Parakeet subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
             // Embed SRT into the output file if enabled
-            let shouldEmbed = UserDefaults.standard.bool(forKey: AppConstants.embedSubtitlesKey)
-            if shouldEmbed {
+            if settings.embedSubtitles {
                 await embedSubtitles(
                     srtURL: srtURL,
                     into: inputURL,
@@ -2761,6 +2766,7 @@ actor ConversionManager: Sendable {
         droppedFiles: Binding<[VideoItem]>
     ) async {
         logger.info("[subtitle-trigger] post-encode OCR for item \(itemID, privacy: .public) sourceURL=\(sourceURL.lastPathComponent, privacy: .public)")
+        let settings = ocrSettings.ocrSnapshot()
         // Identify the chosen (or first) bitmap subtitle stream
         let chosenStreamIndex = droppedFiles.wrappedValue.first(where: { $0.id == itemID })?.selectedBitmapSubtitleStreamIndex
         // FFprobe-style + Matroska container IDs (SwiftExif's MKV reader surfaces the latter).
@@ -2782,18 +2788,7 @@ actor ConversionManager: Sendable {
 
         // Language: stream language wins (ISO 639-2; both engines accept it).
         // Otherwise fall back to the engine-specific user preference.
-        let streamLang = stream.languageCode
-        let language: String = {
-            if let streamLang { return streamLang }
-            switch OCREngineKind.userPreferred {
-            case .tesseract:
-                return UserDefaults.standard.string(forKey: AppConstants.tesseractLanguageKey)
-                    ?? AppConstants.defaultTesseractLanguage
-            case .appleVision:
-                return UserDefaults.standard.string(forKey: AppConstants.visionLanguageKey)
-                    ?? AppConstants.defaultVisionLanguage
-            }
-        }()
+        let language = settings.language(forStreamLanguage: stream.languageCode)
 
         let operationID = UUID()
         await MainActor.run {
@@ -2812,7 +2807,8 @@ actor ConversionManager: Sendable {
                 operationID: operationID,
                 subtitleStreamIndex: streamIndex,
                 codec: codec,
-                language: language
+                language: language,
+                engineKind: settings.engine
             ) { [weak self] ocrProgress in
                 Task { @MainActor in
                     guard let _ = self else { return }
@@ -2852,8 +2848,7 @@ actor ConversionManager: Sendable {
             logger.info("OCR subtitles generated: \(srtURL.lastPathComponent, privacy: .public)")
 
             // Embed SRT into the output file if enabled
-            let shouldEmbed = UserDefaults.standard.bool(forKey: AppConstants.embedSubtitlesKey)
-            if shouldEmbed {
+            if settings.embedSubtitles {
                 await embedSubtitles(
                     srtURL: srtURL,
                     into: outputURL,
@@ -3117,13 +3112,9 @@ actor ConversionManager: Sendable {
         encodedURL: URL,
         droppedFiles: Binding<[VideoItem]>
     ) async {
-        // Load analytics config from settings
-        let enabledMetricsRaw = UserDefaults.standard.stringArray(forKey: AppConstants.analyticsEnabledMetricsKey)
-            ?? AppConstants.defaultAnalyticsEnabledMetrics
-        let enabledMetrics = enabledMetricsRaw.compactMap { QualityMetric(rawValue: $0) }
-        let vmafModelRaw = UserDefaults.standard.string(forKey: AppConstants.analyticsVMAFModelKey)
-            ?? AppConstants.defaultAnalyticsVMAFModel
-        let vmafModel = VMAFModel(rawValue: vmafModelRaw) ?? .vmaf_v0_6_1
+        let settings = analyticsSettings.analyticsSnapshot()
+        let enabledMetrics = settings.enabledMetrics
+        let vmafModel = settings.vmafModel
 
         guard !enabledMetrics.isEmpty else { return }
 

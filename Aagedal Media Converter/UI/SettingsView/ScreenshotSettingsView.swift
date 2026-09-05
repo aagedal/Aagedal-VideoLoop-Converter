@@ -96,7 +96,7 @@ struct ScreenshotSettingsView: View {
                 LabeledContent("Alpha channel") {
                     Picker("Alpha channel", selection: $screenshotAlphaHandling) {
                         ForEach(ScreenshotAlphaHandling.allCases) { handling in
-                            Text(handling.displayName).tag(handling.rawValue)
+                            Text(LocalizedStringKey(handling.displayName)).tag(handling.rawValue)
                         }
                     }
                     .labelsHidden()

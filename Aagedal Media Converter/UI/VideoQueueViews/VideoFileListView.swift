@@ -190,14 +190,15 @@ struct VideoFileListView: View {
                             .font(.callout)
                             .foregroundColor(.secondary.opacity(0.8))
                             .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 40)
                             .padding(.top, 12)
                             .padding(.bottom, 30)
                         Text("Control + R to load a new random tip")
                             .font(.footnote)
                             .foregroundColor(.secondary.opacity(0.8))
-                        Spacer()
-                    }.frame(width: 500,height: 86)
+                    }
+                    .frame(maxWidth: 500)
 
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

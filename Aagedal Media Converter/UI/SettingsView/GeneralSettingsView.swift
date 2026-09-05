@@ -199,7 +199,7 @@ struct GeneralSettingsView: View {
                     Text("Default timecode mode:")
                     Picker("", selection: $preferredTimecodeDisplayMode) {
                         ForEach(TimecodeDisplayMode.allCases, id: \.rawValue) { mode in
-                            Text(mode.displayName).tag(mode.rawValue)
+                            Text(LocalizedStringKey(mode.displayName)).tag(mode.rawValue)
                         }
                     }
                     .pickerStyle(.menu)

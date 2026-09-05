@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 348 tests pass. The
+- The unit-test baseline is green: 359 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 348 unit tests. The UI test target now has deterministic smoke
+- There are 359 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -43,7 +43,7 @@ issue link when it starts.
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
   flow coverage.
-- The string catalog has 1,253 entries. All 59 previously missing App Intent
+- The string catalog has 1,465 entries. All 59 previously missing App Intent
   strings and the ordinary interface omissions are now translated into Norwegian.
   The only 15 missing entries are intentionally untranslated format/command tokens;
   CI rejects unclassified omissions and broken interpolation placeholders.
@@ -1030,6 +1030,8 @@ combinations produce a preflight explanation before encoding starts.
 
 ### 3.3 Centralize settings access
 
+Status: in progress; post-conversion settings snapshots added 2026-09-05 (Codex).
+
 - Wrap `UserDefaults` keys in feature-scoped settings types with defaults and
   migrations.
 - Inject settings into logic under test rather than reading global defaults inside
@@ -1038,6 +1040,15 @@ combinations produce a preflight explanation before encoding starts.
 
 Acceptance: tests do not mutate the user's defaults, and a settings schema change
 has an explicit migration test.
+
+Post-conversion Whisper, Parakeet, OCR, and analytics now use injected feature-scoped
+settings providers. Model, language, OCR engine, subtitle embedding, and metric
+preferences are captured before the operation suspends; changing Settings during a
+job affects the next operation. OCR now carries its selected engine through extraction
+instead of reading it again later. Five isolated-suite tests cover default/fallback
+values, language precedence, metric filtering, store isolation, and snapshot stability.
+The wider settings migration, schema migration tests, transcription-only entry points,
+and analytics auto-export settings remain open.
 
 ## Priority 4 — Accessibility, localization, and product polish
 
@@ -1074,16 +1085,24 @@ the focused test passes. Manual VoiceOver and keyboard focus validation remains 
 
 Sidebar pane names and the show/hide action now have explicit accessibility labels;
 the toggle also has a stable identifier. A new bilingual audit checks native sidebar
-row selection and translated names while capturing the main window and all 17 panes.
-The audit is implemented but has not completed a reliable desktop run: attempts were
-interrupted by focus changes, and an exported screenshot showed the macOS app switcher
-covering the app. Partial screenshots are not accepted as full visual validation.
-Run UI tests separately from unit tests on an idle desktop before closing this item
+row selection and translated names while capturing the main window and all 18 panes.
+The audit now completes an uninterrupted desktop run in both languages, capturing
+the main window and all 18 Settings panes. Screenshot review exposed runtime String
+values bypassing the catalog in several panes, a fixed-height tip truncation, and a
+selected-sidebar label truncation. Those concrete findings are corrected below; a final desktop rerun remains pending.
+Scrolled-off content and interaction-level VoiceOver validation remain distinct follow-ups
 (Codex, 2026-09-05).
+
+The custom trim timeline now exposes native accessibility sliders for playback and
+both trim boundaries, plus chapter-seek actions. Playback timecode editing and mode
+selection are real keyboard-focusable buttons. Crop reset/centering, track selection,
+image-sequence frame rate, and preview toggles have explicit names, values, or stable
+identifiers. New strings are translated into Norwegian. The combined Debug build
+passes; manual VoiceOver and keyboard interaction validation remains (Codex, 2026-09-05).
 
 ### 4.2 Close the localization gap
 
-Status: translations completed 2026-09-05; visual locale validation remains.
+Status: runtime translations implemented 2026-09-05; corrected-build screenshot verification remains.
 
 - Classify the 87 Norwegian-missing entries as user-facing text, intentional
   format tokens, or App Intent phrases.
@@ -1106,6 +1125,19 @@ errors are translated as well. The catalog check passes with 1,230 entries and o
 15 intentional omissions; negative checks verify missing translations and broken
 placeholders are rejected. English/Norwegian screenshots and clipping checks in the
 app, Settings, and Shortcuts remain.
+
+The full bilingual screenshot audit now passes for the main window and all 18 Settings
+panes. Inspection exposed additional catalog omissions and dynamic strings rendered
+without localization in General, File Names, Screenshots, Waveform, Downloads, Upload,
+Whisper, Analytics, Updates, and Shortcuts. Those paths now explicitly localize their
+values; Shortcuts search also matches translated action descriptions. The empty-queue
+tip wraps at its natural height, and selected sidebar labels can shrink slightly to
+fit. An additional 185 Settings and Shortcuts catalog entries now have Norwegian translations, alongside
+the 27 diagnostics/accessibility entries added in this pass. The catalog audit passes
+with 1,465 entries and the same 15 intentional omissions. The corrected build compiles, but final visual
+verification remains: one rerun failed to select Upload and the retry failed to open
+Settings. Neither is accepted as a completed corrected-build audit. Scrolled-off
+content, Shortcuts app integration, and VoiceOver also remain.
 
 ### 4.3 Finish broadcast-grade screen-recording rates
 
@@ -1163,6 +1195,8 @@ interoperability remain validation gaps (Codex, 2026-09-05).
 
 ### 4.4 Improve first-run and dependency diagnostics
 
+Status: in progress; consolidated active-tool checks added 2026-09-05 (Codex).
+
 - Provide one Tools/Diagnostics view for bundled, Homebrew, and custom binaries,
   including version, architecture, executable status, and a test action.
 - Keep copyable Homebrew commands and explain when the bundled tool is sufficient.
@@ -1171,6 +1205,17 @@ interoperability remain validation gaps (Codex, 2026-09-05).
 
 Acceptance: users can diagnose a missing tool without reading logs or opening
 Terminal unless installation itself requires it.
+
+The new Tool Diagnostics Settings pane checks active FFmpeg, yt-dlp, Deno, rclone,
+Tesseract, and SSIMULACRA2 selections with their existing resolvers. It shows resolved
+paths, Mach-O architecture or script status, executable availability, and bounded
+version probes. Launch failures and timeouts have distinct recovery messages; leaving
+the pane cancels its process and prevents stale publication. Six focused tests cover
+headers, missing/nonexecutable inputs, output bounds, nonzero/truncated results,
+cancellation, and failure classification. The pane explains when bundled FFmpeg is
+sufficient and points to existing installation settings. Norwegian translations and a
+bilingual UI smoke test cover the pane. Broader helper/model coverage and feature-level
+compatibility preflight remain open.
 
 ## Priority 5 — Release and dependency hygiene
 
@@ -1227,14 +1272,29 @@ Architecture/dependency resolution enforcement is implemented (Codex, 2026-09-05
 Full license attribution, reachability/removal decisions, measured size/memory baselines,
 clean-machine install/update tests, and a credentialed release run remain.
 
+The dependency manifest now also records hashes and sizes for all six local license
+notices. Regression tests reject empty or escaping notice paths and unresolved
+attribution. Release publishing requires complete notice references before building,
+signing, notarizing, or uploading; ordinary CI still checks inventory freshness.
+The strict gate currently fails as intended on 99 unresolved entries: three tools
+(avmenc, avmdec, rclone) and all 96 source-tree dylibs. No license assignments were
+invented and no binaries were removed. See `docs/bundled-dependency-licenses.md` for
+the evidence and packaging follow-up. All 31 release-script tests pass, including
+eight new inventory/license tests (Codex, 2026-09-05).
+
 ## Suggested delivery sequence
 
-Latest validation (2026-09-05, Codex): the Debug app builds and all 348 unit tests
-pass with no failures or skips. The localization audit passes with 1,253 entries
-and 15 intentional omissions; all 23 release-script tests pass. The seven existing
-functional UI smoke tests passed during integration, but the new all-pane bilingual
-audit still needs an uninterrupted desktop run and screenshot inspection. Live
-screen capture, VoiceOver, and credentialed release validation were not performed.
+Latest validation (2026-09-05, Codex): the final Debug build and all 359 unit tests
+pass, with no failures or skips. This includes eleven new settings/diagnostics tests.
+The localization
+audit passes with 1,465 entries and 15 intentional omissions; all 31 script tests and
+manifest freshness checks pass. The bilingual diagnostics UI test passed and its
+screenshots were inspected. The sidebar-position update and full Settings locale
+audit passed in both languages, with screenshots inspected for all 18 panes and the
+main window. That review led to additional runtime-localization and tip-layout fixes.
+The corrected build compiles, but its two final UI attempts failed at sidebar selection
+and Settings opening; final screenshot verification remains open. Live screen capture, VoiceOver, and credentialed
+release validation were not performed.
 
 1. Green the failing crop test with fixture-backed expected behavior.
 2. Add CI and the first command/file-safety test matrix.

@@ -82,7 +82,8 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
             ("analytics", "Analytics", "Analyse"),
             ("sync", "Sync", "Synkronisering"),
             ("updates", "Updates", "Oppdateringer"),
-            ("shortcuts", "Shortcuts", "Snarveier")
+            ("shortcuts", "Shortcuts", "Snarveier"),
+            ("tools", "Tool Diagnostics", "Verktøydiagnostikk")
         ]
         for (language, locale) in [("en", "en_US"), ("nb", "nb_NO")] {
             launchApp(language: language, locale: locale)
@@ -103,8 +104,9 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
                     tab.label == expectedLabel || tab.value as? String == expectedLabel,
                     "Missing localized sidebar name: \(expectedLabel). \(tab.debugDescription)"
                 )
-                tab.click()
                 let row = app.outlineRows.containing(.any, identifier: "settings.tab.\(identifier)").firstMatch
+                app.activate()
+                row.click()
                 let selected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: row)
                 XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
                 attachWindowScreenshot(named: "Locale audit - \(language) - \(identifier)")
@@ -146,6 +148,31 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
                 XCTAssertTrue(app.menuItems[label].exists, "Missing frame rate: \(label)")
             }
             app.typeKey(.escape, modifierFlags: [])
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testToolDiagnosticsInBothLanguages() throws {
+        for (language, locale, checkLabel) in [
+            ("en", "en_US", "Check Tools"),
+            ("nb", "nb_NO", "Kontroller verktøy")
+        ] {
+            launchApp(language: language, locale: locale)
+            defer { app.terminate() }
+            XCTAssertTrue(element("toolbar.settings").waitForExistence(timeout: 10))
+            element("toolbar.settings").click()
+            let toolsTab = element("settings.tab.tools")
+            XCTAssertTrue(toolsTab.waitForExistence(timeout: 5))
+            toolsTab.click()
+            let check = element("settings.tools.check")
+            XCTAssertTrue(check.waitForExistence(timeout: 5))
+            XCTAssertEqual(check.label, checkLabel)
+            attachWindowScreenshot(named: "Tool Diagnostics - \(language)")
+            check.click()
+            XCTAssertTrue(waitForEnabled(true, of: check, timeout: 50))
+            XCTAssertTrue(element("settings.tools.ffmpeg").exists)
+            attachWindowScreenshot(named: "Tool Diagnostics results - \(language)")
             app.terminate()
         }
     }
