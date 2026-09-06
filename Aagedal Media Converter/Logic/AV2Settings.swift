@@ -6,8 +6,11 @@ import Foundation
 
 /// Immutable encoding preferences captured before an AV2 command builder suspends.
 /// Passing the same snapshot to multiple builders keeps geometry, bit depth and
-/// chunking consistent even if Settings changes while source metadata is probed.
+/// chunking, container and audio consistent even if Settings changes during conversion.
 struct AV2Settings: Sendable {
+    let container: AV2Container
+    let audioCodec: AV2AudioCodec
+    let audioBitrate: AudioBitrate
     let resolutionLimit: CodecResolutionLimit
     let bitDepth: AV2BitDepthOption
     let rateControlMode: AV2RateControlMode
@@ -20,6 +23,12 @@ struct AV2Settings: Sendable {
     let parallelChunks: Int
 
     init(defaults: UserDefaults = .standard) {
+        container = AV2Container(rawValue: defaults.string(forKey: AppConstants.av2ContainerKey)
+            ?? AppConstants.defaultAV2Container) ?? .ivf
+        audioCodec = AV2AudioCodec(rawValue: defaults.string(forKey: AppConstants.av2AudioCodecKey)
+            ?? AppConstants.defaultAV2AudioCodec) ?? .aac
+        audioBitrate = AudioBitrate(rawValue: defaults.string(forKey: AppConstants.av2AudioBitrateKey)
+            ?? AppConstants.defaultAV2AudioBitrate) ?? .k192
         resolutionLimit = CodecResolutionLimit(rawValue: defaults.string(forKey: AppConstants.av2ResolutionLimitKey)
             ?? AppConstants.defaultAV2ResolutionLimit) ?? .unlimited
         bitDepth = AV2BitDepthOption(rawValue: defaults.string(forKey: AppConstants.av2BitDepthKey)

@@ -1,6 +1,8 @@
 # v.4.3.0
 
-- **AV2 encoding keeps consistent settings throughout a job.** Geometry, quality, chunking, and output bit depth use one captured set of preferences, including final Matroska metadata.
+- **Legacy audio preset upgrades preserve newer settings.** Existing Audio Only format and visibility choices survive migration when the old migration marker is missing.
+
+- **AV2 encoding keeps consistent settings throughout a job.** Geometry, quality, chunking, output bit depth, container, audio codec, and bitrate use one captured set of preferences, including output naming and final Matroska metadata.
 - **Microphone permission waits can time out or be cancelled.** Stopping capture prevents a late permission response from resuming setup; unanswered prompts show recovery guidance.
 - **Tool Diagnostics checks selected transcription models.** It reports missing or empty Whisper files and incomplete Parakeet cache resources, and rejects folders selected as executable tools.
 

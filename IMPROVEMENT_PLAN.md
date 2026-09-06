@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 388 tests pass. The
+- The unit-test baseline is green: 398 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 388 unit tests. The UI test target now has deterministic smoke
+- There are 398 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -1096,6 +1096,21 @@ captured snapshot after preferences change. The scratch-planning regression now 
 an isolated defaults suite. Broader feature settings, including AV2 container/audio
 preferences, and schema migration coverage remain open (Codex, 2026-09-06).
 
+AV2 container, audio codec, and bitrate now join the same injectable snapshot before
+the converter's first suspension. Output extensions, source-collision naming, mux
+selection, and staged audio arguments all use that snapshot. Single and merged queue
+completion paths retain its output extension for file size, reveal, and upload handling. Three focused tests cover
+snapshot stability, invalid-value fallbacks, and audio preferences changed while source
+probing suspends. Broader non-AV2 settings remain open (Codex, 2026-09-06).
+
+Capture-display and legacy audio-preset startup migrations now live in an injectable
+`StartupSettingsMigration` adapter. Six isolated tests cover automatic and explicit
+display choices, preservation of cleared selections, all three legacy audio formats,
+all legacy visibility combinations, modern-value precedence, and idempotence. The audio
+migration now preserves an already configured modern format or visibility value instead
+of overwriting it when the migration marker is absent. Upload-profile and other schema
+migration coverage remain open (Codex, 2026-09-06).
+
 ## Priority 4 — Accessibility, localization, and product polish
 
 Target: parallelizable once stable identifiers are introduced.
@@ -1354,7 +1369,25 @@ eight new inventory/license tests (Codex, 2026-09-05).
 
 ## Suggested delivery sequence
 
-Latest validation (2026-09-06, Codex): Debug compilation and all 388 unit tests
+Latest validation (2026-09-06, Codex): Debug compilation and all 398 unit tests pass
+with parallel workers enabled, including ten new AV2 audio settings, startup migration,
+and readiness-gated subprocess regressions. All 31 release-script tests, bundled-manifest
+freshness, and localization checks pass (1,475 entries, 15 intentional omissions).
+The existing UI-runner relink permission error prevented the ordinary scheme's test
+build, so the final run used a temporary unit-only scheme, removed afterward. No UI
+or live capture tests were run for this batch. Manual validation and the wider roadmap
+items below remain open.
+
+
+The TERM-ignoring descendant timeout regression now emits its child PID only after
+installing its signal trap and allows a two-second startup window for loaded workers.
+A separate cancellation regression waits for explicit child readiness before cancelling,
+then verifies that escalation removes the descendant. A standalone harness using the
+production runner passed eight concurrent timeout and eight cancellation checks
+(Codex, 2026-09-06).
+
+
+Previous validation (2026-09-06, Codex): Debug compilation and all 388 unit tests
 pass, including thirteen new AV2 settings, microphone permission, and model-resource
 regressions. All 31 release-script tests, bundled-manifest freshness, and the catalog
 audit pass (1,475 entries, 15 intentional omissions). The combined run's unsigned
@@ -1363,7 +1396,7 @@ with a fresh locally signed build, and both results screenshots were visually ch
 The final rebuilt unit bundle ran with `test-without-building` to bypass the recurring
 UI-runner relink permission error. A parallel run missed the child PID in the existing
 200 ms TERM-ignoring-descendant test; all 388 tests pass with parallel workers disabled.
-That subprocess startup sensitivity remains a CI reliability follow-up.
+That subprocess startup sensitivity was addressed in the subsequent test-hardening slice below.
 Live capture/permission, VoiceOver, broader Settings
 and Shortcuts, and credentialed release checks remain outstanding.
 

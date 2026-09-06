@@ -883,8 +883,12 @@ actor ConversionManager: Sendable {
 
         // Throttle UI updates to ~4 Hz to avoid SwiftUI re-render storms during encoding
         let mergeUIThrottle = OSAllocatedUnfairLock(initialState: Date.distantPast)
+        let av2Settings = plan.preset == .av2 ? AV2Settings() : nil
+        let outputExtension = av2Settings?.container.fileExtension
+            ?? plan.preset.outputExtension(for: plan.segments.first?.originalURL)
         await ffmpegConverter.convert(
             request: mergeRequest,
+            av2Settings: av2Settings,
             progressUpdate: { progress, status in
                 let now = Date()
                 let shouldUpdate = mergeUIThrottle.withLock { last -> Bool in
@@ -912,6 +916,7 @@ actor ConversionManager: Sendable {
                     guard let self else { return }
                     await self.handleMergeCompletion(
                         plan: plan,
+                        outputExtension: outputExtension,
                         indices: indices,
                         success: success,
                         errorReason: errorReason,
@@ -1163,6 +1168,7 @@ actor ConversionManager: Sendable {
 
     private func handleMergeCompletion(
         plan: MergePlan,
+        outputExtension: String,
         indices: [Int],
         success: Bool,
         errorReason: String?,
@@ -1171,8 +1177,7 @@ actor ConversionManager: Sendable {
     ) async {
         guard isBatchActive(batchID) else { return }
 
-        let referenceURL = plan.segments.first?.originalURL
-        let finalURL = plan.outputBaseURL.appendingPathExtension(plan.preset.outputExtension(for: referenceURL))
+        let finalURL = plan.outputBaseURL.appendingPathExtension(outputExtension)
 
         // Capture file size - try with security-scoped access
         var outputFileSizeBytes: Int64?
@@ -2182,8 +2187,11 @@ actor ConversionManager: Sendable {
 
         // Throttle UI updates to ~4 Hz to avoid SwiftUI re-render storms during encoding
         let singleUIThrottle = OSAllocatedUnfairLock(initialState: Date.distantPast)
+        let av2Settings = preset == .av2 ? AV2Settings() : nil
+        let outputExtension = av2Settings?.container.fileExtension ?? preset.outputExtension(for: inputURL)
         await ffmpegConverter.convert(
             request: conversionRequest,
+            av2Settings: av2Settings,
             progressUpdate: { progress, status in
                 let now = Date()
                 let shouldUpdate = singleUIThrottle.withLock { last -> Bool in
@@ -2234,7 +2242,7 @@ actor ConversionManager: Sendable {
                                 }
                             }
                         } else {
-                            outputFileURL = outputURL.appendingPathExtension(preset.outputExtension(for: inputURL))
+                            outputFileURL = outputURL.appendingPathExtension(outputExtension)
                         }
 
                         // Capture file size - try multiple approaches

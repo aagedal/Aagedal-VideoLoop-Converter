@@ -453,6 +453,7 @@ actor FFMPEGConverter {
     ///   - completion: Callback for completion (success: Bool, errorReason: String?)
     func convert(
         request: ConversionRequest,
+        av2Settings: AV2Settings? = nil,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void,
         completion: @escaping @Sendable (Bool, String?) -> Void
     ) async {
@@ -460,6 +461,8 @@ actor FFMPEGConverter {
         let inputURL = request.inputURL
         let outputURL = request.outputURL
         let preset = request.preset
+        // Capture all AV2 preferences before cancellation or metadata work can suspend.
+        let capturedAV2Settings = preset == .av2 ? (av2Settings ?? AV2Settings()) : nil
         guard let ffmpegPath = ffmpegPathProvider() else {
             Self.logger.error("FFMPEG binary not found")
             completion(false, "FFmpeg binary not found")
@@ -617,15 +620,16 @@ actor FFMPEGConverter {
             let patternFileName = "\(baseName)_%0\(effectivePadding)d.\(format.primaryExtension)"
             outputFileURL = finalSubfolderURL.appendingPathComponent(patternFileName)
         } else {
-            // Add file extension based on preset
-            outputFileURL = outputURL.appendingPathExtension(preset.outputExtension(for: inputURL))
+            // Use the same captured container for AV2 naming and muxing.
+            let outputExtension = capturedAV2Settings?.container.fileExtension ?? preset.outputExtension(for: inputURL)
+            outputFileURL = outputURL.appendingPathExtension(outputExtension)
 
             // CRITICAL: Ensure we never overwrite the source file
             if outputFileURL.standardizedFileURL == inputURL.standardizedFileURL {
                 // Add "_encoded" suffix to prevent overwriting source
                 let baseName = outputURL.lastPathComponent
                 let safeOutputURL = outputDir.appendingPathComponent(baseName + "_encoded")
-                    .appendingPathExtension(preset.outputExtension(for: inputURL))
+                    .appendingPathExtension(outputExtension)
                 Self.logger.warning("Safety check: would have overwritten input file. Changed output to: \(safeOutputURL.lastPathComponent, privacy: .public)")
                 outputFileURL = safeOutputURL
             }
@@ -738,12 +742,11 @@ actor FFMPEGConverter {
         }
 
         // MARK: Experimental AV2 branch (ffmpeg decode → avmenc encode, two-process pipe)
-        if preset == .av2 {
-            let av2Settings = AV2Settings()
+        if let av2Settings = capturedAV2Settings {
             // Choose output container: a raw video-only `.ivf`, or `.mkv` (AV2 + audio) via the
             // in-app Matroska muxer (FFmpeg can't write AV2). For `.mkv` the encode targets a temp
             // intermediate `.ivf` that the muxer then wraps with the source audio.
-            let muxToMKV = (AV2Container.current == .mkv && BinaryPathResolver.avmencPath != nil)
+            let muxToMKV = (av2Settings.container == .mkv && BinaryPathResolver.avmencPath != nil)
             let encodeURL: URL = muxToMKV
                 ? FileManager.default.temporaryDirectory.appendingPathComponent("av2enc_\(UUID().uuidString).ivf")
                 : outputFileURL
@@ -847,6 +850,7 @@ actor FFMPEGConverter {
                     outputURL: outputFileURL,
                     ffmpegPath: ffmpegPath,
                     avmencPath: avmencPath,
+                    settings: av2Settings,
                     progressUpdate: progressUpdate
                 )
                 Self.cleanupTempFile(at: encodeURL, label: "AV2 intermediate .ivf")
@@ -2560,6 +2564,7 @@ actor FFMPEGConverter {
         outputURL: URL,
         ffmpegPath: String,
         avmencPath: String,
+        settings: AV2Settings,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void
     ) async -> (Bool, String?) {
         guard activeConversionID == conversionID else {
@@ -2615,7 +2620,8 @@ actor FFMPEGConverter {
                 audioRoutingConfig: audioRoutingConfig,
                 trimStart: trimStart,
                 trimEnd: trimEnd,
-                ffmpegPath: ffmpegPath
+                ffmpegPath: ffmpegPath,
+                settings: settings
             ) {
             case .noAudio:
                 break
@@ -2768,6 +2774,7 @@ actor FFMPEGConverter {
         trimStart: Double?,
         trimEnd: Double?,
         ffmpegPath: String,
+        settings: AV2Settings = AV2Settings(),
         audioStreamProvider: @escaping @Sendable (URL) async -> [FFMPEGProbeService.AudioStreamInfo]? = {
             await FFMPEGProbeService.fetchAudioStreams(for: $0)
         }
@@ -2779,8 +2786,8 @@ actor FFMPEGConverter {
         }
 
         guard operationIsCurrent() else { return .cancelled }
-        let codec = AV2AudioCodec.current
-        let bitrate = AudioBitrate(rawValue: UserDefaults.standard.string(forKey: AppConstants.av2AudioBitrateKey) ?? AppConstants.defaultAV2AudioBitrate)?.ffmpegValue ?? "192k"
+        let codec = settings.audioCodec
+        let bitrate = settings.audioBitrate.ffmpegValue
         let defaultAudioStreamIndices: [Int]
         if audioRoutingConfig != nil {
             defaultAudioStreamIndices = []

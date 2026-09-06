@@ -603,16 +603,15 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
 
     func testSubprocessRunnerEscalatesForTermIgnoringDescendantAfterWrapperExits() async throws {
         let script = """
-        (trap '' TERM
-         while :; do sleep 1; done) &
-        child=$!
-        printf '%s\n' "$child"
-        wait "$child"
+        /bin/sh -c 'trap "" TERM; printf "%s\\n" "$$"; while :; do sleep 1; done' &
+        wait "$!"
         """
         let request = SubprocessRequest(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
             arguments: ["-c", script],
-            timeout: .milliseconds(200),
+            // Deadlines include shell startup. Allow loaded parallel test workers time to
+            // install the trap; cancellation coverage below explicitly waits for readiness.
+            timeout: .seconds(2),
             terminationGracePeriod: .milliseconds(100)
         )
 
@@ -623,6 +622,7 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             guard case let .timedOut(_, result) = error else {
                 return XCTFail("Expected a timeout error, got \(error)")
             }
+            XCTAssertEqual(result.terminationStatus, SIGTERM, "The wrapper should exit before escalation")
             let childText = result.standardOutputText.trimmingCharacters(in: .whitespacesAndNewlines)
             let childPID = try XCTUnwrap(pid_t(childText))
             let reapDeadline = ContinuousClock.now.advanced(by: .seconds(1))
@@ -632,6 +632,51 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
             XCTAssertEqual(Darwin.kill(childPID, 0), -1, "The TERM-ignoring descendant survived escalation")
             XCTAssertEqual(errno, ESRCH)
         }
+    }
+
+    func testSubprocessRunnerCancellationEscalatesForReadyTermIgnoringDescendant() async throws {
+        let ready = expectation(description: "Descendant installed its TERM trap")
+        let recorder = SubprocessChunkRecorder()
+        let request = SubprocessRequest(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", """
+            /bin/sh -c 'trap "" TERM; printf "%s\\n" "$$"; while :; do sleep 1; done' &
+            wait "$!"
+            """],
+            terminationGracePeriod: .milliseconds(100)
+        )
+        let task = Task {
+            try await SubprocessRunner().run(request) { chunk in
+                recorder.append(chunk)
+                // Only the descendant writes stdout, after installing its trap. A newline
+                // completes its PID even if pipe delivery splits the write across chunks.
+                if chunk.stream == .standardOutput, chunk.data.contains(0x0A) {
+                    ready.fulfill()
+                }
+            }
+        }
+        defer { task.cancel() }
+        await fulfillment(of: [ready], timeout: 10)
+
+        let cancelStart = ContinuousClock.now
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // Expected after the wrapper exits on TERM and the descendant requires KILL.
+        }
+        XCTAssertLessThan(cancelStart.duration(to: .now), .seconds(2))
+
+        let childText = String(decoding: recorder.standardOutput, as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let childPID = try XCTUnwrap(pid_t(childText))
+        let reapDeadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while Darwin.kill(childPID, 0) == 0, ContinuousClock.now < reapDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(Darwin.kill(childPID, 0), -1, "The ready TERM-ignoring descendant survived cancellation")
+        XCTAssertEqual(errno, ESRCH)
     }
 
     func testSubprocessRunnerCancellationStopsPromptly() async throws {
