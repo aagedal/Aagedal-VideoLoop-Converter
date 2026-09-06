@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8CE9A054BDF34BD5974C74DE /* ConversionDependencyPreflightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A04DD0F426B484387C18EE8 /* ConversionDependencyPreflightTests.swift */; };
+		3094266907AA46E2AD89E2EB /* ConversionDependencyPreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63ABBF018D774A599B331811 /* ConversionDependencyPreflight.swift */; };
 		AAD060010000000000000001 /* KeychainCredentialManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAD060010000000000000002 /* KeychainCredentialManagerTests.swift */; };
 		30AE39FAAA1D4E5AA89C4C74 /* ToolDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301B064EB8BC47D39D4BDA44 /* ToolDiagnosticsTests.swift */; };
 		78DF69E8D7A742D4AD118A73 /* ModelDiagnosticsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C039480DE22E4EBEADB0088D /* ModelDiagnosticsTests.swift */; };
@@ -17,6 +19,7 @@
 		11B12108DB154EA6A2A1F082 /* FileNameSettingsMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E94293E832254BE798177757 /* FileNameSettingsMigrationTests.swift */; };
 		53DB501004114DEC9837976B /* AV2AudioSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BCAA3452B974DD38E9213D5 /* AV2AudioSettingsTests.swift */; };
 		5FBE128C06EE4A82968F95F9 /* StartupSettingsMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 575D0C999AA742709E45A3AF /* StartupSettingsMigrationTests.swift */; };
+		8D2E74A0058A4C479F145B0F /* UploadProfileMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967DA4B812AC4F7996A1822B /* UploadProfileMigrationTests.swift */; };
 		557166FCAF354294BA821011 /* PostConversionSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DE49AB8D27E4B9CBE7324A4 /* PostConversionSettings.swift */; };
 		544D2AB7862149BB973E7E64 /* FileNameSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = E16F395023624188805714C2 /* FileNameSettings.swift */; };
 		1E3D1613E5D34B0E88D179D6 /* StartupSettingsMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F1FE3FF9C94704A970D379 /* StartupSettingsMigration.swift */; };
@@ -275,6 +278,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		8A04DD0F426B484387C18EE8 /* ConversionDependencyPreflightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionDependencyPreflightTests.swift; sourceTree = "<group>"; };
+		63ABBF018D774A599B331811 /* ConversionDependencyPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionDependencyPreflight.swift; sourceTree = "<group>"; };
 		AAD060010000000000000002 /* KeychainCredentialManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainCredentialManagerTests.swift; sourceTree = "<group>"; };
 		301B064EB8BC47D39D4BDA44 /* ToolDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolDiagnosticsTests.swift; sourceTree = "<group>"; };
 		C039480DE22E4EBEADB0088D /* ModelDiagnosticsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelDiagnosticsTests.swift; sourceTree = "<group>"; };
@@ -285,6 +290,7 @@
 		E94293E832254BE798177757 /* FileNameSettingsMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameSettingsMigrationTests.swift; sourceTree = "<group>"; };
 		4BCAA3452B974DD38E9213D5 /* AV2AudioSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV2AudioSettingsTests.swift; sourceTree = "<group>"; };
 		575D0C999AA742709E45A3AF /* StartupSettingsMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupSettingsMigrationTests.swift; sourceTree = "<group>"; };
+		967DA4B812AC4F7996A1822B /* UploadProfileMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadProfileMigrationTests.swift; sourceTree = "<group>"; };
 		7DE49AB8D27E4B9CBE7324A4 /* PostConversionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostConversionSettings.swift; sourceTree = "<group>"; };
 		E16F395023624188805714C2 /* FileNameSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNameSettings.swift; sourceTree = "<group>"; };
 		D9F1FE3FF9C94704A970D379 /* StartupSettingsMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupSettingsMigration.swift; sourceTree = "<group>"; };
@@ -856,10 +862,12 @@
 			children = (
 				301B064EB8BC47D39D4BDA44 /* ToolDiagnosticsTests.swift */,
 				C039480DE22E4EBEADB0088D /* ModelDiagnosticsTests.swift */,
+				8A04DD0F426B484387C18EE8 /* ConversionDependencyPreflightTests.swift */,
 				FFDA902947BA4C97BAD3B996 /* PostConversionSettingsTests.swift */,
 				E94293E832254BE798177757 /* FileNameSettingsMigrationTests.swift */,
 				4BCAA3452B974DD38E9213D5 /* AV2AudioSettingsTests.swift */,
 				575D0C999AA742709E45A3AF /* StartupSettingsMigrationTests.swift */,
+				967DA4B812AC4F7996A1822B /* UploadProfileMigrationTests.swift */,
 				8EBD10232EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift */,
 				AAD060010000000000000002 /* KeychainCredentialManagerTests.swift */,
 				CD4320100000000000000002 /* CaptureFrameRateTests.swift */,
@@ -890,6 +898,7 @@
 				AF2AAF2AAF2AAF2AAF2AAF2A /* MatroskaMuxer.swift */,
 				8EEE452A2EC138FA0049F017 /* ExportPreset.swift */,
 				8E545D8A2C3404040088C274 /* FFMPEGConverter.swift */,
+				63ABBF018D774A599B331811 /* ConversionDependencyPreflight.swift */,
 				67BAE582711E2F5E020591A9 /* ConversionRequest.swift */,
 				9609862A8EC6964A0A45885F /* WaveformPCMDecoder.swift */,
 				9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */,
@@ -1379,6 +1388,7 @@
 				8EE6EE9A2C31FC6B007B629D /* Aagedal_Media_Converter_App.swift in Sources */,
 				8E09F7442EC762C200E129CD /* AudioWaveformPreferences.swift in Sources */,
 				8E545D8B2C3404040088C274 /* FFMPEGConverter.swift in Sources */,
+				3094266907AA46E2AD89E2EB /* ConversionDependencyPreflight.swift in Sources */,
 				67BAE582711E2F5E020591AA /* ConversionRequest.swift in Sources */,
 				978C1F6A9DF43EE4E1E9FDD4 /* WaveformPCMDecoder.swift in Sources */,
 				00B3F16A9264F886CA667DAC /* NativeWaveformVideoRenderer.swift in Sources */,
@@ -1464,10 +1474,12 @@
 			files = (
 				30AE39FAAA1D4E5AA89C4C74 /* ToolDiagnosticsTests.swift in Sources */,
 				78DF69E8D7A742D4AD118A73 /* ModelDiagnosticsTests.swift in Sources */,
+				8CE9A054BDF34BD5974C74DE /* ConversionDependencyPreflightTests.swift in Sources */,
 				26F5C2D4170D479CA5B52180 /* PostConversionSettingsTests.swift in Sources */,
 				11B12108DB154EA6A2A1F082 /* FileNameSettingsMigrationTests.swift in Sources */,
 				53DB501004114DEC9837976B /* AV2AudioSettingsTests.swift in Sources */,
 				5FBE128C06EE4A82968F95F9 /* StartupSettingsMigrationTests.swift in Sources */,
+				8D2E74A0058A4C479F145B0F /* UploadProfileMigrationTests.swift in Sources */,
 				8EBD10242EBE8B7000377649 /* Aagedal_Media_Converter_Tests.swift in Sources */,
 				AAD060010000000000000001 /* KeychainCredentialManagerTests.swift in Sources */,
 				CD4320100000000000000001 /* CaptureFrameRateTests.swift in Sources */,

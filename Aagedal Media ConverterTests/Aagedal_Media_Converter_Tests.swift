@@ -7550,7 +7550,9 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         let outputURL = outputBaseURL.appendingPathExtension("mp4")
         defer { FileSafetyUtils.unregisterCreatedFile(outputURL) }
         let ffmpegPath = "/private/tools/ffmpeg"
-        let avmdecPath = "/private/tools/avmdec"
+        let avmdecPath = temporaryDirectory.appendingPathComponent("avmdec").path
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: URL(fileURLWithPath: avmdecPath))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: avmdecPath)
         let decodedY4M = Data("YUV4MPEG2 W2 H2 F24:1 Ip A1:1 C420\nFRAME\nfixture".utf8)
         let progressValues = OSAllocatedUnfairLock<[Double]>(initialState: [])
         let runner = SequencedRecordingSubprocessRunner { _, request, outputHandler in
@@ -7632,7 +7634,9 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
         let outputURL = outputBaseURL.appendingPathExtension("mp4")
         let ffmpegPath = "/private/tools/ffmpeg"
-        let avmdecPath = "/private/tools/avmdec"
+        let avmdecPath = temporaryDirectory.appendingPathComponent("avmdec").path
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: URL(fileURLWithPath: avmdecPath))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: avmdecPath)
         let runner = SequencedRecordingSubprocessRunner { _, request, _ in
             if request.executableURL.path == avmdecPath {
                 return successfulSubprocessResult(
@@ -7684,7 +7688,9 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
         let outputURL = outputBaseURL.appendingPathExtension("mp4")
         let ffmpegPath = "/private/tools/ffmpeg"
-        let avmdecPath = "/private/tools/missing-avmdec"
+        let avmdecPath = temporaryDirectory.appendingPathComponent("avmdec").path
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: URL(fileURLWithPath: avmdecPath))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: avmdecPath)
         let runner = SequencedRecordingSubprocessRunner { _, request, _ in
             if request.executableURL.path == avmdecPath {
                 throw SubprocessRunnerError.failedToStart(
@@ -7736,11 +7742,14 @@ final class Aagedal_Media_Converter_Tests: XCTestCase {
         try makeTestIVFData().write(to: inputURL)
         let outputBaseURL = temporaryDirectory.appendingPathComponent("output")
         let outputURL = outputBaseURL.appendingPathExtension("mp4")
+        let avmdecPath = temporaryDirectory.appendingPathComponent("avmdec").path
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: URL(fileURLWithPath: avmdecPath))
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: avmdecPath)
         let runner = TwoStageBlockingPipelineRunner()
         let converter = FFMPEGConverter(
             subprocessRunner: runner,
             ffmpegPathProvider: { "/private/tools/ffmpeg" },
-            avmdecPathProvider: { "/private/tools/avmdec" }
+            avmdecPathProvider: { avmdecPath }
         )
         let request = ConversionRequest(
             inputURL: inputURL,
@@ -12975,13 +12984,24 @@ private actor TwoStageBlockingPipelineRunner: SubprocessRunning {
         return successfulSubprocessResult()
     }
 
-    func waitUntilBothStagesStarted() async {
-        await waitUntilStagesStarted(count: 1)
+    func waitUntilBothStagesStarted(file: StaticString = #filePath, line: UInt = #line) async {
+        await waitUntilStagesStarted(count: 1, file: file, line: line)
     }
 
-    func waitUntilStagesStarted(count: Int) async {
+    func waitUntilStagesStarted(count: Int, file: StaticString = #filePath, line: UInt = #line) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while producerStartedCount < count || consumerStartedCount < count {
-            await Task.yield()
+            guard ContinuousClock.now < deadline, !Task.isCancelled else {
+                XCTFail(
+                    "Pipeline did not start \(count) producer/consumer stages within five seconds "
+                        + "(started \(producerStartedCount)/\(consumerStartedCount))",
+                    file: file, line: line
+                )
+                // Return to the caller so its converter cancellation still cleans up any
+                // partially started stages after reporting the missing-start regression.
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(10))
         }
     }
 }

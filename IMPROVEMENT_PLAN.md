@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 398 tests pass. The
+- The unit-test baseline is green: 414 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 398 unit tests. The UI test target now has deterministic smoke
+- There are 414 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -43,7 +43,7 @@ issue link when it starts.
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
   flow coverage.
-- The string catalog has 1,475 entries. All 59 previously missing App Intent
+- The string catalog has 1,476 entries. All 59 previously missing App Intent
   strings and the ordinary interface omissions are now translated into Norwegian.
   The only 15 missing entries are intentionally untranslated format/command tokens;
   CI rejects unclassified omissions and broken interpolation placeholders.
@@ -938,6 +938,15 @@ supersession, and explicit stop. Stream start/stop/configuration, session owners
 across other suspension points, and live permission validation remain open
 (Codex, 2026-09-06).
 
+Universal audio metering now owns the complete discovery/start attempt and bounds
+startup and stop with fifteen-second non-joining deadlines. Stop and parent cancellation
+invalidate pending work; late successful starts are stopped, and stale level/frequency
+callbacks cannot overwrite silence or a newer session. Frequency-analyzer replacement
+is serialized on the sample queue. Four deterministic regressions cover late startup
+and retry, stalled stop callbacks, stop during discovery, and parent cancellation.
+Recording stream start/stop/configuration and broader recording-session ownership remain
+open (Codex, 2026-09-06).
+
 ### 2.3 Standardize user-visible errors
 
 Status: in progress; queue failure details and redacted diagnostic copying added 2026-09-05 (Codex).
@@ -1056,7 +1065,7 @@ combinations produce a preflight explanation before encoding starts.
 
 ### 3.3 Centralize settings access
 
-Status: in progress; standalone operations, analytics and AV2 encoding snapshots added 2026-09-06 (Codex).
+Status: in progress; settings snapshots and upload-profile migration safety added 2026-09-06 (Codex).
 
 - Wrap `UserDefaults` keys in feature-scoped settings types with defaults and
   migrations.
@@ -1109,6 +1118,14 @@ display choices, preservation of cleared selections, all three legacy audio form
 all legacy visibility combinations, modern-value precedence, and idempotence. The audio
 migration now preserves an already configured modern format or visibility value instead
 of overwriting it when the migration marker is absent. Upload-profile and other schema
+migration coverage remain open (Codex, 2026-09-06).
+
+Upload-profile storage and migration now accept an isolated defaults store. Six
+regressions cover all four legacy backends, stable UUIDs for credential associations,
+backend-specific fields and selection, modern-list precedence (including an explicitly
+empty list), malformed data recovery, and idempotence. Migration no longer overwrites
+newer destinations or deletes legacy data after a decoding failure; malformed source
+lists remain untouched for repair and retry. Other feature settings and schema
 migration coverage remain open (Codex, 2026-09-06).
 
 ## Priority 4 — Accessibility, localization, and product polish
@@ -1263,7 +1280,7 @@ interoperability remain validation gaps (Codex, 2026-09-05).
 
 ### 4.4 Improve first-run and dependency diagnostics
 
-Status: in progress; package/AV2/Parakeet helpers and selected-model availability checks added 2026-09-06 (Codex).
+Status: in progress; diagnostics and early package/AV2 dependency preflight added 2026-09-06 (Codex).
 
 - Provide one Tools/Diagnostics view for bundled, Homebrew, and custom binaries,
   including version, architecture, executable status, and a test action.
@@ -1301,6 +1318,18 @@ filesystem regressions cover missing/empty resources, dangling symlinks, and mal
 or oversized cache refs, and nonblocking rejection of named pipes. The tool check also rejects a directory masquerading as an
 executable. Norwegian translations and model-row assertions extend the bilingual
 Diagnostics test. Feature-level compatibility preflight remains open (Codex, 2026-09-06).
+
+Conversion preflight now checks executable regular-file availability of the required
+DCP/IMF picture wrappers and AV2 encoder before creating outputs or encoding. Recognized
+AV2 sources also check the decoder at that boundary and retain the resolved path for
+launch. IMF audio checks AS-DCP when existing direct-source metadata confirms audio;
+customized empty routing remains silent. Six focused regressions cover helper mapping,
+ordinary-export independence, invalid executable selections, early converter rejection,
+AV2 source decoding, and conditional IMF audio. Decoder pipeline fixtures now use
+executable tool paths, and their readiness waits fail explicitly after five seconds
+instead of hanging indefinitely. The failure points to Tool Diagnostics
+and is translated into Norwegian. Unknown/custom-source IMF audio dependencies and
+feature-level codec/architecture compatibility remain open (Codex, 2026-09-06).
 
 ## Priority 5 — Release and dependency hygiene
 
@@ -1369,7 +1398,17 @@ eight new inventory/license tests (Codex, 2026-09-05).
 
 ## Suggested delivery sequence
 
-Latest validation (2026-09-06, Codex): Debug compilation and all 398 unit tests pass
+Latest validation (2026-09-06, Codex): Debug compilation and all 414 unit tests pass
+with parallel workers enabled, including sixteen new upload-migration, audio-meter
+lifecycle, and conversion-preflight regressions. All 31 release-script tests, bundled
+manifest freshness, and localization checks pass (1,476 entries, 15 intentional
+omissions). The ordinary scheme still hits the existing UI-runner relink permission
+error; validation used a temporary unit-only scheme, removed afterward. An intermediate
+run built during the decoder fixture update was interrupted; the final completed sources
+were rebuilt and all tests passed with zero skips. No UI interaction or live capture tests
+were run for this batch. The manual and wider roadmap gaps remain open.
+
+Previous validation (2026-09-06, Codex): Debug compilation and all 398 unit tests pass
 with parallel workers enabled, including ten new AV2 audio settings, startup migration,
 and readiness-gated subprocess regressions. All 31 release-script tests, bundled-manifest
 freshness, and localization checks pass (1,475 entries, 15 intentional omissions).

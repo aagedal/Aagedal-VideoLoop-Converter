@@ -1,5 +1,9 @@
 # v.4.3.0
 
+- **Exports check required helpers before encoding.** DCP, IMF, and AV2 report missing or non-executable tools with guidance to Tool Diagnostics before creating output files.
+- **Audio metering stops reliably during startup.** Discovery, startup, and stop waits are bounded; delayed callbacks cannot restart a stopped meter or overwrite a newer session.
+- **Upload-profile upgrades preserve saved destinations.** Newer profiles take precedence, and malformed legacy data stays available for repair instead of being deleted during migration.
+
 - **Legacy audio preset upgrades preserve newer settings.** Existing Audio Only format and visibility choices survive migration when the old migration marker is missing.
 
 - **AV2 encoding keeps consistent settings throughout a job.** Geometry, quality, chunking, output bit depth, container, audio codec, and bitrate use one captured set of preferences, including output naming and final Matroska metadata.

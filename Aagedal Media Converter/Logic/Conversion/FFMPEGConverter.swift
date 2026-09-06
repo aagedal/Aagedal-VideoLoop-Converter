@@ -119,6 +119,7 @@ actor FFMPEGConverter {
     private let subprocessRunner: any SubprocessRunning
     private let ffmpegPathProvider: @Sendable () -> String?
     private let avmdecPathProvider: @Sendable () -> String?
+    private let dependencyPreflight: ConversionDependencyPreflight
 
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGConverter")
     private static let outputReservations = ConversionOutputReservations()
@@ -159,11 +160,13 @@ actor FFMPEGConverter {
     init(
         subprocessRunner: any SubprocessRunning = SubprocessRunner(),
         ffmpegPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ffmpegPath },
-        avmdecPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.avmdecPath }
+        avmdecPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.avmdecPath },
+        dependencyPreflight: ConversionDependencyPreflight = ConversionDependencyPreflight()
     ) {
         self.subprocessRunner = subprocessRunner
         self.ffmpegPathProvider = ffmpegPathProvider
         self.avmdecPathProvider = avmdecPathProvider
+        self.dependencyPreflight = dependencyPreflight
     }
 
     // MARK: - Temp File Cleanup
@@ -470,6 +473,36 @@ actor FFMPEGConverter {
         }
         guard preset != .av2 || request.additionalOutputArguments?.isEmpty != false else {
             completion(false, "AV2 export does not support additional FFmpeg output arguments")
+            return
+        }
+        // Only preflight IMF audio when existing metadata describes this exact source.
+        // Custom inputs may provide different audio; unknown layouts retain the extraction check.
+        let customizedSilentPackage = request.audioRoutingConfig.map {
+            $0.isCustomized && $0.outputTracks.isEmpty
+        } ?? false
+        let sourceAudioKnownPresent = request.customInputArguments == nil
+            && request.sourceMetadata?.audioStreams.isEmpty == false
+            && !customizedSilentPackage
+        // Generated-video AV2 requests retain their specific unsupported-feature diagnostic.
+        if !(preset == .av2 && (request.waveformRequest != nil || request.synthesizedVideoRequest != nil)),
+           let failure = dependencyPreflight.failure(for: preset, sourceAudioKnownPresent: sourceAudioKnownPresent) {
+            completion(false, failure)
+            return
+        }
+        // Read the same bounded source headers used by the decoder path before output setup.
+        let usesAV2SourceDecoder = preset != .av2
+            && request.customInputArguments == nil
+            && request.waveformRequest == nil
+            && request.synthesizedVideoRequest == nil
+        let av2SourceExt = inputURL.pathExtension.lowercased()
+        let av2IsIVF = usesAV2SourceDecoder && av2SourceExt == "ivf"
+            && (IVFHeaderParser.parse(url: inputURL)?.isAV2 ?? false)
+        let av2IsMatroska = usesAV2SourceDecoder && (av2SourceExt == "mkv" || av2SourceExt == "webm")
+            && Self.matroskaContainsAV2(url: inputURL)
+        let av2SourceDecoderPath = (av2IsIVF || av2IsMatroska) ? avmdecPathProvider() : nil
+        if (av2IsIVF || av2IsMatroska),
+           let failure = ConversionDependencyPreflight.failure(for: .avmdec, path: av2SourceDecoderPath) {
+            completion(false, failure)
             return
         }
         currentProgressGate?.invalidate()
@@ -871,15 +904,12 @@ actor FFMPEGConverter {
         // (FFmpeg-readable) audio track can be mapped in. Skipped for merges / AVC-Intra / waveform.
         var av2DecodeRequest: SubprocessRequest? = nil
         var av2MatroskaAudioFromInput1 = false
-        let av2SourceExt = inputURL.pathExtension.lowercased()
-        let av2IsIVF = (av2SourceExt == "ivf") && (IVFHeaderParser.parse(url: inputURL)?.isAV2 ?? false)
-        let av2IsMatroska = (av2SourceExt == "mkv" || av2SourceExt == "webm") && Self.matroskaContainsAV2(url: inputURL)
         if (av2IsIVF || av2IsMatroska),
            tempAudioURL == nil,
            request.customInputArguments == nil,
            request.waveformRequest == nil,
            request.synthesizedVideoRequest == nil,
-           let avmdecPath = avmdecPathProvider() {
+           let avmdecPath = av2SourceDecoderPath {
             // avmdec writes self-describing Y4M to stdout, so FFmpeg auto-detects the exact
             // chroma subsampling and bit depth (4:2:0/4:2:2/4:4:4, 8/10/12-bit) with no
             // assumptions — native depth is preserved (a 10-bit source stays 10-bit).

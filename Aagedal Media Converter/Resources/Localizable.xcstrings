@@ -1,6 +1,16 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Export requires the bundled %@ helper, which is missing or not executable. Open Settings > Tool Diagnostics to inspect the tools, or reinstall the app.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksport krever det medfølgende hjelpeprogrammet %@, som mangler eller ikke kan kjøres. Åpne Innstillinger > Verktøydiagnostikk for å undersøke verktøyene, eller installer appen på nytt."
+          }
+        }
+      }
+    },
     "Timed out waiting for microphone permission. Check microphone access in System Settings and try again.": {
       "localizations": {
         "nb": {

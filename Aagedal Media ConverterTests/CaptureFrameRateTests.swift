@@ -394,3 +394,133 @@ final class CaptureFrameRateTests: XCTestCase {
         }
     }
 }
+
+@MainActor
+private final class MeterSessionStub: AudioMeterCaptureSession {
+    var startGate: CheckedContinuation<Void, Never>?
+    var stopGate: CheckedContinuation<Void, Never>?
+    var stallsStart = false
+    var stallsStop = false
+    var starts = 0
+    var stops = 0
+    var levels: (@MainActor (UniversalAudioMeterService.AudioLevels) -> Void)?
+
+    func configure(
+        levels: @escaping @MainActor (UniversalAudioMeterService.AudioLevels) -> Void,
+        bands: @escaping @MainActor ([Float]) -> Void
+    ) { self.levels = levels }
+    func reloadFrequencySettings() {}
+    func start() async throws {
+        starts += 1
+        if stallsStart { await withCheckedContinuation { startGate = $0 } }
+    }
+    func stop() async throws {
+        stops += 1
+        if stallsStop { await withCheckedContinuation { stopGate = $0 } }
+    }
+}
+
+extension CaptureFrameRateTests {
+    @MainActor
+    func testAudioMeterStopBoundsStalledCallbackAndRejectsLateSamples() async throws {
+        let session = MeterSessionStub()
+        let meter = UniversalAudioMeterService(timeout: .milliseconds(30)) { session }
+        await meter.startMonitoring()
+        XCTAssertTrue(meter.isMonitoring)
+        session.levels?(.init(leftChannel: -4, rightChannel: -4, peak: -4))
+        XCTAssertEqual(meter.currentLevels.peak, -4)
+        session.stallsStop = true
+        let before = ContinuousClock.now
+        await meter.stopMonitoring()
+        XCTAssertLessThan(before.duration(to: .now), .seconds(1))
+        XCTAssertFalse(meter.isMonitoring)
+        session.levels?(.init(leftChannel: -2, rightChannel: -2, peak: -2))
+        XCTAssertEqual(meter.currentLevels.peak, -60)
+        session.stopGate?.resume()
+        session.stopGate = nil
+    }
+
+    @MainActor
+    func testAudioMeterStartTimeoutCleansUpLateStartWithoutReplacingRetry() async throws {
+        let old = MeterSessionStub()
+        old.stallsStart = true
+        let fresh = MeterSessionStub()
+        var count = 0
+        let meter = UniversalAudioMeterService(timeout: .milliseconds(30)) {
+            count += 1
+            return count == 1 ? old : fresh
+        }
+        let before = ContinuousClock.now
+        await meter.startMonitoring()
+        XCTAssertLessThan(before.duration(to: .now), .seconds(1))
+        XCTAssertFalse(meter.isMonitoring)
+        XCTAssertEqual(old.stops, 1)
+        await meter.startMonitoring()
+        XCTAssertTrue(meter.isMonitoring)
+        old.startGate?.resume()
+        old.startGate = nil
+        try await waitForAudioMeterState("late start cleanup") { old.stops >= 2 }
+        XCTAssertEqual(old.stops, 2)
+        XCTAssertTrue(meter.isMonitoring)
+        old.levels?(.init(leftChannel: -2, rightChannel: -2, peak: -2))
+        XCTAssertEqual(meter.currentLevels.peak, -60)
+        await meter.stopMonitoring()
+    }
+
+    @MainActor
+    func testAudioMeterStopDuringDiscoveryPreventsStreamStart() async throws {
+        let session = MeterSessionStub()
+        var gate: CheckedContinuation<Void, Never>?
+        let meter = UniversalAudioMeterService(timeout: .seconds(5)) {
+            await withCheckedContinuation { gate = $0 }
+            return session
+        }
+        let start = Task { await meter.startMonitoring() }
+        try await waitForAudioMeterState("discovery started") { gate != nil }
+        await meter.stopMonitoring()
+        await start.value
+        gate?.resume()
+        gate = nil
+        try await waitForAudioMeterState("cancelled discovery cleanup") { session.stops > 0 }
+        XCTAssertEqual(session.starts, 0)
+        XCTAssertEqual(session.stops, 1)
+        XCTAssertFalse(meter.isMonitoring)
+    }
+
+    @MainActor
+    func testAudioMeterParentCancellationStopsPendingStartPromptly() async throws {
+        let session = MeterSessionStub()
+        session.stallsStart = true
+        let meter = UniversalAudioMeterService(timeout: .seconds(5)) { session }
+        let start = Task { await meter.startMonitoring() }
+        try await waitForAudioMeterState("stream start pending") { session.startGate != nil }
+        let before = ContinuousClock.now
+        start.cancel()
+        await start.value
+        XCTAssertLessThan(before.duration(to: .now), .seconds(1))
+        XCTAssertFalse(meter.isMonitoring)
+        XCTAssertEqual(session.stops, 1)
+        session.startGate?.resume()
+        session.startGate = nil
+        try await waitForAudioMeterState("late cancelled start cleanup") { session.stops >= 2 }
+        XCTAssertEqual(session.stops, 2)
+    }
+}
+
+/// A broken lifecycle must fail the test rather than leave its readiness wait suspended.
+@MainActor
+private func waitForAudioMeterState(
+    _ description: String,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    predicate: @MainActor () -> Bool
+) async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+    while !predicate() {
+        guard ContinuousClock.now < deadline else {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
+            throw CancellationError()
+        }
+        try await Task.sleep(for: .milliseconds(1))
+    }
+}
