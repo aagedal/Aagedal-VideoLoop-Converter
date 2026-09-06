@@ -3,6 +3,108 @@ import XCTest
 @testable import Aagedal_Media_Converter
 
 final class ConversionDependencyPreflightTests: XCTestCase {
+    func testAudioPreflightTimeoutPreservesUnknownTopologyPolicy() async throws {
+        let preflight = ConversionDependencyPreflight { $0 == .asdcpWrap ? nil : "/bin/sh" }
+        let request = ConversionRequest(inputURL: URL(fileURLWithPath: "/tmp/input.mov"), outputURL: URL(fileURLWithPath: "/tmp/out"), preset: .imfJ2K)
+        let failure = try await preflight.audioFailure(for: request, timeout: .milliseconds(10)) { _ in
+            try? await Task.sleep(for: .seconds(60))
+            return [.init(index: 1, channels: 2, channelLayout: "stereo", codecName: "aac")]
+        }
+        XCTAssertNil(failure)
+    }
+
+    func testCancellingAudioPreflightDoesNotCreateOutputDirectories() async {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probeStarted = expectation(description: "Audio probe started")
+        let completed = expectation(description: "Conversion cancelled")
+        completed.assertForOverFulfill = true
+        let converter = FFMPEGConverter(
+            ffmpegPathProvider: { "/bin/sh" },
+            dependencyPreflight: ConversionDependencyPreflight { $0 == .asdcpWrap ? nil : "/bin/sh" },
+            preflightAudioStreamProvider: { _ in
+                probeStarted.fulfill()
+                try? await Task.sleep(for: .seconds(60))
+                return nil
+            }
+        )
+        let conversion = Task {
+            await converter.convert(
+                request: ConversionRequest(inputURL: directory.appendingPathComponent("input.mov"), outputURL: directory.appendingPathComponent("out"), preset: .imfProRes),
+                progressUpdate: { _, _ in XCTFail("No encoding should start") },
+                completion: { success, reason in
+                    XCTAssertFalse(success)
+                    XCTAssertEqual(reason, "Conversion cancelled")
+                    completed.fulfill()
+                }
+            )
+        }
+        await fulfillment(of: [probeStarted], timeout: 2)
+        await converter.cancelConversion()
+        await fulfillment(of: [completed], timeout: 2)
+        await conversion.value
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testUnknownAndConcatIMFAudioAreProbedBeforeEncoding() async throws {
+        let preflight = ConversionDependencyPreflight { $0 == .asdcpWrap ? nil : "/bin/sh" }
+        let input = URL(fileURLWithPath: "/tmp/representative.mov")
+        let inputArguments: [[String]?] = [nil, ["-f", "concat", "-i", "/tmp/list.txt"]]
+        for arguments in inputArguments {
+            let request = ConversionRequest(inputURL: input, outputURL: input, preset: .imfJ2K, customInputArguments: arguments)
+            let failure = try await preflight.audioFailure(for: request) { url in
+                XCTAssertEqual(url, input)
+                return [.init(index: 1, channels: 2, channelLayout: "stereo", codecName: "aac")]
+            }
+            XCTAssertTrue(failure?.contains("asdcp-wrap") == true)
+            let silent = try await preflight.audioFailure(for: request) { _ in [] }
+            XCTAssertNil(silent)
+            let unknown = try await preflight.audioFailure(for: request) { _ in nil }
+            XCTAssertNil(unknown)
+        }
+    }
+
+    func testImageSequenceCompanionAndExplicitAudioRequireWrapperWithoutProbe() async throws {
+        let preflight = ConversionDependencyPreflight { $0 == .asdcpWrap ? nil : "/bin/sh" }
+        for request in [
+            ConversionRequest(inputURL: URL(fileURLWithPath: "/tmp/audio.wav"), outputURL: URL(fileURLWithPath: "/tmp/out"), preset: .imfProRes),
+            ConversionRequest(inputURL: URL(fileURLWithPath: "/tmp/frames"), outputURL: URL(fileURLWithPath: "/tmp/out"), preset: .imfProRes,
+                              customInputArguments: ["-framerate", "24", "-i", "/tmp/frame_%04d.png", "-i", "/tmp/companion.wav"])
+        ] {
+            let failure = try await preflight.audioFailure(for: request) { _ in
+                XCTFail("Explicit audio sources do not need probing")
+                return nil
+            }
+            XCTAssertTrue(failure?.contains("asdcp-wrap") == true)
+        }
+        let silent = ConversionRequest(inputURL: URL(fileURLWithPath: "/tmp/frames"), outputURL: URL(fileURLWithPath: "/tmp/out"), preset: .imfJ2K,
+                                       customInputArguments: ["-framerate", "24", "-i", "/tmp/frame_%04d.png"])
+        let failure = try await preflight.audioFailure(for: silent) { _ in
+            XCTFail("Silent sequence must not be probed")
+            return nil
+        }
+        XCTAssertNil(failure)
+    }
+
+    func testConverterRejectsUnknownSourceAudioBeforeCreatingOutputDirectories() async {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let converter = FFMPEGConverter(
+            ffmpegPathProvider: { "/bin/sh" },
+            dependencyPreflight: ConversionDependencyPreflight { $0 == .asdcpWrap ? nil : "/bin/sh" },
+            preflightAudioStreamProvider: { _ in [.init(index: 1, channels: 2, channelLayout: "stereo", codecName: "aac")] }
+        )
+        await converter.convert(
+            request: ConversionRequest(inputURL: directory.appendingPathComponent("input.mov"), outputURL: directory.appendingPathComponent("out"), preset: .imfProRes),
+            progressUpdate: { _, _ in XCTFail("No encoding should start") },
+            completion: { success, reason in
+                XCTAssertFalse(success)
+                XCTAssertTrue(reason?.contains("asdcp-wrap") == true)
+            }
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
     func testEachSpecialExportRequiresOnlyItsPictureHelper() {
         let cases: [(ExportPreset, ConversionDependencyPreflight.Helper)] = [
             (.dcp, .asdcpWrap), (.imfJ2K, .raw2bmx),

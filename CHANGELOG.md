@@ -1,5 +1,9 @@
 # v.4.3.0
 
+- **Screen-recording shutdown has a deadline.** Retired streams cannot append more samples or revive meters; stopped sessions reject late recording starts and retain folder access until all recordings finish.
+- **IMF checks audio helpers for concat and image-sequence sources before encoding.** Missing wrappers are detected using the same source selection as package audio extraction.
+- **Bundled license notices are available offline in About > Licenses.** Release validation verifies that all existing notices are packaged intact.
+
 - **Exports check required helpers before encoding.** DCP, IMF, and AV2 report missing or non-executable tools with guidance to Tool Diagnostics before creating output files.
 - **Audio metering stops reliably during startup.** Discovery, startup, and stop waits are bounded; delayed callbacks cannot restart a stopped meter or overwrite a newer session.
 - **Upload-profile upgrades preserve saved destinations.** Newer profiles take precedence, and malformed legacy data stays available for repair instead of being deleted during migration.

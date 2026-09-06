@@ -97,6 +97,7 @@ private final class ConversionOutputReservations: @unchecked Sendable {
 
 actor FFMPEGConverter {
     private var currentSubprocessTask: Task<Void, Never>?
+    private var currentDependencyPreflightTask: Task<String?, Error>?
     private var currentWaveformAnalysisTask: Task<FrequencyBandData, Error>?
     private var currentWaveformAnalysisID: UUID?
     private var currentImageSequenceAudioTask: Task<ImageSequenceAudioStagingResult, Never>?
@@ -120,6 +121,7 @@ actor FFMPEGConverter {
     private let ffmpegPathProvider: @Sendable () -> String?
     private let avmdecPathProvider: @Sendable () -> String?
     private let dependencyPreflight: ConversionDependencyPreflight
+    private let preflightAudioStreamProvider: @Sendable (URL) async -> [FFMPEGProbeService.AudioStreamInfo]?
 
     private static let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "FFMPEGConverter")
     private static let outputReservations = ConversionOutputReservations()
@@ -161,12 +163,16 @@ actor FFMPEGConverter {
         subprocessRunner: any SubprocessRunning = SubprocessRunner(),
         ffmpegPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.ffmpegPath },
         avmdecPathProvider: @escaping @Sendable () -> String? = { BinaryPathResolver.avmdecPath },
-        dependencyPreflight: ConversionDependencyPreflight = ConversionDependencyPreflight()
+        dependencyPreflight: ConversionDependencyPreflight = ConversionDependencyPreflight(),
+        preflightAudioStreamProvider: @escaping @Sendable (URL) async -> [FFMPEGProbeService.AudioStreamInfo]? = {
+            await FFMPEGProbeService.fetchAudioStreams(for: $0)
+        }
     ) {
         self.subprocessRunner = subprocessRunner
         self.ffmpegPathProvider = ffmpegPathProvider
         self.avmdecPathProvider = avmdecPathProvider
         self.dependencyPreflight = dependencyPreflight
+        self.preflightAudioStreamProvider = preflightAudioStreamProvider
     }
 
     // MARK: - Temp File Cleanup
@@ -475,17 +481,9 @@ actor FFMPEGConverter {
             completion(false, "AV2 export does not support additional FFmpeg output arguments")
             return
         }
-        // Only preflight IMF audio when existing metadata describes this exact source.
-        // Custom inputs may provide different audio; unknown layouts retain the extraction check.
-        let customizedSilentPackage = request.audioRoutingConfig.map {
-            $0.isCustomized && $0.outputTracks.isEmpty
-        } ?? false
-        let sourceAudioKnownPresent = request.customInputArguments == nil
-            && request.sourceMetadata?.audioStreams.isEmpty == false
-            && !customizedSilentPackage
         // Generated-video AV2 requests retain their specific unsupported-feature diagnostic.
         if !(preset == .av2 && (request.waveformRequest != nil || request.synthesizedVideoRequest != nil)),
-           let failure = dependencyPreflight.failure(for: preset, sourceAudioKnownPresent: sourceAudioKnownPresent) {
+           let failure = dependencyPreflight.failure(for: preset) {
             completion(false, failure)
             return
         }
@@ -505,6 +503,8 @@ actor FFMPEGConverter {
             completion(false, failure)
             return
         }
+        currentDependencyPreflightTask?.cancel()
+        currentDependencyPreflightTask = nil
         currentProgressGate?.invalidate()
         currentSubprocessTask?.cancel()
         currentWaveformAnalysisTask?.cancel()
@@ -540,6 +540,40 @@ actor FFMPEGConverter {
         }
         let conversionID = UUID()
         activeConversionID = conversionID
+
+        if preset == .imfJ2K || preset == .imfProRes {
+            let preflight = dependencyPreflight
+            let audioStreamProvider = preflightAudioStreamProvider
+            let preflightTask = Task {
+                try await preflight.audioFailure(for: request, audioStreamProvider: audioStreamProvider)
+            }
+            currentDependencyPreflightTask = preflightTask
+            let audioDependencyFailure: String?
+            do {
+                audioDependencyFailure = try await withTaskCancellationHandler {
+                    try await preflightTask.value
+                } onCancel: {
+                    preflightTask.cancel()
+                }
+            } catch {
+                if activeConversionID == conversionID {
+                    currentDependencyPreflightTask = nil
+                    activeConversionID = nil
+                }
+                completion(false, "Conversion cancelled")
+                return
+            }
+            guard activeConversionID == conversionID, !Task.isCancelled else {
+                completion(false, "Conversion cancelled")
+                return
+            }
+            currentDependencyPreflightTask = nil
+            if let audioDependencyFailure {
+                activeConversionID = nil
+                completion(false, audioDependencyFailure)
+                return
+            }
+        }
 
         // Ensure output directory exists
         let fileManager = FileManager.default
@@ -4153,6 +4187,8 @@ actor FFMPEGConverter {
         activeConversionID = nil
         postProcessingConversionID = nil
         activeBMXOperationID = nil
+        currentDependencyPreflightTask?.cancel()
+        currentDependencyPreflightTask = nil
         currentProgressGate?.invalidate()
         currentProgressGate = nil
         currentSubprocessTask?.cancel()

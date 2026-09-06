@@ -40,9 +40,11 @@ Before publishing:
    and connect each retained binary to its reviewed attribution. Account for
    transitive dependencies, downloaded components, and package frameworks beyond
    this manifest's Binaries/Frameworks scope separately.
-3. Verify notices are included in the exported app/distribution and accessible to
-   recipients. A source-repository notice and this source-tree inventory do not
-   prove that the notice was packaged.
+3. Keep new notices included in app resources and the About > Licenses viewer.
+   The six current notices are packaged and readable offline. Exported-bundle,
+   final-ZIP, and Release CI validation now checks their byte sizes and SHA-256
+   against the manifest using `verify-release-bundle.py --manifest BundledDependencies.json`.
+   This checks packaging, not completeness of attribution.
 4. Complete reachability analysis before removing unused binaries, regenerate the
    inventory, and rerun the strict gate plus exported-bundle validation.
 

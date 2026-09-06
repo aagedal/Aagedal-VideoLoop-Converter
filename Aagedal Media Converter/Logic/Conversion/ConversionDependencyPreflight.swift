@@ -4,7 +4,7 @@
 
 import Foundation
 
-/// Checks picture dependencies and known IMF audio dependencies before output creation or encoding.
+/// Checks picture and IMF audio dependencies before output creation or encoding.
 /// Does not launch helpers: version flags are not safe for every bundled encoder.
 struct ConversionDependencyPreflight: Sendable {
     enum Helper: String, Sendable {
@@ -47,6 +47,42 @@ struct ConversionDependencyPreflight: Sendable {
             return Self.failure(for: .asdcpWrap, path: pathProvider(.asdcpWrap))
         }
         return nil
+    }
+
+    /// Mirrors package extraction's source resolution, including companion audio and concat inputs.
+    /// Only probe when the missing audio wrapper could actually prevent this export.
+    func audioFailure(
+        for request: ConversionRequest,
+        timeout: Duration = FFMPEGProbeService.defaultTimeout,
+        audioStreamProvider: @escaping @Sendable (URL) async -> [FFMPEGProbeService.AudioStreamInfo]? = {
+            await FFMPEGProbeService.fetchAudioStreams(for: $0)
+        }
+    ) async throws -> String? {
+        try Task.checkCancellation()
+        guard request.preset == .imfJ2K || request.preset == .imfProRes,
+              !(request.audioRoutingConfig.map { $0.isCustomized && $0.outputTracks.isEmpty } ?? false),
+              let failure = Self.failure(for: .asdcpWrap, path: pathProvider(.asdcpWrap)) else {
+            return nil
+        }
+        let source = FFMPEGConverter.packageAudioInput(
+            inputURL: request.inputURL, customInputArguments: request.customInputArguments
+        )
+        guard let probeURL = source.probeURL else { return nil }
+        // Extraction treats explicit audio-only sources as one stream even without metadata.
+        if source.assumesSingleAudioStreamIfProbeUnavailable { return failure }
+        if request.customInputArguments == nil, let metadata = request.sourceMetadata {
+            return metadata.audioStreams.isEmpty ? nil : failure
+        }
+        do {
+            let streams = try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                await audioStreamProvider(probeURL)
+            }
+            try Task.checkCancellation()
+            return streams?.isEmpty == false ? failure : nil
+        } catch NonJoiningTaskDeadlineError.timedOut {
+            // Unknown topology retains extraction's existing fallback policy.
+            return nil
+        }
     }
 
     static func failure(for helper: Helper, path: String?) -> String? {

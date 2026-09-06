@@ -6,6 +6,169 @@ import os
 
 final class CaptureFrameRateTests: XCTestCase {
     @MainActor
+    func testStopRetiresSuspendedRecordingStartAndKeepsItsScopeClaim() throws {
+        let operations = CaptureRecordingOperations()
+        let start = try XCTUnwrap(operations.beginStart(displayID: 1))
+        let delivery = CaptureSampleDelivery()
+        operations.registerDelivery(delivery, for: start)
+        XCTAssertTrue(operations.isCurrent(start))
+
+        let stop = operations.beginStop()
+        XCTAssertFalse(operations.isCurrent(start))
+        XCTAssertFalse(delivery.isActive)
+        operations.finishStop(stop)
+
+        // A start still suspended in ScreenCaptureKit retains the folder claim
+        // after Stop returns and cannot admit another recording session.
+        XCTAssertTrue(operations.hasPendingOperations)
+        XCTAssertTrue(operations.hasPendingCleanup)
+        XCTAssertNil(operations.beginStart(displayID: 2))
+        operations.finishStart(start)
+        XCTAssertFalse(operations.hasPendingOperations)
+        XCTAssertFalse(operations.hasPendingCleanup)
+        XCTAssertNotNil(operations.beginStart(displayID: 2))
+    }
+
+    @MainActor
+    func testOverlappingRecordingFinalizersKeepScopeUntilBothFinish() {
+        let operations = CaptureRecordingOperations()
+        let first = operations.beginStop()
+        let second = operations.beginStop()
+        operations.finishStop(second)
+        XCTAssertTrue(operations.hasPendingOperations)
+        XCTAssertTrue(operations.hasPendingCleanup)
+        XCTAssertNil(operations.beginStart(displayID: 1))
+        operations.finishStop(first)
+        XCTAssertFalse(operations.hasPendingOperations)
+        XCTAssertFalse(operations.hasPendingCleanup)
+        XCTAssertNotNil(operations.beginStart(displayID: 1))
+    }
+
+    @MainActor
+    func testDuplicateRecordingStartIsReservedAcrossSuspension() throws {
+        let operations = CaptureRecordingOperations()
+        let first = try XCTUnwrap(operations.beginStart(displayID: 1))
+        XCTAssertNil(operations.beginStart(displayID: 1))
+        let other = try XCTUnwrap(operations.beginStart(displayID: 2))
+        operations.finishStart(first)
+        XCTAssertTrue(operations.isCurrent(other))
+        XCTAssertTrue(operations.hasPendingOperations)
+        operations.finishStart(other)
+        XCTAssertFalse(operations.hasPendingOperations)
+    }
+
+    @MainActor
+    func testLateRecordingCompletionCannotRetireReplacementReservation() throws {
+        let operations = CaptureRecordingOperations()
+        let first = try XCTUnwrap(operations.beginStart(displayID: 1))
+        let stop = operations.beginStop()
+        operations.finishStart(first)
+        operations.finishStop(stop)
+        let replacement = try XCTUnwrap(operations.beginStart(displayID: 1))
+        operations.finishStart(first)
+        XCTAssertFalse(operations.isCurrent(first))
+        XCTAssertTrue(operations.isCurrent(replacement))
+        XCTAssertTrue(operations.hasPendingOperations)
+    }
+
+    @MainActor
+    func testDeselectionRetiresPendingRecordingAndLateDeliveryRegistration() throws {
+        let operations = CaptureRecordingOperations()
+        let start = try XCTUnwrap(operations.beginStart(displayID: 1))
+        operations.retireStarts(outside: [2])
+        let delivery = CaptureSampleDelivery()
+        operations.registerDelivery(delivery, for: start)
+        XCTAssertFalse(operations.isCurrent(start))
+        XCTAssertFalse(delivery.isActive)
+        XCTAssertTrue(operations.hasPendingCleanup)
+        operations.finishStart(start)
+        XCTAssertFalse(operations.hasPendingOperations)
+    }
+
+    func testRetiredCaptureDeliveryRejectsLateSamplesWithoutRetiringReplacement() {
+        let retired = CaptureSampleDelivery()
+        let replacement = CaptureSampleDelivery()
+        var samples = 0
+        retired.ifActive { samples += 1 }
+        retired.invalidate()
+        retired.invalidate()
+        retired.ifActive { samples += 100 }
+        replacement.ifActive { samples += 1 }
+        XCTAssertEqual(samples, 2)
+        XCTAssertFalse(retired.isActive)
+        XCTAssertTrue(replacement.isActive)
+    }
+
+    func testCaptureStreamShutdownReturnsBeforeLateCallback() async {
+        let registered = expectation(description: "Stop registered")
+        let deadlineReturned = expectation(description: "Stop deadline returned")
+        let lateOperationReturned = expectation(description: "Late operation returned")
+        let callback = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+        let delivery = CaptureSampleDelivery()
+        delivery.invalidate()
+        let stop = Task {
+            do {
+                try await CaptureStreamShutdown.stop(timeout: .milliseconds(50)) {
+                    await withCheckedContinuation { continuation in
+                        callback.withLock { $0 = continuation }
+                        registered.fulfill()
+                    }
+                    XCTAssertFalse(delivery.isActive)
+                    lateOperationReturned.fulfill()
+                }
+                XCTFail("Expected stream stop timeout")
+            } catch CaptureStreamShutdownError.timedOut {
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+            deadlineReturned.fulfill()
+        }
+        await fulfillment(of: [registered, deadlineReturned], timeout: 2)
+        callback.withLock { value in
+            value?.resume()
+            value = nil
+        }
+        await fulfillment(of: [lateOperationReturned], timeout: 2)
+        await stop.value
+    }
+
+    func testCaptureStreamShutdownStillRunsWhenCallerIsCancelled() async {
+        let callerReady = expectation(description: "Caller ready")
+        let cleanupRan = expectation(description: "Cleanup ran")
+        let resumeCaller = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+        let task = Task {
+            await withCheckedContinuation { continuation in
+                resumeCaller.withLock { $0 = continuation }
+                callerReady.fulfill()
+            }
+            do {
+                try await CaptureStreamShutdown.stop(timeout: .seconds(1)) {
+                    XCTAssertFalse(Task.isCancelled)
+                    cleanupRan.fulfill()
+                }
+            } catch {
+                XCTFail("Cleanup should complete despite caller cancellation: \(error)")
+            }
+        }
+        await fulfillment(of: [callerReady], timeout: 2)
+        task.cancel()
+        resumeCaller.withLock { $0?.resume(); $0 = nil }
+        await fulfillment(of: [cleanupRan], timeout: 2)
+        await task.value
+    }
+
+    func testCaptureStreamShutdownPreservesFrameworkError() async {
+        enum StopFailure: Error { case rejected }
+        do {
+            try await CaptureStreamShutdown.stop { throw StopFailure.rejected }
+            XCTFail("Expected framework failure")
+        } catch StopFailure.rejected {
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    @MainActor
     func testMicrophonePermissionReturnsActualGrantAndDenial() async throws {
         let request = CaptureMicrophonePermissionRequest()
         let granted = try await request.request { $0(true) }

@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 414 tests pass. The
+- The unit-test baseline is green: 433 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 414 unit tests. The UI test target now has deterministic smoke
+- There are 433 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -43,7 +43,7 @@ issue link when it starts.
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
   flow coverage.
-- The string catalog has 1,476 entries. All 59 previously missing App Intent
+- The string catalog has 1,481 entries. All 59 previously missing App Intent
   strings and the ordinary interface omissions are now translated into Norwegian.
   The only 15 missing entries are intentionally untranslated format/command tokens;
   CI rejects unclassified omissions and broken interpolation placeholders.
@@ -96,6 +96,11 @@ remains an independent workflow. The first hosted Debug build and unit-test run
 passed on commit `a57ed1d`. The `main` branch now requires `Debug build and unit tests`,
 bound to the GitHub Actions app identity, with strict up-to-date checks and administrator
 enforcement. The GitHub API confirmed the configured protection on 2026-09-05.
+
+A permanent shared `Aagedal Media Converter Unit Tests` scheme now builds only the app
+and unit target. CI uses it for unit validation, avoiding the unrelated UI-runner
+relink permission failure without removing UI tests from the ordinary app scheme
+(Codex, 2026-09-06).
 
 ### 0.3 Turn the existing TODO into current work
 
@@ -947,6 +952,18 @@ and retry, stalled stop callbacks, stop during discovery, and parent cancellatio
 Recording stream start/stop/configuration and broader recording-session ownership remain
 open (Codex, 2026-09-06).
 
+Recording stream shutdown now has a fifteen-second non-joining deadline, with the
+retired stream/output retained until a late framework callback finishes. A synchronized
+delivery fence stops writer appends and queued preview/meter updates before finalization.
+Recording starts reserve ownership across discovery, permission, preview teardown, and
+stream startup; stop invalidates those attempts and cleans up late tiles instead of
+installing them. Shared folder access and timers remain owned until all pending starts
+and concurrent finalizers finish. Nine deterministic tests cover deadline/late callback,
+retired delivery, cancellation-independent cleanup, duplicate starts, stop generations,
+and shared-session ownership. Stream startup itself still needs a deadline with late-success
+cleanup; a permanently stalled start retains its reservation and access. Preview selection
+supersession, configuration changes, and live capture validation remain (Codex, 2026-09-06).
+
 ### 2.3 Standardize user-visible errors
 
 Status: in progress; queue failure details and redacted diagnostic copying added 2026-09-05 (Codex).
@@ -1052,6 +1069,12 @@ batch limits, trim-aware weighting, failed/cancelled exclusion, progress bounds,
 cancellation scope, preservation of unrelated item fields, and idempotence.
 Conversion execution, upload follow-up, and the ContentView/list-view coordinator
 extractions remain open.
+
+`ConversionUploadFollowUp` now owns success/opt-in decisions for individual outputs
+and chooses one representative in merge order for a shared output. Five focused tests
+cover failures, selection boundaries, empty merges, and stale indices. Actual upload
+execution remains in UploadManager; conversion execution, broader state transitions,
+and view coordinators remain open (Codex, 2026-09-06).
 
 ### 3.2 Make conversion plans typed
 
@@ -1331,6 +1354,14 @@ instead of hanging indefinitely. The failure points to Tool Diagnostics
 and is translated into Norwegian. Unknown/custom-source IMF audio dependencies and
 feature-level codec/architecture compatibility remain open (Codex, 2026-09-06).
 
+IMF audio preflight now resolves unknown and virtual inputs with the same source policy
+as package extraction: concat representative clips, image-sequence companion audio,
+audio-only fallback, and intentionally silent routes. It probes only when AS-DCP is
+unavailable, has a bounded cancellable task before output creation, and rejects stale
+results. Five additional regressions cover source selection, early rejection, timeout,
+and cancellation. Unavailable topology retains the existing extraction fallback; codec
+and architecture compatibility remain open (Codex, 2026-09-06).
+
 ## Priority 5 — Release and dependency hygiene
 
 Target: before the next public release, then automate.
@@ -1396,7 +1427,27 @@ invented and no binaries were removed. See `docs/bundled-dependency-licenses.md`
 the evidence and packaging follow-up. All 31 release-script tests pass, including
 eight new inventory/license tests (Codex, 2026-09-05).
 
+All six existing local license notices are now copied into app resources and are
+readable offline from About > Licenses. Exported-bundle and final-ZIP checks compare
+every notice byte count and SHA-256 with the manifest; Release CI runs the same check.
+Six regression tests reject missing, changed, escaping, duplicate-name, and empty
+notice inventories. This closes packaging/discovery of existing notices only; the
+99 unresolved tool/dylib attributions and broader provenance work remain unchanged
+(Codex, 2026-09-06).
+
 ## Suggested delivery sequence
+
+Latest validation (2026-09-06, Codex): all 433 unit tests pass with zero failures or
+skips using the permanent shared unit-only scheme. The unsigned Release build passes; its bundle audit verifies all 44 Mach-O images
+and all six packaged license notices. All 37 release-script tests, bundled-manifest freshness, and localization checks pass
+(1,481 entries, 15 intentional omissions). The six packaged notices also match the
+manifest in the Debug app. GUI inspection could not be completed: the computer-use
+service returned stale menu elements and no screenshot. Live capture/permissions,
+VoiceOver, and the new About viewer's visual/bilingual inspection remain unverified.
+The initial Debug distribution audit correctly rejected test-injected XCTest support;
+distribution validation uses the Release app. No publishing or credentialed checks
+were performed.
+
 
 Latest validation (2026-09-06, Codex): Debug compilation and all 414 unit tests pass
 with parallel workers enabled, including sixteen new upload-migration, audio-meter

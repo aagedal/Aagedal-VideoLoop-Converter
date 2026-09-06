@@ -1,6 +1,56 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Timed out while stopping screen capture. The recording may be incomplete.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd under stopping av skjermopptak. Opptaket kan være ufullstendig."
+          }
+        }
+      }
+    },
+    "Licenses": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lisenser"
+          }
+        }
+      }
+    },
+    "Component": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Komponent"
+          }
+        }
+      }
+    },
+    "This license notice could not be loaded. See the source repository for license information.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne lisensteksten kunne ikke lastes inn. Se kildekodelageret for lisensinformasjon."
+          }
+        }
+      }
+    },
+    "Bundles FFmpeg, mpv, tesseract, asdcplib, bmx and rclone; optionally downloads yt-dlp, Deno, whisper.cpp and Parakeet at runtime. Each component is distributed under its own license. Bundled license notices are available below; see the source repository for component details.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inkluderer FFmpeg, mpv, tesseract, asdcplib, bmx og rclone; kan laste ned yt-dlp, Deno, whisper.cpp og Parakeet ved behov. Hver komponent distribueres under sin egen lisens. Medfølgende lisenstekster er tilgjengelige nedenfor; se kildekodelageret for detaljer om komponentene."
+          }
+        }
+      }
+    },
     "Export requires the bundled %@ helper, which is missing or not executable. Open Settings > Tool Diagnostics to inspect the tools, or reinstall the app.": {
       "localizations": {
         "nb": {

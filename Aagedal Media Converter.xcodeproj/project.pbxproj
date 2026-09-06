@@ -26,7 +26,9 @@
 		92FC94C0EE7C4C9889C3678A /* AV2Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF54064B23414EFA90E6AB59 /* AV2Settings.swift */; };
 		35D23935EC554B1B97085056 /* AV2ScratchDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15F59A5246B4BA880E781B3 /* AV2ScratchDirectoryTests.swift */; };
 		68DB0573FE4F499AA72EF9AF /* ConversionQueueStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CEDDD06B78842E6A7446610 /* ConversionQueueStateTests.swift */; };
+		3559AE0D84F84065A06C6888 /* ConversionUploadFollowUpTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAEE8F6BC37E461AA2DBC4AC /* ConversionUploadFollowUpTests.swift */; };
 		DDADD32918CD4580B1A5ECC6 /* ConversionQueueState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD5693B21A7341B2A3FA32A7 /* ConversionQueueState.swift */; };
+		EA6ED86B34C44A7C80E5F242 /* ConversionUploadFollowUp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A606FA6387C4AE4B6C4B9EE /* ConversionUploadFollowUp.swift */; };
 		CD4320100000000000000001 /* CaptureFrameRateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD4320100000000000000002 /* CaptureFrameRateTests.swift */; };
 		00B3F16A9264F886CA667DAC /* NativeWaveformVideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E03D85E11E51D07B7265C81 /* NativeWaveformVideoRenderer.swift */; };
 		11255751B6534433ACCE197E /* TesseractOCREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4782DE38B404350A2A11FCF /* TesseractOCREngine.swift */; };
@@ -236,6 +238,11 @@
 		VDISPMENU0001000BUILD /* VirtualDisplayMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = VDISPMENU0001000FREF1 /* VirtualDisplayMenu.swift */; };
 		VDISPMGR00001000BUILD /* VirtualDisplayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = VDISPMGR00001000FREF1 /* VirtualDisplayManager.swift */; };
 		VIDITEMIDX00000001 /* VideoItemIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = VIDITEMIDX00000002 /* VideoItemIndex.swift */; };
+		A90606000000000000000100 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = 8E0C32C72E09E58F00F22B21 /* LICENSE */; };
+		A90606000000000000000101 /* ffmpeg-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8E0C32CE2E09F5E400F22B21 /* ffmpeg-LICENSE.txt */; };
+		A90606000000000000000102 /* bmx-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A90606000000000000000202 /* bmx-LICENSE.txt */; };
+		A90606000000000000000103 /* mpv-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A90606000000000000000203 /* mpv-LICENSE.txt */; };
+		A90606000000000000000104 /* tesseract-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A90606000000000000000204 /* tesseract-LICENSE.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -297,7 +304,9 @@
 		DF54064B23414EFA90E6AB59 /* AV2Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV2Settings.swift; sourceTree = "<group>"; };
 		A15F59A5246B4BA880E781B3 /* AV2ScratchDirectoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV2ScratchDirectoryTests.swift; sourceTree = "<group>"; };
 		2CEDDD06B78842E6A7446610 /* ConversionQueueStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionQueueStateTests.swift; sourceTree = "<group>"; };
+		DAEE8F6BC37E461AA2DBC4AC /* ConversionUploadFollowUpTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionUploadFollowUpTests.swift; sourceTree = "<group>"; };
 		CD5693B21A7341B2A3FA32A7 /* ConversionQueueState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionQueueState.swift; sourceTree = "<group>"; };
+		3A606FA6387C4AE4B6C4B9EE /* ConversionUploadFollowUp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversionUploadFollowUp.swift; sourceTree = "<group>"; };
 		CD4320100000000000000002 /* CaptureFrameRateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFrameRateTests.swift; sourceTree = "<group>"; };
 		07D71BE05D85B5DEBAEB0A7A /* YTDLPSettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = YTDLPSettingsView.swift; sourceTree = "<group>"; };
 		0A661B3187048E83E24FB0AB /* WhisperModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WhisperModels.swift; sourceTree = "<group>"; };
@@ -518,6 +527,9 @@
 		VDISPMENU0001000FREF1 /* VirtualDisplayMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualDisplayMenu.swift; sourceTree = "<group>"; };
 		VDISPMGR00001000FREF1 /* VirtualDisplayManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualDisplayManager.swift; sourceTree = "<group>"; };
 		VIDITEMIDX00000002 /* VideoItemIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoItemIndex.swift; sourceTree = "<group>"; };
+		A90606000000000000000202 /* bmx-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "bmx-LICENSE.txt"; sourceTree = "<group>"; };
+		A90606000000000000000203 /* mpv-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "mpv-LICENSE.txt"; sourceTree = "<group>"; };
+		A90606000000000000000204 /* tesseract-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "tesseract-LICENSE.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -609,6 +621,9 @@
 			isa = PBXGroup;
 			children = (
 				8EA817D52F7184AA00F9F10C /* asdcplib-LICENSE.txt */,
+				A90606000000000000000204 /* tesseract-LICENSE.txt */,
+				A90606000000000000000203 /* mpv-LICENSE.txt */,
+				A90606000000000000000202 /* bmx-LICENSE.txt */,
 				8E0C32CE2E09F5E400F22B21 /* ffmpeg-LICENSE.txt */,
 			);
 			path = Licenses;
@@ -672,6 +687,7 @@
 				VDISPHDR00001000FREF1 /* CGVirtualDisplay+Private.h */,
 				8E545D932C3412AE0088C274 /* ConversionManager.swift */,
 				CD5693B21A7341B2A3FA32A7 /* ConversionQueueState.swift */,
+				3A606FA6387C4AE4B6C4B9EE /* ConversionUploadFollowUp.swift */,
 				ENCGRP00000000002 /* EncodingGroup.swift */,
 				8E545D862C33FD8C0088C274 /* VideoFilesUtil.swift */,
 				8E0CA7AB2C3458A400EA7C37 /* ParsingUtils.swift */,
@@ -873,6 +889,7 @@
 				CD4320100000000000000002 /* CaptureFrameRateTests.swift */,
 				A15F59A5246B4BA880E781B3 /* AV2ScratchDirectoryTests.swift */,
 				2CEDDD06B78842E6A7446610 /* ConversionQueueStateTests.swift */,
+				DAEE8F6BC37E461AA2DBC4AC /* ConversionUploadFollowUpTests.swift */,
 			);
 			path = "Aagedal Media ConverterTests";
 			sourceTree = "<group>";
@@ -1236,6 +1253,11 @@
 				8EA817D42F71840E00F9F10C /* asdcp-wrap in Resources */,
 				8E501CFE2EF1807000717373 /* error.mp3 in Resources */,
 				8EA817D62F7184AA00F9F10C /* asdcplib-LICENSE.txt in Resources */,
+				A90606000000000000000104 /* tesseract-LICENSE.txt in Resources */,
+				A90606000000000000000103 /* mpv-LICENSE.txt in Resources */,
+				A90606000000000000000102 /* bmx-LICENSE.txt in Resources */,
+				A90606000000000000000101 /* ffmpeg-LICENSE.txt in Resources */,
+				A90606000000000000000100 /* LICENSE in Resources */,
 				8EE6EEA02C31FC6F007B629D /* Assets.xcassets in Resources */,
 				8EFBDA922EA56F8E005ADDCF /* ffmpeg in Resources */,
 				8E3D35652F9F91EB00160565 /* rclone in Resources */,
@@ -1357,6 +1379,7 @@
 				8EC9A6FE2EC149140082C67F /* PreviewPlayerController.swift in Sources */,
 				8E545D942C3412AE0088C274 /* ConversionManager.swift in Sources */,
 				DDADD32918CD4580B1A5ECC6 /* ConversionQueueState.swift in Sources */,
+				EA6ED86B34C44A7C80E5F242 /* ConversionUploadFollowUp.swift in Sources */,
 				C2D3E4F5061728394A5B6C7D /* ScreenCaptureManager.swift in Sources */,
 				VDISPMGR00001000BUILD /* VirtualDisplayManager.swift in Sources */,
 				VDISPMENU0001000BUILD /* VirtualDisplayMenu.swift in Sources */,
@@ -1485,6 +1508,7 @@
 				CD4320100000000000000001 /* CaptureFrameRateTests.swift in Sources */,
 				35D23935EC554B1B97085056 /* AV2ScratchDirectoryTests.swift in Sources */,
 				68DB0573FE4F499AA72EF9AF /* ConversionQueueStateTests.swift in Sources */,
+				3559AE0D84F84065A06C6888 /* ConversionUploadFollowUpTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

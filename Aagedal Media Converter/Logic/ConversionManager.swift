@@ -1224,9 +1224,9 @@ actor ConversionManager: Sendable {
         }
 
         // Trigger upload for merged output (upload once since all items share the same file)
-        if success,
-           let firstUploadIdx = indices.first(where: { droppedFiles.wrappedValue[$0].uploadEnabled }) {
-            let itemID = droppedFiles.wrappedValue[firstUploadIdx].id
+        if let itemID = ConversionUploadFollowUp.itemID(
+            afterSuccess: success, mergedIndices: indices, items: droppedFiles.wrappedValue
+        ) {
             Task {
                 await UploadManager.shared.startUpload(itemID: itemID)
             }
@@ -2315,9 +2315,11 @@ actor ConversionManager: Sendable {
                     self.logger.debug("Final state - status: \(String(describing: droppedFiles.wrappedValue[idx].status), privacy: .public)")
 
                     // Trigger upload if enabled for this item
-                    if success && droppedFiles.wrappedValue[idx].uploadEnabled {
+                    if let itemID = ConversionUploadFollowUp.itemID(
+                        afterSuccess: success, item: droppedFiles.wrappedValue[idx]
+                    ) {
                         Task {
-                            UploadManager.shared.startUpload(itemID: fileId)
+                            UploadManager.shared.startUpload(itemID: itemID)
                         }
                     }
 

@@ -15,6 +15,7 @@ import CoreGraphics
 import CoreImage
 @preconcurrency import ScreenCaptureKit
 import OSLog
+import os
 import AppKit
 
 private enum AudioSettingKeys {
@@ -385,6 +386,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     /// main actor (the whole manager is `@MainActor`).
     private final class DisplayTile {
         let displayID: CGDirectDisplayID
+        let delivery = CaptureSampleDelivery()
         var stream: SCStream?
         var output: CaptureStreamOutput?
         var writer: AnyCaptureOutputWriter?   // non-nil only while recording
@@ -397,6 +399,8 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         }
     }
     private var tiles: [CGDirectDisplayID: DisplayTile] = [:]
+    private var stoppingDisplayIDs: Set<CGDirectDisplayID> = []
+    private let recordingOperations = CaptureRecordingOperations()
     /// Ordered selection; the first entry is the primary display.
     private var selectedDisplayIDs: [CGDirectDisplayID] = []
     /// Which active tile feeds the audio/mic meters (system audio is global, so only one does).
@@ -438,13 +442,15 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         }
         selectedDisplayIDs = targetIDs
         let targetSet = Set(targetIDs)
+        recordingOperations.retireStarts(outside: targetSet)
+        updateRecordingSessionOwnership()
 
         // Tear down tiles no longer selected.
         for (id, tile) in tiles where !targetSet.contains(id) {
-            await teardownTile(tile)
             tiles[id] = nil
             previewImages[id] = nil
             recordingDisplayIDs.remove(id)
+            await teardownTile(tile)
         }
 
         guard let microphoneEnabled = await resolveMicrophoneCapture(requested: settings.includeMicrophone) else {
@@ -454,7 +460,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         }
 
         // Start preview tiles for newly added displays.
-        for display in resolvedDisplays(targetIDs, from: content) where tiles[display.displayID] == nil {
+        for display in resolvedDisplays(targetIDs, from: content) where tiles[display.displayID] == nil && !stoppingDisplayIDs.contains(display.displayID) && !recordingOperations.hasStart(displayID: display.displayID) {
             do {
                 tiles[display.displayID] = try await buildTile(
                     for: display, content: content, mode: .preview, settings: settings,
@@ -472,18 +478,28 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     /// Start recording a single display (transitioning it from preview to recording). Other displays
     /// are unaffected. Safe to call repeatedly to add screens to an in-progress recording.
     func startRecording(displayID: CGDirectDisplayID, preset: CapturePreset, outputDirectory: URL, dynamicRange: CaptureDynamicRangeOption) async {
-        guard !recordingDisplayIDs.contains(displayID) else { return }
+        guard !isProcessing, !stoppingDisplayIDs.contains(displayID), !recordingDisplayIDs.contains(displayID),
+              let operation = recordingOperations.beginStart(displayID: displayID) else { return }
+        defer {
+            recordingOperations.finishStart(operation)
+            updateRecordingSessionOwnership()
+        }
         errorMessage = nil
 
         let content: SCShareableContent
         do { content = try await ScreenCaptureManager.shareableContent() }
-        catch { errorMessage = error.localizedDescription; return }
+        catch {
+            if recordingOperations.isCurrent(operation), !Task.isCancelled { errorMessage = error.localizedDescription }
+            return
+        }
+        guard recordingOperations.isCurrent(operation), !Task.isCancelled else { return }
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             errorMessage = CaptureError.unavailableDisplay.errorDescription
             return
         }
 
-        guard let microphoneEnabled = await resolveMicrophoneCapture(requested: currentSettings.includeMicrophone) else { return }
+        guard let microphoneEnabled = await resolveMicrophoneCapture(requested: currentSettings.includeMicrophone),
+              recordingOperations.isCurrent(operation), !Task.isCancelled else { return }
 
         // Acquire output-folder access once for the whole session.
         if case .none = outputAccess {
@@ -494,17 +510,23 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
         // Replace any existing preview tile for this display.
         if let existing = tiles[displayID] {
-            await teardownTile(existing)
             tiles[displayID] = nil
             previewImages[displayID] = nil
+            await teardownTile(existing)
         }
+        guard recordingOperations.isCurrent(operation), !Task.isCancelled else { return }
 
         do {
             let tile = try await buildTile(
                 for: display, content: content, mode: .recording, settings: currentSettings,
                 preset: preset, outputDirectory: outputDirectory, dynamicRange: dynamicRange,
-                microphoneEnabled: microphoneEnabled, maxPreviewWidth: currentMaxPreviewWidth
+                microphoneEnabled: microphoneEnabled, maxPreviewWidth: currentMaxPreviewWidth,
+                recordingOperation: operation
             )
+            guard recordingOperations.isCurrent(operation), !Task.isCancelled else {
+                await teardownTile(tile)
+                return
+            }
             tiles[displayID] = tile
             if !selectedDisplayIDs.contains(displayID) { selectedDisplayIDs.append(displayID) }
             let wasRecording = !recordingDisplayIDs.isEmpty
@@ -517,6 +539,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             recomputeMeterSource()
             updatePreviewingFlag()
         } catch {
+            guard recordingOperations.isCurrent(operation), !Task.isCancelled else { return }
             logger.error("Capture start failed: \(error.localizedDescription, privacy: .public)")
             errorMessage = error.localizedDescription
             await restorePreviewTile(displayID: displayID)
@@ -525,26 +548,26 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
     /// Start recording every selected display that isn't already recording.
     func startAllRecording(preset: CapturePreset, outputDirectory: URL, dynamicRange: CaptureDynamicRangeOption) async {
+        let generation = recordingOperations.generation
         for id in selectedDisplayIDs where !recordingDisplayIDs.contains(id) {
+            guard generation == recordingOperations.generation, !Task.isCancelled else { return }
             await startRecording(displayID: id, preset: preset, outputDirectory: outputDirectory, dynamicRange: dynamicRange)
         }
     }
 
     /// Remove a display from the session entirely (stops/ finalizes it if recording, drops its tile).
     func removeDisplay(_ displayID: CGDirectDisplayID) async {
+        let operation = recordingOperations.beginStop()
+        defer {
+            recordingOperations.finishStop(operation)
+            updateRecordingSessionOwnership()
+        }
         selectedDisplayIDs.removeAll { $0 == displayID }
-        let wasRecording = recordingDisplayIDs.contains(displayID)
         recordingDisplayIDs.remove(displayID)
-        if let tile = tiles[displayID] {
-            if tile.mode == .recording { isProcessing = true }
-            await teardownTile(tile)
-            tiles[displayID] = nil
-            if tile.mode == .recording { isProcessing = false }
-        }
+        let tile = tiles.removeValue(forKey: displayID)
         previewImages[displayID] = nil
-        if wasRecording, recordingDisplayIDs.isEmpty {
-            stopTimersAndReleaseAccess()
-        }
+        updateRecordingSessionOwnership()
+        if let tile { await teardownTile(tile) }
         recomputeMeterSource()
         updatePreviewingFlag()
     }
@@ -567,6 +590,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         excludedAppBundleIDs: Set<String> = [],
         regionRect: CGRect? = nil
     ) async {
+        let generation = recordingOperations.generation
         var settings = CaptureSettings()
         settings.frameRate = frameRate
         settings.includeSystemAudio = includeSystemAudio
@@ -580,7 +604,11 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
         let content: SCShareableContent
         do { content = try await ScreenCaptureManager.shareableContent() }
-        catch { errorMessage = error.localizedDescription; return }
+        catch {
+            if generation == recordingOperations.generation, !Task.isCancelled { errorMessage = error.localizedDescription }
+            return
+        }
+        guard generation == recordingOperations.generation, !Task.isCancelled else { return }
         guard let display = selectDisplay(from: content, preferredDisplayID: displayID) else {
             errorMessage = CaptureError.unavailableDisplay.errorDescription; return
         }
@@ -615,9 +643,13 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         outputDirectory: URL?,
         dynamicRange: CaptureDynamicRangeOption,
         microphoneEnabled: Bool,
-        maxPreviewWidth: CGFloat
+        maxPreviewWidth: CGFloat,
+        recordingOperation: CaptureRecordingOperations.Start? = nil
     ) async throws -> DisplayTile {
         let displayID = display.displayID
+        let tile = DisplayTile(displayID: displayID, mode: mode)
+        let delivery = tile.delivery
+        if let recordingOperation { recordingOperations.registerDelivery(delivery, for: recordingOperation) }
         let regionRect = settings.regionRect   // only set for single-display selections
 
         let pixelResolution: CGSize
@@ -662,7 +694,10 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
                 includeMicrophone: microphoneEnabled, isGrowing: preset.isGrowing, frameRate: frameRate
             )
             w.setErrorHandler { [weak self] error in
-                Task { @MainActor in self?.errorMessage = error.localizedDescription }
+                Task { @MainActor in
+                    guard delivery.isActive else { return }
+                    self?.errorMessage = error.localizedDescription
+                }
             }
             writer = w
             recordingURL = url
@@ -693,15 +728,16 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         let isRecordingMode = (mode == .recording)
         let skipSystemAudio = !settings.includeSystemAudio
         let output = CaptureStreamOutput(queue: outputQueue) { [weak self, weak writer] sampleBuffer, type in
+            guard delivery.isActive else { return }
             // Write to the file only while recording; skip muted system audio.
             if isRecordingMode, !(type == .audio && skipSystemAudio) {
-                writer?.append(sampleBuffer: sampleBuffer, type: type)
+                delivery.ifActive { writer?.append(sampleBuffer: sampleBuffer, type: type) }
             }
 
             if #available(macOS 15, *), type == .microphone {
                 if let levels = ScreenCaptureManager.audioLevels(from: sampleBuffer, lastTimestamp: &lastMicrophoneSeconds) {
                     Task { @MainActor [weak self] in
-                        guard let self, self.meterSourceDisplayID == displayID else { return }
+                        guard delivery.isActive, let self, self.meterSourceDisplayID == displayID else { return }
                         self.microphoneLevels = levels
                     }
                 }
@@ -711,12 +747,15 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             switch type {
             case .screen:
                 if let image = ScreenCaptureManager.previewImage(from: sampleBuffer, context: previewContext, lastTimestamp: &lastPreviewSeconds) {
-                    Task { @MainActor [weak self] in self?.previewImages[displayID] = image }
+                    Task { @MainActor [weak self] in
+                        guard delivery.isActive else { return }
+                        self?.previewImages[displayID] = image
+                    }
                 }
             case .audio:
                 if let levels = ScreenCaptureManager.audioLevels(from: sampleBuffer, lastTimestamp: &lastAudioSeconds) {
                     Task { @MainActor [weak self] in
-                        guard let self, self.meterSourceDisplayID == displayID else { return }
+                        guard delivery.isActive, let self, self.meterSourceDisplayID == displayID else { return }
                         self.audioLevels = levels
                     }
                 }
@@ -732,7 +771,6 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         }
         try await stream.startCapture()
 
-        let tile = DisplayTile(displayID: displayID, mode: mode)
         tile.stream = stream
         tile.output = output
         tile.writer = writer
@@ -740,11 +778,32 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         return tile
     }
 
-    /// Stops a tile's stream and, if it was recording, finalizes its file (clearing the growing-file
-    /// xattr) and records the URL. Best-effort; used during teardown/deselection.
+    /// Retires sample delivery and bounds the framework stop callback.
+    private func stopStream(for tile: DisplayTile) async {
+        // Retire delivery before suspending: callbacks already queued on the main
+        // actor must not overwrite a replacement tile or its meter readings.
+        tile.delivery.invalidate()
+        guard let stream = tile.stream else { return }
+        let operation = CaptureStreamStopOperation(stream: stream, output: tile.output)
+        tile.stream = nil
+        tile.output = nil
+        do {
+            try await CaptureStreamShutdown.stop { try await operation.stop() }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Stops a tile and finalizes its recording, clearing the growing-file marker.
     private func teardownTile(_ tile: DisplayTile) async {
+        let operation = tile.mode == .recording ? recordingOperations.beginStop() : nil
+        defer {
+            if let operation { recordingOperations.finishStop(operation) }
+            updateRecordingSessionOwnership()
+        }
+        updateRecordingSessionOwnership()
         microphonePermissionRequest.cancel()
-        if let stream = tile.stream { try? await stream.stopCapture() }
+        await stopStream(for: tile)
         if tile.mode == .recording, let writer = tile.writer {
             do { try await writer.finish() } catch { errorMessage = error.localizedDescription }
             if let url = tile.recordingURL { lastOutputURLs.append(url) }
@@ -798,6 +857,14 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         isPreviewing = tiles.values.contains { $0.mode == .preview }
     }
 
+    private func updateRecordingSessionOwnership() {
+        let processing = recordingDisplayIDs.isEmpty && recordingOperations.hasPendingCleanup
+        // Observers treat a false publication as completed recording cleanup.
+        if isProcessing != processing { isProcessing = processing }
+        guard recordingDisplayIDs.isEmpty, !recordingOperations.hasPendingOperations else { return }
+        stopTimersAndReleaseAccess()
+    }
+
     private func stopTimersAndReleaseAccess() {
         timerTask?.cancel()
         timerTask = nil
@@ -813,19 +880,26 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     /// and this display drops back to a live preview tile. If it was the last one, the session ends
     /// (which the overlay observes via `isProcessing` to show the post-recording summary).
     func stopRecording(displayID: CGDirectDisplayID) async {
+        let operation = recordingOperations.beginStop()
+        defer {
+            recordingOperations.finishStop(operation)
+            updateRecordingSessionOwnership()
+        }
         microphonePermissionRequest.cancel()
         guard recordingDisplayIDs.contains(displayID), let tile = tiles[displayID] else { return }
+        stoppingDisplayIDs.insert(displayID)
+        defer { stoppingDisplayIDs.remove(displayID) }
         let isLast = recordingDisplayIDs.count == 1
         recordingDisplayIDs.remove(displayID)
-        if isLast { isProcessing = true }
+        updateRecordingSessionOwnership()
 
-        if let stream = tile.stream { try? await stream.stopCapture() }
+        tiles[displayID] = nil
+        await stopStream(for: tile)
         let writer = tile.writer
         let url = tile.recordingURL
         tile.stream = nil
         tile.output = nil
         tile.writer = nil
-        tiles[displayID] = nil
         if let writer {
             do { try await writer.finish() } catch { errorMessage = error.localizedDescription }
         }
@@ -833,8 +907,6 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
         if isLast {
             previewImages[displayID] = nil
-            stopTimersAndReleaseAccess()
-            isProcessing = false   // last writer finalized — overlay shows the summary
         } else if selectedDisplayIDs.contains(displayID) {
             await restorePreviewTile(displayID: displayID)
         } else {
@@ -847,25 +919,31 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     /// Stops every display that is recording (the global Stop / auto-stop path). Finalizes all files,
     /// then ends the session.
     func stopAllRecording() async {
+        let operation = recordingOperations.beginStop()
+        defer {
+            recordingOperations.finishStop(operation)
+            updateRecordingSessionOwnership()
+        }
         microphonePermissionRequest.cancel()
         let ids = Array(recordingDisplayIDs)
         guard !ids.isEmpty else { return }
         logger.info("Stopping all screen capture (\(ids.count, privacy: .public) display(s))")
-        isProcessing = true
 
-        // Stop all streams first, then finalize all writers, so the session ends once.
-        for id in ids {
-            if let stream = tiles[id]?.stream { try? await stream.stopCapture() }
-        }
-        for id in ids {
-            guard let tile = tiles[id] else { continue }
+        // Detach the exact tiles owned by this stop before any suspension.
+        let stoppedTiles = ids.compactMap { tiles.removeValue(forKey: $0) }
+        recordingDisplayIDs.subtract(ids)
+        updateRecordingSessionOwnership()
+        stoppingDisplayIDs.formUnion(ids)
+        defer { stoppingDisplayIDs.subtract(ids) }
+        for tile in stoppedTiles { tile.delivery.invalidate() }
+        for tile in stoppedTiles { await stopStream(for: tile) }
+        for tile in stoppedTiles {
+            let id = tile.displayID
             let writer = tile.writer
             let url = tile.recordingURL
             tile.stream = nil
             tile.output = nil
             tile.writer = nil
-            tiles[id] = nil
-            recordingDisplayIDs.remove(id)
             if let writer {
                 do { try await writer.finish() } catch { errorMessage = error.localizedDescription }
             }
@@ -873,8 +951,6 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             previewImages[id] = nil
         }
 
-        stopTimersAndReleaseAccess()
-        isProcessing = false
         recomputeMeterSource()
         updatePreviewingFlag()
     }
@@ -947,11 +1023,9 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     func stopPreview() async {
         microphonePermissionRequest.cancel()
         for (id, tile) in tiles where tile.mode == .preview {
-            if let stream = tile.stream { try? await stream.stopCapture() }
-            tile.stream = nil
-            tile.output = nil
             tiles[id] = nil
             previewImages[id] = nil
+            await stopStream(for: tile)
         }
         selectedDisplayIDs.removeAll { tiles[$0] == nil }
         recomputeMeterSource()
@@ -2539,6 +2613,141 @@ final class ScreenCaptureWriter: CaptureOutputWriter, @unchecked Sendable {
                 return "No video frames were captured. Check Screen Recording permission."
             case .videoBufferUnavailable:
                 return "Video pixel buffer was unavailable for capture."
+            }
+        }
+    }
+}
+
+/// Reservations span every suspension in a recording start or finalization. Stop
+/// retires the current generation immediately, while old reservations retain the
+/// shared folder scope until their late work and cleanup have actually returned.
+@MainActor
+final class CaptureRecordingOperations {
+    struct Start: Hashable {
+        let id = UUID()
+        let displayID: CGDirectDisplayID
+        let generation: UInt64
+    }
+
+    private(set) var generation: UInt64 = 0
+    private var starts: Set<Start> = []
+    private var stops: Set<UUID> = []
+    private var deliveries: [UUID: CaptureSampleDelivery] = [:]
+
+    var hasPendingOperations: Bool { !starts.isEmpty || !stops.isEmpty }
+    var hasPendingCleanup: Bool {
+        !stops.isEmpty || starts.contains { $0.generation != generation }
+    }
+
+    func beginStart(displayID: CGDirectDisplayID) -> Start? {
+        guard !hasPendingCleanup, !starts.contains(where: { $0.displayID == displayID }) else { return nil }
+        let operation = Start(displayID: displayID, generation: generation)
+        starts.insert(operation)
+        return operation
+    }
+
+    func isCurrent(_ operation: Start) -> Bool {
+        starts.contains(operation) && operation.generation == generation
+    }
+
+    func hasStart(displayID: CGDirectDisplayID) -> Bool {
+        starts.contains { $0.displayID == displayID }
+    }
+
+    func registerDelivery(_ delivery: CaptureSampleDelivery, for operation: Start) {
+        guard isCurrent(operation) else { delivery.invalidate(); return }
+        deliveries[operation.id] = delivery
+    }
+
+    func finishStart(_ operation: Start) {
+        starts.remove(operation)
+        deliveries[operation.id] = nil
+    }
+
+    func retireStarts(outside displayIDs: Set<CGDirectDisplayID>) {
+        guard starts.contains(where: { !displayIDs.contains($0.displayID) }) else { return }
+        retireStarts()
+    }
+
+    private func retireStarts() {
+        generation &+= 1
+        for delivery in deliveries.values { delivery.invalidate() }
+    }
+
+    func beginStop() -> UUID {
+        retireStarts()
+        let operation = UUID()
+        stops.insert(operation)
+        return operation
+    }
+
+    func finishStop(_ operation: UUID) {
+        stops.remove(operation)
+    }
+}
+
+/// A retired stream can continue delivering samples after its stop deadline. This
+/// fence is shared with queued UI updates so late delivery cannot revive the tile.
+final class CaptureSampleDelivery: Sendable {
+    private let active = OSAllocatedUnfairLock(initialState: true)
+
+    var isActive: Bool { active.withLock { $0 } }
+
+    func invalidate() {
+        active.withLock { $0 = false }
+    }
+
+    /// Serialize the short writer handoff with retirement so finalization cannot
+    /// race a sample that passed an earlier active-state check.
+    func ifActive(_ operation: () -> Void) {
+        // The nonescaping sample handler runs synchronously on its existing
+        // delivery queue; locking does not transfer its captures to another task.
+        active.withLockUnchecked { if $0 { operation() } }
+    }
+}
+
+/// Cleanup is deliberately independent of caller cancellation. The deadline does
+/// not join a non-cooperative framework callback; the operation retains ownership
+/// of the retired stream and output until that callback eventually returns.
+enum CaptureStreamShutdown {
+    static func stop(
+        timeout: Duration = .seconds(15),
+        operation: @escaping @Sendable () async throws -> Void
+    ) async throws {
+        try await Task.detached {
+            do {
+                try await NonJoiningTaskDeadline.run(timeout: timeout, operation: operation)
+            } catch NonJoiningTaskDeadlineError.timedOut {
+                throw CaptureStreamShutdownError.timedOut
+            }
+        }.value
+    }
+}
+
+enum CaptureStreamShutdownError: LocalizedError {
+    case timedOut
+
+    var errorDescription: String? {
+        String(localized: "Timed out while stopping screen capture. The recording may be incomplete.")
+    }
+}
+
+private final class CaptureStreamStopOperation: @unchecked Sendable {
+    let stream: SCStream
+    let output: CaptureStreamOutput?
+
+    init(stream: SCStream, output: CaptureStreamOutput?) {
+        self.stream = stream
+        self.output = output
+    }
+
+    func stop() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            stream.stopCapture { [self] error in
+                withExtendedLifetime(self) {
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume() }
+                }
             }
         }
     }
