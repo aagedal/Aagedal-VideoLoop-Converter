@@ -4,27 +4,81 @@ import XCTest
 
 final class AV2ScratchDirectoryTests: XCTestCase {
     func testAbandonedSegmentPlansDoNotCreateScratchDirectories() async throws {
-        let settings: [String: Any] = [
-            AppConstants.av2ParallelChunksKey: 2,
-            AppConstants.av2RateControlModeKey: AV2RateControlMode.constantQuality.rawValue
-        ]
-        let defaults = UserDefaults.standard
-        // Override this test process only; a crash must not leave user settings changed.
-        let savedArguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-        defaults.setVolatileDomain(savedArguments.merging(settings) { _, testValue in testValue },
-                                   forName: UserDefaults.argumentDomain)
-        defer { defaults.setVolatileDomain(savedArguments, forName: UserDefaults.argumentDomain) }
+        let suite = "AV2ScratchDirectoryTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(2, forKey: AppConstants.av2ParallelChunksKey)
+        defaults.set(AV2RateControlMode.constantQuality.rawValue, forKey: AppConstants.av2RateControlModeKey)
+        let settings = AV2Settings(defaults: defaults)
 
         for _ in 0..<2 {
             let built = await AV2CommandBuilder.buildSegments(
                 inputURL: URL(fileURLWithPath: "/nonexistent/source.mov"),
                 trimStart: nil, trimEnd: nil, cropConfig: nil,
-                metadataSource: .resolved(videoMetadata(timecode: nil, frameRate: 24))
+                metadataSource: .resolved(videoMetadata(timecode: nil, frameRate: 24)),
+                settings: settings
             )
             let plan = try XCTUnwrap(built)
             XCTAssertGreaterThan(plan.segments.count, 1)
             XCTAssertFalse(FileManager.default.fileExists(atPath: plan.segmentDirectory.path))
         }
+    }
+
+    func testCapturedSettingsGovernSingleChunkedAndMuxBitDepthAfterPreferencesChange() async throws {
+        let suite = "AV2SettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(2, forKey: AppConstants.av2ParallelChunksKey)
+        defaults.set(AV2BitDepthOption.ten.rawValue, forKey: AppConstants.av2BitDepthKey)
+        defaults.set(CodecResolutionLimit.r720.rawValue, forKey: AppConstants.av2ResolutionLimitKey)
+        defaults.set(42, forKey: AppConstants.av2QualityKey)
+        defaults.set(3, forKey: AppConstants.av2SpeedKey)
+        let settings = AV2Settings(defaults: defaults)
+        defaults.set(1, forKey: AppConstants.av2ParallelChunksKey)
+        defaults.set(AV2BitDepthOption.eight.rawValue, forKey: AppConstants.av2BitDepthKey)
+        defaults.set(CodecResolutionLimit.unlimited.rawValue, forKey: AppConstants.av2ResolutionLimitKey)
+        defaults.set(100, forKey: AppConstants.av2QualityKey)
+        defaults.set(9, forKey: AppConstants.av2SpeedKey)
+
+        let input = URL(fileURLWithPath: "/nonexistent/source.mov")
+        let metadata = videoMetadata(timecode: nil, frameRate: 24)
+        let built = await AV2CommandBuilder.build(
+            inputURL: input, outputURL: input.appendingPathExtension("ivf"),
+            trimStart: nil, trimEnd: nil, cropConfig: nil,
+            metadataSource: .resolved(metadata), settings: settings
+        )
+        let command = try XCTUnwrap(built)
+        XCTAssertEqual(command.outputWidth, 1280)
+        XCTAssertEqual(command.outputHeight, 720)
+        XCTAssertTrue(command.avmencArguments.contains("--input-bit-depth=10"))
+        XCTAssertTrue(command.avmencArguments.contains("--qp=42"))
+        XCTAssertTrue(command.avmencArguments.contains("--cpu-used=3"))
+        let planned = await AV2CommandBuilder.buildSegments(
+            inputURL: input, trimStart: nil, trimEnd: nil, cropConfig: nil,
+            metadataSource: .resolved(metadata), settings: settings
+        )
+        let plan = try XCTUnwrap(planned)
+        XCTAssertEqual(plan.segments.count, 2)
+        XCTAssertEqual(plan.outputWidth, command.outputWidth)
+        XCTAssertEqual(plan.outputHeight, command.outputHeight)
+        XCTAssertEqual(plan.bitDepth, 10)
+        XCTAssertTrue(plan.segments.allSatisfy { $0.avmencArguments.contains("--qp=42") })
+        let muxBitDepth = await AV2CommandBuilder.resolvedBitDepth(
+            inputURL: input, trimStart: nil, trimEnd: nil, cropConfig: nil,
+            metadataSource: .resolved(metadata), settings: settings
+        )
+        XCTAssertEqual(muxBitDepth, plan.bitDepth)
+        let nextSettings = AV2Settings(defaults: defaults)
+        let nextPlan = await AV2CommandBuilder.buildSegments(
+            inputURL: input, trimStart: nil, trimEnd: nil, cropConfig: nil,
+            metadataSource: .resolved(metadata), settings: nextSettings
+        )
+        XCTAssertNil(nextPlan)
+        let nextBitDepth = await AV2CommandBuilder.resolvedBitDepth(
+            inputURL: input, trimStart: nil, trimEnd: nil, cropConfig: nil,
+            metadataSource: .resolved(metadata), settings: nextSettings
+        )
+        XCTAssertEqual(nextBitDepth, 8)
     }
 
     func testConflictingScratchFileFailsBeforeLaunchingAndPreservesFile() async throws {
@@ -156,5 +210,54 @@ private final class ScratchRecordingRunner: SubprocessRunning, @unchecked Sendab
     ) async throws -> SubprocessResult {
         lock.withLock { count += 1 }
         throw SubprocessRunnerError.failedToStart(command: request.executableURL.path, underlying: "Injected launch failure")
+    }
+}
+
+final class AV2SettingsTests: XCTestCase {
+    private func withDefaults(_ body: (UserDefaults) -> Void) {
+        let suite = "AV2SettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        body(defaults)
+    }
+
+    func testAbsentPreferencesPreserveExistingDefaults() {
+        withDefaults { defaults in
+            let settings = AV2Settings(defaults: defaults)
+            XCTAssertEqual(settings.quality, AppConstants.defaultAV2Quality)
+            XCTAssertEqual(settings.targetBitrate, AppConstants.defaultAV2TargetBitrate)
+            XCTAssertEqual(settings.speed, AppConstants.defaultAV2Speed)
+            XCTAssertEqual(settings.threads, AppConstants.defaultAV2Threads)
+            XCTAssertEqual(settings.tileColumns, AppConstants.defaultAV2TileColumns)
+            XCTAssertEqual(settings.tileRows, AppConstants.defaultAV2TileRows)
+            XCTAssertEqual(settings.parallelChunks, AppConstants.defaultAV2ParallelChunks)
+            XCTAssertEqual(settings.resolutionLimit.rawValue, AppConstants.defaultAV2ResolutionLimit)
+            XCTAssertEqual(settings.bitDepth.rawValue, AppConstants.defaultAV2BitDepth)
+            XCTAssertEqual(settings.rateControlMode.rawValue, AppConstants.defaultAV2RateControlMode)
+        }
+    }
+
+    func testExplicitZeroPreferencesAreNotReplacedByDefaults() {
+        withDefaults { defaults in
+            defaults.set(0, forKey: AppConstants.av2QualityKey)
+            defaults.set(0, forKey: AppConstants.av2SpeedKey)
+            let settings = AV2Settings(defaults: defaults)
+            XCTAssertEqual(settings.quality, 0)
+            XCTAssertEqual(settings.speed, 0)
+        }
+    }
+
+    func testInvalidEnumsRetainFallbacksWithoutRewritingPreferences() {
+        withDefaults { defaults in
+            for key in [AppConstants.av2ResolutionLimitKey, AppConstants.av2BitDepthKey,
+                        AppConstants.av2RateControlModeKey] {
+                defaults.set("removed-option", forKey: key)
+            }
+            let settings = AV2Settings(defaults: defaults)
+            XCTAssertEqual(settings.resolutionLimit, .unlimited)
+            XCTAssertEqual(settings.bitDepth, .auto)
+            XCTAssertEqual(settings.rateControlMode, .constantQuality)
+            XCTAssertEqual(defaults.string(forKey: AppConstants.av2BitDepthKey), "removed-option")
+        }
     }
 }

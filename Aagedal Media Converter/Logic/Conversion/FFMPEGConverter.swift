@@ -739,6 +739,7 @@ actor FFMPEGConverter {
 
         // MARK: Experimental AV2 branch (ffmpeg decode → avmenc encode, two-process pipe)
         if preset == .av2 {
+            let av2Settings = AV2Settings()
             // Choose output container: a raw video-only `.ivf`, or `.mkv` (AV2 + audio) via the
             // in-app Matroska muxer (FFmpeg can't write AV2). For `.mkv` the encode targets a temp
             // intermediate `.ivf` that the muxer then wraps with the source audio.
@@ -776,7 +777,8 @@ actor FFMPEGConverter {
                 customInputArguments: request.customInputArguments,
                 expectedDuration: request.expectedDuration,
                 videoFrameRate: request.videoFrameRate,
-                metadataSource: .resolved(av2PlanningMetadata)
+                metadataSource: .resolved(av2PlanningMetadata),
+                settings: av2Settings
             ), let avmencPath = BinaryPathResolver.avmencPath {
                 encodeResult = await runAV2ChunkedConversion(
                     plan: plan,
@@ -798,6 +800,7 @@ actor FFMPEGConverter {
                     expectedDuration: request.expectedDuration,
                     videoFrameRate: request.videoFrameRate,
                     sourceMetadata: av2PlanningMetadata,
+                    settings: av2Settings,
                     progressUpdate: progressUpdate
                 )
             }
@@ -823,7 +826,8 @@ actor FFMPEGConverter {
                     trimEnd: request.trimEnd,
                     cropConfig: request.cropConfig,
                     visualSourceURL: request.visualSourceURL,
-                    metadataSource: .resolved(av2PlanningMetadata)
+                    metadataSource: .resolved(av2PlanningMetadata),
+                    settings: av2Settings
                 ) ?? 8
                 let (ok, reason) = await muxAV2ToMatroska(
                     conversionID: conversionID,
@@ -2051,6 +2055,7 @@ actor FFMPEGConverter {
         expectedDuration: Double?,
         videoFrameRate: Double?,
         sourceMetadata: VideoMetadata?,
+        settings: AV2Settings,
         progressUpdate: @escaping @Sendable (Double, String?) -> Void
     ) async -> AV2EncodeResult {
         guard let avmencPath = BinaryPathResolver.avmencPath else {
@@ -2068,7 +2073,8 @@ actor FFMPEGConverter {
             customInputArguments: customInputArguments,
             expectedDuration: expectedDuration,
             videoFrameRate: videoFrameRate,
-            metadataSource: .resolved(sourceMetadata)
+            metadataSource: .resolved(sourceMetadata),
+            settings: settings
         ) else {
             return AV2EncodeResult(success: false, errorReason: "Could not determine source video dimensions for AV2 encoding", keyframeIndices: [])
         }

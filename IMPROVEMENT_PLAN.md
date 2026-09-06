@@ -9,7 +9,7 @@ issue link when it starts.
 ## Audit snapshot
 
 - The project builds successfully with Xcode 17 and Swift 6 strict concurrency.
-- The unit-test baseline is green: 375 tests pass. The
+- The unit-test baseline is green: 388 tests pass. The
   anamorphic-crop regression was fixed and now has generated-media coverage for
   pixels, square-pixel SAR, and output dimensions; custom-command tokenization now
   has focused coverage for empty quoted arguments and whitespace handling; every
@@ -23,7 +23,7 @@ issue link when it starts.
   `FFMPEGConverter.swift` (4,591 lines), `ConversionManager.swift` (3,371),
   `ContentView.swift` (3,017), `VideoFileListView.swift` (2,280), and
   `ExportPreset.swift` (2,241).
-- There are 375 unit tests. The UI test target now has deterministic smoke
+- There are 388 unit tests. The UI test target now has deterministic smoke
   assertions for empty-queue launch, Settings navigation, generated-fixture import,
   preset selection, conversion success, conversion failure details, and start/cancel
   state transitions.
@@ -43,7 +43,7 @@ issue link when it starts.
   navigation now have a tested accessibility-identifier contract. Most icon-heavy
   and custom AppKit/SwiftUI controls still need explicit labels, state values, and
   flow coverage.
-- The string catalog has 1,472 entries. All 59 previously missing App Intent
+- The string catalog has 1,475 entries. All 59 previously missing App Intent
   strings and the ordinary interface omissions are now translated into Norwegian.
   The only 15 missing entries are intentionally untranslated format/command tokens;
   CI rejects unclassified omissions and broken interpolation placeholders.
@@ -929,6 +929,15 @@ invalid identifiers without accessing real credentials. UI audits now use a vola
 blank upload profile instead of personal destinations or Keychain entries
 (Codex, 2026-09-06).
 
+Microphone authorization now has a non-joining 60-second deadline. Parent cancellation,
+explicit stop/teardown, and superseding requests reject late authorization callbacks;
+an unanswered prompt aborts setup with localized recovery guidance instead of being
+reported as a denial. Output-folder access begins only after permission resolves.
+Five deterministic tests cover grant/denial, timeout, late callbacks, cancellation,
+supersession, and explicit stop. Stream start/stop/configuration, session ownership
+across other suspension points, and live permission validation remain open
+(Codex, 2026-09-06).
+
 ### 2.3 Standardize user-visible errors
 
 Status: in progress; queue failure details and redacted diagnostic copying added 2026-09-05 (Codex).
@@ -1047,7 +1056,7 @@ combinations produce a preflight explanation before encoding starts.
 
 ### 3.3 Centralize settings access
 
-Status: in progress; standalone operations and complete analytics snapshots added 2026-09-06 (Codex).
+Status: in progress; standalone operations, analytics and AV2 encoding snapshots added 2026-09-06 (Codex).
 
 - Wrap `UserDefaults` keys in feature-scoped settings types with defaults and
   migrations.
@@ -1077,6 +1086,15 @@ true/false behavior, give explicit newer modes precedence, verify invalid/missin
 fallbacks, and confirm repeated reads do not rewrite saved preferences. Broader
 feature settings migration and coverage of the remaining schema changes remain open
 (Codex, 2026-09-06).
+
+AV2 encoding preferences now use an immutable, injectable `AV2Settings` snapshot.
+One snapshot spans metadata discovery, single/chunked command construction, and final
+Matroska bit-depth setup, so changing Settings during an encode cannot make its mux
+metadata disagree with the encoded picture. Four new regressions cover defaults,
+explicit zero values, invalid enum fallbacks, and actual commands/plans built from a
+captured snapshot after preferences change. The scratch-planning regression now uses
+an isolated defaults suite. Broader feature settings, including AV2 container/audio
+preferences, and schema migration coverage remain open (Codex, 2026-09-06).
 
 ## Priority 4 — Accessibility, localization, and product polish
 
@@ -1230,7 +1248,7 @@ interoperability remain validation gaps (Codex, 2026-09-05).
 
 ### 4.4 Improve first-run and dependency diagnostics
 
-Status: in progress; seven additional package/AV2/Parakeet helper checks added 2026-09-06 (Codex).
+Status: in progress; package/AV2/Parakeet helpers and selected-model availability checks added 2026-09-06 (Codex).
 
 - Provide one Tools/Diagnostics view for bundled, Homebrew, and custom binaries,
   including version, architecture, executable status, and a test action.
@@ -1258,6 +1276,16 @@ localized explanation that their versions were not checked. Two additional tests
 verify that availability-only checks never launch a process and protect the verified
 helper flags. Model availability and feature-level compatibility preflight remain open
 (Codex, 2026-09-06).
+
+Tool Diagnostics now also displays the selected Whisper and Parakeet model paths
+and local availability. Checks reject missing/empty files and stale Parakeet refs
+without readable configuration and model weights, follow cache blob symlinks, and
+retain custom Whisper security-scoped access during inspection. These are local
+availability checks; model compatibility and integrity are not claimed. Four
+filesystem regressions cover missing/empty resources, dangling symlinks, and malformed
+or oversized cache refs, and nonblocking rejection of named pipes. The tool check also rejects a directory masquerading as an
+executable. Norwegian translations and model-row assertions extend the bilingual
+Diagnostics test. Feature-level compatibility preflight remains open (Codex, 2026-09-06).
 
 ## Priority 5 — Release and dependency hygiene
 
@@ -1326,7 +1354,21 @@ eight new inventory/license tests (Codex, 2026-09-05).
 
 ## Suggested delivery sequence
 
-Latest validation (2026-09-06, Codex): Debug builds and all 375 unit tests pass,
+Latest validation (2026-09-06, Codex): Debug compilation and all 388 unit tests
+pass, including thirteen new AV2 settings, microphone permission, and model-resource
+regressions. All 31 release-script tests, bundled-manifest freshness, and the catalog
+audit pass (1,475 entries, 15 intentional omissions). The combined run's unsigned
+UI runner was killed before connecting; the bilingual Diagnostics test then passed
+with a fresh locally signed build, and both results screenshots were visually checked.
+The final rebuilt unit bundle ran with `test-without-building` to bypass the recurring
+UI-runner relink permission error. A parallel run missed the child PID in the existing
+200 ms TERM-ignoring-descendant test; all 388 tests pass with parallel workers disabled.
+That subprocess startup sensitivity remains a CI reliability follow-up.
+Live capture/permission, VoiceOver, broader Settings
+and Shortcuts, and credentialed release checks remain outstanding.
+
+
+Previous validation (2026-09-06, Codex): Debug builds and all 375 unit tests pass,
 including sixteen new settings/migration, capture-discovery, helper-diagnostics, and
 Keychain-presence regressions. All 31 release-script tests, manifest freshness, and
 localization checks pass (1,472 entries, 15 intentional omissions). The corrected-build

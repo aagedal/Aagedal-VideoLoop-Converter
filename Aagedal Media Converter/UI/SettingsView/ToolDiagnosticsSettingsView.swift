@@ -6,6 +6,7 @@ import SwiftUI
 
 struct ToolDiagnosticsSettingsView: View {
     @State private var results: [ToolDiagnostic] = []
+    @State private var models: [ModelDiagnostic] = []
     @State private var checking = false
     @State private var checkID: UUID?
 
@@ -19,6 +20,7 @@ struct ToolDiagnosticsSettingsView: View {
                 Button(checking ? "Checking Tools…" : "Check Tools") {
                     checking = true
                     results = []
+                    models = []
                     checkID = UUID()
                 }
                 .disabled(checking)
@@ -26,6 +28,21 @@ struct ToolDiagnosticsSettingsView: View {
                 if checking { ProgressView().controlSize(.small) }
             } header: {
                 Text("Tool Diagnostics")
+            }
+            ForEach(models) { model in
+                Section {
+                    if let path = model.path {
+                        Text(verbatim: path.path)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                    }
+                    LabeledContent("Available", value: model.available ? String(localized: "Yes") : String(localized: "No"))
+                    Label(model.message, systemImage: model.available ? "checkmark.circle" : "exclamationmark.triangle")
+                        .foregroundStyle(model.available ? Color.secondary : Color.orange)
+                } header: {
+                    Text(verbatim: model.name)
+                }
+                .accessibilityIdentifier("settings.tools.\(model.id)")
             }
             ForEach(results) { result in
                 Section {
@@ -65,6 +82,8 @@ struct ToolDiagnosticsSettingsView: View {
         defer { if checkID == runID { checking = false } }
         let diagnostics = ToolDiagnostics()
         do {
+            try Task.checkCancellation()
+            models = ModelDiagnostics.selectedModels()
             let ytdlp = await YTDLPUpdateService.shared.resolveYTDLPPath()
             let deno = await YTDLPUpdateService.shared.resolveDenoPath()
             let rclone = await RcloneUpdateService.shared.resolveRclonePath()

@@ -225,7 +225,7 @@ final class Aagedal_Media_Converter_UITests: XCTestCase {
             attachWindowScreenshot(named: "Tool Diagnostics - \(language)")
             check.click()
             XCTAssertTrue(waitForEnabled(true, of: check, timeout: 90))
-            for id in ["ffmpeg", "bmxtranswrap", "mxf2raw", "raw2bmx", "asdcp-wrap", "avmenc", "avmdec", "parakeet"] {
+            for id in ["whisper-model", "parakeet-model", "ffmpeg", "bmxtranswrap", "mxf2raw", "raw2bmx", "asdcp-wrap", "avmenc", "avmdec", "parakeet"] {
                 XCTAssertTrue(element("settings.tools.\(id)").exists)
             }
             attachWindowScreenshot(named: "Tool Diagnostics results - \(language)")

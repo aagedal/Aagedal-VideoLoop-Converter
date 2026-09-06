@@ -50,7 +50,9 @@ struct ToolDiagnostics: Sendable {
             return ToolDiagnostic(id: id, name: name, path: nil, architecture: "—", executable: false,
                                   version: nil, failure: String(localized: "No executable is available from the selected source. Check this tool’s settings."))
         }
-        let executable = FileManager.default.isExecutableFile(atPath: path)
+        let url = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+        let regularFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+        let executable = regularFile && FileManager.default.isExecutableFile(atPath: path)
         let architecture = Self.architecture(at: URL(fileURLWithPath: path))
         guard executable else {
             return ToolDiagnostic(id: id, name: name, path: path, architecture: architecture, executable: false,

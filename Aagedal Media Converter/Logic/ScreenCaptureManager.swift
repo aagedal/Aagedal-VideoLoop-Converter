@@ -378,6 +378,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         case denied
     }
 
+    private let microphonePermissionRequest = CaptureMicrophonePermissionRequest()
     private let logger = Logger(subsystem: "com.aagedal.MediaConverter", category: "ScreenCapture")
 
     /// One selected display's live stream — either previewing or recording. Mutated only on the
@@ -446,7 +447,11 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             recordingDisplayIDs.remove(id)
         }
 
-        let microphoneEnabled = await resolveMicrophoneCapture(requested: settings.includeMicrophone)
+        guard let microphoneEnabled = await resolveMicrophoneCapture(requested: settings.includeMicrophone) else {
+            recomputeMeterSource()
+            updatePreviewingFlag()
+            return
+        }
 
         // Start preview tiles for newly added displays.
         for display in resolvedDisplays(targetIDs, from: content) where tiles[display.displayID] == nil {
@@ -478,14 +483,14 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             return
         }
 
+        guard let microphoneEnabled = await resolveMicrophoneCapture(requested: currentSettings.includeMicrophone) else { return }
+
         // Acquire output-folder access once for the whole session.
         if case .none = outputAccess {
             let access = startAccessing(outputDirectory: outputDirectory)
             if case .none = access { errorMessage = CaptureError.accessDenied.errorDescription; return }
             outputAccess = access
         }
-
-        let microphoneEnabled = await resolveMicrophoneCapture(requested: currentSettings.includeMicrophone)
 
         // Replace any existing preview tile for this display.
         if let existing = tiles[displayID] {
@@ -738,6 +743,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     /// Stops a tile's stream and, if it was recording, finalizes its file (clearing the growing-file
     /// xattr) and records the URL. Best-effort; used during teardown/deselection.
     private func teardownTile(_ tile: DisplayTile) async {
+        microphonePermissionRequest.cancel()
         if let stream = tile.stream { try? await stream.stopCapture() }
         if tile.mode == .recording, let writer = tile.writer {
             do { try await writer.finish() } catch { errorMessage = error.localizedDescription }
@@ -758,7 +764,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             previewImages[displayID] = nil
             return
         }
-        let microphoneEnabled = await resolveMicrophoneCapture(requested: currentSettings.includeMicrophone)
+        guard let microphoneEnabled = await resolveMicrophoneCapture(requested: currentSettings.includeMicrophone) else { return }
         do {
             tiles[displayID] = try await buildTile(
                 for: display, content: content, mode: .preview, settings: currentSettings,
@@ -807,6 +813,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     /// and this display drops back to a live preview tile. If it was the last one, the session ends
     /// (which the overlay observes via `isProcessing` to show the post-recording summary).
     func stopRecording(displayID: CGDirectDisplayID) async {
+        microphonePermissionRequest.cancel()
         guard recordingDisplayIDs.contains(displayID), let tile = tiles[displayID] else { return }
         let isLast = recordingDisplayIDs.count == 1
         recordingDisplayIDs.remove(displayID)
@@ -840,6 +847,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
     /// Stops every display that is recording (the global Stop / auto-stop path). Finalizes all files,
     /// then ends the session.
     func stopAllRecording() async {
+        microphonePermissionRequest.cancel()
         let ids = Array(recordingDisplayIDs)
         guard !ids.isEmpty else { return }
         logger.info("Stopping all screen capture (\(ids.count, privacy: .public) display(s))")
@@ -937,6 +945,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
     /// Tears down all *preview* tiles (recording tiles keep running). Used on view disappear.
     func stopPreview() async {
+        microphonePermissionRequest.cancel()
         for (id, tile) in tiles where tile.mode == .preview {
             if let stream = tile.stream { try? await stream.stopCapture() }
             tile.stream = nil
@@ -1084,6 +1093,7 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
 
     @MainActor
     func refreshMicrophoneAuthorizationStatus() {
+        microphonePermissionRequest.cancel()
         guard #available(macOS 15, *) else {
             microphoneCaptureStatus = .disabled
             return
@@ -1104,7 +1114,10 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
         _ = await resolveMicrophoneCapture(requested: true)
     }
 
-    private func resolveMicrophoneCapture(requested: Bool) async -> Bool {
+    /// Nil aborts setup; false is a resolved decision to capture without a microphone.
+    private func resolveMicrophoneCapture(requested: Bool) async -> Bool? {
+        guard !Task.isCancelled else { return nil }
+        microphonePermissionRequest.cancel()
         guard requested else {
             microphoneCaptureStatus = .disabled
             return false
@@ -1120,23 +1133,26 @@ final class ScreenCaptureManager: NSObject, ObservableObject {
             microphoneCaptureStatus = .authorized
             return true
         case .notDetermined:
-            let granted = await requestMicrophoneAccess()
-            microphoneCaptureStatus = granted ? .authorized : .denied
-            return granted
+            microphoneCaptureStatus = .disabled
+            do {
+                let granted = try await microphonePermissionRequest.request { completion in
+                    AVCaptureDevice.requestAccess(for: .audio, completionHandler: completion)
+                }
+                microphoneCaptureStatus = granted ? .authorized : .denied
+                return granted
+            } catch NonJoiningTaskDeadlineError.timedOut {
+                errorMessage = String(localized: "Timed out waiting for microphone permission. Check microphone access in System Settings and try again.")
+                return nil
+            } catch {
+                // A cancelled or superseded prompt must not resume capture setup.
+                return nil
+            }
         case .denied, .restricted:
             microphoneCaptureStatus = .denied
             return false
         @unknown default:
             microphoneCaptureStatus = .denied
             return false
-        }
-    }
-
-    private func requestMicrophoneAccess() async -> Bool {
-        await withCheckedContinuation { continuation in
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
-                continuation.resume(returning: granted)
-            }
         }
     }
 
@@ -1610,6 +1626,59 @@ enum ScreenCaptureContentDiscoveryError: LocalizedError {
 
     var errorDescription: String? {
         String(localized: "Timed out while discovering screens and windows. Try starting capture again.")
+    }
+}
+
+/// Owns a permission wait independently of AVFoundation's system prompt. The prompt
+/// cannot be dismissed programmatically; a late response must not revive a cancelled
+/// or superseded request. A missing callback never holds the capture UI indefinitely.
+@MainActor
+final class CaptureMicrophonePermissionRequest {
+    private var activeID: UUID?
+    private var task: Task<Bool, Error>?
+
+    func cancel() {
+        activeID = nil
+        task?.cancel()
+        task = nil
+    }
+
+    func request(
+        timeout: Duration = .seconds(60),
+        start: @escaping @Sendable (@escaping @Sendable (Bool) -> Void) -> Void
+    ) async throws -> Bool {
+        cancel()
+        let id = UUID()
+        activeID = id
+        let pending = Task {
+            try await NonJoiningTaskDeadline.run(timeout: timeout) {
+                try Task.checkCancellation()
+                return await withCheckedContinuation { continuation in
+                    start { continuation.resume(returning: $0) }
+                }
+            }
+        }
+        task = pending
+        defer {
+            if activeID == id {
+                activeID = nil
+                task = nil
+            }
+        }
+        do {
+            let granted = try await withTaskCancellationHandler {
+                try await pending.value
+            } onCancel: {
+                pending.cancel()
+            }
+            try Task.checkCancellation()
+            guard activeID == id else { throw CancellationError() }
+            return granted
+        } catch {
+            try Task.checkCancellation()
+            guard activeID == id else { throw CancellationError() }
+            throw error
+        }
     }
 }
 

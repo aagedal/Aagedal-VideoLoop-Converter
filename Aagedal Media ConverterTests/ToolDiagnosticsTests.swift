@@ -25,6 +25,9 @@ final class ToolDiagnosticsTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let directoryResult = try await diagnostics.check(id: "directory", name: "Directory", path: directory.path, arguments: nil)
+        XCTAssertFalse(directoryResult.executable)
+        XCTAssertNotNil(directoryResult.failure)
         let file = directory.appendingPathComponent("tool")
         try Data("tool".utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)

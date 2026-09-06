@@ -1,6 +1,36 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Timed out waiting for microphone permission. Check microphone access in System Settings and try again.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd under venting på mikrofontillatelse. Kontroller mikrofontilgang i Systeminnstillinger og prøv igjen."
+          }
+        }
+      }
+    },
+    "The selected model is missing, empty, or unreadable. Download or select it in Transcription settings.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den valgte modellen mangler, er tom eller kan ikke leses. Last ned eller velg den i transkripsjonsinnstillingene."
+          }
+        }
+      }
+    },
+    "Local model files are available. Model compatibility has not been tested.": {
+      "localizations": {
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale modellfiler er tilgjengelige. Modellkompatibilitet er ikke testet."
+          }
+        }
+      }
+    },
     "VideoLoop with sound": {
       "localizations": {
         "nb": {

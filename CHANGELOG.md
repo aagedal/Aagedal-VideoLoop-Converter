@@ -1,5 +1,9 @@
 # v.4.3.0
 
+- **AV2 encoding keeps consistent settings throughout a job.** Geometry, quality, chunking, and output bit depth use one captured set of preferences, including final Matroska metadata.
+- **Microphone permission waits can time out or be cancelled.** Stopping capture prevents a late permission response from resuming setup; unanswered prompts show recovery guidance.
+- **Tool Diagnostics checks selected transcription models.** It reports missing or empty Whisper files and incomplete Parakeet cache resources, and rejects folders selected as executable tools.
+
 - **The preset picker keeps its active selection visible**, even when that preset is hidden in Settings. Descriptive built-in preset names now translate into Norwegian without changing saved identifiers or custom names.
 
 - **Upload Settings no longer reads passwords just to check whether they are saved.** Credential presence checks avoid secret-data retrieval and authentication prompts.

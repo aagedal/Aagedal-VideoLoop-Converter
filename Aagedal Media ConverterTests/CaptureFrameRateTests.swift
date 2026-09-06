@@ -5,6 +5,119 @@ import os
 @testable import Aagedal_Media_Converter
 
 final class CaptureFrameRateTests: XCTestCase {
+    @MainActor
+    func testMicrophonePermissionReturnsActualGrantAndDenial() async throws {
+        let request = CaptureMicrophonePermissionRequest()
+        let granted = try await request.request { $0(true) }
+        XCTAssertTrue(granted)
+        let denied = try await request.request { $0(false) }
+        XCTAssertFalse(denied)
+    }
+
+    @MainActor
+    func testMicrophonePermissionTimeoutDoesNotWaitForLateResponse() async {
+        let request = CaptureMicrophonePermissionRequest()
+        let registered = expectation(description: "Permission requested")
+        let finished = expectation(description: "Permission deadline returned")
+        let callback = OSAllocatedUnfairLock<(@Sendable (Bool) -> Void)?>(initialState: nil)
+        let task = Task {
+            do {
+                _ = try await request.request(timeout: .milliseconds(50)) { completion in
+                    callback.withLock { $0 = completion }
+                    registered.fulfill()
+                }
+                XCTFail("Expected timeout")
+            } catch NonJoiningTaskDeadlineError.timedOut {
+                // Expected even while the system prompt is unanswered.
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+            finished.fulfill()
+        }
+        await fulfillment(of: [registered, finished], timeout: 2)
+        callback.withLock { $0 }?(true)
+        await task.value
+    }
+
+    @MainActor
+    func testMicrophonePermissionSupersessionRejectsLateGrant() async throws {
+        let request = CaptureMicrophonePermissionRequest()
+        let registered = expectation(description: "First permission requested")
+        let finished = expectation(description: "Superseded request cancelled")
+        let callback = OSAllocatedUnfairLock<(@Sendable (Bool) -> Void)?>(initialState: nil)
+        let first = Task {
+            do {
+                _ = try await request.request { completion in
+                    callback.withLock { $0 = completion }
+                    registered.fulfill()
+                }
+                XCTFail("Expected supersession cancellation")
+            } catch is CancellationError {
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+            finished.fulfill()
+        }
+        await fulfillment(of: [registered], timeout: 2)
+        let denied = try await request.request { $0(false) }
+        XCTAssertFalse(denied)
+        await fulfillment(of: [finished], timeout: 2)
+        callback.withLock { $0 }?(true)
+        await first.value
+    }
+
+    @MainActor
+    func testMicrophonePermissionParentCancellationReturnsBeforeCallback() async {
+        let request = CaptureMicrophonePermissionRequest()
+        let registered = expectation(description: "Permission requested")
+        let finished = expectation(description: "Cancelled request returned")
+        let callback = OSAllocatedUnfairLock<(@Sendable (Bool) -> Void)?>(initialState: nil)
+        let task = Task {
+            do {
+                _ = try await request.request { completion in
+                    callback.withLock { $0 = completion }
+                    registered.fulfill()
+                }
+                XCTFail("Expected parent cancellation")
+            } catch is CancellationError {
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+            finished.fulfill()
+        }
+        await fulfillment(of: [registered], timeout: 2)
+        task.cancel()
+        await fulfillment(of: [finished], timeout: 2)
+        callback.withLock { $0 }?(true)
+        await task.value
+    }
+
+    @MainActor
+    func testMicrophonePermissionExplicitStopReturnsBeforeCallback() async {
+        let request = CaptureMicrophonePermissionRequest()
+        let registered = expectation(description: "Permission requested")
+        let finished = expectation(description: "Cancelled request returned")
+        let callback = OSAllocatedUnfairLock<(@Sendable (Bool) -> Void)?>(initialState: nil)
+        let task = Task {
+            do {
+                _ = try await request.request { completion in
+                    callback.withLock { $0 = completion }
+                    registered.fulfill()
+                }
+                XCTFail("Expected stop cancellation")
+            } catch is CancellationError {
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+            finished.fulfill()
+        }
+        await fulfillment(of: [registered], timeout: 2)
+        request.cancel()
+        await fulfillment(of: [finished], timeout: 2)
+        callback.withLock { $0 }?(true)
+        await task.value
+    }
+
     func testScreenCaptureDiscoveryReturnsSnapshot() async throws {
         let snapshot = try await ScreenCaptureContentDiscovery.discover {
             ["display", "window"]
